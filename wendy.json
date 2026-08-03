@@ -1,0 +1,16 @@
+{
+  "appId": "border-collie-demo",
+  "version": "0.1.0",
+  "services": {
+    "app": {
+      "context": ".",
+      "env": {
+        "BORDER_COLLIE_PORT": "8096",
+        "BORDER_COLLIE_HARDWARE_ENABLED": "0"
+      },
+      "entitlements": [
+        {"type": "network", "mode": "host"}
+      ]
+    }
+  }
+}

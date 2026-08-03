@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Border Collie Demo</title>
+  </head>
+  <body>
+    <main>
+      <h1>Border Collie Demo</h1>
+      <p>The clean-room runtime is scaffolded but hardware is not connected.</p>
+      <button type="button" disabled>Activate Demo</button>
+      <button id="stop" type="button">Stop</button>
+      <p><a href="/debug">Open diagnostics</a></p>
+    </main>
+    <script>
+      document.querySelector('#stop').addEventListener('click', async () => {
+        await fetch('/api/stop', {method: 'POST'});
+      });
+    </script>
+  </body>
+</html>
