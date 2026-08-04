@@ -27,6 +27,15 @@ def valid_payload() -> dict[str, object]:
             "inference_s": 0.08,
             "completed_monotonic_s": 99.85,
             "bbox_xyxy": [480, 360, 800, 700],
+            "inference_passes": 2,
+            "crop_confirmation": {
+                "attempted": True,
+                "promoted": True,
+                "full_frame_confidence": 0.61,
+                "crop_confidence": 0.81,
+                "crop_xyxy": [400, 280, 880, 720],
+                "agreement_iou": 0.72,
+            },
         },
     }
 
@@ -62,6 +71,9 @@ def test_status_preserves_validated_geometry_for_approach_and_arrival() -> None:
     assert status["detection"]["bbox_width_ratio"] == 0.25
     assert status["detection"]["bbox_height_ratio"] == pytest.approx(0.472222)
     assert status["detection"]["bbox_area_ratio"] == pytest.approx(0.1180556)
+    assert status["detection"]["inference_passes"] == 2
+    assert status["detection"]["crop_confirmation"]["promoted"] is True
+    assert status["detection"]["crop_confirmation"]["crop_confidence"] == 0.81
 
 
 def test_detection_must_be_bound_to_the_current_camera_generation() -> None:

@@ -144,7 +144,9 @@ Perception evidence needed to explain a transition or failure retains:
 - connection generation, PTS, time base, and local frame receipt time;
 - source-progress age and progressing-frame preflight count;
 - Target Fruit label, confidence, bounding box, and stability count;
-- detector execution time and detection age;
+- detector execution time, pass count, detection age, and any crop-confirm
+  proposal confidence, crop confidence, crop bounds, spatial agreement, and
+  promotion decision;
 - the qualified threshold values used for the run; and
 - whether the evidence was accepted or rejected and why.
 

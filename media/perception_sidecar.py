@@ -17,12 +17,80 @@ import zipfile
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
+from dataclasses import asdict, dataclass
 from functools import partial
 from threading import Lock
 from typing import Any
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Response
+
+
+@dataclass(frozen=True)
+class CropConfirmConfig:
+    enabled: bool = True
+    minimum_candidate_confidence: float = 0.35
+    uncertain_below_confidence: float = 0.65
+    small_bbox_area_ratio: float = 0.005
+    minimum_crop_side_px: int = 256
+    context_scale: float = 6.0
+    minimum_confirmation_confidence: float = 0.55
+    minimum_agreement_iou: float = 0.10
+
+    def __post_init__(self) -> None:
+        confidences = (
+            self.minimum_candidate_confidence,
+            self.uncertain_below_confidence,
+            self.minimum_confirmation_confidence,
+            self.minimum_agreement_iou,
+        )
+        if not all(math.isfinite(value) and 0.0 <= value <= 1.0 for value in confidences):
+            raise ValueError("crop-confirm confidence and IoU values must be in [0, 1]")
+        if not (
+            math.isfinite(self.small_bbox_area_ratio)
+            and 0.0 < self.small_bbox_area_ratio <= 1.0
+        ):
+            raise ValueError("crop-confirm small-area ratio must be in (0, 1]")
+        if self.minimum_crop_side_px < 1:
+            raise ValueError("crop-confirm minimum crop side must be positive")
+        if not math.isfinite(self.context_scale) or self.context_scale <= 1.0:
+            raise ValueError("crop-confirm context scale must be greater than one")
+
+    @classmethod
+    def from_env(cls) -> CropConfirmConfig:
+        return cls(
+            enabled=os.environ.get("PEAR_CROP_CONFIRM_ENABLED", "1")
+            .strip()
+            .casefold()
+            in {"1", "true", "yes", "on"},
+            minimum_candidate_confidence=float(
+                os.environ.get("PEAR_CROP_CONFIRM_MIN_CANDIDATE_CONFIDENCE", "0.35")
+            ),
+            uncertain_below_confidence=float(
+                os.environ.get("PEAR_CROP_CONFIRM_UNCERTAIN_BELOW_CONFIDENCE", "0.65")
+            ),
+            small_bbox_area_ratio=float(
+                os.environ.get("PEAR_CROP_CONFIRM_SMALL_AREA_RATIO", "0.005")
+            ),
+            minimum_crop_side_px=int(
+                os.environ.get("PEAR_CROP_CONFIRM_MIN_SIDE_PX", "256")
+            ),
+            context_scale=float(
+                os.environ.get("PEAR_CROP_CONFIRM_CONTEXT_SCALE", "6.0")
+            ),
+            minimum_confirmation_confidence=float(
+                os.environ.get("PEAR_CROP_CONFIRM_MIN_CONFIDENCE", "0.55")
+            ),
+            minimum_agreement_iou=float(
+                os.environ.get("PEAR_CROP_CONFIRM_MIN_IOU", "0.10")
+            ),
+        )
+
+
+@dataclass(frozen=True)
+class PearCandidate:
+    confidence: float
+    bbox_xyxy: tuple[int, int, int, int]
 
 
 def configure_media_logging() -> None:
@@ -176,6 +244,83 @@ def _valid_bbox(
     return x1, y1, x2, y2
 
 
+def _best_candidate(
+    results: object,
+    *,
+    x_offset: int = 0,
+    y_offset: int = 0,
+) -> PearCandidate | None:
+    if not isinstance(results, (list, tuple)) or not results:
+        return None
+    boxes = getattr(results[0], "boxes", None)
+    if boxes is None or len(boxes) == 0:
+        return None
+    confidences = boxes.conf.detach().cpu().tolist()
+    best_index = max(range(len(confidences)), key=confidences.__getitem__)
+    confidence = float(confidences[best_index])
+    coordinates = boxes.xyxy[best_index].detach().cpu().tolist()
+    x1, y1, x2, y2 = (round(float(value)) for value in coordinates)
+    return PearCandidate(
+        confidence=confidence,
+        bbox_xyxy=(
+            x1 + x_offset,
+            y1 + y_offset,
+            x2 + x_offset,
+            y2 + y_offset,
+        ),
+    )
+
+
+def _bbox_area_ratio(
+    bbox: tuple[int, int, int, int],
+    *,
+    width: int,
+    height: int,
+) -> float:
+    x1, y1, x2, y2 = bbox
+    return max(0, x2 - x1) * max(0, y2 - y1) / (width * height)
+
+
+def _expanded_square_crop(
+    bbox: tuple[int, int, int, int],
+    *,
+    width: int,
+    height: int,
+    minimum_side_px: int,
+    context_scale: float,
+) -> tuple[int, int, int, int]:
+    x1, y1, x2, y2 = bbox
+    center_x = (x1 + x2) / 2.0
+    center_y = (y1 + y2) / 2.0
+    desired_side = max(
+        float(minimum_side_px),
+        max(x2 - x1, y2 - y1) * context_scale,
+    )
+    side = max(1, min(round(desired_side), width, height))
+    crop_x1 = round(center_x - side / 2.0)
+    crop_y1 = round(center_y - side / 2.0)
+    crop_x1 = max(0, min(crop_x1, width - side))
+    crop_y1 = max(0, min(crop_y1, height - side))
+    return crop_x1, crop_y1, crop_x1 + side, crop_y1 + side
+
+
+def _bbox_iou(
+    first: tuple[int, int, int, int],
+    second: tuple[int, int, int, int],
+) -> float:
+    left = max(first[0], second[0])
+    top = max(first[1], second[1])
+    right = min(first[2], second[2])
+    bottom = min(first[3], second[3])
+    intersection = max(0, right - left) * max(0, bottom - top)
+    first_area = max(0, first[2] - first[0]) * max(0, first[3] - first[1])
+    second_area = max(0, second[2] - second[0]) * max(
+        0, second[3] - second[1]
+    )
+    union = first_area + second_area - intersection
+    return intersection / union if union > 0 else 0.0
+
+
 class PerceptionEvidence:
     def __init__(self, *, generation: str) -> None:
         self.generation = generation
@@ -236,6 +381,7 @@ class PerceptionEvidence:
         bbox_xyxy: tuple[int, int, int, int],
         inference_s: float,
         completed_monotonic_s: float,
+        details: dict[str, object] | None = None,
     ) -> None:
         with self._lock:
             advances = self._last_detection_pts is None or pts > self._last_detection_pts
@@ -254,6 +400,7 @@ class PerceptionEvidence:
                 "inference_s": inference_s,
                 "completed_monotonic_s": completed_monotonic_s,
                 "bbox_xyxy": list(bbox_xyxy),
+                **(details or {}),
             }
 
     def note_miss(self) -> None:
@@ -294,6 +441,7 @@ class PerceptionRuntime:
         self._evidence_interval_s = float(
             os.environ.get("EVIDENCE_FRAME_INTERVAL_S", "0.5")
         )
+        self._crop_confirm = CropConfirmConfig.from_env()
         self._last_evidence_capture_s: float | None = None
         self._connection: Any | None = None
         self._audiohub: Any | None = None
@@ -363,6 +511,7 @@ class PerceptionRuntime:
         return {
             **self.evidence.status(),
             "bark_ready": self._audiohub is not None and bool(self.bark_uuid),
+            "crop_confirm": asdict(self._crop_confirm),
         }
 
     def camera_frame(self) -> bytes:
@@ -436,6 +585,74 @@ class PerceptionRuntime:
                 device=0,
                 verbose=False,
             )
+            candidate = _best_candidate(results)
+            inference_passes = 1
+            crop_confirmation: dict[str, object] = {
+                "attempted": False,
+                "promoted": False,
+                "full_frame_confidence": (
+                    None if candidate is None else candidate.confidence
+                ),
+                "crop_confidence": None,
+                "crop_xyxy": None,
+                "agreement_iou": None,
+            }
+            if candidate is not None and self._should_crop_confirm(
+                candidate,
+                width=int(bgr.shape[1]),
+                height=int(bgr.shape[0]),
+            ):
+                crop_xyxy = _expanded_square_crop(
+                    candidate.bbox_xyxy,
+                    width=int(bgr.shape[1]),
+                    height=int(bgr.shape[0]),
+                    minimum_side_px=self._crop_confirm.minimum_crop_side_px,
+                    context_scale=self._crop_confirm.context_scale,
+                )
+                crop_x1, crop_y1, crop_x2, crop_y2 = crop_xyxy
+                cropped_bgr = bgr[crop_y1:crop_y2, crop_x1:crop_x2]
+                crop_results = self._model.predict(
+                    source=cropped_bgr,
+                    conf=0.01,
+                    classes=[self._pear_class_id],
+                    device=0,
+                    verbose=False,
+                )
+                inference_passes = 2
+                crop_candidate = _best_candidate(
+                    crop_results,
+                    x_offset=crop_x1,
+                    y_offset=crop_y1,
+                )
+                agreement_iou = (
+                    None
+                    if crop_candidate is None
+                    else _bbox_iou(
+                        candidate.bbox_xyxy,
+                        crop_candidate.bbox_xyxy,
+                    )
+                )
+                promoted = bool(
+                    crop_candidate is not None
+                    and crop_candidate.confidence
+                    >= self._crop_confirm.minimum_confirmation_confidence
+                    and crop_candidate.confidence > candidate.confidence
+                    and agreement_iou is not None
+                    and agreement_iou >= self._crop_confirm.minimum_agreement_iou
+                )
+                crop_confirmation = {
+                    "attempted": True,
+                    "promoted": promoted,
+                    "full_frame_confidence": candidate.confidence,
+                    "crop_confidence": (
+                        None if crop_candidate is None else crop_candidate.confidence
+                    ),
+                    "crop_xyxy": list(crop_xyxy),
+                    "agreement_iou": agreement_iou,
+                }
+                if promoted:
+                    assert crop_candidate is not None
+                    candidate = crop_candidate
         except Exception as exc:  # noqa: BLE001 - detector errors are untyped
             self.evidence.fail(f"detector failure: {type(exc).__name__}: {exc}")
             self._publish_preview(
@@ -449,9 +666,7 @@ class PerceptionRuntime:
             )
             return
         completed = time.monotonic()
-        result = results[0] if results else None
-        boxes = None if result is None else getattr(result, "boxes", None)
-        if boxes is None or len(boxes) == 0:
+        if candidate is None:
             self.evidence.note_miss()
             self._publish_preview(
                 bgr,
@@ -463,11 +678,8 @@ class PerceptionRuntime:
                 detection={},
             )
             return
-        confidences = boxes.conf.detach().cpu().tolist()
-        best_index = max(range(len(confidences)), key=confidences.__getitem__)
-        confidence = float(confidences[best_index])
-        coordinates = boxes.xyxy[best_index].detach().cpu().tolist()
-        bbox = tuple(round(float(value)) for value in coordinates)
+        confidence = candidate.confidence
+        bbox = candidate.bbox_xyxy
         self.evidence.note_detection(
             pts=pts,
             label="pear",
@@ -475,6 +687,17 @@ class PerceptionRuntime:
             bbox_xyxy=bbox,
             inference_s=completed - started,
             completed_monotonic_s=completed,
+            details={
+                "inference_passes": inference_passes,
+                "crop_confirmation": crop_confirmation,
+            },
+        )
+        crop_message = (
+            " | CROP CONFIRMED"
+            if crop_confirmation["promoted"]
+            else " | CROP UNCONFIRMED"
+            if crop_confirmation["attempted"]
+            else ""
         )
         self._publish_preview(
             bgr,
@@ -482,12 +705,34 @@ class PerceptionRuntime:
             message=(
                 f"PEAR {confidence:.0%} | "
                 f"{self.evidence.status()['detection']['consecutive_detections']}/5"
+                f"{crop_message}"
             ),
             color=(0, 200, 0),
             pts=pts,
             time_base=time_base,
             received_monotonic_s=received_monotonic_s,
             detection=dict(self.evidence.status()["detection"]),
+        )
+
+    def _should_crop_confirm(
+        self,
+        candidate: PearCandidate,
+        *,
+        width: int,
+        height: int,
+    ) -> bool:
+        if not self._crop_confirm.enabled:
+            return False
+        if candidate.confidence < self._crop_confirm.minimum_candidate_confidence:
+            return False
+        area_ratio = _bbox_area_ratio(
+            candidate.bbox_xyxy,
+            width=width,
+            height=height,
+        )
+        return (
+            candidate.confidence < self._crop_confirm.uncertain_below_confidence
+            or area_ratio <= self._crop_confirm.small_bbox_area_ratio
         )
 
     def _publish_preview(

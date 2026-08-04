@@ -28,6 +28,7 @@ FORWARD_PULSE_CONFIRMATION = "PATH CLEAR - MOVE WOOF FORWARD"
 INITIAL_CENTER_TOLERANCE_RATIO = 0.08
 INITIAL_CENTER_CONFIRMATIONS = 3
 INITIAL_CENTER_YAW_RPS = 0.50
+SEARCH_CROP_CANDIDATE_CONFIDENCE = 0.50
 
 
 def _finite_float(value: object) -> float | None:
@@ -414,6 +415,7 @@ class HardwareManager:
             progress = 0.0
             started = time.monotonic()
             evidence: dict[str, object] | None = None
+            crop_slow_turn_next = False
             recognition: dict[str, object] = {
                 "samples": 0,
                 "pear_candidate_samples": 0,
@@ -434,6 +436,7 @@ class HardwareManager:
                 deadline = started + timeout
                 while time.monotonic() < deadline:
                     status = status_reader()
+                    slow_for_crop_confirmation = False
                     recognition["samples"] = int(recognition["samples"]) + 1
                     if not status.get("camera_healthy"):
                         raise CameraFailure(
@@ -485,6 +488,31 @@ class HardwareManager:
                                 ),
                                 "bbox_area_ratio": area_ratio,
                             }
+                        crop_confirmation = detection.get("crop_confirmation")
+                        if isinstance(crop_confirmation, dict):
+                            full_frame_confidence = _finite_float(
+                                crop_confirmation.get("full_frame_confidence")
+                            )
+                            slow_for_crop_confirmation = bool(
+                                label == target_fruit.casefold()
+                                and crop_confirmation.get("attempted") is True
+                                and full_frame_confidence is not None
+                                and full_frame_confidence
+                                >= SEARCH_CROP_CANDIDATE_CONFIDENCE
+                            )
+                            if slow_for_crop_confirmation:
+                                recognition["crop_confirmation_samples"] = (
+                                    int(
+                                        recognition.get(
+                                            "crop_confirmation_samples",
+                                            0,
+                                        )
+                                    )
+                                    + 1
+                                )
+                                recognition[
+                                    "crop_candidate_confidence_threshold"
+                                ] = SEARCH_CROP_CANDIDATE_CONFIDENCE
                     if status.get("target_ready") and isinstance(detection, dict):
                         label = str(detection.get("label") or "").casefold()
                         if label == target_fruit.casefold():
@@ -523,11 +551,40 @@ class HardwareManager:
                                 "search_progress_rad": progress,
                             },
                         )
+                    command_rate = rate
+                    command_reason = "find_target"
+                    if slow_for_crop_confirmation:
+                        crop_slow_turn_next = not crop_slow_turn_next
+                        if crop_slow_turn_next:
+                            command_rate = 0.0
+                            command_reason = "crop_confirm_hold"
+                            recognition["crop_slowdown_hold_samples"] = (
+                                int(
+                                    recognition.get(
+                                        "crop_slowdown_hold_samples",
+                                        0,
+                                    )
+                                )
+                                + 1
+                            )
+                        else:
+                            command_reason = "crop_confirm_slow_turn"
+                            recognition["crop_slowdown_turn_samples"] = (
+                                int(
+                                    recognition.get(
+                                        "crop_slowdown_turn_samples",
+                                        0,
+                                    )
+                                )
+                                + 1
+                            )
+                    else:
+                        crop_slow_turn_next = False
                     await self._motion.command(
                         lease,
-                        VelocityCommand(0.0, rate, "find_target"),
+                        VelocityCommand(0.0, command_rate, command_reason),
                     )
-                    commands_sent = True
+                    commands_sent = commands_sent or command_rate != 0.0
                     await asyncio.sleep(self.config.command_heartbeat_s)
                 else:
                     raise TargetLost(
@@ -611,6 +668,8 @@ class HardwareManager:
             forward_pulse_count = 0
             initial_centered = False
             initial_center_confirmations = 0
+            tracking_confirmations = 0
+            minimum_observed_tracking_confidence: float | None = None
             started = time.monotonic()
             try:
                 assert self._motion is not None
@@ -625,10 +684,50 @@ class HardwareManager:
                         )
                     detection = status.get("detection")
                     target_ready = bool(status.get("target_ready"))
-                    if not target_ready or not isinstance(detection, dict):
+                    detection_label = (
+                        str(detection.get("label") or "").casefold()
+                        if isinstance(detection, dict)
+                        else ""
+                    )
+                    detection_confidence = (
+                        _finite_float(detection.get("confidence"))
+                        if isinstance(detection, dict)
+                        else None
+                    )
+                    tracking_candidate = (
+                        isinstance(detection, dict)
+                        and detection_label == target_fruit.casefold()
+                        and detection_confidence is not None
+                        and detection_confidence
+                        >= self.config.pear_tracking_minimum_confidence
+                    )
+                    if target_ready and isinstance(detection, dict):
+                        tracking_confirmations = (
+                            self.config.pear_tracking_confirmations
+                        )
+                    elif tracking_candidate:
+                        tracking_confirmations += 1
+                    else:
+                        tracking_confirmations = 0
+                    track_ready = (
+                        target_ready and isinstance(detection, dict)
+                    ) or (
+                        tracking_candidate
+                        and tracking_confirmations
+                        >= self.config.pear_tracking_confirmations
+                    )
+                    if not track_ready:
                         if not initial_centered:
                             initial_center_confirmations = 0
-                        if near_at is None or now - near_at > near_loss_grace_s:
+                        target_still_visible = (
+                            isinstance(detection, dict)
+                            and detection_label == target_fruit.casefold()
+                        )
+                        if (
+                            target_still_visible
+                            or near_at is None
+                            or now - near_at > near_loss_grace_s
+                        ):
                             await self._motion.command(
                                 lease,
                                 VelocityCommand(reason="target_not_visible"),
@@ -677,12 +776,28 @@ class HardwareManager:
                             "forward_pulse_count": forward_pulse_count,
                             "forward_pulse_period_s": self.config.command_heartbeat_s,
                             "motion_commands_sent": commands_sent,
+                            "tracking_minimum_confidence": (
+                                self.config.pear_tracking_minimum_confidence
+                            ),
+                            "minimum_observed_tracking_confidence": (
+                                minimum_observed_tracking_confidence
+                            ),
                         }
                         break
 
-                    label = str(detection.get("label") or "").casefold()
+                    assert isinstance(detection, dict)
+                    label = detection_label
                     if label != target_fruit.casefold():
                         raise TargetLost("qualified pear track changed identity")
+                    if detection_confidence is not None:
+                        minimum_observed_tracking_confidence = (
+                            detection_confidence
+                            if minimum_observed_tracking_confidence is None
+                            else min(
+                                minimum_observed_tracking_confidence,
+                                detection_confidence,
+                            )
+                        )
                     center_x = _finite_float(detection.get("center_x_ratio"))
                     center_y = _finite_float(detection.get("center_y_ratio"))
                     bottom = _finite_float(detection.get("bottom_ratio"))

@@ -55,7 +55,16 @@ than trusting a sidecar-provided `ready` flag:
     "confidence": 0.81,
     "consecutive_detections": 5,
     "inference_s": 0.08,
-    "completed_monotonic_s": 100.05
+    "inference_passes": 2,
+    "completed_monotonic_s": 100.05,
+    "crop_confirmation": {
+      "attempted": true,
+      "promoted": true,
+      "full_frame_confidence": 0.60,
+      "crop_confidence": 0.81,
+      "crop_xyxy": [497, 372, 753, 628],
+      "agreement_iou": 0.72
+    }
   }
 }
 ```
@@ -100,6 +109,24 @@ may be relaxed only after new acceptance evidence is recorded.
 - Pear acquisition requires **5 consecutive qualifying detections**, each
   bound to a distinct accepted frame in the current generation.
 - A miss or a detection below 0.65 resets pear acquisition stability to zero.
+- A full-frame candidate at or above 0.35 receives at most one crop-confirm
+  pass when its box occupies at most 0.5% of the frame or its confidence is
+  below 0.65. The same engine and inference worker are reused. A crop result is
+  promoted only when it reaches 0.55, improves the proposal, and overlaps it by
+  at least 0.10 IoU. The combined time for both passes is the reported detector
+  execution time; crop confirmation does not relax any freshness deadline.
+- During bounded search, a crop-confirmed full-frame proposal at or above 0.50
+  slows rotation with alternating reliable-rate yaw and zero-yaw heartbeats.
+  The controller does not substitute a weaker yaw signal because smaller turn
+  commands have not moved Woof reliably. If the enlarged result does not reach
+  the unchanged 0.65 acquisition threshold for five frames, bounded rotation
+  continues. Only qualified acquisition stops the search.
+- After acquisition is complete, approach tracking uses hysteresis: **3
+  consecutive pear detections at or above 0.55** may extend tracking. This
+  lower threshold cannot acquire a pear, start a search result, or bypass any
+  freshness, generation, geometry, or camera-health gate. A weaker or missing
+  track commands zero motion until the approach contract either reacquires the
+  pear or performs its already-qualified lower-edge final push.
 - Warm-up must finish before preflight passes. After preflight, detector
   execution time must be **no greater than 0.200 seconds**.
 - Detection age must be **no greater than 0.250 seconds**, measured with the
@@ -126,9 +153,10 @@ During an active Demo Run, any of the following terminates the run as
 A replacement connection never resumes the failed run. It must pass fresh-frame
 preflight before the operator can start a new Demo Run.
 
-A fresh accepted frame without a qualifying pear is not itself a camera
-failure. It means there is no trustworthy pear observation. Camera-guided
-motion must stop, and the search/approach contract decides whether bounded
+A fresh accepted frame without acquisition-grade pear evidence is not itself a
+camera failure. Search motion must stop. During approach, only the bounded
+tracking hysteresis above may extend an already-acquired track; otherwise
+camera-guided motion stops and the approach contract decides whether bounded
 reacquisition is allowed or the run terminates as target loss.
 
 ## Evidence and remaining qualification

@@ -340,6 +340,92 @@ def test_find_target_turns_until_fresh_stable_perception_then_stops() -> None:
     asyncio.run(scenario())
 
 
+def test_find_target_slows_but_keeps_rotating_during_crop_confirmation() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: TurningPose(),
+        )
+        await manager.start()
+
+        tentative = {
+            "camera_healthy": True,
+            "target_ready": False,
+            "detection": {
+                "label": "pear",
+                "confidence": 0.58,
+                "consecutive_detections": 0,
+                "crop_confirmation": {
+                    "attempted": True,
+                    "promoted": False,
+                    "full_frame_confidence": 0.58,
+                    "crop_confidence": 0.61,
+                },
+            },
+        }
+        statuses = iter(
+            (
+                {"camera_healthy": True, "target_ready": False},
+                tentative,
+                tentative,
+                {"camera_healthy": True, "target_ready": False},
+                {
+                    "camera_healthy": True,
+                    "target_ready": True,
+                    "detection": {
+                        "label": "pear",
+                        "confidence": 0.81,
+                        "consecutive_detections": 5,
+                    },
+                },
+            )
+        )
+
+        result = await manager.find_target(
+            lambda: next(
+                statuses,
+                {
+                    "camera_healthy": True,
+                    "target_ready": True,
+                    "detection": {
+                        "label": "pear",
+                        "confidence": 0.81,
+                        "consecutive_detections": 5,
+                    },
+                },
+            ),
+            "pear",
+            yaw_rps=0.50,
+            sweep_rad=2.0 * math.pi,
+            timeout_s=0.25,
+        )
+
+        reasons = [command.reason for command in motion.commands]
+        assert reasons == [
+            "find_target",
+            "crop_confirm_hold",
+            "crop_confirm_slow_turn",
+            "find_target",
+        ]
+        assert [command.yaw_rps for command in motion.commands] == [
+            0.50,
+            0.0,
+            0.50,
+            0.50,
+        ]
+        assert result["recognition"]["crop_confirmation_samples"] == 2
+        assert result["recognition"]["crop_slowdown_hold_samples"] == 1
+        assert result["recognition"]["crop_slowdown_turn_samples"] == 1
+        assert result["recognition"]["crop_candidate_confidence_threshold"] == 0.50
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
 def test_failed_search_reports_the_best_distant_pear_evidence() -> None:
     async def scenario() -> None:
         motion = FakeMotion()
@@ -561,6 +647,74 @@ def test_approach_centers_pear_before_first_forward_command() -> None:
         assert result["initial_center_confirmations"] == 3
         assert result["initial_center_tolerance_ratio"] == 0.08
         assert result["initial_center_yaw_rps"] == 0.50
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_approach_tracks_an_acquired_pear_at_sixty_percent_confidence() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+
+        def low_confidence(*, near: bool = False) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": False,
+                "detection": {
+                    "label": "pear",
+                    "confidence": 0.60,
+                    "center_x_ratio": 0.50,
+                    "center_y_ratio": 0.76 if near else 0.50,
+                    "bottom_ratio": 0.91 if near else 0.65,
+                },
+            }
+
+        statuses = iter(
+            (
+                low_confidence(),
+                low_confidence(),
+                low_confidence(),
+                low_confidence(),
+                low_confidence(),
+                low_confidence(near=True),
+                low_confidence(near=True),
+                low_confidence(near=True),
+                {"camera_healthy": True, "target_ready": False},
+            )
+        )
+
+        result = await manager.approach_target(
+            lambda: next(
+                statuses,
+                {"camera_healthy": True, "target_ready": False},
+            ),
+            "pear",
+            forward_mps=0.50,
+            maximum_yaw_rps=0.30,
+            near_bottom_ratio=0.86,
+            near_center_ratio=0.72,
+            near_confirmations=3,
+            near_loss_grace_s=0.75,
+            final_push_mps=0.30,
+            final_push_duration_s=0.001,
+            timeout_s=0.5,
+        )
+
+        assert result["arrival_confirmed"] is True
+        assert result["tracking_minimum_confidence"] == 0.55
+        assert result["minimum_observed_tracking_confidence"] == 0.60
+        assert any(
+            command.reason == "approach_target" and command.forward_mps == 0.50
+            for command in motion.commands
+        )
         assert motion.armed is False
         await manager.close()
 

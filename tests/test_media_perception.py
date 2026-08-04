@@ -12,6 +12,47 @@ from media import perception_sidecar
 from media.perception_sidecar import EvidenceFrameBuffer, PerceptionEvidence, create_app
 
 
+class FakeTensor:
+    def __init__(self, value):
+        self.value = value
+
+    def detach(self):
+        return self
+
+    def cpu(self):
+        return self
+
+    def tolist(self):
+        return self.value
+
+
+class FakeBoxes:
+    def __init__(self, confidences, boxes):
+        self.conf = FakeTensor(confidences)
+        self.xyxy = [FakeTensor(box) for box in boxes]
+
+    def __len__(self):
+        return len(self.conf.value)
+
+
+class ArrayFrame:
+    def __init__(self, image):
+        self.image = image
+
+    def to_ndarray(self, *, format: str):
+        assert format == "bgr24"
+        return self.image
+
+
+class FakeImage:
+    def __init__(self, height: int, width: int) -> None:
+        self.shape = (height, width, 3)
+
+    def __getitem__(self, slices):
+        y_slice, x_slice = slices[:2]
+        return FakeImage(y_slice.stop - y_slice.start, x_slice.stop - x_slice.start)
+
+
 def test_preview_encoding_cannot_starve_the_sidecar_status_event_loop() -> None:
     class Frame:
         def to_ndarray(self, *, format: str):
@@ -48,6 +89,188 @@ def test_preview_encoding_cannot_starve_the_sidecar_status_event_loop() -> None:
         assert status_elapsed_s < 0.09
 
     asyncio.run(scenario())
+
+
+def test_small_uncertain_pear_is_confirmed_with_one_bounded_crop_pass() -> None:
+    full_frame = FakeImage(720, 1280)
+
+    class Model:
+        def __init__(self) -> None:
+            self.sources = []
+
+        def predict(self, **options):
+            source = options["source"]
+            self.sources.append(source)
+            if len(self.sources) == 1:
+                return [
+                    SimpleNamespace(
+                        boxes=FakeBoxes([0.60], [[610, 480, 640, 520]])
+                    )
+                ]
+            return [
+                SimpleNamespace(
+                    boxes=FakeBoxes([0.84], [[113, 108, 143, 148]])
+                )
+            ]
+
+    runtime = perception_sidecar.PerceptionRuntime()
+    model = Model()
+    runtime._model = model
+    runtime._pear_class_id = 0
+    previews = []
+    runtime._publish_preview = lambda *_args, **options: previews.append(options)
+    received = time.monotonic()
+    runtime.evidence.note_source(
+        pts=100,
+        time_base="1/90000",
+        received_monotonic_s=received,
+        width=1280,
+        height=720,
+    )
+
+    runtime._process_frame(
+        ArrayFrame(full_frame),
+        received,
+        100,
+        "1/90000",
+    )
+
+    detection = runtime.evidence.status()["detection"]
+    assert len(model.sources) == 2
+    assert model.sources[1].shape == (256, 256, 3)
+    assert detection["confidence"] == 0.84
+    assert detection["bbox_xyxy"] == [610, 480, 640, 520]
+    assert detection["inference_passes"] == 2
+    assert detection["crop_confirmation"] == {
+        "attempted": True,
+        "promoted": True,
+        "full_frame_confidence": 0.60,
+        "crop_confidence": 0.84,
+        "crop_xyxy": [497, 372, 753, 628],
+        "agreement_iou": 1.0,
+    }
+    assert "CROP CONFIRMED" in previews[-1]["message"]
+    runtime._inference_executor.shutdown(wait=True, cancel_futures=True)
+
+
+def test_large_confident_pear_does_not_spend_a_second_inference_pass() -> None:
+    full_frame = FakeImage(720, 1280)
+
+    class Model:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def predict(self, **_options):
+            self.calls += 1
+            return [
+                SimpleNamespace(
+                    boxes=FakeBoxes([0.82], [[400, 300, 800, 700]])
+                )
+            ]
+
+    runtime = perception_sidecar.PerceptionRuntime()
+    model = Model()
+    runtime._model = model
+    runtime._pear_class_id = 0
+    runtime._publish_preview = lambda *_args, **_options: None
+
+    runtime._process_frame(
+        ArrayFrame(full_frame),
+        time.monotonic(),
+        100,
+        "1/90000",
+    )
+
+    detection = runtime.evidence.status()["detection"]
+    assert model.calls == 1
+    assert detection["confidence"] == 0.82
+    assert detection["inference_passes"] == 1
+    assert detection["crop_confirmation"]["attempted"] is False
+    assert runtime.status()["crop_confirm"] == {
+        "enabled": True,
+        "minimum_candidate_confidence": 0.35,
+        "uncertain_below_confidence": 0.65,
+        "small_bbox_area_ratio": 0.005,
+        "minimum_crop_side_px": 256,
+        "context_scale": 6.0,
+        "minimum_confirmation_confidence": 0.55,
+        "minimum_agreement_iou": 0.10,
+    }
+    runtime._inference_executor.shutdown(wait=True, cancel_futures=True)
+
+
+def test_crop_result_must_overlap_and_improve_the_full_frame_candidate() -> None:
+    full_frame = FakeImage(720, 1280)
+
+    class Model:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def predict(self, **_options):
+            self.calls += 1
+            if self.calls == 1:
+                return [
+                    SimpleNamespace(
+                        boxes=FakeBoxes([0.60], [[610, 480, 640, 520]])
+                    )
+                ]
+            return [SimpleNamespace(boxes=FakeBoxes([0.95], [[0, 0, 20, 20]]))]
+
+    runtime = perception_sidecar.PerceptionRuntime()
+    model = Model()
+    runtime._model = model
+    runtime._pear_class_id = 0
+    runtime._publish_preview = lambda *_args, **_options: None
+
+    runtime._process_frame(
+        ArrayFrame(full_frame),
+        time.monotonic(),
+        100,
+        "1/90000",
+    )
+
+    detection = runtime.evidence.status()["detection"]
+    assert model.calls == 2
+    assert detection["confidence"] == 0.60
+    assert detection["bbox_xyxy"] == [610, 480, 640, 520]
+    assert detection["crop_confirmation"]["promoted"] is False
+    assert detection["crop_confirmation"]["crop_confidence"] == 0.95
+    assert detection["crop_confirmation"]["agreement_iou"] == 0.0
+    runtime._inference_executor.shutdown(wait=True, cancel_futures=True)
+
+
+def test_tiny_weak_proposal_does_not_trigger_crop_confirmation() -> None:
+    full_frame = FakeImage(720, 1280)
+
+    class Model:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def predict(self, **_options):
+            self.calls += 1
+            return [
+                SimpleNamespace(
+                    boxes=FakeBoxes([0.20], [[610, 480, 640, 520]])
+                )
+            ]
+
+    runtime = perception_sidecar.PerceptionRuntime()
+    model = Model()
+    runtime._model = model
+    runtime._pear_class_id = 0
+    runtime._publish_preview = lambda *_args, **_options: None
+
+    runtime._process_frame(
+        ArrayFrame(full_frame),
+        time.monotonic(),
+        100,
+        "1/90000",
+    )
+
+    detection = runtime.evidence.status()["detection"]
+    assert model.calls == 1
+    assert detection["crop_confirmation"]["attempted"] is False
+    runtime._inference_executor.shutdown(wait=True, cancel_futures=True)
 
 
 def test_media_logging_suppresses_repetitive_h264_decoder_warnings() -> None:

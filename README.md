@@ -17,7 +17,10 @@ reference, but it is not a runtime dependency.
 4. Start from the audience UI's single **Activate Demo** control with pear as
    the configured Target Fruit.
 5. Turn through the fruit-search area until the requested fruit is recognized,
-   bounded by one measured revolution and a 30-second timeout.
+   bounded by one measured revolution and a 30-second timeout. A 50%+
+   full-frame pear proposal triggers crop confirmation and a 50% duty-cycled
+   turn using the same reliable yaw signal; an unqualified crop keeps rotating
+   rather than becoming a false stop.
 6. Confirm/reacquire and approach the requested fruit using fresh detections.
 7. After confirmed near-fruit evidence, allow one bounded final approach when
    the fruit leaves the lower camera edge.
@@ -114,6 +117,10 @@ authority. There are two supported ways to give it images:
    `http://woof.local:8111/api/camera/raw.jpg`.
 2. After a Demo Run, open `http://woof.local:8110/debug`, download
    `evidence.zip`, extract `frames/*.jpg`, and upload those images to Fieldmark.
+3. For a no-upload local pass, run the reusable
+   [`lab/run-labeler`](lab/run-labeler/README.md) against `evidence.zip`. Its
+   link opens the run directly, keeps human corrections in the browser, and
+   exports normalized pear boxes as JSON.
 
 The files under `frames/` are deliberately unannotated so the current detector
 cannot bias manual boxes. `terminal/annotated.jpg`, `terminal.jpg`, and
@@ -122,6 +129,14 @@ Choose or create the `pear` class in Fieldmark, draw the boxes, then export the
 dataset in the required YOLO or COCO format. Fruit selection is temporarily
 fixed to pear; future fruit classes must use this same runtime-neutral evidence
 contract rather than adding motion controls to the labeler.
+
+Pear acquisition remains fixed at 0.65 confidence for five consecutive fresh
+frames. Once that acquisition has succeeded, approach tracking may continue at
+0.55 confidence after three consecutive fresh pear detections. These values are
+separately configurable with
+`BORDER_COLLIE_PEAR_TRACKING_MIN_CONFIDENCE` and
+`BORDER_COLLIE_PEAR_TRACKING_CONFIRMATIONS`; changing them does not alter the
+acquisition rule.
 
 For a complete zero-motion base Demo Run, explicitly start with
 `BORDER_COLLIE_RUNTIME_MODE=simulation`. The audience UI shows a persistent

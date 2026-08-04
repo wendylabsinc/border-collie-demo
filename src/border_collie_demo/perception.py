@@ -104,6 +104,36 @@ def evaluate_perception_evidence(
     detection_completed_s = _finite_number(detection.get("completed_monotonic_s"))
     detection_age_s = _age(now_s, detection_completed_s)
     bbox = _bounding_box(detection.get("bbox_xyxy"), source_width, source_height)
+    inference_passes = _whole_number(detection.get("inference_passes"))
+    raw_crop_confirmation = detection.get("crop_confirmation")
+    if isinstance(raw_crop_confirmation, dict):
+        crop_confirmation: dict[str, object] | None = {
+            "attempted": raw_crop_confirmation.get("attempted") is True,
+            "promoted": raw_crop_confirmation.get("promoted") is True,
+            "full_frame_confidence": _finite_number(
+                raw_crop_confirmation.get("full_frame_confidence")
+            ),
+            "crop_confidence": _finite_number(
+                raw_crop_confirmation.get("crop_confidence")
+            ),
+            "crop_xyxy": (
+                None
+                if (
+                    crop_box := _bounding_box(
+                        raw_crop_confirmation.get("crop_xyxy"),
+                        source_width,
+                        source_height,
+                    )
+                )
+                is None
+                else list(crop_box)
+            ),
+            "agreement_iou": _finite_number(
+                raw_crop_confirmation.get("agreement_iou")
+            ),
+        }
+    else:
+        crop_confirmation = None
     if not isinstance(label, str) or label.casefold().strip() != "pear":
         violations.append("qualifying pear detection is missing")
     if detection_generation != generation:
@@ -176,6 +206,8 @@ def evaluate_perception_evidence(
             "confidence": confidence,
             "consecutive_detections": detection_count,
             "inference_s": inference_s,
+            "inference_passes": inference_passes,
+            "crop_confirmation": crop_confirmation,
             "completed_monotonic_s": detection_completed_s,
             "age_s": detection_age_s,
             "bbox_xyxy": None if bbox is None else list(bbox),

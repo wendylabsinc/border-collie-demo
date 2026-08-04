@@ -256,7 +256,7 @@ Evidence: `lab/pear-evidence/results/PEAR-EVIDENCE-001.json` and
 Evidence: `lab/camera-reconnect/results/CAMERA-RECONNECT-001.json` and
 `lab/camera-reconnect/results/CAMERA-RECONNECT-001.jpg`.
 
-## DISTANT-PEAR-DIAGNOSTICS — implemented, hardware validation pending
+## DISTANT-PEAR-DIAGNOSTICS — deployed and reproduced on hardware
 
 - A failed healthy-camera search is now classified separately as
   `TARGET_RECOGNITION_FAILURE`, not motion or camera failure.
@@ -266,7 +266,56 @@ Evidence: `lab/camera-reconnect/results/CAMERA-RECONNECT-001.json` and
   sequence and an annotated terminal comparison. The app persists both before
   sealing an orchestrated terminal result and `/debug` links the files.
 - Raw frames are compatible with manual upload to Fieldmark and the live raw
-  endpoint can be configured as Fieldmark's Go2 source.
+  endpoint can be configured as Fieldmark's Go2 source. The reusable local run
+  labeler opens an archive directly and exports corrected normalized boxes.
 - Automated contract tests pass for capture, rolling bounds, persistence,
-  download authorization, and distinct failure classification. This feature is
-  not yet deployed or verified in a new physical distant-pear run.
+  download authorization, and distinct failure classification.
+
+Hardware run `f9de499a-014f-460c-9748-c2c875a85f27` reproduced the distant-pear
+failure on 2026-08-04. The camera remained healthy and the model retained a
+centered pear box, but `approach_fruit` stopped and timed out because the same
+0.65 acquisition threshold was being reused for tracking. Its 40-frame archive
+contains pear confidence from 0.518 to 0.686 (median 0.612): only 5 frames met
+the acquisition threshold while 33 met 0.55. A focused regression test now
+locks acquisition at 0.65 while permitting an already-acquired approach track
+after three consecutive fresh detections at or above 0.55. The back-to-back
+physical runs below exercised this tracking path successfully.
+
+### Crop-and-confirm — deployed and exercised on hardware
+
+- The existing TensorRT engine now performs at most one conditional crop pass
+  for a small or uncertain full-frame pear proposal. Promotion requires higher
+  confidence and at least 0.10 IoU with the original box.
+- Replaying the trigger rules over all 40 frames from run
+  `f9de499a-014f-460c-9748-c2c875a85f27` selects a 256×256 confirmation crop for
+  every frame. Those boxes occupied only 0.12–0.14% of the full image.
+- Recorded single-pass inference had a 0.060-second median and 0.076-second
+  maximum. After deployment, 20 distinct live two-pass frames measured from
+  0.115 to 0.137 seconds, below the unchanged 0.200-second deadline.
+- Automated tests prove the second pass is bounded to one, maps crop boxes back
+  to full-frame coordinates, rejects a high-confidence spatial disagreement,
+  avoids extra work for large confident detections and extremely weak noise,
+  and preserves crop diagnostics through the mission adapter.
+- Search now responds to a 0.50+ full-frame crop candidate with a 50% duty
+  cycle: it alternates the already validated yaw magnitude with zero instead of
+  sending an unreliable weaker turn command. An unqualified enlarged result
+  continues the bounded rotation; only the existing 0.65-by-five acquisition
+  gate stops it. Automated motion tests lock the hold/turn sequence and its Run
+  Result counters.
+
+Three back-to-back supervised Demo Runs were recorded after deployment. Every
+run completed `return_home` inside the 0.10-meter Home gate, at approximately
+0.078, 0.065, and 0.063 meters. Runs
+`6a613766-47d1-49f0-820b-bf1ba0a0c9cc` and
+`da32e0c7-f642-464e-a166-9e6d6c76ef86` completed end to end in 50.47 and 38.61
+seconds. Their terminal Home distances were approximately 0.085 and 0.048
+meters. The remaining run reached Home at approximately 0.065 meters and then
+failed safely in `restore_heading` when a yaw command produced insufficient
+measured response; its final safety state was `DISARMED_CONFIRMED`.
+
+The completed 50.47-second run recorded 18 crop-candidate search samples, 10
+zero-yaw slowdown holds, and 7 reliable-rate slowdown turns before stable pear
+acquisition. The completed 38.61-second run recorded 7 crop-candidate samples,
+4 holds, and 2 slowdown turns. These results validate the new candidate
+slowdown and the return-to-Home position behavior while preserving the final
+heading-restoration no-response failure as a known follow-up.

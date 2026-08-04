@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Border Collie Run Labeler</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #10130f; color: #f6f3e8; }
+    main { width: min(1180px, calc(100% - 32px)); margin: 22px auto; }
+    header { display: flex; gap: 18px; align-items: end; justify-content: space-between; margin-bottom: 14px; }
+    h1 { font-size: 24px; margin: 0 0 4px; }
+    p { margin: 0; color: #b8bcae; }
+    .progress { min-width: 230px; text-align: right; }
+    .bar { height: 8px; background: #2b3028; border-radius: 20px; overflow: hidden; margin-top: 8px; }
+    .bar span { display: block; height: 100%; width: 0; background: #d4ed65; }
+    .stage { position: relative; background: #050605; border: 1px solid #30362c; border-radius: 14px; overflow: hidden; }
+    canvas { display: block; width: 100%; height: auto; cursor: crosshair; touch-action: none; }
+    .confidence { position: absolute; left: 12px; top: 12px; padding: 7px 10px; border-radius: 9px; background: rgba(0,0,0,.72); font-size: 13px; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 12px; }
+    button { border: 1px solid #3d4437; background: #242921; color: #f6f3e8; padding: 10px 15px; border-radius: 10px; font: inherit; font-weight: 650; cursor: pointer; }
+    button:hover { background: #30372c; }
+    button.primary { background: #d4ed65; color: #15180f; border-color: #d4ed65; }
+    button.danger { color: #ffb4a8; }
+    button:disabled { opacity: .4; cursor: default; }
+    .hint { margin-top: 12px; font-size: 14px; }
+    kbd { background: #2c3129; border: 1px solid #41483b; border-radius: 5px; padding: 1px 5px; }
+    @media (max-width: 700px) { header { display: block; } .progress { text-align: left; margin-top: 12px; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>Long-distance pear labels</h1>
+      <p>Draw a tight box around the pear, then save and move to the next frame.</p>
+    </div>
+    <div class="progress">
+      <strong id="counter">Loading run…</strong>
+      <div class="bar"><span id="bar"></span></div>
+    </div>
+  </header>
+  <div class="stage">
+    <canvas id="canvas"></canvas>
+    <div class="confidence" id="confidence">Model confidence: —</div>
+  </div>
+  <div class="toolbar">
+    <button id="previous">← Previous</button>
+    <button id="model">Use model box</button>
+    <button id="clear">Clear box</button>
+    <button id="absent" class="danger">No pear in frame</button>
+    <button id="save" class="primary">Save & next →</button>
+    <button id="download">Download labels</button>
+  </div>
+  <p class="hint">The orange box is the model’s guess. Draw over it to correct it. A saved human label turns green. Shortcuts: <kbd>←</kbd>/<kbd>→</kbd> navigate, <kbd>S</kbd> saves.</p>
+</main>
+<script>
+const canvas = document.querySelector('#canvas');
+const ctx = canvas.getContext('2d');
+const image = new Image();
+let manifest;
+let index = 0;
+let box = null;
+let drawing = null;
+let annotations = {};
+
+const keyForRun = () => `border-collie-labels:${manifest.generation || 'unknown'}`;
+const frame = () => manifest.frames[index];
+const modelBox = () => frame().detection?.bbox_xyxy || null;
+const reviewed = () => Object.prototype.hasOwnProperty.call(annotations, frame().filename);
+
+function loadSaved() {
+  try { annotations = JSON.parse(localStorage.getItem(keyForRun()) || '{}'); }
+  catch { annotations = {}; }
+}
+
+function draw() {
+  if (!image.complete) return;
+  canvas.width = image.naturalWidth;
+  canvas.height = image.naturalHeight;
+  ctx.drawImage(image, 0, 0);
+  const active = drawing?.box || box || (!reviewed() ? modelBox() : null);
+  if (active) {
+    const [x1, y1, x2, y2] = active;
+    ctx.strokeStyle = reviewed() ? '#77f29a' : box ? '#77f29a' : '#ffb14e';
+    ctx.lineWidth = Math.max(3, canvas.width / 400);
+    ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+    ctx.fillStyle = ctx.strokeStyle;
+    ctx.font = `${Math.max(16, canvas.width / 55)}px system-ui`;
+    ctx.fillText(reviewed() ? 'pear · human' : box ? 'pear · edited' : 'pear · model guess', x1, Math.max(22, y1 - 8));
+  }
+}
+
+function showFrame(nextIndex) {
+  index = Math.max(0, Math.min(manifest.frames.length - 1, nextIndex));
+  const saved = annotations[frame().filename];
+  box = saved?.bbox_xyxy || null;
+  image.src = `/api/frames/${encodeURIComponent(frame().filename)}`;
+  const confidence = frame().detection?.confidence;
+  document.querySelector('#confidence').textContent = `Model confidence: ${confidence == null ? 'none' : `${Math.round(confidence * 100)}%`}`;
+  updateStatus();
+}
+
+function updateStatus() {
+  const done = Object.keys(annotations).length;
+  document.querySelector('#counter').textContent = `Frame ${index + 1} of ${manifest.frames.length} · ${done} reviewed`;
+  document.querySelector('#bar').style.width = `${100 * done / manifest.frames.length}%`;
+  document.querySelector('#previous').disabled = index === 0;
+}
+
+function point(event) {
+  const rect = canvas.getBoundingClientRect();
+  return [
+    Math.max(0, Math.min(canvas.width, (event.clientX - rect.left) * canvas.width / rect.width)),
+    Math.max(0, Math.min(canvas.height, (event.clientY - rect.top) * canvas.height / rect.height)),
+  ];
+}
+
+canvas.addEventListener('pointerdown', event => {
+  canvas.setPointerCapture(event.pointerId);
+  const [x, y] = point(event);
+  drawing = { start: [x, y], box: [x, y, x, y] };
+  draw();
+});
+canvas.addEventListener('pointermove', event => {
+  if (!drawing) return;
+  const [x, y] = point(event);
+  const [sx, sy] = drawing.start;
+  drawing.box = [Math.min(sx, x), Math.min(sy, y), Math.max(sx, x), Math.max(sy, y)];
+  draw();
+});
+canvas.addEventListener('pointerup', () => {
+  if (!drawing) return;
+  const [x1, y1, x2, y2] = drawing.box;
+  box = x2 - x1 >= 4 && y2 - y1 >= 4 ? drawing.box.map(Math.round) : null;
+  drawing = null;
+  draw();
+});
+image.addEventListener('load', draw);
+
+document.querySelector('#previous').onclick = () => showFrame(index - 1);
+document.querySelector('#model').onclick = () => { box = modelBox(); draw(); };
+document.querySelector('#clear').onclick = () => { box = null; draw(); };
+document.querySelector('#absent').onclick = () => save(false);
+document.querySelector('#save').onclick = () => save(true);
+
+function save(present) {
+  if (present && !box) box = modelBox();
+  annotations[frame().filename] = {
+    class_name: present ? 'pear' : null,
+    bbox_xyxy: present ? box : null,
+    width: frame().width,
+    height: frame().height,
+  };
+  localStorage.setItem(keyForRun(), JSON.stringify(annotations));
+  if (index < manifest.frames.length - 1) showFrame(index + 1);
+  else { updateStatus(); draw(); }
+}
+
+document.querySelector('#download').onclick = () => {
+  const records = manifest.frames.map(item => {
+    const value = annotations[item.filename];
+    let yolo = null;
+    if (value?.bbox_xyxy) {
+      const [x1, y1, x2, y2] = value.bbox_xyxy;
+      yolo = [
+        (x1 + x2) / 2 / item.width,
+        (y1 + y2) / 2 / item.height,
+        (x2 - x1) / item.width,
+        (y2 - y1) / item.height,
+      ];
+    }
+    return { filename: item.filename, reviewed: Boolean(value), ...value, yolo_xywh_normalized: yolo };
+  });
+  const output = { schema_version: 1, source_generation: manifest.generation, class_names: ['pear'], records };
+  const blob = new Blob([JSON.stringify(output, null, 2)], { type: 'application/json' });
+  const anchor = document.createElement('a');
+  anchor.href = URL.createObjectURL(blob);
+  anchor.download = `pear-labels-${manifest.generation || 'run'}.json`;
+  anchor.click();
+  URL.revokeObjectURL(anchor.href);
+};
+
+window.addEventListener('keydown', event => {
+  if (event.key === 'ArrowLeft') showFrame(index - 1);
+  if (event.key === 'ArrowRight') showFrame(index + 1);
+  if (event.key.toLowerCase() === 's') save(true);
+});
+
+fetch('/api/manifest').then(response => response.json()).then(value => {
+  manifest = value;
+  loadSaved();
+  showFrame(0);
+});
+</script>
+</body>
+</html>

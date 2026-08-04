@@ -26,6 +26,8 @@ class HardwareConfig:
     client_timeout_s: float = 12.0
     remote_api_settle_s: float = 0.50
     pose_maximum_age_s: float = 0.50
+    pear_tracking_minimum_confidence: float = 0.55
+    pear_tracking_confirmations: int = 3
 
     def __post_init__(self) -> None:
         positive_values = (
@@ -49,6 +51,12 @@ class HardwareConfig:
             raise ValueError("command heartbeat must be faster than the watchdog")
         if self.remote_api_settle_s < 0.0:
             raise ValueError("remote_api_settle_s must be non-negative")
+        if not 0.0 <= self.pear_tracking_minimum_confidence <= 1.0:
+            raise ValueError(
+                "pear_tracking_minimum_confidence must be between zero and one"
+            )
+        if self.pear_tracking_confirmations < 1:
+            raise ValueError("pear_tracking_confirmations must be positive")
 
     @classmethod
     def from_env(cls) -> HardwareConfig:
@@ -83,6 +91,18 @@ class HardwareConfig:
             ),
             pose_maximum_age_s=float(
                 os.environ.get("BORDER_COLLIE_POSE_MAX_AGE_S", "0.50")
+            ),
+            pear_tracking_minimum_confidence=float(
+                os.environ.get(
+                    "BORDER_COLLIE_PEAR_TRACKING_MIN_CONFIDENCE",
+                    "0.55",
+                )
+            ),
+            pear_tracking_confirmations=int(
+                os.environ.get(
+                    "BORDER_COLLIE_PEAR_TRACKING_CONFIRMATIONS",
+                    "3",
+                )
             ),
         )
 
