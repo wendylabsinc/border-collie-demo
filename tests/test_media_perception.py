@@ -1,10 +1,51 @@
+import asyncio
 import io
 import logging
+import time
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
 from media import perception_sidecar
 from media.perception_sidecar import PerceptionEvidence, create_app
+
+
+def test_preview_encoding_cannot_starve_the_sidecar_status_event_loop() -> None:
+    class Frame:
+        def to_ndarray(self, *, format: str):
+            assert format == "bgr24"
+            return object()
+
+    class Model:
+        def predict(self, **_options):
+            time.sleep(0.02)
+            return [SimpleNamespace(boxes=[])]
+
+    async def scenario() -> None:
+        runtime = perception_sidecar.PerceptionRuntime()
+        runtime._model = Model()
+        runtime._pear_class_id = 0
+
+        def slow_preview(*_args, **_options) -> None:
+            time.sleep(0.15)
+
+        runtime._publish_preview = slow_preview
+        runtime._frames.put_nowait((Frame(), time.monotonic(), 1))
+
+        loop = asyncio.get_running_loop()
+        status_tick = asyncio.Event()
+        started = loop.time()
+        loop.call_later(0.04, status_tick.set)
+        runtime._detector_task = asyncio.create_task(runtime._detect())
+        try:
+            await asyncio.wait_for(status_tick.wait(), timeout=0.50)
+            status_elapsed_s = loop.time() - started
+        finally:
+            await runtime.close()
+
+        assert status_elapsed_s < 0.09
+
+    asyncio.run(scenario())
 
 
 def test_media_logging_suppresses_repetitive_h264_decoder_warnings() -> None:

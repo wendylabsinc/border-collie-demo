@@ -171,7 +171,7 @@ class SimulatedStageExecutor:
         },
         MissionPhase.APPROACH_FRUIT: {
             "arrival_confirmed": True,
-            "final_push_mps": 1.0,
+            "final_push_mps": 0.3,
             "final_push_duration_s": 1.0,
             "forward_pulse_count": 7,
             "motion_commands_sent": False,

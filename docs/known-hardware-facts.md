@@ -19,8 +19,9 @@ proof that this clean implementation works:
 - The previous final approach used one direct 1.0 m/s, 0.4-second push only
   after confirmed near-fruit evidence and lower-camera disappearance.
 - The first clean combined Arrival used that 0.4-second value but stopped too
-  far from the pear. The clean production candidate now uses 1.0 second and
-  requires new supervised qualification.
+  far from the pear. A later 1.0 m/s by 1.0-second final movement was too fast.
+  The current production candidate keeps the one-second bound but reduces only
+  this off-screen movement to 0.3 m/s; it requires supervised qualification.
 - `SportClient.StandDown()` returns before the visible posture completes. The
   old application held the down posture for 5 seconds; the clean production
   sequence now restores that hold before stand-up.

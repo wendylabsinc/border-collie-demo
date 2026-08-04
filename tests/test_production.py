@@ -126,16 +126,16 @@ def test_approach_uses_measured_factory_motion_and_one_final_push() -> None:
         assert options == {
             # The factory-avoidance calibration established 0.50 m/s as the
             # deadband edge, not a production value with usable margin. The
-            # approach uses the separately verified 1.0 m/s signal while the
-            # camera controller continuously steers and retains its arrival
-            # and timeout gates.
+            # camera-guided approach uses the separately verified 1.0 m/s
+            # signal, while the final off-screen movement is softened to
+            # 0.3 m/s before the explicit stop-and-lie-down sequence.
             "forward_mps": 1.0,
             "maximum_yaw_rps": 0.30,
             "near_bottom_ratio": 0.86,
             "near_center_ratio": 0.72,
             "near_confirmations": 3,
             "near_loss_grace_s": 0.75,
-            "final_push_mps": 1.0,
+            "final_push_mps": 0.3,
             "final_push_duration_s": 1.0,
             "timeout_s": 20.0,
         }

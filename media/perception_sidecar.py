@@ -10,7 +10,9 @@ import asyncio
 import logging
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
+from functools import partial
 from threading import Lock
 from typing import Any
 from uuid import uuid4
@@ -137,6 +139,11 @@ class PerceptionRuntime:
         self._detector_task: asyncio.Task[None] | None = None
         self._model: Any | None = None
         self._pear_class_id: int | None = None
+        self._inference_executor = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="border-collie-inference",
+        )
+        self._inference_executor_closed = False
         self._preview_lock = Lock()
         self._preview_jpeg: bytes | None = None
 
@@ -149,7 +156,11 @@ class PerceptionRuntime:
         )
         from unitree_webrtc_connect.webrtc_audiohub import WebRTCAudioHub
 
-        self._model = await asyncio.to_thread(YOLO, self.model_path, task="segment")
+        loop = asyncio.get_running_loop()
+        self._model = await loop.run_in_executor(
+            self._inference_executor,
+            partial(YOLO, self.model_path, task="segment"),
+        )
         names = getattr(self._model, "names", {})
         items = names.items() if isinstance(names, dict) else enumerate(names)
         self._pear_class_id = next(
@@ -173,6 +184,13 @@ class PerceptionRuntime:
             await asyncio.gather(self._detector_task, return_exceptions=True)
         if self._connection is not None:
             await self._connection.disconnect()
+        if not self._inference_executor_closed:
+            await asyncio.to_thread(
+                self._inference_executor.shutdown,
+                wait=True,
+                cancel_futures=True,
+            )
+            self._inference_executor_closed = True
 
     async def bark(self) -> dict[str, object]:
         if self._audiohub is None:
@@ -220,56 +238,66 @@ class PerceptionRuntime:
 
     async def _detect(self) -> None:
         assert self._model is not None and self._pear_class_id is not None
+        loop = asyncio.get_running_loop()
         while True:
             frame, _received, pts = await self._frames.get()
-            bgr = frame.to_ndarray(format="bgr24")
-            started = time.monotonic()
-            try:
-                results = await asyncio.to_thread(
-                    self._model.predict,
-                    source=bgr,
-                    conf=0.01,
-                    classes=[self._pear_class_id],
-                    device=0,
-                    verbose=False,
-                )
-            except Exception as exc:  # noqa: BLE001 - detector errors are untyped
-                self.evidence.fail(f"detector failure: {type(exc).__name__}: {exc}")
-                self._publish_preview(bgr, message="MODEL ERROR", color=(0, 0, 255))
-                continue
-            completed = time.monotonic()
-            result = results[0] if results else None
-            boxes = None if result is None else getattr(result, "boxes", None)
-            if boxes is None or len(boxes) == 0:
-                self.evidence.note_miss()
-                self._publish_preview(
-                    bgr,
-                    message="SEARCHING FOR PEAR",
-                    color=(0, 191, 255),
-                )
-                continue
-            confidences = boxes.conf.detach().cpu().tolist()
-            best_index = max(range(len(confidences)), key=confidences.__getitem__)
-            confidence = float(confidences[best_index])
-            coordinates = boxes.xyxy[best_index].detach().cpu().tolist()
-            bbox = tuple(round(float(value)) for value in coordinates)
-            self.evidence.note_detection(
-                pts=pts,
-                label="pear",
-                confidence=confidence,
-                bbox_xyxy=bbox,
-                inference_s=completed - started,
-                completed_monotonic_s=completed,
+            await loop.run_in_executor(
+                self._inference_executor,
+                self._process_frame,
+                frame,
+                pts,
             )
+
+    def _process_frame(self, frame: Any, pts: int) -> None:
+        """Own all frame conversion, model, postprocess, and preview work."""
+        assert self._model is not None and self._pear_class_id is not None
+        bgr = frame.to_ndarray(format="bgr24")
+        started = time.monotonic()
+        try:
+            results = self._model.predict(
+                source=bgr,
+                conf=0.01,
+                classes=[self._pear_class_id],
+                device=0,
+                verbose=False,
+            )
+        except Exception as exc:  # noqa: BLE001 - detector errors are untyped
+            self.evidence.fail(f"detector failure: {type(exc).__name__}: {exc}")
+            self._publish_preview(bgr, message="MODEL ERROR", color=(0, 0, 255))
+            return
+        completed = time.monotonic()
+        result = results[0] if results else None
+        boxes = None if result is None else getattr(result, "boxes", None)
+        if boxes is None or len(boxes) == 0:
+            self.evidence.note_miss()
             self._publish_preview(
                 bgr,
-                bbox_xyxy=bbox,
-                message=(
-                    f"PEAR {confidence:.0%} | "
-                    f"{self.evidence.status()['detection']['consecutive_detections']}/5"
-                ),
-                color=(0, 200, 0),
+                message="SEARCHING FOR PEAR",
+                color=(0, 191, 255),
             )
+            return
+        confidences = boxes.conf.detach().cpu().tolist()
+        best_index = max(range(len(confidences)), key=confidences.__getitem__)
+        confidence = float(confidences[best_index])
+        coordinates = boxes.xyxy[best_index].detach().cpu().tolist()
+        bbox = tuple(round(float(value)) for value in coordinates)
+        self.evidence.note_detection(
+            pts=pts,
+            label="pear",
+            confidence=confidence,
+            bbox_xyxy=bbox,
+            inference_s=completed - started,
+            completed_monotonic_s=completed,
+        )
+        self._publish_preview(
+            bgr,
+            bbox_xyxy=bbox,
+            message=(
+                f"PEAR {confidence:.0%} | "
+                f"{self.evidence.status()['detection']['consecutive_detections']}/5"
+            ),
+            color=(0, 200, 0),
+        )
 
     def _publish_preview(
         self,

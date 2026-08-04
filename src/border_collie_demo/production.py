@@ -85,15 +85,16 @@ class ProductionStageExecutor:
                 context.target_fruit,
                 # The legacy factory-avoidance calibration found 0.50 m/s to
                 # be the deadband edge and 1.0 m/s to produce a reliable
-                # physical step. Keep short travel bounded by camera arrival
-                # and timeout instead of commanding at the unreliable edge.
+                # physical step during camera-guided approach. Once qualified
+                # lower-edge disappearance proves arrival, soften the one
+                # bounded final movement before the stop-and-lie-down stage.
                 forward_mps=1.0,
                 maximum_yaw_rps=0.30,
                 near_bottom_ratio=0.86,
                 near_center_ratio=0.72,
                 near_confirmations=3,
                 near_loss_grace_s=0.75,
-                final_push_mps=1.0,
+                final_push_mps=0.3,
                 final_push_duration_s=1.0,
                 timeout_s=20.0,
             )

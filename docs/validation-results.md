@@ -162,6 +162,18 @@ next supervised run must confirm the approach actually advances.
 - This test is not marked passed and has no completed-test snapshot. The
   corrected centering behavior requires a new supervised run.
 
+## FINAL-APPROACH-SPEED-001 — correction prepared
+
+- Observed: 2026-08-04 during a supervised Woof Demo Run
+- The operator confirmed that the overall sequence worked, but the 1.0 m/s by
+  1.0-second movement after qualified lower-edge pear disappearance was too
+  fast.
+- Prepared correction: retain the 1.0 m/s camera-guided approach, reduce only
+  the single bounded off-screen movement to 0.3 m/s, release motion, and keep
+  the existing explicit stop before lie-down.
+- This correction is covered by automated configuration tests but remains a
+  physical qualification candidate until the next supervised run.
+
 ## CAMERA-SOURCE-001 — passed
 
 - Observed: 2026-08-03 at 09:43 PDT on `woof.local`

@@ -37,10 +37,11 @@ allowed only after camera freshness passes preflight again.
 During `APPROACH_FRUIT`, translation remains zero while a fixed 0.50 rad/s
 correction turns toward the pear. Once its center enters 0.08 of the horizontal
 frame center, yaw becomes zero and must remain centered for three fresh
-samples. Every later forward heartbeat is counted, including the single bounded 1.0 m/s by
-1.0-second push after qualified lower-edge disappearance. Arrival releases
-motion before `SIT_AND_BARK`; Woof barks while down and holds that posture for
-5 seconds before `STAND` may begin. After the measured turn toward Home,
+samples. Every later forward heartbeat is counted, including the single
+bounded 0.3 m/s by 1.0-second push after qualified lower-edge disappearance.
+Arrival releases motion before `SIT_AND_BARK`; Woof barks while down and holds
+that posture for 5 seconds before `STAND` may begin. After the measured turn
+toward Home,
 `RETURN_HOME` replays the recorded number of forward heartbeats at the same
 1.0 m/s signal. Heading-only course corrections do not consume a forward
 heartbeat.

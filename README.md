@@ -23,7 +23,7 @@ reference, but it is not a runtime dependency.
    the fruit leaves the lower camera edge.
 8. First turn at a fixed 0.50 rad/s until the pear is within the middle 16% of
    the camera, then hold zero yaw for three fresh centered samples. After
-   qualified lower-edge disappearance, send one 1.0 m/s by
+   qualified lower-edge disappearance, send one 0.3 m/s by
    1.0-second final push, stop, lie down, bark, and remain down for 5 seconds.
 9. Stand, turn toward Home, replay the recorded number of outbound forward
    heartbeats at 1.0 m/s, and restore the original heading. Fresh pose remains
@@ -88,7 +88,7 @@ evidence before sealing success. Loss of pose freshness during capture also fail
 **Stop Woof** seals an active run and permits another activation, while process
 restart seals unfinished work as `PROCESS_INTERRUPTED`. The production executor
 uses measured pose turns, bounded camera-guided search, geometry-gated approach,
-one 1.0 m/s by 1.0 s off-screen final push, Unitree posture actions, bark, and
+one 0.3 m/s by 1.0 s off-screen final push, Unitree posture actions, bark, and
 closed-loop odometry return through factory obstacle avoidance.
 Pear qualification begins inside `TURN_TO_FRUIT` and stops the camera-guided
 turn; `FIND_FRUIT` confirms or reacquires it. The absence of a pear before
@@ -145,8 +145,10 @@ The production media process is `media.perception_sidecar:app` on port `8111`.
 It owns one Go2 WebRTC connection, advances PTS/time-base evidence, binds every
 pear box to its exact generation and source marker, and exposes `/api/bark` on
 the same connection. It never imports or creates a motion client. The TensorRT
-engine is a provisioned deployment artifact at `/media/model.engine`; it is not
-committed to Git.
+engine is a temporary provisioned deployment artifact at `/media/model.engine`;
+it is not committed to Git. The planned model adapter uses Modular MAX and the
+MAX/Mojo stack while preserving the same runtime-neutral camera/perception
+contract; see [`media/model/README.md`](media/model/README.md).
 
 To make a real run eligible after the DLO comparison and deployment, set:
 
