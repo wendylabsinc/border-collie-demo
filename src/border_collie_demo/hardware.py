@@ -54,7 +54,14 @@ class CameraFailure(HardwareUnavailable):
 
 
 class TargetLost(HardwareUnavailable):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        evidence: dict[str, object] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.evidence = dict(evidence or {})
 
 
 class TurnNoResponse(HardwareUnavailable):
@@ -407,6 +414,14 @@ class HardwareManager:
             progress = 0.0
             started = time.monotonic()
             evidence: dict[str, object] | None = None
+            recognition: dict[str, object] = {
+                "samples": 0,
+                "pear_candidate_samples": 0,
+                "maximum_confidence": None,
+                "maximum_consecutive_detections": 0,
+                "maximum_bbox_area_ratio": None,
+                "closest_detection": None,
+            }
             try:
                 assert self._pose is not None and self._motion is not None
                 initial = self._pose.status()
@@ -419,11 +434,57 @@ class HardwareManager:
                 deadline = started + timeout
                 while time.monotonic() < deadline:
                     status = status_reader()
+                    recognition["samples"] = int(recognition["samples"]) + 1
                     if not status.get("camera_healthy"):
                         raise CameraFailure(
                             str(status.get("detail") or "camera evidence became unhealthy")
                         )
                     detection = status.get("detection")
+                    if isinstance(detection, dict):
+                        label = str(detection.get("label") or "").casefold()
+                        if label == target_fruit.casefold():
+                            recognition["pear_candidate_samples"] = (
+                                int(recognition["pear_candidate_samples"]) + 1
+                            )
+                        confidence = _finite_float(detection.get("confidence"))
+                        if confidence is not None:
+                            current_maximum = _finite_float(
+                                recognition["maximum_confidence"]
+                            )
+                            recognition["maximum_confidence"] = (
+                                confidence
+                                if current_maximum is None
+                                else max(current_maximum, confidence)
+                            )
+                        consecutive = detection.get("consecutive_detections")
+                        if isinstance(consecutive, int) and not isinstance(
+                            consecutive, bool
+                        ):
+                            recognition["maximum_consecutive_detections"] = max(
+                                int(recognition["maximum_consecutive_detections"]),
+                                consecutive,
+                            )
+                        area_ratio = _finite_float(
+                            detection.get("bbox_area_ratio")
+                        )
+                        maximum_area = _finite_float(
+                            recognition["maximum_bbox_area_ratio"]
+                        )
+                        if area_ratio is not None and (
+                            maximum_area is None or area_ratio > maximum_area
+                        ):
+                            bbox = detection.get("bbox_xyxy")
+                            recognition["maximum_bbox_area_ratio"] = area_ratio
+                            recognition["closest_detection"] = {
+                                "source_pts": detection.get("source_pts"),
+                                "confidence": confidence,
+                                "bbox_xyxy": (
+                                    list(bbox)
+                                    if isinstance(bbox, (list, tuple))
+                                    else None
+                                ),
+                                "bbox_area_ratio": area_ratio,
+                            }
                     if status.get("target_ready") and isinstance(detection, dict):
                         label = str(detection.get("label") or "").casefold()
                         if label == target_fruit.casefold():
@@ -434,6 +495,10 @@ class HardwareManager:
                                     "consecutive_detections"
                                 ),
                                 "search_progress_rad": progress,
+                                "recognition": {
+                                    **recognition,
+                                    "search_progress_rad": progress,
+                                },
                                 "motion_commands_sent": commands_sent,
                             }
                             break
@@ -451,7 +516,13 @@ class HardwareManager:
                     )
                     previous_yaw = sample.pose.yaw_rad
                     if progress >= sweep:
-                        raise TargetLost("pear was not found in the bounded search sweep")
+                        raise TargetLost(
+                            "pear was not found in the bounded search sweep",
+                            evidence={
+                                **recognition,
+                                "search_progress_rad": progress,
+                            },
+                        )
                     await self._motion.command(
                         lease,
                         VelocityCommand(0.0, rate, "find_target"),
@@ -459,7 +530,13 @@ class HardwareManager:
                     commands_sent = True
                     await asyncio.sleep(self.config.command_heartbeat_s)
                 else:
-                    raise TargetLost("pear search timed out")
+                    raise TargetLost(
+                        "pear search timed out",
+                        evidence={
+                            **recognition,
+                            "search_progress_rad": progress,
+                        },
+                    )
             except Exception as exc:  # noqa: BLE001 - always disarm below
                 operation_error = exc
             finally:

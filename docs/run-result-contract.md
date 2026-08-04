@@ -42,6 +42,8 @@ Each run owns one directory:
 ├── events.ndjson
 ├── result.json
 └── snapshots/
+    ├── evidence.zip
+    └── terminal.jpg
 ```
 
 - `events.ndjson` is an append-only journal written and flushed after every
@@ -74,6 +76,7 @@ Initial terminal reason codes are:
 - `SUCCESS`
 - `PREFLIGHT_FAILURE`
 - `CAMERA_FAILURE`
+- `TARGET_RECOGNITION_FAILURE`
 - `TARGET_LOST`
 - `ARRIVAL_FAILURE`
 - `ACTION_FAILURE`
@@ -147,8 +150,11 @@ Perception evidence needed to explain a transition or failure retains:
 
 The terminal record references the last trustworthy camera and Target Fruit
 evidence. A `CAMERA_FAILURE` additionally records the violated threshold or
-identity rule. A fresh frame without a qualifying Target Fruit records target
-loss; it is not mislabeled as a camera failure.
+identity rule. A completed search sweep with fresh camera frames but no
+qualified Target Fruit records `TARGET_RECOGNITION_FAILURE` plus sample count,
+candidate count, maximum confidence, maximum box-area ratio, closest candidate,
+and search progress. Track loss after a previously qualified acquisition may
+still use `TARGET_LOST`; neither condition is mislabeled as a camera failure.
 
 ## Motion evidence
 
@@ -178,7 +184,13 @@ failure preserves the last trustworthy frame and labels its actual age; it is
 never presented as current. If a required snapshot is unavailable, the Run
 Result retains an entry with `unavailable_reason`.
 
-Continuous video and audio recording are outside this contract.
+Every orchestrated terminal run also attempts to persist a bounded rolling
+archive of raw, unannotated JPEGs for manual labeling. The default is 40 frames
+sampled at 0.5-second intervals, approximately the final 20 seconds. The archive
+contains a source/detection manifest and one annotated terminal comparison
+frame. Evidence-capture failure is recorded with an `unavailable_reason` and
+must never mask the run's motion-safety result. Full continuous video and audio
+recording remain outside this contract.
 
 Every terminal record materializes `terminal_measurements.home_distance_m` and
 `terminal_measurements.heading_error_rad` from the latest completed
@@ -192,7 +204,8 @@ The audience and diagnostic surfaces read the same persisted record:
 - current status exposes the active `run_id` or `null`;
 - list results newest first with outcome, reason, final phase, and times;
 - retrieve one complete Run Result by full `run_id`; and
-- retrieve snapshots only through paths referenced by that result.
+- retrieve snapshots or evidence archives only through paths referenced by
+  that result.
 
 Result APIs are read-only. They cannot edit, delete, clear, resume, or relabel a
 run. Arbitrary filesystem paths and short IDs are rejected.

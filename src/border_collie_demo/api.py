@@ -11,6 +11,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from .evidence import EvidenceArtifact
 from .hardware import HardwareManager, HardwareUnavailable
 from .mission import MissionMachine, RestartRequired
 from .orchestrator import EXECUTED_STAGES, DemoOrchestrator, StageExecutor
@@ -34,6 +35,7 @@ def create_app(
     camera_perception_status: Callable[[], dict[str, object]] | None = None,
     media_status: Callable[[], dict[str, object]] | None = None,
     stage_executor: StageExecutor | None = None,
+    terminal_evidence: Callable[[], list[EvidenceArtifact]] | None = None,
     runtime_mode: Literal["production", "simulation"] = "production",
 ) -> FastAPI:
     machine = mission or MissionMachine()
@@ -65,7 +67,12 @@ def create_app(
     orchestrator = (
         None
         if stage_executor is None
-        else DemoOrchestrator(machine, results, stage_executor)
+        else DemoOrchestrator(
+            machine,
+            results,
+            stage_executor,
+            terminal_evidence=terminal_evidence,
+        )
     )
 
     @asynccontextmanager
@@ -224,6 +231,18 @@ def create_app(
         except RunResultNotFound as exc:
             raise HTTPException(status_code=404, detail="Run Result not found") from exc
 
+    @app.get("/api/results/{run_id}/artifacts/{filename}")
+    async def get_result_artifact(run_id: str, filename: str) -> FileResponse:
+        try:
+            path, content_type = results.artifact_path(run_id, filename)
+        except RunResultNotFound as exc:
+            raise HTTPException(status_code=404, detail="Run artifact not found") from exc
+        return FileResponse(
+            path,
+            media_type=content_type,
+            filename=filename,
+        )
+
     @app.get("/api/results")
     async def list_results() -> dict[str, object]:
         return {"runs": results.list_results()}
@@ -258,6 +277,9 @@ def create_app(
                     "outcome": latest["outcome"],
                     "reason": latest["reason"],
                     "failed_phase": latest["failed_phase"],
+                    "failure_details": latest.get("failure_details"),
+                    "artifacts": latest.get("artifacts", []),
+                    "evidence_capture": latest.get("evidence_capture"),
                 }
             ),
             "stages": stages,

@@ -13,6 +13,7 @@ from border_collie_demo.hardware import (
     CameraFailure,
     HardwareManager,
     HardwareUnavailable,
+    TargetLost,
 )
 from border_collie_demo.models import Pose, VelocityCommand
 
@@ -333,6 +334,86 @@ def test_find_target_turns_until_fresh_stable_perception_then_stops() -> None:
         assert result["stable_detections"] == 5
         assert result["motion_commands_sent"] is True
         assert all(command.forward_mps == 0.0 for command in motion.commands)
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_failed_search_reports_the_best_distant_pear_evidence() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: TurningPose(),
+        )
+        await manager.start()
+        statuses = iter(
+            (
+                {
+                    "camera_healthy": True,
+                    "target_ready": False,
+                    "detection": {
+                        "label": "pear",
+                        "confidence": 0.01,
+                        "consecutive_detections": 0,
+                        "source_pts": 100,
+                        "bbox_xyxy": [100, 100, 228, 172],
+                        "bbox_area_ratio": 0.01,
+                    },
+                },
+                {
+                    "camera_healthy": True,
+                    "target_ready": False,
+                    "detection": {
+                        "label": "pear",
+                        "confidence": 0.03,
+                        "consecutive_detections": 0,
+                        "source_pts": 200,
+                        "bbox_xyxy": [100, 100, 356, 244],
+                        "bbox_area_ratio": 0.04,
+                    },
+                },
+                {
+                    "camera_healthy": True,
+                    "target_ready": False,
+                    "detection": {
+                        "label": "pear",
+                        "confidence": 0.02,
+                        "consecutive_detections": 0,
+                        "source_pts": 300,
+                        "bbox_xyxy": [120, 120, 248, 192],
+                        "bbox_area_ratio": 0.01,
+                    },
+                },
+            )
+        )
+
+        with pytest.raises(TargetLost) as failure:
+            await manager.find_target(
+                lambda: next(statuses),
+                "pear",
+                yaw_rps=0.20,
+                sweep_rad=0.8,
+                timeout_s=0.25,
+            )
+
+        assert failure.value.evidence == {
+            "samples": 2,
+            "pear_candidate_samples": 2,
+            "maximum_confidence": 0.03,
+            "maximum_consecutive_detections": 0,
+            "maximum_bbox_area_ratio": 0.04,
+            "closest_detection": {
+                "source_pts": 200,
+                "confidence": 0.03,
+                "bbox_xyxy": [100, 100, 356, 244],
+                "bbox_area_ratio": 0.04,
+            },
+            "search_progress_rad": pytest.approx(0.9),
+        }
         assert motion.armed is False
         await manager.close()
 

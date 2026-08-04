@@ -4,10 +4,13 @@ import json
 import os
 from copy import deepcopy
 from datetime import datetime, timezone
+from hashlib import sha256
 from pathlib import Path
 from time import monotonic
 from typing import Any
 from uuid import UUID, uuid4
+
+from .evidence import EvidenceArtifact
 
 
 class ActiveRunError(RuntimeError):
@@ -186,6 +189,54 @@ class RunResultStore:
         self._write_result(result)
         return deepcopy(result)
 
+    def record_artifacts(
+        self,
+        run_id: str,
+        artifacts: list[EvidenceArtifact],
+    ) -> dict[str, Any]:
+        result = self.get(run_id)
+        if result["outcome"] is not None:
+            raise ActiveRunError("terminal Demo Runs cannot be changed")
+        run_dir = self.root / str(UUID(run_id)) / "snapshots"
+        descriptors: list[dict[str, Any]] = []
+        for artifact in artifacts:
+            destination = run_dir / artifact.filename
+            temporary = run_dir / f".{artifact.filename}.tmp"
+            with temporary.open("wb") as output:
+                output.write(artifact.content)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary, destination)
+            descriptors.append(
+                {
+                    "filename": artifact.filename,
+                    "relative_path": f"snapshots/{artifact.filename}",
+                    "content_type": artifact.content_type,
+                    "size_bytes": len(artifact.content),
+                    "sha256": sha256(artifact.content).hexdigest(),
+                }
+            )
+        result["artifacts"] = descriptors
+        result["evidence_capture"] = {"available": True}
+        self._write_result(result)
+        return deepcopy(result)
+
+    def record_evidence_unavailable(
+        self,
+        run_id: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        result = self.get(run_id)
+        if result["outcome"] is not None:
+            raise ActiveRunError("terminal Demo Runs cannot be changed")
+        result["artifacts"] = []
+        result["evidence_capture"] = {
+            "available": False,
+            "unavailable_reason": reason,
+        }
+        self._write_result(result)
+        return deepcopy(result)
+
     def seal(
         self,
         run_id: str,
@@ -196,6 +247,7 @@ class RunResultStore:
         message: str,
         final_safety_state: str,
         failed_phase: str | None = None,
+        failure_details: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         result = self.get(run_id)
         if result["outcome"] is not None:
@@ -217,6 +269,8 @@ class RunResultStore:
             if failed_phase is not None
             else (prior_phase if outcome == "FAILED" else None)
         )
+        if failure_details:
+            result["failure_details"] = deepcopy(failure_details)
         stages = result.get("stage_results", {})
         home_distance = None
         heading_error = None
@@ -270,6 +324,32 @@ class RunResultStore:
             key=lambda result: result["started_at_utc"],
             reverse=True,
         )
+
+    def artifact_path(
+        self,
+        run_id: str,
+        filename: str,
+    ) -> tuple[Path, str]:
+        result = self.get(run_id)
+        artifact = next(
+            (
+                item
+                for item in result.get("artifacts", [])
+                if isinstance(item, dict) and item.get("filename") == filename
+            ),
+            None,
+        )
+        if artifact is None:
+            raise RunResultNotFound(filename)
+        relative_path = artifact.get("relative_path")
+        content_type = artifact.get("content_type")
+        if not isinstance(relative_path, str) or not isinstance(content_type, str):
+            raise RunResultNotFound(filename)
+        run_dir = (self.root / str(UUID(run_id))).resolve()
+        path = (run_dir / relative_path).resolve()
+        if path.parent != (run_dir / "snapshots").resolve() or not path.is_file():
+            raise RunResultNotFound(filename)
+        return path, content_type
 
     def _append_event(
         self,

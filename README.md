@@ -100,6 +100,28 @@ qualification progress without granting the UI any motion authority.
 After every run, `/debug` shows `COMPLETED`, `FAILED`, or `NOT_RUN` for each of
 the eight executable stages and the exact recorded evidence. The terminal Run
 Result also materializes the latest trustworthy Home Distance and heading error.
+It links a bounded evidence archive containing the latest 40 raw, unannotated
+camera frames sampled at 0.5-second intervals, an annotated terminal frame, and
+the recognition summary used to explain a failed search. The rolling archive is
+diagnostic evidence, not a complete video recording.
+
+### Label captured frames in Fieldmark
+
+Fieldmark remains a perception-only labeling tool and never receives motion
+authority. There are two supported ways to give it images:
+
+1. In Fieldmark, use **Capture from Go2** and set the frame endpoint to
+   `http://woof.local:8111/api/camera/raw.jpg`.
+2. After a Demo Run, open `http://woof.local:8110/debug`, download
+   `evidence.zip`, extract `frames/*.jpg`, and upload those images to Fieldmark.
+
+The files under `frames/` are deliberately unannotated so the current detector
+cannot bias manual boxes. `terminal/annotated.jpg`, `terminal.jpg`, and
+`manifest.json` retain the model output and source metadata for comparison.
+Choose or create the `pear` class in Fieldmark, draw the boxes, then export the
+dataset in the required YOLO or COCO format. Fruit selection is temporarily
+fixed to pear; future fruit classes must use this same runtime-neutral evidence
+contract rather than adding motion controls to the labeler.
 
 For a complete zero-motion base Demo Run, explicitly start with
 `BORDER_COLLIE_RUNTIME_MODE=simulation`. The audience UI shows a persistent
@@ -144,7 +166,9 @@ Two independent environment gates are required:
 The production media process is `media.perception_sidecar:app` on port `8111`.
 It owns one Go2 WebRTC connection, advances PTS/time-base evidence, binds every
 pear box to its exact generation and source marker, and exposes `/api/bark` on
-the same connection. It never imports or creates a motion client. The TensorRT
+the same connection. It also exposes the raw Fieldmark source at
+`/api/camera/raw.jpg` and the bounded archive at `/api/evidence/clip.zip`. It
+never imports or creates a motion client. The TensorRT
 engine is a temporary provisioned deployment artifact at `/media/model.engine`;
 it is not committed to Git. The planned model adapter uses Modular MAX and the
 MAX/Mojo stack while preserving the same runtime-neutral camera/perception

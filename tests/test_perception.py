@@ -59,6 +59,9 @@ def test_status_preserves_validated_geometry_for_approach_and_arrival() -> None:
     assert status["detection"]["center_x_ratio"] == 0.5
     assert status["detection"]["center_y_ratio"] == pytest.approx(0.736111)
     assert status["detection"]["bottom_ratio"] == pytest.approx(0.972222)
+    assert status["detection"]["bbox_width_ratio"] == 0.25
+    assert status["detection"]["bbox_height_ratio"] == pytest.approx(0.472222)
+    assert status["detection"]["bbox_area_ratio"] == pytest.approx(0.1180556)
 
 
 def test_detection_must_be_bound_to_the_current_camera_generation() -> None:

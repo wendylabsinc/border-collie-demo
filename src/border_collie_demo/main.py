@@ -7,6 +7,7 @@ from fastapi import FastAPI
 
 from .api import create_app
 from .config import HardwareConfig, PerceptionConfig
+from .evidence import TerminalEvidenceClient
 from .hardware import HardwareManager
 from .media import BarkClient, BarkConfig
 from .orchestrator import SimulatedStageExecutor
@@ -34,11 +35,13 @@ def build_app_from_env() -> FastAPI:
     hardware = HardwareManager(HardwareConfig.from_env())
     perception = PerceptionStatusClient(PerceptionConfig.from_env())
     bark = BarkClient(BarkConfig.from_env())
+    terminal_evidence = TerminalEvidenceClient.from_env()
     return create_app(
         hardware=hardware,
         camera_perception_status=perception.status,
         media_status=bark.status,
         stage_executor=ProductionStageExecutor(hardware, perception.status, bark),
+        terminal_evidence=terminal_evidence.capture,
         runtime_mode="production",
     )
 

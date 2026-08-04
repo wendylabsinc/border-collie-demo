@@ -1,13 +1,15 @@
 import asyncio
 import io
+import json
 import logging
 import time
+import zipfile
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
 from media import perception_sidecar
-from media.perception_sidecar import PerceptionEvidence, create_app
+from media.perception_sidecar import EvidenceFrameBuffer, PerceptionEvidence, create_app
 
 
 def test_preview_encoding_cannot_starve_the_sidecar_status_event_loop() -> None:
@@ -30,7 +32,7 @@ def test_preview_encoding_cannot_starve_the_sidecar_status_event_loop() -> None:
             time.sleep(0.15)
 
         runtime._publish_preview = slow_preview
-        runtime._frames.put_nowait((Frame(), time.monotonic(), 1))
+        runtime._frames.put_nowait((Frame(), time.monotonic(), 1, "1/90000"))
 
         loop = asyncio.get_running_loop()
         status_tick = asyncio.Event()
@@ -150,6 +152,92 @@ def test_media_http_boundary_exposes_the_latest_annotated_camera_frame() -> None
     assert response.headers["content-type"] == "image/jpeg"
     assert response.headers["cache-control"] == "no-store"
     assert response.content == jpeg
+
+
+def test_media_http_boundary_exposes_fieldmark_raw_frame_and_evidence_archive() -> None:
+    raw_jpeg = b"\xff\xd8raw-fieldmark-frame\xff\xd9"
+    archive = b"PK\x03\x04fieldmark-evidence"
+
+    class Runtime:
+        async def start(self) -> None:
+            pass
+
+        async def close(self) -> None:
+            pass
+
+        def raw_camera_frame(self) -> bytes:
+            return raw_jpeg
+
+        def evidence_archive(self) -> bytes:
+            return archive
+
+    with TestClient(create_app(Runtime())) as client:
+        raw = client.get("/api/camera/raw.jpg")
+        evidence = client.get("/api/evidence/clip.zip")
+
+    assert raw.status_code == 200
+    assert raw.headers["content-type"] == "image/jpeg"
+    assert raw.headers["cache-control"] == "no-store"
+    assert raw.content == raw_jpeg
+    assert evidence.status_code == 200
+    assert evidence.headers["content-type"] == "application/zip"
+    assert evidence.headers["content-disposition"] == (
+        'attachment; filename="border-collie-evidence.zip"'
+    )
+    assert evidence.content == archive
+
+
+def test_evidence_archive_is_a_bounded_fieldmark_ready_raw_frame_sequence() -> None:
+    buffer = EvidenceFrameBuffer(generation="camera-1", maximum_frames=2)
+    for sequence, confidence, bbox in (
+        (1, 0.01, (10, 20, 20, 40)),
+        (2, 0.02, (30, 40, 50, 80)),
+        (3, 0.03, (60, 80, 100, 160)),
+    ):
+        buffer.record(
+            raw_jpeg=f"raw-{sequence}".encode(),
+            annotated_jpeg=f"annotated-{sequence}".encode(),
+            pts=sequence * 100,
+            time_base="1/90000",
+            received_monotonic_s=10.0 + sequence,
+            width=200,
+            height=200,
+            detection={
+                "label": "pear",
+                "confidence": confidence,
+                "bbox_xyxy": list(bbox),
+            },
+        )
+
+    assert buffer.raw_camera_frame() == b"raw-3"
+
+    with zipfile.ZipFile(io.BytesIO(buffer.archive())) as archive:
+        assert archive.namelist() == [
+            "manifest.json",
+            "frames/000001.jpg",
+            "frames/000002.jpg",
+            "terminal/annotated.jpg",
+        ]
+        manifest = json.loads(archive.read("manifest.json"))
+        assert archive.read("frames/000001.jpg") == b"raw-2"
+        assert archive.read("frames/000002.jpg") == b"raw-3"
+        assert archive.read("terminal/annotated.jpg") == b"annotated-3"
+
+    assert manifest["schema_version"] == 1
+    assert manifest["generation"] == "camera-1"
+    assert manifest["format"] == "fieldmark-image-sequence"
+    assert manifest["summary"] == {
+        "sample_count": 2,
+        "pear_candidate_samples": 2,
+        "maximum_confidence": 0.03,
+        "maximum_bbox_area_ratio": 0.08,
+        "closest_detection": {
+            "source_pts": 300,
+            "confidence": 0.03,
+            "bbox_xyxy": [60, 80, 100, 160],
+            "bbox_area_ratio": 0.08,
+        },
+    }
 
 
 def test_source_gap_resets_camera_and_detection_stability() -> None:

@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from border_collie_demo.hardware import CameraFailure
+from border_collie_demo.hardware import CameraFailure, TargetLost
 from border_collie_demo.models import MissionPhase
 from border_collie_demo.orchestrator import StageContext, StageFailure
 from border_collie_demo.production import ProductionStageExecutor
@@ -243,5 +243,40 @@ def test_camera_failure_is_preserved_as_the_terminal_stage_reason() -> None:
 
         assert failure.value.reason == "CAMERA_FAILURE"
         assert failure.value.message == "source progress is stale"
+
+    asyncio.run(scenario())
+
+
+def test_search_target_loss_is_classified_with_recognition_evidence() -> None:
+    class DistantPearHardware(FakeProductionHardware):
+        async def find_target(self, *_args, **_options):
+            raise TargetLost(
+                "pear was not found in the bounded search sweep",
+                evidence={
+                    "samples": 42,
+                    "pear_candidate_samples": 27,
+                    "maximum_confidence": 0.019,
+                    "maximum_bbox_area_ratio": 0.001,
+                },
+            )
+
+    async def scenario() -> None:
+        stages = ProductionStageExecutor(DistantPearHardware(), dict, FakeBark())
+
+        with pytest.raises(StageFailure) as failure:
+            await stages.execute(MissionPhase.TURN_TO_FRUIT, context())
+
+        assert failure.value.reason == "TARGET_RECOGNITION_FAILURE"
+        assert failure.value.message == (
+            "pear was not found in the bounded search sweep"
+        )
+        assert failure.value.details == {
+            "recognition": {
+                "samples": 42,
+                "pear_candidate_samples": 27,
+                "maximum_confidence": 0.019,
+                "maximum_bbox_area_ratio": 0.001,
+            }
+        }
 
     asyncio.run(scenario())

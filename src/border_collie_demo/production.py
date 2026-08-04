@@ -52,7 +52,19 @@ class ProductionStageExecutor:
         except CameraFailure as exc:
             raise StageFailure("CAMERA_FAILURE", str(exc)) from exc
         except TargetLost as exc:
-            raise StageFailure(DEFAULT_STAGE_FAILURE_REASONS[phase], str(exc)) from exc
+            search_phase = phase in (
+                MissionPhase.TURN_TO_FRUIT,
+                MissionPhase.FIND_FRUIT,
+            )
+            raise StageFailure(
+                (
+                    "TARGET_RECOGNITION_FAILURE"
+                    if search_phase
+                    else DEFAULT_STAGE_FAILURE_REASONS[phase]
+                ),
+                str(exc),
+                details={"recognition": exc.evidence} if exc.evidence else None,
+            ) from exc
         except HardwareUnavailable as exc:
             raise StageFailure(DEFAULT_STAGE_FAILURE_REASONS[phase], str(exc)) from exc
         except BarkFailure as exc:

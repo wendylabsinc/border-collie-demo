@@ -21,7 +21,10 @@ an advancing healthy camera/perception source, and bark-media readiness. Pear
 evidence is intentionally not an activation gate: `TURN_TO_FRUIT` happens
 first and rotates through at most one measured revolution until fresh qualified
 pear evidence stops the turn. `FIND_FRUIT` then confirms or briefly reacquires
-that evidence before approach. Any failed or errored preflight check seals the Demo Run as
+that evidence before approach. Completing the bounded search with healthy,
+advancing frames but no qualified pear records `TARGET_RECOGNITION_FAILURE`
+with the strongest candidate statistics and a downloadable raw-frame evidence
+archive for Fieldmark labeling. Any failed or errored preflight check seals the Demo Run as
 `FAILED` with reason `PREFLIGHT_FAILURE`; only an all-ready report may advance
 to `CAPTURE_HOME`. Home capture then reads a new fresh, disarmed
 `rt/sportmodestate` pose, persists its position and heading, and advances to

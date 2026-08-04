@@ -7,9 +7,14 @@ source/detection evidence and the preloaded bark action.
 from __future__ import annotations
 
 import asyncio
+import io
+import json
 import logging
+import math
 import os
 import time
+import zipfile
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from functools import partial
@@ -23,6 +28,152 @@ from fastapi import FastAPI, HTTPException, Response
 def configure_media_logging() -> None:
     """Prevent recoverable decoder packet errors from flooding device logs."""
     logging.getLogger("aiortc.codecs.h264").setLevel(logging.ERROR)
+
+
+class EvidenceFrameBuffer:
+    """Bounded raw-frame history for review and Fieldmark labeling."""
+
+    def __init__(self, *, generation: str, maximum_frames: int = 40) -> None:
+        if maximum_frames < 1:
+            raise ValueError("maximum_frames must be positive")
+        self.generation = generation
+        self._frames: deque[dict[str, object]] = deque(maxlen=maximum_frames)
+        self._lock = Lock()
+
+    def record(
+        self,
+        *,
+        raw_jpeg: bytes,
+        annotated_jpeg: bytes,
+        pts: int,
+        time_base: str,
+        received_monotonic_s: float,
+        width: int,
+        height: int,
+        detection: dict[str, object],
+    ) -> None:
+        frame = {
+            "raw_jpeg": bytes(raw_jpeg),
+            "annotated_jpeg": bytes(annotated_jpeg),
+            "source_pts": int(pts),
+            "source_time_base": str(time_base),
+            "received_monotonic_s": float(received_monotonic_s),
+            "width": int(width),
+            "height": int(height),
+            "detection": dict(detection),
+        }
+        with self._lock:
+            self._frames.append(frame)
+
+    def raw_camera_frame(self) -> bytes:
+        with self._lock:
+            if not self._frames:
+                raise RuntimeError("raw camera frame is not ready")
+            return bytes(self._frames[-1]["raw_jpeg"])
+
+    def archive(self) -> bytes:
+        with self._lock:
+            frames = [dict(frame) for frame in self._frames]
+        if not frames:
+            raise RuntimeError("camera evidence history is not ready")
+
+        manifest_frames: list[dict[str, object]] = []
+        closest: dict[str, object] | None = None
+        maximum_confidence: float | None = None
+        pear_candidates = 0
+        for index, frame in enumerate(frames, start=1):
+            detection = frame["detection"]
+            assert isinstance(detection, dict)
+            confidence = _finite_number(detection.get("confidence"))
+            bbox = _valid_bbox(
+                detection.get("bbox_xyxy"),
+                int(frame["width"]),
+                int(frame["height"]),
+            )
+            bbox_area_ratio = None
+            if bbox is not None:
+                x1, y1, x2, y2 = bbox
+                bbox_area_ratio = ((x2 - x1) * (y2 - y1)) / (
+                    int(frame["width"]) * int(frame["height"])
+                )
+            if str(detection.get("label") or "").casefold() == "pear":
+                pear_candidates += 1
+            if confidence is not None:
+                maximum_confidence = (
+                    confidence
+                    if maximum_confidence is None
+                    else max(maximum_confidence, confidence)
+                )
+            if bbox_area_ratio is not None and (
+                closest is None
+                or bbox_area_ratio > float(closest["bbox_area_ratio"])
+            ):
+                closest = {
+                    "source_pts": frame["source_pts"],
+                    "confidence": confidence,
+                    "bbox_xyxy": list(bbox) if bbox is not None else None,
+                    "bbox_area_ratio": bbox_area_ratio,
+                }
+            manifest_frames.append(
+                {
+                    "filename": f"frames/{index:06d}.jpg",
+                    "source_pts": frame["source_pts"],
+                    "source_time_base": frame["source_time_base"],
+                    "received_monotonic_s": frame["received_monotonic_s"],
+                    "width": frame["width"],
+                    "height": frame["height"],
+                    "detection": {
+                        **detection,
+                        "bbox_area_ratio": bbox_area_ratio,
+                    },
+                }
+            )
+
+        manifest = {
+            "schema_version": 1,
+            "generation": self.generation,
+            "format": "fieldmark-image-sequence",
+            "frames": manifest_frames,
+            "summary": {
+                "sample_count": len(frames),
+                "pear_candidate_samples": pear_candidates,
+                "maximum_confidence": maximum_confidence,
+                "maximum_bbox_area_ratio": (
+                    None if closest is None else closest["bbox_area_ratio"]
+                ),
+                "closest_detection": closest,
+            },
+        }
+        destination = io.BytesIO()
+        with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_STORED) as archive:
+            archive.writestr("manifest.json", json.dumps(manifest, indent=2))
+            for index, frame in enumerate(frames, start=1):
+                archive.writestr(f"frames/{index:06d}.jpg", frame["raw_jpeg"])
+            archive.writestr("terminal/annotated.jpg", frames[-1]["annotated_jpeg"])
+        return destination.getvalue()
+
+
+def _finite_number(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    return number if math.isfinite(number) else None
+
+
+def _valid_bbox(
+    value: object,
+    width: int,
+    height: int,
+) -> tuple[float, float, float, float] | None:
+    if not isinstance(value, (list, tuple)) or len(value) != 4:
+        return None
+    values = tuple(_finite_number(item) for item in value)
+    if any(item is None for item in values):
+        return None
+    x1, y1, x2, y2 = (float(item) for item in values if item is not None)
+    if not (0.0 <= x1 < x2 <= width and 0.0 <= y1 < y2 <= height):
+        return None
+    return x1, y1, x2, y2
 
 
 class PerceptionEvidence:
@@ -133,7 +284,17 @@ class PerceptionRuntime:
             "161387de-21ab-4f0b-b4e9-97124b000d06",
         )
         self.evidence = PerceptionEvidence(generation=uuid4().hex)
-        self._frames: asyncio.Queue[tuple[Any, float, int]] = asyncio.Queue(maxsize=1)
+        self._frames: asyncio.Queue[tuple[Any, float, int, str]] = asyncio.Queue(
+            maxsize=1
+        )
+        self._evidence_frames = EvidenceFrameBuffer(
+            generation=self.evidence.generation,
+            maximum_frames=int(os.environ.get("EVIDENCE_MAXIMUM_FRAMES", "40")),
+        )
+        self._evidence_interval_s = float(
+            os.environ.get("EVIDENCE_FRAME_INTERVAL_S", "0.5")
+        )
+        self._last_evidence_capture_s: float | None = None
         self._connection: Any | None = None
         self._audiohub: Any | None = None
         self._detector_task: asyncio.Task[None] | None = None
@@ -210,6 +371,12 @@ class PerceptionRuntime:
                 raise RuntimeError("annotated camera preview is not ready")
             return self._preview_jpeg
 
+    def raw_camera_frame(self) -> bytes:
+        return self._evidence_frames.raw_camera_frame()
+
+    def evidence_archive(self) -> bytes:
+        return self._evidence_frames.archive()
+
     async def _consume_camera(self, track: Any) -> None:
         try:
             while True:
@@ -230,7 +397,7 @@ class PerceptionRuntime:
                 )
                 if self._frames.full():
                     self._frames.get_nowait()
-                self._frames.put_nowait((frame, received, pts))
+                self._frames.put_nowait((frame, received, pts, str(frame.time_base)))
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 - WebRTC errors are untyped
@@ -240,15 +407,23 @@ class PerceptionRuntime:
         assert self._model is not None and self._pear_class_id is not None
         loop = asyncio.get_running_loop()
         while True:
-            frame, _received, pts = await self._frames.get()
+            frame, received, pts, time_base = await self._frames.get()
             await loop.run_in_executor(
                 self._inference_executor,
                 self._process_frame,
                 frame,
+                received,
                 pts,
+                time_base,
             )
 
-    def _process_frame(self, frame: Any, pts: int) -> None:
+    def _process_frame(
+        self,
+        frame: Any,
+        received_monotonic_s: float,
+        pts: int,
+        time_base: str,
+    ) -> None:
         """Own all frame conversion, model, postprocess, and preview work."""
         assert self._model is not None and self._pear_class_id is not None
         bgr = frame.to_ndarray(format="bgr24")
@@ -263,7 +438,15 @@ class PerceptionRuntime:
             )
         except Exception as exc:  # noqa: BLE001 - detector errors are untyped
             self.evidence.fail(f"detector failure: {type(exc).__name__}: {exc}")
-            self._publish_preview(bgr, message="MODEL ERROR", color=(0, 0, 255))
+            self._publish_preview(
+                bgr,
+                message="MODEL ERROR",
+                color=(0, 0, 255),
+                pts=pts,
+                time_base=time_base,
+                received_monotonic_s=received_monotonic_s,
+                detection={},
+            )
             return
         completed = time.monotonic()
         result = results[0] if results else None
@@ -274,6 +457,10 @@ class PerceptionRuntime:
                 bgr,
                 message="SEARCHING FOR PEAR",
                 color=(0, 191, 255),
+                pts=pts,
+                time_base=time_base,
+                received_monotonic_s=received_monotonic_s,
+                detection={},
             )
             return
         confidences = boxes.conf.detach().cpu().tolist()
@@ -297,6 +484,10 @@ class PerceptionRuntime:
                 f"{self.evidence.status()['detection']['consecutive_detections']}/5"
             ),
             color=(0, 200, 0),
+            pts=pts,
+            time_base=time_base,
+            received_monotonic_s=received_monotonic_s,
+            detection=dict(self.evidence.status()["detection"]),
         )
 
     def _publish_preview(
@@ -305,6 +496,10 @@ class PerceptionRuntime:
         *,
         message: str,
         color: tuple[int, int, int],
+        pts: int,
+        time_base: str,
+        received_monotonic_s: float,
+        detection: dict[str, object],
         bbox_xyxy: tuple[int, int, int, int] | None = None,
     ) -> None:
         import cv2
@@ -344,6 +539,31 @@ class PerceptionRuntime:
             return
         with self._preview_lock:
             self._preview_jpeg = jpeg.tobytes()
+        if (
+            self._last_evidence_capture_s is not None
+            and received_monotonic_s - self._last_evidence_capture_s
+            < self._evidence_interval_s
+        ):
+            return
+        raw_encoded, raw_jpeg = cv2.imencode(
+            ".jpg",
+            bgr,
+            [cv2.IMWRITE_JPEG_QUALITY, 80],
+        )
+        if not raw_encoded:
+            self.evidence.fail("raw camera evidence JPEG encoding failed")
+            return
+        self._evidence_frames.record(
+            raw_jpeg=raw_jpeg.tobytes(),
+            annotated_jpeg=jpeg.tobytes(),
+            pts=pts,
+            time_base=time_base,
+            received_monotonic_s=received_monotonic_s,
+            width=int(bgr.shape[1]),
+            height=int(bgr.shape[0]),
+            detection=detection,
+        )
+        self._last_evidence_capture_s = received_monotonic_s
 
 
 def create_app(runtime: PerceptionRuntime | None = None) -> FastAPI:
@@ -380,6 +600,35 @@ def create_app(runtime: PerceptionRuntime | None = None) -> FastAPI:
             content=jpeg,
             media_type="image/jpeg",
             headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get("/api/camera/raw.jpg")
+    async def raw_camera_frame() -> Response:
+        try:
+            jpeg = media.raw_camera_frame()
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return Response(
+            content=jpeg,
+            media_type="image/jpeg",
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get("/api/evidence/clip.zip")
+    async def evidence_archive() -> Response:
+        try:
+            archive = await asyncio.to_thread(media.evidence_archive)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return Response(
+            content=archive,
+            media_type="application/zip",
+            headers={
+                "Cache-Control": "no-store",
+                "Content-Disposition": (
+                    'attachment; filename="border-collie-evidence.zip"'
+                ),
+            },
         )
 
     return app

@@ -138,11 +138,17 @@ def evaluate_perception_evidence(
     center_x_ratio = None
     center_y_ratio = None
     bottom_ratio = None
+    bbox_width_ratio = None
+    bbox_height_ratio = None
+    bbox_area_ratio = None
     if bbox is not None and source_width and source_height:
         x1, y1, x2, y2 = bbox
         center_x_ratio = ((x1 + x2) / 2.0) / source_width
         center_y_ratio = ((y1 + y2) / 2.0) / source_height
         bottom_ratio = y2 / source_height
+        bbox_width_ratio = (x2 - x1) / source_width
+        bbox_height_ratio = (y2 - y1) / source_height
+        bbox_area_ratio = bbox_width_ratio * bbox_height_ratio
     return {
         "ready": ready,
         "camera_healthy": camera_healthy,
@@ -176,6 +182,9 @@ def evaluate_perception_evidence(
             "center_x_ratio": center_x_ratio,
             "center_y_ratio": center_y_ratio,
             "bottom_ratio": bottom_ratio,
+            "bbox_width_ratio": bbox_width_ratio,
+            "bbox_height_ratio": bbox_height_ratio,
+            "bbox_area_ratio": bbox_area_ratio,
         },
         "thresholds": {
             "source_maximum_age_s": SOURCE_MAXIMUM_AGE_S,

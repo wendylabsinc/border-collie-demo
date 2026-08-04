@@ -255,3 +255,18 @@ Evidence: `lab/pear-evidence/results/PEAR-EVIDENCE-001.json` and
 
 Evidence: `lab/camera-reconnect/results/CAMERA-RECONNECT-001.json` and
 `lab/camera-reconnect/results/CAMERA-RECONNECT-001.jpg`.
+
+## DISTANT-PEAR-DIAGNOSTICS — implemented, hardware validation pending
+
+- A failed healthy-camera search is now classified separately as
+  `TARGET_RECOGNITION_FAILURE`, not motion or camera failure.
+- The Run Result retains search sample count, pear-candidate count, strongest
+  confidence, largest box-area ratio, closest candidate, and sweep progress.
+- The media process maintains a bounded approximately 20-second raw-frame
+  sequence and an annotated terminal comparison. The app persists both before
+  sealing an orchestrated terminal result and `/debug` links the files.
+- Raw frames are compatible with manual upload to Fieldmark and the live raw
+  endpoint can be configured as Fieldmark's Go2 source.
+- Automated contract tests pass for capture, rolling bounds, persistence,
+  download authorization, and distinct failure classification. This feature is
+  not yet deployed or verified in a new physical distant-pear run.

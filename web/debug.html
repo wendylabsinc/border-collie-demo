@@ -22,6 +22,16 @@
         border: 1px solid currentColor;
         border-radius: 0.5rem;
       }
+      #run-artifacts {
+        padding: 1rem;
+        border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+        border-radius: 0.5rem;
+      }
+      #artifact-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+      }
       #stages {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
@@ -51,6 +61,11 @@
     <main>
       <h1>Demo diagnostics</h1>
       <p id="run-summary" role="status">Loading latest Run Result…</p>
+      <section id="run-artifacts" hidden>
+        <h2>Run evidence</h2>
+        <p id="artifact-help"></p>
+        <div id="artifact-links"></div>
+      </section>
       <section id="stages" aria-label="Demo stage results"></section>
       <details>
         <summary>Live mission and hardware status</summary>
@@ -62,6 +77,9 @@
       const runSummary = document.querySelector('#run-summary');
       const stages = document.querySelector('#stages');
       const status = document.querySelector('#status');
+      const runArtifacts = document.querySelector('#run-artifacts');
+      const artifactHelp = document.querySelector('#artifact-help');
+      const artifactLinks = document.querySelector('#artifact-links');
 
       function renderStage(stage) {
         const card = document.createElement('article');
@@ -76,6 +94,29 @@
           : 'No evidence recorded.';
         card.append(heading, result, evidence);
         return card;
+      }
+
+      function renderArtifacts(run) {
+        const artifacts = run.artifacts || [];
+        runArtifacts.hidden = false;
+        artifactLinks.replaceChildren();
+        if (!artifacts.length) {
+          artifactHelp.textContent = run.evidence_capture?.unavailable_reason
+            || 'No terminal evidence was recorded for this run.';
+          return;
+        }
+        artifactHelp.textContent =
+          'Label raw frames in Fieldmark by downloading evidence.zip, ' +
+          'extracting frames/*.jpg, and uploading those images.';
+        for (const artifact of artifacts) {
+          const link = document.createElement('a');
+          link.href = `/api/results/${run.run_id}/artifacts/` +
+            encodeURIComponent(artifact.filename);
+          link.textContent = artifact.filename === 'evidence.zip'
+            ? 'Download raw evidence frames'
+            : 'View terminal model frame';
+          artifactLinks.append(link);
+        }
       }
 
       async function refresh() {
@@ -97,8 +138,10 @@
             runSummary.textContent =
               `Run ${run.run_id} — ${run.outcome || 'RUNNING'} — ` +
               `${run.reason || 'in progress'}`;
+            renderArtifacts(run);
           } else {
             runSummary.textContent = 'No Demo Run has been recorded yet.';
+            runArtifacts.hidden = true;
           }
           stages.replaceChildren(...diagnostic.stages.map(renderStage));
         } catch (error) {

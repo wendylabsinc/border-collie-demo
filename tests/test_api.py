@@ -5,9 +5,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from border_collie_demo.api import create_app
+from border_collie_demo.evidence import EvidenceArtifact
 from border_collie_demo.mission import MissionMachine
 from border_collie_demo.models import MissionPhase, RemoteInput
-from border_collie_demo.orchestrator import SimulatedStageExecutor
+from border_collie_demo.orchestrator import SimulatedStageExecutor, StageFailure
 
 
 class ReadyHardwareBoundary:
@@ -85,6 +86,15 @@ def test_audience_page_includes_the_annotated_camera_feed() -> None:
     assert 'id="camera-feed"' in response.text
     assert ':8111/api/camera/frame.jpg' in response.text
     assert "YOLO pear model overlay" in response.text
+
+
+def test_debug_page_offers_recorded_evidence_for_fieldmark_labeling() -> None:
+    response = TestClient(create_app()).get("/debug")
+
+    assert response.status_code == 200
+    assert 'id="run-artifacts"' in response.text
+    assert "Label raw frames in Fieldmark" in response.text
+    assert "/api/results/" in response.text
 
 
 def test_status_is_explicitly_non_operational() -> None:
@@ -336,6 +346,88 @@ def test_camera_failure_identifies_find_fruit_as_the_broken_stage(tmp_path) -> N
         assert list(run["stage_results"]) == ["turn_to_fruit"]
 
 
+def test_failed_search_persists_downloadable_fieldmark_evidence(tmp_path) -> None:
+    class DistantPearStages(SimulatedStageExecutor):
+        async def execute(self, phase, context):
+            if phase is MissionPhase.TURN_TO_FRUIT:
+                raise StageFailure(
+                    "TARGET_RECOGNITION_FAILURE",
+                    "pear was not found in the bounded search sweep",
+                    details={
+                        "recognition": {
+                            "samples": 42,
+                            "pear_candidate_samples": 27,
+                            "maximum_confidence": 0.019,
+                            "maximum_bbox_area_ratio": 0.001,
+                        }
+                    },
+                )
+            return await super().execute(phase, context)
+
+    def capture_terminal_evidence() -> list[EvidenceArtifact]:
+        return [
+            EvidenceArtifact(
+                filename="evidence.zip",
+                content_type="application/zip",
+                content=b"PK\x03\x04raw-fieldmark-frames",
+            ),
+            EvidenceArtifact(
+                filename="terminal.jpg",
+                content_type="image/jpeg",
+                content=b"\xff\xd8annotated-terminal\xff\xd9",
+            ),
+        ]
+
+    with TestClient(
+        create_app(
+            runs_root=tmp_path,
+            hardware=ReadyHardwareBoundary(),
+            camera_perception_status=ready_camera_perception,
+            stage_executor=DistantPearStages(),
+            terminal_evidence=capture_terminal_evidence,
+        )
+    ) as client:
+        run_id = client.post(
+            "/api/run", json={"target_fruit": "pear"}
+        ).json()["run"]["run_id"]
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            run = client.get(f"/api/results/{run_id}").json()["run"]
+            if run["outcome"] is not None:
+                break
+            time.sleep(0.01)
+
+        archive = client.get(
+            f"/api/results/{run_id}/artifacts/evidence.zip"
+        )
+        unreferenced = client.get(
+            f"/api/results/{run_id}/artifacts/not-recorded.zip"
+        )
+        diagnostic = client.get("/api/diagnostics/stages").json()
+
+    assert run["reason"] == "TARGET_RECOGNITION_FAILURE"
+    assert run["failure_details"] == {
+        "recognition": {
+            "samples": 42,
+            "pear_candidate_samples": 27,
+            "maximum_confidence": 0.019,
+            "maximum_bbox_area_ratio": 0.001,
+        }
+    }
+    assert [artifact["filename"] for artifact in run["artifacts"]] == [
+        "evidence.zip",
+        "terminal.jpg",
+    ]
+    assert archive.status_code == 200
+    assert archive.headers["content-type"] == "application/zip"
+    assert archive.content == b"PK\x03\x04raw-fieldmark-frames"
+    assert unreferenced.status_code == 404
+    assert [
+        artifact["filename"]
+        for artifact in diagnostic["latest_run"]["artifacts"]
+    ] == ["evidence.zip", "terminal.jpg"]
+
+
 def test_stop_during_a_stage_cancels_the_demo_without_late_resume(tmp_path) -> None:
     with TestClient(
         create_app(
@@ -374,8 +466,8 @@ def test_stop_during_a_stage_cancels_the_demo_without_late_resume(tmp_path) -> N
 @pytest.mark.parametrize(
     ("failed_phase", "reason"),
     [
-        ("turn_to_fruit", "MOTION_FAILURE"),
-        ("find_fruit", "TARGET_LOST"),
+        ("turn_to_fruit", "TARGET_RECOGNITION_FAILURE"),
+        ("find_fruit", "TARGET_RECOGNITION_FAILURE"),
         ("approach_fruit", "ARRIVAL_FAILURE"),
         ("sit_and_bark", "ACTION_FAILURE"),
         ("stand", "ACTION_FAILURE"),
@@ -445,6 +537,14 @@ def test_diagnostics_identifies_completed_failed_and_unreached_stages(
             "outcome": "FAILED",
             "reason": "RETURN_HOME_FAILURE",
             "failed_phase": "return_home",
+            "failure_details": None,
+            "artifacts": [],
+            "evidence_capture": {
+                "available": False,
+                "unavailable_reason": (
+                    "terminal evidence adapter is not configured"
+                ),
+            },
         }
         assert [stage["phase"] for stage in body["stages"]] == [
             "turn_to_fruit",

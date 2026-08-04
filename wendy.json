@@ -16,6 +16,8 @@
         "BORDER_COLLIE_BARK_ENABLED": "1",
         "BORDER_COLLIE_BARK_URL": "http://127.0.0.1:8111/api/bark",
         "BORDER_COLLIE_BARK_STATUS_URL": "http://127.0.0.1:8111/status",
+        "BORDER_COLLIE_EVIDENCE_BASE_URL": "http://127.0.0.1:8111/",
+        "BORDER_COLLIE_EVIDENCE_TIMEOUT_S": "3.0",
         "BORDER_COLLIE_FORWARD_PULSE_MPS": "0.50",
         "BORDER_COLLIE_FORWARD_PULSE_DURATION_S": "0.40",
         "BORDER_COLLIE_MAX_FORWARD_MPS": "1.0",
@@ -31,7 +33,9 @@
       "env": {
         "UNITREE_ROBOT_IP": "192.168.123.161",
         "PEAR_MODEL_PATH": "/media/model.engine",
-        "BORDER_COLLIE_BARK_UUID": "161387de-21ab-4f0b-b4e9-97124b000d06"
+        "BORDER_COLLIE_BARK_UUID": "161387de-21ab-4f0b-b4e9-97124b000d06",
+        "EVIDENCE_MAXIMUM_FRAMES": "40",
+        "EVIDENCE_FRAME_INTERVAL_S": "0.5"
       },
       "entitlements": [
         {"type": "network", "mode": "host"},

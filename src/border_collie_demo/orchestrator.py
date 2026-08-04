@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Any, ClassVar, Protocol
 
+from .evidence import EvidenceArtifact
 from .mission import MissionMachine
 from .models import MissionPhase
 from .run_results import RunResultStore
@@ -30,10 +32,17 @@ class StageExecutor(Protocol):
 
 
 class StageFailure(RuntimeError):
-    def __init__(self, reason: str, message: str) -> None:
+    def __init__(
+        self,
+        reason: str,
+        message: str,
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> None:
         super().__init__(message)
         self.reason = reason
         self.message = message
+        self.details = dict(details or {})
 
 
 EXECUTED_STAGES = (
@@ -48,8 +57,8 @@ EXECUTED_STAGES = (
 )
 
 DEFAULT_STAGE_FAILURE_REASONS = {
-    MissionPhase.TURN_TO_FRUIT: "MOTION_FAILURE",
-    MissionPhase.FIND_FRUIT: "TARGET_LOST",
+    MissionPhase.TURN_TO_FRUIT: "TARGET_RECOGNITION_FAILURE",
+    MissionPhase.FIND_FRUIT: "TARGET_RECOGNITION_FAILURE",
     MissionPhase.APPROACH_FRUIT: "ARRIVAL_FAILURE",
     MissionPhase.SIT_AND_BARK: "ACTION_FAILURE",
     MissionPhase.STAND: "ACTION_FAILURE",
@@ -65,10 +74,28 @@ class DemoOrchestrator:
         mission: MissionMachine,
         results: RunResultStore,
         stages: StageExecutor,
+        terminal_evidence: Callable[[], list[EvidenceArtifact]] | None = None,
     ) -> None:
         self._mission = mission
         self._results = results
         self._stages = stages
+        self._terminal_evidence = terminal_evidence
+
+    async def _capture_terminal_evidence(self, run_id: str) -> None:
+        if self._terminal_evidence is None:
+            self._results.record_evidence_unavailable(
+                run_id,
+                "terminal evidence adapter is not configured",
+            )
+            return
+        try:
+            artifacts = await asyncio.to_thread(self._terminal_evidence)
+            self._results.record_artifacts(run_id, artifacts)
+        except Exception as exc:  # noqa: BLE001 - evidence must not mask safety
+            self._results.record_evidence_unavailable(
+                run_id,
+                f"terminal evidence capture failed: {exc}",
+            )
 
     async def run(self, run_id: str) -> dict[str, Any]:
         run = self._results.get(run_id)
@@ -110,6 +137,7 @@ class DemoOrchestrator:
             stop_errors = await self._stages.stop()
             if stop_errors:
                 raise RuntimeError("; ".join(stop_errors))
+            await self._capture_terminal_evidence(run_id)
             self._mission.advance("Demo Run completed and disarmed")
             return self._results.seal(
                 run_id,
@@ -122,6 +150,7 @@ class DemoOrchestrator:
         except StageFailure as exc:
             failed_phase = self._mission.phase.value
             stop_errors = await self._stages.stop()
+            await self._capture_terminal_evidence(run_id)
             self._mission.fail(exc.message)
             return self._results.seal(
                 run_id,
@@ -135,10 +164,12 @@ class DemoOrchestrator:
                     else "STOP_REQUESTED_UNCONFIRMED"
                 ),
                 failed_phase=failed_phase,
+                failure_details=exc.details,
             )
         except Exception as exc:  # noqa: BLE001 - terminal safety boundary
             failed_phase = self._mission.phase.value
             stop_errors = await self._stages.stop()
+            await self._capture_terminal_evidence(run_id)
             self._mission.fail(f"Demo Run failed: {exc}")
             return self._results.seal(
                 run_id,

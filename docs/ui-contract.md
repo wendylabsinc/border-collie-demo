@@ -47,7 +47,8 @@ The operator-only diagnostic route displays:
 - motion owner, armed state, active primitive, watchdog, last command, and
   stop/release evidence;
 - Remote Takeover latch and restart requirement;
-- current and previous Run Results with their annotated snapshots; and
+- current and previous Run Results with their annotated snapshots, raw-frame
+  evidence downloads, and recognition summaries; and
 - application/build, robot, model, and threshold versions.
 
 ## Isolated diagnostic actions
@@ -90,7 +91,10 @@ offers resume or reset.
 
 Both surfaces read the contract in [`run-result-contract.md`](run-result-contract.md).
 The audience surface shows a compact summary. Diagnostics exposes the complete
-record, journal-derived phase timeline, metrics, and referenced snapshots.
+record, journal-derived phase timeline, metrics, and referenced evidence. A
+failed-run archive is offered as a one-click download for extraction and manual
+labeling in Fieldmark; the UI never sends those images to an external service
+automatically.
 
 Result routes are read-only. They accept only full Run IDs and snapshot
 references already present in the Run Result. They cannot delete, relabel,
@@ -105,7 +109,7 @@ The UI contract requires narrow APIs with these semantics:
 - read current readiness, active run, and mission status;
 - list durable Run Result summaries newest first;
 - read one complete Run Result by full Run ID; and
-- read only snapshots referenced by that result.
+- read only snapshots or evidence archives referenced by that result.
 
 Diagnostic execution APIs use a separate namespace and explicit feature gates.
 They are absent or return unavailable in the audience deployment unless the

@@ -60,12 +60,22 @@ def test_production_runtime_wires_the_real_stage_executor(tmp_path, monkeypatch)
         def status():
             return {"ready": True, "detail": "bark ready"}
 
+    class Evidence:
+        @classmethod
+        def from_env(cls):
+            return cls()
+
+        @staticmethod
+        def capture():
+            return []
+
     hardware = SimulatedHardware()
     monkeypatch.setenv("BORDER_COLLIE_RUNTIME_MODE", "production")
     monkeypatch.setenv("BORDER_COLLIE_RUNS_DIR", str(tmp_path))
     monkeypatch.setattr(main_module, "HardwareManager", lambda _config: hardware)
     monkeypatch.setattr(main_module, "PerceptionStatusClient", Perception)
     monkeypatch.setattr(main_module, "BarkClient", Bark)
+    monkeypatch.setattr(main_module, "TerminalEvidenceClient", Evidence)
     monkeypatch.setattr(main_module, "ProductionStageExecutor", stages)
 
     with TestClient(build_app_from_env()) as client:
