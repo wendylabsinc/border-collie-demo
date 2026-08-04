@@ -4,18 +4,106 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Border Collie Diagnostics</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: system-ui, sans-serif;
+      }
+      body {
+        margin: 0;
+        padding: 1rem;
+      }
+      main {
+        max-width: 72rem;
+        margin: 0 auto;
+      }
+      #run-summary {
+        padding: 1rem;
+        border: 1px solid currentColor;
+        border-radius: 0.5rem;
+      }
+      #stages {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+        gap: 0.75rem;
+        margin: 1rem 0 2rem;
+      }
+      .stage {
+        padding: 1rem;
+        border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+        border-radius: 0.5rem;
+      }
+      .stage h2 {
+        margin-top: 0;
+        font-size: 1rem;
+      }
+      .stage pre,
+      #status {
+        overflow-wrap: anywhere;
+        white-space: pre-wrap;
+      }
+      .COMPLETED { border-color: #2e9d55; }
+      .FAILED { border-color: #d54a4a; }
+      .NOT_RUN { opacity: 0.7; }
+    </style>
   </head>
   <body>
     <main>
-      <h1>Diagnostics</h1>
-      <pre id="status">Loading…</pre>
+      <h1>Demo diagnostics</h1>
+      <p id="run-summary" role="status">Loading latest Run Result…</p>
+      <section id="stages" aria-label="Demo stage results"></section>
+      <details>
+        <summary>Live mission and hardware status</summary>
+        <pre id="status">Loading…</pre>
+      </details>
       <p><a href="/">Back to demo</a></p>
     </main>
     <script>
+      const runSummary = document.querySelector('#run-summary');
+      const stages = document.querySelector('#stages');
+      const status = document.querySelector('#status');
+
+      function renderStage(stage) {
+        const card = document.createElement('article');
+        card.className = `stage ${stage.status}`;
+        const heading = document.createElement('h2');
+        heading.textContent = stage.phase.replaceAll('_', ' ');
+        const result = document.createElement('strong');
+        result.textContent = stage.status;
+        const evidence = document.createElement('pre');
+        evidence.textContent = stage.evidence
+          ? JSON.stringify(stage.evidence, null, 2)
+          : 'No evidence recorded.';
+        card.append(heading, result, evidence);
+        return card;
+      }
+
       async function refresh() {
-        const response = await fetch('/api/status', {cache: 'no-store'});
-        document.querySelector('#status').textContent =
-          JSON.stringify(await response.json(), null, 2);
+        try {
+          const [statusResponse, diagnosticResponse] = await Promise.all([
+            fetch('/api/status', {cache: 'no-store'}),
+            fetch('/api/diagnostics/stages', {cache: 'no-store'}),
+          ]);
+          if (!statusResponse.ok || !diagnosticResponse.ok) {
+            throw new Error('Diagnostic API is unavailable.');
+          }
+          const [live, diagnostic] = await Promise.all([
+            statusResponse.json(),
+            diagnosticResponse.json(),
+          ]);
+          status.textContent = JSON.stringify(live, null, 2);
+          if (diagnostic.latest_run) {
+            const run = diagnostic.latest_run;
+            runSummary.textContent =
+              `Run ${run.run_id} — ${run.outcome || 'RUNNING'} — ` +
+              `${run.reason || 'in progress'}`;
+          } else {
+            runSummary.textContent = 'No Demo Run has been recorded yet.';
+          }
+          stages.replaceChildren(...diagnostic.stages.map(renderStage));
+        } catch (error) {
+          runSummary.textContent = error.message;
+        }
       }
       refresh();
       setInterval(refresh, 1000);

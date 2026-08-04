@@ -51,6 +51,18 @@ class MissionMachine:
         self._record(next_phase, reason)
         return self.phase
 
+    def begin_run(self, reason: str) -> MissionPhase:
+        self._require_process_control()
+        if self.phase not in {
+            MissionPhase.IDLE,
+            MissionPhase.COMPLETE,
+            MissionPhase.STOPPED,
+            MissionPhase.FAILED,
+        }:
+            raise MissionError(f"cannot begin a Demo Run from {self.phase.value}")
+        self._record(MissionPhase.PREFLIGHT, reason)
+        return self.phase
+
     def stop(self, reason: str = "operator stop") -> MissionPhase:
         self._require_process_control()
         self._record(MissionPhase.STOPPED, reason)
@@ -77,8 +89,6 @@ class MissionMachine:
             "reason": self.reason,
             "remote_takeover_latched": self.takeover_latched,
             "restart_required": self.takeover_latched,
-            "hardware_enabled": False,
-            "can_move": False,
             "history": [
                 {
                     "phase": event.phase.value,

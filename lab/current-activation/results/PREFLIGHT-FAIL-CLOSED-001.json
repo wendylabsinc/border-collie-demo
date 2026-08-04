@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "test_id": "PREFLIGHT-FAIL-CLOSED-001",
+  "observed_at_local": "2026-08-03T11:15:06-07:00",
+  "application": "border-collie-demo",
+  "url": "http://127.0.0.1:8110/",
+  "hardware_enabled": false,
+  "lab_motion_enabled": false,
+  "run": {
+    "run_id": "58c116e4-bb31-4a90-a21e-d25c4f6b3b31",
+    "target_fruit": "pear",
+    "outcome": "FAILED",
+    "reason": "PREFLIGHT_FAILURE",
+    "failed_phase": "preflight",
+    "final_safety_state": "DISARMED_CONFIRMED",
+    "event_phases": [
+      "idle",
+      "preflight",
+      "preflight",
+      "failed"
+    ]
+  },
+  "preflight_checks": {
+    "durable_run_storage": true,
+    "hardware_connected": false,
+    "fresh_pose": false,
+    "motion_disarmed": true,
+    "camera_perception_ready": false
+  },
+  "audience_ui": {
+    "activate_enabled_before": true,
+    "terminal_result_retained": true,
+    "activate_enabled_after_terminal_result": true
+  },
+  "physical_motion_command_sent": false,
+  "outcome": "PASSED"
+}

@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "project": "border-collie-demo",
+  "component": "media",
+  "tool_version": "0.5.0b3",
+  "status": "deployed_with_registry_fallback",
+  "control_warmup": {
+    "duration_seconds": 25.382,
+    "context_bytes": 48529651,
+    "rebuilt_steps": 0,
+    "failure": "Docker content store ran out of space while loading the Jetson GPU base"
+  },
+  "candidate_trials": 1,
+  "control_trials": 0,
+  "deployed": true,
+  "redeploy_follow_up": {
+    "timestamp": "2026-08-03",
+    "builder": "buildkit",
+    "duration_seconds": 0.458,
+    "status": "failed_before_build",
+    "failure": "Wendy 2026.07.27-003050 advertises buildkit but rejects it as an unsupported image builder"
+  },
+  "capacity_follow_up": {
+    "docker_volume_before_gib": 20,
+    "docker_volume_after_gib": 60,
+    "data_deleted": false
+  },
+  "chunk_diff_observations": {
+    "failed_seconds": [25.508, 26.227, 25.272, 24.621],
+    "representative_build_seconds": 21.914,
+    "representative_transfer_seconds": 1.114,
+    "failure": "receiving container output: grpc: received message larger than max (5560979 vs. 4194304)",
+    "comparison_eligible": false
+  },
+  "runtime_fix": {
+    "cause": "recoverable aiortc H264 decoder warnings flooded the device log stream",
+    "change": "raise aiortc.codecs.h264 logging to ERROR before WebRTC startup",
+    "regression_test": "50000 representative decoder warnings remain below Wendy's 4 MiB output ceiling",
+    "tests_passed": 71
+  },
+  "successful_dlo_deploy": {
+    "chunking": "off_registry_path",
+    "duration_seconds": 160.313,
+    "build_seconds": 143.770,
+    "transfer_marker_seconds": 0.011,
+    "unpack_seconds": 15.685,
+    "replacement_seconds": 0.301,
+    "dockerfile_sha256": "59fec97be9077d49b8e6605e90a7062fa74446617d1eee327abf145457db81d1"
+  },
+  "verification": {
+    "camera_frames_advancing": true,
+    "tensorrt_model_loaded": true,
+    "webrtc_connected": true,
+    "bark_ready": true,
+    "mission_idle": true,
+    "motion_activated": false,
+    "activation_blocker": "no qualifying pear currently detected",
+    "verified_before_disconnect": true,
+    "final_connectivity": "device_unreachable_after_initial_verification"
+  },
+  "conclusion": "The candidate media service deployed successfully through a DLO-wrapped registry-path deployment and initially passed camera, TensorRT, WebRTC, bark, and idle-mission verification. Woof later became unreachable on all tested ports and ICMP, so current runtime health cannot be asserted. No control/candidate layout speed claim is made. The faster chunk-diff path measured roughly 25 seconds before failure but is not comparison-eligible until Wendy raises or streams around its 4 MiB gRPC output limit and a complete paired matrix succeeds."
+}

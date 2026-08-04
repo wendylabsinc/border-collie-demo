@@ -1,0 +1,4 @@
+av>=14,<17
+pillow>=10,<13
+unitree_webrtc_connect==2.1.2
+ultralytics>=8.4,<9

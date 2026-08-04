@@ -1,0 +1,100 @@
+"""Pure closed-loop decisions for returning to the captured Home pose."""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass
+from enum import Enum
+
+
+class ReturnMode(str, Enum):
+    TURN_TO_HOME = "turn_to_home"
+    DRIVE_TO_HOME = "drive_to_home"
+    RESTORE_HEADING = "restore_heading"
+    COMPLETE = "complete"
+
+
+@dataclass(frozen=True)
+class Pose2D:
+    x_m: float
+    y_m: float
+    yaw_rad: float
+
+    def __post_init__(self) -> None:
+        if not all(math.isfinite(value) for value in (self.x_m, self.y_m, self.yaw_rad)):
+            raise ValueError("pose values must be finite")
+
+
+@dataclass(frozen=True)
+class ReturnPlannerConfig:
+    arrival_tolerance_m: float
+    heading_tolerance_rad: float
+    heading_gate_rad: float
+    forward_mps: float
+    maximum_yaw_rps: float
+
+    def __post_init__(self) -> None:
+        values = (
+            self.arrival_tolerance_m,
+            self.heading_tolerance_rad,
+            self.heading_gate_rad,
+            self.forward_mps,
+            self.maximum_yaw_rps,
+        )
+        if not all(math.isfinite(value) and value > 0.0 for value in values):
+            raise ValueError("return planner values must be finite and positive")
+        if self.heading_tolerance_rad > self.heading_gate_rad:
+            raise ValueError("heading tolerance exceeds the course gate")
+
+
+@dataclass(frozen=True)
+class ReturnStep:
+    mode: ReturnMode
+    distance_m: float
+    heading_error_rad: float
+    forward_mps: float
+    yaw_rps: float
+
+
+def plan_return_step(
+    home: Pose2D,
+    current: Pose2D,
+    config: ReturnPlannerConfig,
+) -> ReturnStep:
+    dx = home.x_m - current.x_m
+    dy = home.y_m - current.y_m
+    distance = math.hypot(dx, dy)
+    if distance <= config.arrival_tolerance_m:
+        heading_error = normalize_angle(home.yaw_rad - current.yaw_rad)
+        mode = (
+            ReturnMode.COMPLETE
+            if abs(heading_error) <= config.heading_tolerance_rad
+            else ReturnMode.RESTORE_HEADING
+        )
+        return ReturnStep(mode, distance, heading_error, 0.0, _yaw(heading_error, config))
+
+    target_yaw = math.atan2(dy, dx)
+    heading_error = normalize_angle(target_yaw - current.yaw_rad)
+    if abs(heading_error) > config.heading_gate_rad:
+        return ReturnStep(
+            ReturnMode.TURN_TO_HOME,
+            distance,
+            heading_error,
+            0.0,
+            _yaw(heading_error, config),
+        )
+    return ReturnStep(
+        ReturnMode.DRIVE_TO_HOME,
+        distance,
+        heading_error,
+        config.forward_mps,
+        _yaw(heading_error, config),
+    )
+
+
+def normalize_angle(angle_rad: float) -> float:
+    return math.atan2(math.sin(angle_rad), math.cos(angle_rad))
+
+
+def _yaw(error_rad: float, config: ReturnPlannerConfig) -> float:
+    return max(-config.maximum_yaw_rps, min(config.maximum_yaw_rps, error_rad))

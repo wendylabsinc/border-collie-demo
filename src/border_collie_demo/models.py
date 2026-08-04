@@ -54,6 +54,14 @@ class Pose:
 class VelocityCommand:
     forward_mps: float = 0.0
     yaw_rps: float = 0.0
+    reason: str = "unspecified"
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "forward_mps": self.forward_mps,
+            "yaw_rps": self.yaw_rps,
+            "reason": self.reason,
+        }
 
 
 @dataclass(frozen=True)

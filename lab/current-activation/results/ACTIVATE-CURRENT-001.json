@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "test_id": "ACTIVATE-CURRENT-001",
+  "observed_at_local": "2026-08-03T10:44:40-07:00",
+  "application": "border-collie-demo",
+  "url": "http://127.0.0.1:8110/",
+  "hardware_enabled": false,
+  "lab_motion_enabled": false,
+  "hardware_connected": false,
+  "activate_control": {
+    "visible": true,
+    "enabled": false,
+    "message": "Autonomous demo activation is not enabled yet."
+  },
+  "run_endpoint": {
+    "method": "POST",
+    "path": "/api/run",
+    "http_status": 404,
+    "run_created": false
+  },
+  "stop_control": {
+    "visible": true,
+    "clicked": true,
+    "mission_phase_after": "stopped",
+    "stop_errors": []
+  },
+  "physical_motion_command_sent": false,
+  "outcome": "BLOCKED_BY_DESIGN",
+  "reason": "The clean app does not yet expose recorder-backed autonomous activation."
+}
