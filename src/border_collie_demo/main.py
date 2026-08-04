@@ -17,9 +17,9 @@ from .simulation import SimulatedHardware, simulated_camera_perception
 
 
 def build_app_from_env() -> FastAPI:
-    runtime_mode = os.environ.get(
-        "BORDER_COLLIE_RUNTIME_MODE", "production"
-    ).strip().lower()
+    runtime_mode = (
+        os.environ.get("BORDER_COLLIE_RUNTIME_MODE", "production").strip().lower()
+    )
     if runtime_mode == "simulation":
         return create_app(
             hardware=SimulatedHardware(),
@@ -29,9 +29,7 @@ def build_app_from_env() -> FastAPI:
             runtime_mode="simulation",
         )
     if runtime_mode != "production":
-        raise ValueError(
-            "BORDER_COLLIE_RUNTIME_MODE must be production or simulation"
-        )
+        raise ValueError("BORDER_COLLIE_RUNTIME_MODE must be production or simulation")
     hardware = HardwareManager(HardwareConfig.from_env())
     perception = PerceptionStatusClient(PerceptionConfig.from_env())
     bark = BarkClient(BarkConfig.from_env())
@@ -39,6 +37,8 @@ def build_app_from_env() -> FastAPI:
     return create_app(
         hardware=hardware,
         camera_perception_status=perception.status,
+        camera_frame=perception.camera_frame,
+        select_perception_target=perception.select_target,
         media_status=bark.status,
         stage_executor=ProductionStageExecutor(hardware, perception.status, bark),
         terminal_evidence=terminal_evidence.capture,

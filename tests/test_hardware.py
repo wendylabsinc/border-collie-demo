@@ -303,6 +303,7 @@ def test_find_target_turns_until_fresh_stable_perception_then_stops() -> None:
             pose_factory=lambda _age: TurningPose(),
         )
         await manager.start()
+        manager.start_motion_trace("turn_to_fruit")
         statuses = iter(
             (
                 {"camera_healthy": True, "target_ready": False, "detail": "no pear"},
@@ -334,6 +335,11 @@ def test_find_target_turns_until_fresh_stable_perception_then_stops() -> None:
         assert result["stable_detections"] == 5
         assert result["motion_commands_sent"] is True
         assert all(command.forward_mps == 0.0 for command in motion.commands)
+        assert all(
+            command["phase"] == "turn_to_fruit"
+            and command["forward_mps"] == 0.0
+            for command in manager.motion_trace()
+        )
         assert motion.armed is False
         await manager.close()
 
@@ -715,6 +721,209 @@ def test_approach_tracks_an_acquired_pear_at_sixty_percent_confidence() -> None:
             command.reason == "approach_target" and command.forward_mps == 0.50
             for command in motion.commands
         )
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_approach_may_combine_forward_and_yaw_after_initial_centering() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+
+        def seen(center_x: float, *, near: bool = False) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": True,
+                "detection": {
+                    "label": "pear",
+                    "confidence": 0.81,
+                    "center_x_ratio": center_x,
+                    "center_y_ratio": 0.77 if near else 0.50,
+                    "bottom_ratio": 0.92 if near else 0.65,
+                },
+            }
+
+        statuses = iter(
+            (
+                seen(0.53),
+                seen(0.52),
+                seen(0.51),
+                seen(0.70),
+                seen(0.52),
+                seen(0.51, near=True),
+                seen(0.50, near=True),
+                seen(0.50, near=True),
+                {"camera_healthy": True, "target_ready": False},
+            )
+        )
+
+        result = await manager.approach_target(
+            lambda: next(
+                statuses,
+                {"camera_healthy": True, "target_ready": False},
+            ),
+            "pear",
+            forward_mps=1.0,
+            maximum_yaw_rps=0.30,
+            near_bottom_ratio=0.86,
+            near_center_ratio=0.72,
+            near_confirmations=3,
+            near_loss_grace_s=0.75,
+            final_push_mps=0.30,
+            final_push_duration_s=0.001,
+            timeout_s=0.5,
+        )
+
+        assert result["arrival_confirmed"] is True
+        assert any(
+            command.reason == "approach_target"
+            and command.forward_mps == 1.0
+            and command.yaw_rps == -0.30
+            for command in motion.commands
+        )
+        first_forward = next(
+            index
+            for index, command in enumerate(motion.commands)
+            if command.forward_mps > 0.0
+        )
+        assert all(
+            command.forward_mps == 0.0
+            for command in motion.commands[:first_forward]
+        )
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_approach_uses_close_range_continuity_after_red_apple_confidence_drops() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+
+        def apple(
+            confidence: float,
+            *,
+            center_x: float,
+            center_y: float,
+            bottom: float,
+            target_ready: bool,
+        ) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": target_ready,
+                "detection": {
+                    "label": "apple",
+                    "confidence": confidence,
+                    "center_x_ratio": center_x,
+                    "center_y_ratio": center_y,
+                    "bottom_ratio": bottom,
+                },
+            }
+
+        statuses = iter(
+            (
+                apple(0.84, center_x=0.53, center_y=0.66, bottom=0.68, target_ready=True),
+                apple(0.83, center_x=0.52, center_y=0.66, bottom=0.68, target_ready=True),
+                apple(0.81, center_x=0.51, center_y=0.66, bottom=0.68, target_ready=True),
+                apple(0.76, center_x=0.56, center_y=0.73, bottom=0.76, target_ready=True),
+                apple(0.30, center_x=0.61, center_y=0.79, bottom=0.83, target_ready=False),
+                apple(0.17, center_x=0.65, center_y=0.83, bottom=0.87, target_ready=False),
+                apple(0.15, center_x=0.65, center_y=0.89, bottom=0.93, target_ready=False),
+                apple(0.30, center_x=0.67, center_y=0.87, bottom=0.91, target_ready=False),
+                {"camera_healthy": True, "target_ready": False},
+            )
+        )
+
+        result = await manager.approach_target(
+            lambda: next(
+                statuses,
+                {"camera_healthy": True, "target_ready": False},
+            ),
+            "apple",
+            forward_mps=1.0,
+            maximum_yaw_rps=0.30,
+            near_bottom_ratio=0.86,
+            near_center_ratio=0.72,
+            near_confirmations=3,
+            near_loss_grace_s=0.75,
+            final_push_mps=0.30,
+            final_push_duration_s=0.001,
+            timeout_s=0.5,
+        )
+
+        assert result["arrival_confirmed"] is True
+        assert result["close_range_continuation_samples"] >= 4
+        assert result["minimum_observed_tracking_confidence"] == pytest.approx(0.15)
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_close_range_continuity_rejects_a_discontinuous_low_confidence_apple() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+
+        acquired = {
+            "camera_healthy": True,
+            "target_ready": True,
+            "detection": {
+                "label": "apple",
+                "confidence": 0.82,
+                "center_x_ratio": 0.50,
+                "center_y_ratio": 0.70,
+                "bottom_ratio": 0.74,
+            },
+        }
+        discontinuous = {
+            "camera_healthy": True,
+            "target_ready": False,
+            "detection": {
+                "label": "apple",
+                "confidence": 0.20,
+                "center_x_ratio": 0.90,
+                "center_y_ratio": 0.85,
+                "bottom_ratio": 0.90,
+            },
+        }
+        statuses = iter((acquired, acquired, acquired, discontinuous))
+
+        with pytest.raises(TargetLost, match="Arrival timed out"):
+            await manager.approach_target(
+                lambda: next(statuses, discontinuous),
+                "apple",
+                forward_mps=1.0,
+                maximum_yaw_rps=0.30,
+                near_bottom_ratio=0.86,
+                near_center_ratio=0.72,
+                near_confirmations=3,
+                near_loss_grace_s=0.75,
+                final_push_mps=0.30,
+                final_push_duration_s=0.001,
+                timeout_s=0.08,
+            )
+
+        assert all(command.reason != "fruit_offscreen_final_push" for command in motion.commands)
         assert motion.armed is False
         await manager.close()
 

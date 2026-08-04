@@ -93,6 +93,25 @@ def test_turn_to_fruit_rotates_until_the_pear_is_recognized() -> None:
     asyncio.run(scenario())
 
 
+def test_turn_to_fruit_uses_the_selected_red_apple_target() -> None:
+    async def scenario() -> None:
+        hardware = FakeProductionHardware()
+        status_reader = lambda: {"camera_healthy": True, "target_ready": False}
+        stages = ProductionStageExecutor(hardware, status_reader, FakeBark())
+        apple = StageContext(
+            run_id="run-apple",
+            target_fruit="apple",
+            home={"x_m": 0.0, "y_m": 0.0, "yaw_rad": 0.0},
+        )
+
+        evidence = await stages.execute(MissionPhase.TURN_TO_FRUIT, apple)
+
+        assert hardware.calls[0][2] == "apple"
+        assert evidence["label"] == "apple"
+
+    asyncio.run(scenario())
+
+
 def test_find_fruit_runs_bounded_camera_guided_search() -> None:
     async def scenario() -> None:
         hardware = FakeProductionHardware()
@@ -109,6 +128,45 @@ def test_find_fruit_runs_bounded_camera_guided_search() -> None:
             "timeout_s": 9.0,
         }
         assert evidence["stable_detections"] == 5
+
+    asyncio.run(scenario())
+
+
+def test_stage_result_records_the_exact_velocity_commands() -> None:
+    class TracedHardware(FakeProductionHardware):
+        def __init__(self) -> None:
+            super().__init__()
+            self.phase: str | None = None
+
+        def start_motion_trace(self, phase: str) -> None:
+            self.phase = phase
+
+        def motion_trace(self) -> list[dict[str, object]]:
+            return [
+                {
+                    "sequence": 1,
+                    "phase": self.phase,
+                    "forward_mps": 0.0,
+                    "yaw_rps": 0.5,
+                    "reason": "find_target",
+                }
+            ]
+
+    async def scenario() -> None:
+        hardware = TracedHardware()
+        stages = ProductionStageExecutor(hardware, dict, FakeBark())
+
+        evidence = await stages.execute(MissionPhase.TURN_TO_FRUIT, context())
+
+        assert evidence["motion_commands"] == [
+            {
+                "sequence": 1,
+                "phase": "turn_to_fruit",
+                "forward_mps": 0.0,
+                "yaw_rps": 0.5,
+                "reason": "find_target",
+            }
+        ]
 
     asyncio.run(scenario())
 

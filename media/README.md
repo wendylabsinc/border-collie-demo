@@ -1,7 +1,7 @@
 # Media service
 
 This directory contains the single Go2 WebRTC owner for camera frames and bark
-audio. It owns pear inference on a dedicated worker thread and deliberately
+audio. It owns fruit inference on a dedicated worker thread and deliberately
 imports no Unitree motion client.
 
 The service contract must expose monotonically increasing frame IDs, source
@@ -10,7 +10,7 @@ timestamps, connection generations, and explicit freshness health.
 ## Crop-and-confirm
 
 The existing TensorRT engine performs one full-frame pass. When that pass finds
-a pear candidate at or above 0.35 confidence and the box is small (at most 0.5%
+a fruit candidate at or above 0.35 confidence and the box is small (at most 0.5%
 of the frame) or uncertain (below 0.65), the same worker performs exactly one
 additional pass over a bounded square crop around that candidate. The crop
 defaults to at least 256×256 pixels with six box-widths/heights of context.

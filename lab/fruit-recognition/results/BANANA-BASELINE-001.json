@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "test_id": "BANANA-BASELINE-001",
+  "date": "2026-08-04",
+  "purpose": "Freeze the deployed model's camera-only banana baseline before dataset selection or training.",
+  "safety": {
+    "surface": "fruit-test",
+    "motion_armed": false,
+    "motion_activated": false
+  },
+  "environment": {
+    "device": "woof.local",
+    "camera_resolution": [
+      1280,
+      720
+    ],
+    "target_fruit": "banana",
+    "placement": "single operator-observed banana placement",
+    "ground_truth_annotation": false
+  },
+  "model": {
+    "artifact": "collie-fruit-yoloe11m.engine",
+    "sha256": "c4650ecbece6f75f66b21648f63237377afc572ebb212a80b2eba924336318be",
+    "architecture": "Ultralytics YOLOE-11m-seg",
+    "runtime": "TensorRT FP16",
+    "input_size": [
+      640,
+      640
+    ],
+    "project_fine_tuned": false
+  },
+  "sample": {
+    "unique_source_frames": 159,
+    "bbox_width_px_min": 56,
+    "bbox_width_px_max": 57,
+    "bbox_height_px_min": 36,
+    "bbox_height_px_max": 36
+  },
+  "confidence": {
+    "minimum": 0.1592157781124115,
+    "median": 0.19930782914161682,
+    "mean": 0.20067804883111198,
+    "p95": 0.22953715920448303,
+    "maximum": 0.2704801559448242,
+    "frames_at_or_above_0_20": 79,
+    "fraction_at_or_above_0_20": 0.4968553459119497,
+    "frames_at_or_above_0_35": 0
+  },
+  "latency_seconds": {
+    "minimum": 0.06112691700002415,
+    "median": 0.08628988499998513,
+    "mean": 0.08965854027044008,
+    "p95": 0.13450034599998162,
+    "maximum": 0.18590613900005337
+  },
+  "crop_confirmation": {
+    "minimum_candidate_confidence": 0.35,
+    "attempted_frames": 0
+  },
+  "maximum_consecutive_qualifying_detections": 31,
+  "result": {
+    "status": "baseline_recorded",
+    "qualified_for_motion": false,
+    "summary": "Latency meets the 0.200-second deadline, but banana confidence is marginal and unstable around the provisional 0.20 camera-only threshold."
+  },
+  "limitations": [
+    "This is one placement, lighting condition, background, and banana orientation.",
+    "The operator observed a banana in frame, but these frames have not yet received independent ground-truth boxes.",
+    "This result measures live confidence, stability, and latency; it is not an accuracy or mAP benchmark.",
+    "A frozen labeled validation set is required before comparing a trained candidate."
+  ]
+}

@@ -259,6 +259,8 @@ class SimulatedStageExecutor:
                 self._failure_message,
             )
         evidence = dict(self._EVIDENCE[phase])
+        if phase is MissionPhase.FIND_FRUIT:
+            evidence["label"] = context.target_fruit
         if phase is MissionPhase.RETURN_HOME:
             evidence.update(
                 requested_forward_pulses=context.outbound_forward_pulses,

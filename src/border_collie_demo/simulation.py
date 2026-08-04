@@ -53,7 +53,7 @@ class SimulatedHardware:
 def simulated_camera_perception() -> dict[str, object]:
     return {
         "ready": True,
-        "detail": "simulation provides deterministic pear evidence",
+        "detail": "simulation provides deterministic Target Fruit evidence",
         "generation": "simulation",
         "detection": {
             "label": "pear",

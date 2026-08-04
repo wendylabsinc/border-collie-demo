@@ -7,6 +7,7 @@ from collections.abc import Callable
 from typing import Protocol
 
 from .config import HardwareConfig
+from .fruits import fruit_policy
 from .go2_motion import (
     MotionConfig,
     MotionError,
@@ -29,6 +30,13 @@ INITIAL_CENTER_TOLERANCE_RATIO = 0.08
 INITIAL_CENTER_CONFIRMATIONS = 3
 INITIAL_CENTER_YAW_RPS = 0.50
 SEARCH_CROP_CANDIDATE_CONFIDENCE = 0.50
+APPROACH_CENTER_TOLERANCE_RATIO = 0.08
+CLOSE_RANGE_MINIMUM_BOTTOM_RATIO = 0.70
+CLOSE_RANGE_MAXIMUM_CENTER_DELTA_RATIO = 0.20
+CLOSE_RANGE_MAXIMUM_VERTICAL_RETREAT_RATIO = 0.08
+FORWARD_CAPABLE_OPERATIONS = frozenset(
+    {"forward_pulse", "approach_target", "return_home"}
+)
 
 
 def _finite_float(value: object) -> float | None:
@@ -129,6 +137,8 @@ class HardwareManager:
         self._operation_lock = asyncio.Lock()
         self._active_operation: str | None = None
         self._last_pulse: dict[str, object] | None = None
+        self._motion_trace_phase: str | None = None
+        self._motion_trace: list[dict[str, object]] = []
 
     async def start(self) -> None:
         if not self.config.enabled or self._connected:
@@ -188,7 +198,7 @@ class HardwareManager:
                     now = time.monotonic()
                     if now >= deadline:
                         break
-                    await self._motion.command(
+                    await self._send_motion_command(
                         lease,
                         VelocityCommand(
                             self.config.forward_pulse_mps,
@@ -339,7 +349,7 @@ class HardwareManager:
                             f"{math.degrees(progress):.1f} degrees in "
                             f"{response_elapsed:.2f} seconds"
                         )
-                    await self._motion.command(
+                    await self._send_motion_command(
                         lease,
                         VelocityCommand(0.0, direction * rate, "measured_turn"),
                     )
@@ -545,7 +555,7 @@ class HardwareManager:
                     previous_yaw = sample.pose.yaw_rad
                     if progress >= sweep:
                         raise TargetLost(
-                            "pear was not found in the bounded search sweep",
+                            f"{target_fruit} was not found in the bounded search sweep",
                             evidence={
                                 **recognition,
                                 "search_progress_rad": progress,
@@ -580,7 +590,7 @@ class HardwareManager:
                             )
                     else:
                         crop_slow_turn_next = False
-                    await self._motion.command(
+                    await self._send_motion_command(
                         lease,
                         VelocityCommand(0.0, command_rate, command_reason),
                     )
@@ -588,7 +598,7 @@ class HardwareManager:
                     await asyncio.sleep(self.config.command_heartbeat_s)
                 else:
                     raise TargetLost(
-                        "pear search timed out",
+                        f"{target_fruit} search timed out",
                         evidence={
                             **recognition,
                             "search_progress_rad": progress,
@@ -627,7 +637,7 @@ class HardwareManager:
         final_push_duration_s: float,
         timeout_s: float,
     ) -> dict[str, object]:
-        """Approach a fresh pear track and confirm lower-edge Arrival."""
+        """Approach a fresh Target Fruit track and confirm lower-edge Arrival."""
         numeric = (
             forward_mps,
             maximum_yaw_rps,
@@ -670,6 +680,10 @@ class HardwareManager:
             initial_center_confirmations = 0
             tracking_confirmations = 0
             minimum_observed_tracking_confidence: float | None = None
+            close_range_continuation_samples = 0
+            track_acquired = False
+            last_track_geometry: tuple[float, float, float] | None = None
+            policy = fruit_policy(target_fruit)
             started = time.monotonic()
             try:
                 assert self._motion is not None
@@ -694,6 +708,29 @@ class HardwareManager:
                         if isinstance(detection, dict)
                         else None
                     )
+                    center_x = (
+                        _finite_float(detection.get("center_x_ratio"))
+                        if isinstance(detection, dict)
+                        else None
+                    )
+                    center_y = (
+                        _finite_float(detection.get("center_y_ratio"))
+                        if isinstance(detection, dict)
+                        else None
+                    )
+                    bottom = (
+                        _finite_float(detection.get("bottom_ratio"))
+                        if isinstance(detection, dict)
+                        else None
+                    )
+                    if (
+                        target_ready
+                        and isinstance(detection, dict)
+                        and detection_label != target_fruit.casefold()
+                    ):
+                        raise TargetLost(
+                            f"qualified {target_fruit} track changed identity"
+                        )
                     tracking_candidate = (
                         isinstance(detection, dict)
                         and detection_label == target_fruit.casefold()
@@ -701,21 +738,53 @@ class HardwareManager:
                         and detection_confidence
                         >= self.config.pear_tracking_minimum_confidence
                     )
-                    if target_ready and isinstance(detection, dict):
+                    close_range_continuation = (
+                        track_acquired
+                        and isinstance(detection, dict)
+                        and detection_label == target_fruit.casefold()
+                        and detection_confidence is not None
+                        and detection_confidence
+                        >= policy.close_range_tracking_confidence
+                        and center_x is not None
+                        and center_y is not None
+                        and bottom is not None
+                        and last_track_geometry is not None
+                        and max(bottom, last_track_geometry[2])
+                        >= CLOSE_RANGE_MINIMUM_BOTTOM_RATIO
+                        and abs(center_x - last_track_geometry[0])
+                        <= CLOSE_RANGE_MAXIMUM_CENTER_DELTA_RATIO
+                        and center_y
+                        >= last_track_geometry[1]
+                        - CLOSE_RANGE_MAXIMUM_VERTICAL_RETREAT_RATIO
+                        and bottom
+                        >= last_track_geometry[2]
+                        - CLOSE_RANGE_MAXIMUM_VERTICAL_RETREAT_RATIO
+                    )
+                    requested_target_ready = (
+                        target_ready
+                        and isinstance(detection, dict)
+                        and detection_label == target_fruit.casefold()
+                    )
+                    if requested_target_ready:
                         tracking_confirmations = (
                             self.config.pear_tracking_confirmations
                         )
                     elif tracking_candidate:
                         tracking_confirmations += 1
+                    elif close_range_continuation:
+                        tracking_confirmations = max(
+                            tracking_confirmations,
+                            self.config.pear_tracking_confirmations,
+                        )
                     else:
                         tracking_confirmations = 0
                     track_ready = (
-                        target_ready and isinstance(detection, dict)
+                        requested_target_ready
                     ) or (
                         tracking_candidate
                         and tracking_confirmations
                         >= self.config.pear_tracking_confirmations
-                    )
+                    ) or close_range_continuation
                     if not track_ready:
                         if not initial_centered:
                             initial_center_confirmations = 0
@@ -728,7 +797,7 @@ class HardwareManager:
                             or near_at is None
                             or now - near_at > near_loss_grace_s
                         ):
-                            await self._motion.command(
+                            await self._send_motion_command(
                                 lease,
                                 VelocityCommand(reason="target_not_visible"),
                             )
@@ -744,7 +813,7 @@ class HardwareManager:
                                         or "camera evidence failed during final push"
                                     )
                                 )
-                            await self._motion.command(
+                            await self._send_motion_command(
                                 lease,
                                 VelocityCommand(
                                     final_push_mps,
@@ -782,13 +851,21 @@ class HardwareManager:
                             "minimum_observed_tracking_confidence": (
                                 minimum_observed_tracking_confidence
                             ),
+                            "close_range_tracking_confidence": (
+                                policy.close_range_tracking_confidence
+                            ),
+                            "close_range_continuation_samples": (
+                                close_range_continuation_samples
+                            ),
                         }
                         break
 
                     assert isinstance(detection, dict)
                     label = detection_label
                     if label != target_fruit.casefold():
-                        raise TargetLost("qualified pear track changed identity")
+                        raise TargetLost(
+                            f"qualified {target_fruit} track changed identity"
+                        )
                     if detection_confidence is not None:
                         minimum_observed_tracking_confidence = (
                             detection_confidence
@@ -798,11 +875,16 @@ class HardwareManager:
                                 detection_confidence,
                             )
                         )
-                    center_x = _finite_float(detection.get("center_x_ratio"))
-                    center_y = _finite_float(detection.get("center_y_ratio"))
-                    bottom = _finite_float(detection.get("bottom_ratio"))
                     if center_x is None or center_y is None or bottom is None:
-                        raise CameraFailure("pear geometry is missing from fresh evidence")
+                        raise CameraFailure(
+                            f"{target_fruit} geometry is missing from fresh evidence"
+                        )
+                    track_acquired = True
+                    if close_range_continuation and not (
+                        requested_target_ready or tracking_candidate
+                    ):
+                        close_range_continuation_samples += 1
+                    last_track_geometry = (center_x, center_y, bottom)
                     if not initial_centered:
                         centered_sample = (
                             abs(center_x - 0.5) <= INITIAL_CENTER_TOLERANCE_RATIO
@@ -820,7 +902,7 @@ class HardwareManager:
                                     center_x - 0.5,
                                 )
                             )
-                            await self._motion.command(
+                            await self._send_motion_command(
                                 lease,
                                 VelocityCommand(
                                     0.0,
@@ -836,24 +918,34 @@ class HardwareManager:
                     confirmations = confirmations + 1 if near else 0
                     if confirmations >= near_confirmations:
                         near_at = now
-                        await self._motion.command(
+                        await self._send_motion_command(
                             lease,
                             VelocityCommand(reason="near_target_confirmed"),
                         )
                     else:
-                        yaw = max(
-                            -maximum_yaw_rps,
-                            min(maximum_yaw_rps, -(center_x - 0.5) * 3.0),
+                        horizontal_error = center_x - 0.5
+                        yaw = (
+                            0.0
+                            if abs(horizontal_error)
+                            <= APPROACH_CENTER_TOLERANCE_RATIO
+                            else -math.copysign(
+                                maximum_yaw_rps,
+                                horizontal_error,
+                            )
                         )
-                        await self._motion.command(
+                        await self._send_motion_command(
                             lease,
-                            VelocityCommand(forward_mps, yaw, "approach_target"),
+                            VelocityCommand(
+                                forward_mps,
+                                yaw,
+                                "approach_target",
+                            ),
                         )
-                        commands_sent = True
                         forward_pulse_count += 1
+                        commands_sent = True
                     await asyncio.sleep(self.config.command_heartbeat_s)
                 else:
-                    raise TargetLost("qualified pear Arrival timed out")
+                    raise TargetLost(f"qualified {target_fruit} Arrival timed out")
             except Exception as exc:  # noqa: BLE001 - always disarm below
                 operation_error = exc
             finally:
@@ -977,7 +1069,7 @@ class HardwareManager:
                             "return_home",
                         )
                     )
-                    await self._motion.command(lease, command)
+                    await self._send_motion_command(lease, command)
                     commands_sent = True
                     if command.forward_mps > 0.0:
                         replayed_forward_pulses += 1
@@ -1204,6 +1296,38 @@ class HardwareManager:
             "pose": pose,
             "last_pulse": self._last_pulse,
         }
+
+    def start_motion_trace(self, phase: str) -> None:
+        self._motion_trace_phase = str(phase)
+        self._motion_trace = []
+
+    def motion_trace(self) -> list[dict[str, object]]:
+        return [dict(command) for command in self._motion_trace]
+
+    async def _send_motion_command(
+        self,
+        lease: str,
+        command: VelocityCommand,
+    ) -> VelocityCommand:
+        if self._motion is None:
+            raise HardwareUnavailable("Go2 motion adapter is not connected")
+        if (
+            command.forward_mps > 0.0
+            and self._active_operation not in FORWARD_CAPABLE_OPERATIONS
+        ):
+            raise HardwareUnavailable(
+                "forward command blocked before approach or return motion"
+            )
+        sent = await self._motion.command(lease, command)
+        self._motion_trace.append(
+            {
+                "sequence": len(self._motion_trace) + 1,
+                "phase": self._motion_trace_phase,
+                "recorded_monotonic_s": time.monotonic(),
+                **sent.to_dict(),
+            }
+        )
+        return sent
 
     async def _best_effort_stop(self) -> None:
         if self._motion is None:

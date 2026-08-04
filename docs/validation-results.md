@@ -319,3 +319,27 @@ acquisition. The completed 38.61-second run recorded 7 crop-candidate samples,
 4 holds, and 2 slowdown turns. These results validate the new candidate
 slowdown and the return-to-Home position behavior while preserving the final
 heading-restoration no-response failure as a known follow-up.
+
+## RED-APPLE-001 — passed read-only recognition
+
+- Observed: 2026-08-04 on `woof.local`
+- Safety: camera-only fruit-test surface; motion remained locked, disarmed, and
+  inactive
+- Recognition: the full-frame model placed the apple box on the red apple and
+  reached 15 consecutive qualifying detections, exceeding the provisional
+  0.70-confidence-by-five rule
+- Confidence window: 20 samples, mean 0.699, minimum 0.667, maximum 0.740; 9 of
+  20 sampled statuses were at or above 0.70
+- Crop behavior: the optional crop pass remained unconfirmed and was not needed
+  for qualification; the full-frame result supplied the qualifying evidence
+- Result: passed the apple recognition gate and was promoted into the shared
+  Qualified Fruit list for supervised Demo Runs
+- Operating-envelope restriction: `apple` means the tested red apple; the
+  failed green-apple trial is not qualified
+- Limitation: the fruit-neutral motion path is enabled for supervised red-apple
+  trials, but a red-apple end-to-end run has not yet been recorded
+
+<img src="../lab/fruit-recognition/results/RED-APPLE-001.jpg" alt="Red apple recognition test with the detection box on the apple" width="320">
+
+Evidence: `lab/fruit-recognition/results/RED-APPLE-001.json` and
+`lab/fruit-recognition/results/RED-APPLE-001.jpg`.

@@ -1,4 +1,4 @@
-"""Fail-closed reader for qualified camera and pear evidence."""
+"""Fail-closed reader for qualified camera and Target Fruit evidence."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from typing import Any
 from urllib.request import Request, urlopen
 
 from .config import PerceptionConfig
+from .fruits import SUPPORTED_FRUITS, fruit_policy
 
 SOURCE_MAXIMUM_AGE_S = 0.350
 SOURCE_MINIMUM_CONSECUTIVE_FRAMES = 10
@@ -19,6 +20,7 @@ INFERENCE_MAXIMUM_S = 0.200
 DETECTION_MAXIMUM_AGE_S = 0.250
 
 StatusFetcher = Callable[[str, float], dict[str, Any]]
+TargetPoster = Callable[[str, str, float], dict[str, Any]]
 Clock = Callable[[], float]
 
 
@@ -30,11 +32,30 @@ class PerceptionStatusClient:
         config: PerceptionConfig | None = None,
         *,
         fetcher: StatusFetcher | None = None,
+        target_poster: TargetPoster | None = None,
         clock: Clock = time.monotonic,
     ) -> None:
         self.config = config or PerceptionConfig()
         self._fetcher = fetcher or _fetch_status
+        self._target_poster = target_poster or _post_target
         self._clock = clock
+
+    def select_target(self, target_fruit: str) -> dict[str, object]:
+        if not self.config.enabled:
+            raise RuntimeError("production camera/perception adapter is disabled")
+        fruit_policy(target_fruit)
+        payload = self._target_poster(
+            self.config.target_url,
+            target_fruit,
+            self.config.timeout_s,
+        )
+        selected = payload.get("target_fruit")
+        if (
+            not isinstance(selected, str)
+            or selected.casefold() != target_fruit.casefold()
+        ):
+            raise RuntimeError("perception sidecar did not acknowledge Target Fruit")
+        return payload
 
     def status(self) -> dict[str, object]:
         if not self.config.enabled:
@@ -54,6 +75,23 @@ class PerceptionStatusClient:
                 "detail": f"camera/perception status unavailable: {exc}",
             }
 
+    def camera_frame(self) -> bytes:
+        if not self.config.enabled:
+            raise RuntimeError("production camera/perception adapter is disabled")
+        request = Request(
+            self.config.frame_url,
+            headers={"Accept": "image/jpeg"},
+        )
+        with urlopen(request, timeout=self.config.timeout_s) as response:
+            jpeg = response.read()
+        if (
+            len(jpeg) < 4
+            or not jpeg.startswith(b"\xff\xd8")
+            or not jpeg.endswith(b"\xff\xd9")
+        ):
+            raise ValueError("camera preview is not a complete JPEG")
+        return jpeg
+
 
 def evaluate_perception_evidence(
     payload: dict[str, Any],
@@ -62,6 +100,15 @@ def evaluate_perception_evidence(
 ) -> dict[str, object]:
     violations: list[str] = []
     camera_violations: list[str] = []
+    raw_target_fruit = payload.get("target_fruit", "pear")
+    target_fruit = (
+        raw_target_fruit.casefold().strip() if isinstance(raw_target_fruit, str) else ""
+    )
+    try:
+        target_policy = fruit_policy(target_fruit)
+    except ValueError:
+        target_policy = fruit_policy("pear")
+        violations.append("selected Target Fruit is unsupported")
     generation = payload.get("generation")
     source = payload.get("source")
     detection = payload.get("detection")
@@ -72,7 +119,9 @@ def evaluate_perception_evidence(
         camera_violations.append("source evidence is missing")
     if not isinstance(detection, dict):
         detection = {}
-        violations.append("pear detection evidence is missing")
+        violations.append(
+            f"{target_fruit or 'target fruit'} detection evidence is missing"
+        )
 
     pts = source.get("pts")
     time_base = source.get("time_base")
@@ -89,7 +138,12 @@ def evaluate_perception_evidence(
         camera_violations.append("fewer than 10 consecutive source frames")
     if source_age_s is None or source_age_s > SOURCE_MAXIMUM_AGE_S:
         camera_violations.append("source progress is stale")
-    if source_width is None or source_width <= 0 or source_height is None or source_height <= 0:
+    if (
+        source_width is None
+        or source_width <= 0
+        or source_height is None
+        or source_height <= 0
+    ):
         camera_violations.append("source dimensions are missing")
 
     violations.extend(camera_violations)
@@ -128,37 +182,39 @@ def evaluate_perception_evidence(
                 is None
                 else list(crop_box)
             ),
-            "agreement_iou": _finite_number(
-                raw_crop_confirmation.get("agreement_iou")
-            ),
+            "agreement_iou": _finite_number(raw_crop_confirmation.get("agreement_iou")),
         }
     else:
         crop_confirmation = None
-    if not isinstance(label, str) or label.casefold().strip() != "pear":
-        violations.append("qualifying pear detection is missing")
+    if not isinstance(label, str) or label.casefold().strip() != target_fruit:
+        violations.append(f"qualifying {target_fruit} detection is missing")
     if detection_generation != generation:
-        violations.append("pear detection generation does not match camera generation")
+        violations.append(
+            f"{target_fruit} detection generation does not match camera generation"
+        )
     if detection_time_base != time_base:
-        violations.append("pear detection time base does not match camera source")
+        violations.append(
+            f"{target_fruit} detection time base does not match camera source"
+        )
     if (
         detection_source_pts is None
         or not isinstance(pts, int)
         or detection_source_pts > pts
     ):
-        violations.append("pear detection source PTS is missing or invalid")
-    if confidence is None or confidence < PEAR_MINIMUM_CONFIDENCE:
-        violations.append("pear confidence is below 0.65")
-    if (
-        detection_count is None
-        or detection_count < PEAR_MINIMUM_CONSECUTIVE_DETECTIONS
-    ):
-        violations.append("fewer than 5 consecutive pear detections")
+        violations.append(f"{target_fruit} detection source PTS is missing or invalid")
+    if confidence is None or confidence < target_policy.acquisition_confidence:
+        violations.append(
+            f"{target_fruit} confidence is below "
+            f"{target_policy.acquisition_confidence:.2f}"
+        )
+    if detection_count is None or detection_count < PEAR_MINIMUM_CONSECUTIVE_DETECTIONS:
+        violations.append(f"fewer than 5 consecutive {target_fruit} detections")
     if inference_s is None or inference_s < 0.0 or inference_s > INFERENCE_MAXIMUM_S:
         violations.append("detector execution exceeds 0.200 seconds")
     if detection_age_s is None or detection_age_s > DETECTION_MAXIMUM_AGE_S:
-        violations.append("pear detection is stale")
+        violations.append(f"{target_fruit} detection is stale")
     if bbox is None:
-        violations.append("pear bounding box is missing or invalid")
+        violations.append(f"{target_fruit} bounding box is missing or invalid")
     if payload.get("error"):
         violations.append(f"sidecar error: {payload['error']}")
 
@@ -184,10 +240,13 @@ def evaluate_perception_evidence(
         "camera_healthy": camera_healthy,
         "target_ready": target_ready,
         "detail": (
-            "camera generation and pear detector passed qualified preflight"
+            f"camera generation and {target_fruit} detector passed recognition check"
             if ready
             else "; ".join(violations)
         ),
+        "target_fruit": target_fruit,
+        "supported_fruits": list(SUPPORTED_FRUITS),
+        "motion_qualified": target_policy.motion_qualified,
         "generation": generation,
         "source": {
             "pts": pts,
@@ -222,6 +281,7 @@ def evaluate_perception_evidence(
             "source_maximum_age_s": SOURCE_MAXIMUM_AGE_S,
             "source_minimum_consecutive_frames": SOURCE_MINIMUM_CONSECUTIVE_FRAMES,
             "pear_minimum_confidence": PEAR_MINIMUM_CONFIDENCE,
+            "target_minimum_confidence": target_policy.acquisition_confidence,
             "pear_minimum_consecutive_detections": (
                 PEAR_MINIMUM_CONSECUTIVE_DETECTIONS
             ),
@@ -237,6 +297,24 @@ def _fetch_status(url: str, timeout_s: float) -> dict[str, Any]:
         payload = json.load(response)
     if not isinstance(payload, dict):
         raise TypeError("camera/perception status must be a JSON object")
+    return payload
+
+
+def _post_target(url: str, target_fruit: str, timeout_s: float) -> dict[str, Any]:
+    body = json.dumps({"target_fruit": target_fruit}).encode("utf-8")
+    request = Request(
+        url,
+        data=body,
+        method="POST",
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        },
+    )
+    with urlopen(request, timeout=timeout_s) as response:
+        payload = json.load(response)
+    if not isinstance(payload, dict):
+        raise TypeError("fruit target response must be a JSON object")
     return payload
 
 
@@ -264,7 +342,12 @@ def _bounding_box(
     width: int | None,
     height: int | None,
 ) -> tuple[float, float, float, float] | None:
-    if not isinstance(value, (list, tuple)) or len(value) != 4 or not width or not height:
+    if (
+        not isinstance(value, (list, tuple))
+        or len(value) != 4
+        or not width
+        or not height
+    ):
         return None
     values = tuple(_finite_number(item) for item in value)
     if any(item is None for item in values):

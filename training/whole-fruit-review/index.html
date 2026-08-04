@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Whole-fruit review</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #11140f; color: #f6f2e8; }
+    main { width: min(1000px, calc(100% - 28px)); margin: 18px auto; }
+    header { display: flex; justify-content: space-between; gap: 20px; align-items: end; }
+    h1 { margin: 0 0 5px; font-size: 24px; }
+    p { margin: 0; color: #b9bdae; }
+    .stage { margin-top: 14px; height: min(62vh, 640px); background: #050605; border: 1px solid #343a30; border-radius: 14px; overflow: hidden; display: grid; place-items: center; }
+    canvas { display: block; max-width: 100%; max-height: 100%; }
+    .toolbar { display: grid; grid-template-columns: repeat(2, 1fr); gap: 9px; margin-top: 12px; }
+    button { border: 1px solid #41483b; border-radius: 10px; padding: 12px; background: #242921; color: inherit; font: inherit; font-weight: 700; cursor: pointer; }
+    button.accept { background: #d4ed65; color: #171a10; border-color: #d4ed65; }
+    button.reject { color: #ffc3b8; }
+    button.download { grid-column: span 2; }
+    .meta { display: flex; justify-content: space-between; margin-top: 10px; color: #b9bdae; font-size: 14px; }
+    kbd { background: #2b3028; border: 1px solid #454c40; border-radius: 4px; padding: 1px 5px; }
+    @media (max-width: 650px) { header { display: block; } .toolbar { grid-template-columns: 1fr; } button.download { grid-column: auto; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1 id="title">Whole-fruit review</h1>
+      <p>Accept only intact stage-like fruit. Reject cut, peeled, food, bunch, or incorrect boxes.</p>
+    </div>
+    <strong id="progress">Loading…</strong>
+  </header>
+  <div class="stage"><canvas id="canvas"></canvas></div>
+  <div class="toolbar">
+    <button class="accept" data-decision="accept_whole">Whole fruit <kbd>W</kbd></button>
+    <button class="reject" data-decision="reject_cut_or_food">Cut / peeled / food <kbd>X</kbd></button>
+    <button class="reject" data-decision="reject_bunch">Bunch / pile <kbd>B</kbd></button>
+    <button class="reject" data-decision="reject_bad_box">Bad box / wrong object <kbd>N</kbd></button>
+    <button data-decision="skip">Unsure — skip <kbd>S</kbd></button>
+    <button id="previous">← Previous</button>
+    <button class="download" id="download">Download review decisions</button>
+  </div>
+  <div class="meta"><span id="score"></span><span id="identifier"></span></div>
+</main>
+<script>
+const canvas = document.querySelector('#canvas');
+const ctx = canvas.getContext('2d');
+const image = new Image();
+let review;
+let index = 0;
+let decisions = {};
+const current = () => review.candidates[index];
+const storageKey = () => `whole-fruit:${review.source_manifest_sha256}:${review.review_class}`;
+
+function loadCandidate(nextIndex) {
+  index = Math.max(0, Math.min(review.candidates.length - 1, nextIndex));
+  image.src = current().image_url;
+  update();
+}
+function update() {
+  const done = Object.keys(decisions).length;
+  document.querySelector('#progress').textContent = `${index + 1} / ${review.candidate_count} · ${done} decided`;
+  document.querySelector('#score').textContent = `Ranking score: ${Math.round(current().whole_fruit_score * 100)}%`;
+  document.querySelector('#identifier').textContent = current().candidate_id;
+  document.querySelector('#previous').disabled = index === 0;
+}
+image.onload = () => {
+  const [x1, y1, x2, y2] = current().bbox_xyxy_normalized;
+  const pad = .1;
+  const left = Math.max(0, x1 - (x2 - x1) * pad) * image.naturalWidth;
+  const top = Math.max(0, y1 - (y2 - y1) * pad) * image.naturalHeight;
+  const right = Math.min(1, x2 + (x2 - x1) * pad) * image.naturalWidth;
+  const bottom = Math.min(1, y2 + (y2 - y1) * pad) * image.naturalHeight;
+  canvas.width = right - left;
+  canvas.height = bottom - top;
+  ctx.drawImage(image, left, top, right - left, bottom - top, 0, 0, canvas.width, canvas.height);
+};
+function decide(decision) {
+  decisions[current().candidate_id] = {decision, reviewed_at: new Date().toISOString()};
+  localStorage.setItem(storageKey(), JSON.stringify(decisions));
+  if (index < review.candidates.length - 1) loadCandidate(index + 1); else update();
+}
+document.querySelectorAll('[data-decision]').forEach(button => button.onclick = () => decide(button.dataset.decision));
+document.querySelector('#previous').onclick = () => loadCandidate(index - 1);
+document.querySelector('#download').onclick = () => {
+  const output = {schema_version: 1, source_manifest_sha256: review.source_manifest_sha256, review_class: review.review_class, decisions};
+  const blob = new Blob([JSON.stringify(output, null, 2)], {type: 'application/json'});
+  const anchor = document.createElement('a'); anchor.href = URL.createObjectURL(blob);
+  anchor.download = `${review.review_class}-whole-fruit-review.json`; anchor.click(); URL.revokeObjectURL(anchor.href);
+};
+window.onkeydown = event => {
+  const mapping = {w: 'accept_whole', x: 'reject_cut_or_food', b: 'reject_bunch', n: 'reject_bad_box', s: 'skip'};
+  if (mapping[event.key.toLowerCase()]) decide(mapping[event.key.toLowerCase()]);
+};
+fetch('/api/review').then(response => response.json()).then(value => {
+  review = value;
+  document.querySelector('#title').textContent = `${review.review_class} whole-fruit review`;
+  try { decisions = JSON.parse(localStorage.getItem(storageKey()) || '{}'); } catch { decisions = {}; }
+  loadCandidate(0);
+});
+</script>
+</body>
+</html>

@@ -3,14 +3,15 @@ from __future__ import annotations
 import argparse
 import json
 import mimetypes
+import re
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlparse
 from zipfile import BadZipFile, ZipFile
 
-
 ROOT = Path(__file__).resolve().parent
+CLASS_NAME_PATTERN = re.compile(r"[a-z0-9]+(?:[ _-][a-z0-9]+)*")
 
 
 def load_manifest(archive_path: Path) -> dict[str, object]:
@@ -24,7 +25,7 @@ def load_manifest(archive_path: Path) -> dict[str, object]:
         raise ValueError("evidence archive contains no frames")
     for frame in frames:
         if not isinstance(frame, dict):
-            raise ValueError("evidence manifest contains an invalid frame")
+            raise TypeError("evidence manifest contains an invalid frame")
         filename = frame.get("filename")
         if not isinstance(filename, str) or not safe_frame_name(filename):
             raise ValueError("evidence manifest contains an unsafe frame filename")
@@ -41,11 +42,22 @@ def safe_frame_name(filename: str) -> bool:
     )
 
 
+def configure_manifest(
+    manifest: dict[str, object], class_name: str
+) -> dict[str, object]:
+    normalized = class_name.casefold().strip()
+    if not normalized or CLASS_NAME_PATTERN.fullmatch(normalized) is None:
+        raise ValueError(
+            "class name must contain only words, spaces, hyphens, or underscores"
+        )
+    return {**manifest, "labeling_class": normalized}
+
+
 def make_handler(archive_path: Path, manifest: dict[str, object]):
     frames = manifest["frames"]
 
     class RunLabelerHandler(BaseHTTPRequestHandler):
-        def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+        def do_GET(self) -> None:
             parsed = urlparse(self.path)
             if parsed.path in {"/", "/index.html"}:
                 self._send_file(ROOT / "index.html", "text/html; charset=utf-8")
@@ -96,15 +108,23 @@ def make_handler(archive_path: Path, manifest: dict[str, object]):
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Label a Border Collie run archive")
+    parser = argparse.ArgumentParser(description="Label a Border Collie fruit archive")
     parser.add_argument("--archive", required=True, type=Path)
+    parser.add_argument(
+        "--class-name",
+        default="pear",
+        help="fruit class shown and exported by the labeler (default: pear)",
+    )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", default=8120, type=int)
     args = parser.parse_args()
     archive_path = args.archive.expanduser().resolve()
     if not archive_path.is_file():
         parser.error(f"archive does not exist: {archive_path}")
-    manifest = load_manifest(archive_path)
+    try:
+        manifest = configure_manifest(load_manifest(archive_path), args.class_name)
+    except ValueError as exc:
+        parser.error(str(exc))
     server = ThreadingHTTPServer(
         (args.host, args.port),
         make_handler(archive_path, manifest),

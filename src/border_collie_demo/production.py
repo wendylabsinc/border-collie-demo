@@ -1,4 +1,4 @@
-"""Production stage adapter for the qualified pear Demo Run."""
+"""Production stage adapter for a qualified-fruit Demo Run."""
 
 from __future__ import annotations
 
@@ -47,10 +47,17 @@ class ProductionStageExecutor:
         phase: MissionPhase,
         context: StageContext,
     ) -> dict[str, Any]:
+        start_trace = getattr(self._hardware, "start_motion_trace", None)
+        if callable(start_trace):
+            start_trace(phase.value)
         try:
-            return await self._execute(phase, context)
+            evidence = await self._execute(phase, context)
         except CameraFailure as exc:
-            raise StageFailure("CAMERA_FAILURE", str(exc)) from exc
+            raise StageFailure(
+                "CAMERA_FAILURE",
+                str(exc),
+                details=self._failure_details(),
+            ) from exc
         except TargetLost as exc:
             search_phase = phase in (
                 MissionPhase.TURN_TO_FRUIT,
@@ -63,12 +70,42 @@ class ProductionStageExecutor:
                     else DEFAULT_STAGE_FAILURE_REASONS[phase]
                 ),
                 str(exc),
-                details={"recognition": exc.evidence} if exc.evidence else None,
+                details=self._failure_details(
+                    {"recognition": exc.evidence} if exc.evidence else None
+                ),
             ) from exc
         except HardwareUnavailable as exc:
-            raise StageFailure(DEFAULT_STAGE_FAILURE_REASONS[phase], str(exc)) from exc
+            raise StageFailure(
+                DEFAULT_STAGE_FAILURE_REASONS[phase],
+                str(exc),
+                details=self._failure_details(),
+            ) from exc
         except BarkFailure as exc:
-            raise StageFailure("ACTION_FAILURE", str(exc)) from exc
+            raise StageFailure(
+                "ACTION_FAILURE",
+                str(exc),
+                details=self._failure_details(),
+            ) from exc
+        trace = self._read_motion_trace()
+        if trace is not None:
+            evidence = {**evidence, "motion_commands": trace}
+        return evidence
+
+    def _read_motion_trace(self) -> list[dict[str, object]] | None:
+        read_trace = getattr(self._hardware, "motion_trace", None)
+        if not callable(read_trace):
+            return None
+        return read_trace()
+
+    def _failure_details(
+        self,
+        details: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        combined = dict(details or {})
+        trace = self._read_motion_trace()
+        if trace is not None:
+            combined["motion_commands"] = trace
+        return combined or None
 
     async def _execute(
         self,

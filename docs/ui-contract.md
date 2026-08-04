@@ -10,8 +10,9 @@ The audience route is intentionally minimal:
 
 - one primary **Activate Demo** control;
 - one always-available **Stop Woof** safety control;
-- the configured Target Fruit, temporarily pear;
-- a read-only annotated camera preview showing model state and pear evidence;
+- a narrow qualified-fruit selector containing Pear and Red apple;
+- a read-only annotated camera preview showing model state and Target Fruit
+  evidence;
 - readiness or the exact reason activation is unavailable;
 - the active Run ID and current high-level phase while running; and
 - the terminal outcome, reason, safety state, and Run ID when finished.
@@ -24,9 +25,10 @@ not required before activation: Woof turns first and acquires it during
 boundary. One click creates the Run Result before hardware action and disables
 repeated activation until that run is terminal.
 
-The audience surface never provides a fruit picker, typed command, arbitrary
-motion, phase skip, calibration value, retry-within-run, failure clearing,
-Remote Takeover clearing, or Run Result editing. It does not link to operator
+The audience surface never provides an arbitrary fruit value, typed command,
+arbitrary motion, phase skip, calibration value, retry-within-run, failure
+clearing, Remote Takeover clearing, or Run Result editing. Its selector is
+limited to the shared Qualified Fruit policy. It does not link to operator
 diagnostics from the stage presentation.
 
 Stop Woof immediately requests the shared safe-stop path. It does not pause or

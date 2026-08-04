@@ -84,8 +84,69 @@ def test_audience_page_includes_the_annotated_camera_feed() -> None:
 
     assert response.status_code == 200
     assert 'id="camera-feed"' in response.text
-    assert ':8111/api/camera/frame.jpg' in response.text
-    assert "YOLO pear model overlay" in response.text
+    assert "'/api/camera/frame.jpg'" in response.text
+    assert ":8111/api/camera/frame.jpg" not in response.text
+    assert "YOLO fruit model overlay" in response.text
+    assert 'id="target-fruit"' in response.text
+    assert '<option value="apple">Red apple</option>' in response.text
+    assert "target_fruit: targetFruit.value" in response.text
+
+
+def test_camera_preview_is_proxied_through_the_main_app() -> None:
+    jpeg = b"\xff\xd8apple-preview\xff\xd9"
+
+    response = TestClient(create_app(camera_frame=lambda: jpeg)).get(
+        "/api/camera/frame.jpg"
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/jpeg"
+    assert response.headers["cache-control"] == "no-store"
+    assert response.content == jpeg
+
+
+def test_fruit_test_page_can_select_supported_fruit_without_motion() -> None:
+    selected: list[str] = []
+    app = create_app(
+        select_perception_target=lambda fruit: (
+            selected.append(fruit)
+            or {
+                "target_fruit": fruit,
+                "supported_fruits": ["apple", "banana", "pear"],
+            }
+        )
+    )
+
+    with TestClient(app) as client:
+        page = client.get("/fruit-test")
+        response = client.post(
+            "/api/fruits/preview",
+            json={"target_fruit": "apple"},
+        )
+
+    assert page.status_code == 200
+    assert "Camera only — Woof will not move" in page.text
+    assert "const frameUrl = '/api/camera/frame.jpg';" in page.text
+    assert ":8111/api/camera/frame.jpg" not in page.text
+    assert "document.hidden" in page.text
+    assert "scheduleRefresh(1500)" in page.text
+    assert response.status_code == 200
+    assert response.json() == {
+        "target_fruit": "apple",
+        "qualified_for_demo": True,
+        "supported_fruits": ["apple", "banana", "pear"],
+    }
+    assert selected == ["apple"]
+
+
+def test_fruit_list_qualifies_only_red_apple_and_pear() -> None:
+    response = TestClient(create_app()).get("/api/fruits")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "supported_fruits": ["apple", "banana", "pear"],
+        "qualified_fruits": ["apple", "pear"],
+    }
 
 
 def test_debug_page_offers_recorded_evidence_for_fieldmark_labeling() -> None:
@@ -143,13 +204,12 @@ def test_activate_fails_closed_when_preflight_is_not_ready(tmp_path) -> None:
         assert created["final_safety_state"] == "DISARMED_CONFIRMED"
         assert created["preflight"]["ready"] is False
         assert {
-            check["name"]: check["ready"]
-            for check in created["preflight"]["checks"]
+            check["name"]: check["ready"] for check in created["preflight"]["checks"]
         } == {
             "durable_run_storage": True,
-                "hardware_connected": False,
-                "autonomy_enabled": False,
-                "fresh_pose": False,
+            "hardware_connected": False,
+            "autonomy_enabled": False,
+            "fresh_pose": False,
             "motion_disarmed": True,
             "camera_perception_ready": False,
         }
@@ -271,7 +331,9 @@ def test_activate_demo_completes_every_stage_with_simulated_adapters(tmp_path) -
         }
 
 
-def test_demo_run_carries_outbound_forward_pulses_into_return_playback(tmp_path) -> None:
+def test_demo_run_carries_outbound_forward_pulses_into_return_playback(
+    tmp_path,
+) -> None:
     class PulsePlaybackStages(SimulatedStageExecutor):
         async def execute(self, phase, context):
             if phase is MissionPhase.APPROACH_FRUIT:
@@ -297,9 +359,9 @@ def test_demo_run_carries_outbound_forward_pulses_into_return_playback(tmp_path)
             stage_executor=PulsePlaybackStages(),
         )
     ) as client:
-        run_id = client.post(
-            "/api/run", json={"target_fruit": "pear"}
-        ).json()["run"]["run_id"]
+        run_id = client.post("/api/run", json={"target_fruit": "pear"}).json()["run"][
+            "run_id"
+        ]
         deadline = time.monotonic() + 1.0
         while time.monotonic() < deadline:
             run = client.get(f"/api/results/{run_id}").json()["run"]
@@ -326,9 +388,7 @@ def test_camera_failure_identifies_find_fruit_as_the_broken_stage(tmp_path) -> N
             ),
         )
     ) as client:
-        started = client.post(
-            "/api/run", json={"target_fruit": "pear"}
-        ).json()["run"]
+        started = client.post("/api/run", json={"target_fruit": "pear"}).json()["run"]
         run_id = started["run_id"]
 
         deadline = time.monotonic() + 1.0
@@ -387,9 +447,9 @@ def test_failed_search_persists_downloadable_fieldmark_evidence(tmp_path) -> Non
             terminal_evidence=capture_terminal_evidence,
         )
     ) as client:
-        run_id = client.post(
-            "/api/run", json={"target_fruit": "pear"}
-        ).json()["run"]["run_id"]
+        run_id = client.post("/api/run", json={"target_fruit": "pear"}).json()["run"][
+            "run_id"
+        ]
         deadline = time.monotonic() + 1.0
         while time.monotonic() < deadline:
             run = client.get(f"/api/results/{run_id}").json()["run"]
@@ -397,12 +457,8 @@ def test_failed_search_persists_downloadable_fieldmark_evidence(tmp_path) -> Non
                 break
             time.sleep(0.01)
 
-        archive = client.get(
-            f"/api/results/{run_id}/artifacts/evidence.zip"
-        )
-        unreferenced = client.get(
-            f"/api/results/{run_id}/artifacts/not-recorded.zip"
-        )
+        archive = client.get(f"/api/results/{run_id}/artifacts/evidence.zip")
+        unreferenced = client.get(f"/api/results/{run_id}/artifacts/not-recorded.zip")
         diagnostic = client.get("/api/diagnostics/stages").json()
 
     assert run["reason"] == "TARGET_RECOGNITION_FAILURE"
@@ -423,8 +479,7 @@ def test_failed_search_persists_downloadable_fieldmark_evidence(tmp_path) -> Non
     assert archive.content == b"PK\x03\x04raw-fieldmark-frames"
     assert unreferenced.status_code == 404
     assert [
-        artifact["filename"]
-        for artifact in diagnostic["latest_run"]["artifacts"]
+        artifact["filename"] for artifact in diagnostic["latest_run"]["artifacts"]
     ] == ["evidence.zip", "terminal.jpg"]
 
 
@@ -440,9 +495,9 @@ def test_stop_during_a_stage_cancels_the_demo_without_late_resume(tmp_path) -> N
             ),
         )
     ) as client:
-        run_id = client.post(
-            "/api/run", json={"target_fruit": "pear"}
-        ).json()["run"]["run_id"]
+        run_id = client.post("/api/run", json={"target_fruit": "pear"}).json()["run"][
+            "run_id"
+        ]
 
         deadline = time.monotonic() + 1.0
         while time.monotonic() < deadline:
@@ -489,9 +544,9 @@ def test_each_stage_has_a_distinct_default_failure_result(
             stage_executor=SimulatedStageExecutor(fail_at=failed_phase),
         )
     ) as client:
-        run_id = client.post(
-            "/api/run", json={"target_fruit": "pear"}
-        ).json()["run"]["run_id"]
+        run_id = client.post("/api/run", json={"target_fruit": "pear"}).json()["run"][
+            "run_id"
+        ]
 
         deadline = time.monotonic() + 1.0
         while time.monotonic() < deadline:
@@ -517,9 +572,9 @@ def test_diagnostics_identifies_completed_failed_and_unreached_stages(
             stage_executor=SimulatedStageExecutor(fail_at="return_home"),
         )
     ) as client:
-        run_id = client.post(
-            "/api/run", json={"target_fruit": "pear"}
-        ).json()["run"]["run_id"]
+        run_id = client.post("/api/run", json={"target_fruit": "pear"}).json()["run"][
+            "run_id"
+        ]
 
         deadline = time.monotonic() + 1.0
         while time.monotonic() < deadline:
@@ -541,9 +596,7 @@ def test_diagnostics_identifies_completed_failed_and_unreached_stages(
             "artifacts": [],
             "evidence_capture": {
                 "available": False,
-                "unavailable_reason": (
-                    "terminal evidence adapter is not configured"
-                ),
+                "unavailable_reason": ("terminal evidence adapter is not configured"),
             },
         }
         assert [stage["phase"] for stage in body["stages"]] == [
@@ -624,9 +677,7 @@ def test_camera_readiness_error_becomes_a_failed_preflight_check(tmp_path) -> No
 
 def test_stop_seals_the_active_demo_run_and_allows_another(tmp_path) -> None:
     with TestClient(ready_app(tmp_path)) as client:
-        started = client.post(
-            "/api/run", json={"target_fruit": "pear"}
-        ).json()["run"]
+        started = client.post("/api/run", json={"target_fruit": "pear"}).json()["run"]
 
         stopped = client.post("/api/stop")
 
@@ -637,21 +688,15 @@ def test_stop_seals_the_active_demo_run_and_allows_another(tmp_path) -> None:
         assert result["current_phase"] == "stopped"
         assert result["final_safety_state"] == "DISARMED_CONFIRMED"
         assert client.get("/api/status").json()["active_run_id"] is None
-        assert client.post(
-            "/api/run", json={"target_fruit": "pear"}
-        ).status_code == 201
+        assert client.post("/api/run", json={"target_fruit": "pear"}).status_code == 201
 
 
 def test_startup_seals_an_interrupted_demo_run(tmp_path) -> None:
     with TestClient(ready_app(tmp_path)) as client:
-        started = client.post(
-            "/api/run", json={"target_fruit": "pear"}
-        ).json()["run"]
+        started = client.post("/api/run", json={"target_fruit": "pear"}).json()["run"]
 
     with TestClient(create_app(runs_root=tmp_path)) as restarted:
-        recovered = restarted.get(
-            f"/api/results/{started['run_id']}"
-        ).json()["run"]
+        recovered = restarted.get(f"/api/results/{started['run_id']}").json()["run"]
 
         assert recovered["outcome"] == "FAILED"
         assert recovered["reason"] == "PROCESS_INTERRUPTED"
@@ -662,13 +707,9 @@ def test_startup_seals_an_interrupted_demo_run(tmp_path) -> None:
 
 def test_results_list_returns_newest_demo_run_first(tmp_path) -> None:
     with TestClient(create_app(runs_root=tmp_path)) as client:
-        first = client.post(
-            "/api/run", json={"target_fruit": "pear"}
-        ).json()["run"]
+        first = client.post("/api/run", json={"target_fruit": "pear"}).json()["run"]
         client.post("/api/stop")
-        second = client.post(
-            "/api/run", json={"target_fruit": "pear"}
-        ).json()["run"]
+        second = client.post("/api/run", json={"target_fruit": "pear"}).json()["run"]
 
         response = client.get("/api/results")
 
@@ -679,11 +720,27 @@ def test_results_list_returns_newest_demo_run_first(tmp_path) -> None:
         ]
 
 
+def test_activate_accepts_the_qualified_red_apple_target(tmp_path) -> None:
+    selected: list[str] = []
+    with TestClient(
+        create_app(
+            runs_root=tmp_path,
+            select_perception_target=lambda fruit: (
+                selected.append(fruit)
+                or {"target_fruit": fruit, "supported_fruits": [fruit]}
+            ),
+        )
+    ) as client:
+        response = client.post("/api/run", json={"target_fruit": "apple"})
+
+        assert response.status_code == 201
+        assert response.json()["run"]["target_fruit"] == "apple"
+        assert selected == ["apple"]
+
+
 def test_activate_rejects_an_unqualified_target_fruit(tmp_path) -> None:
     with TestClient(create_app(runs_root=tmp_path)) as client:
-        response = client.post(
-            "/api/run", json={"target_fruit": "apple"}
-        )
+        response = client.post("/api/run", json={"target_fruit": "banana"})
 
         assert response.status_code == 422
         assert client.get("/api/results").json()["runs"] == []

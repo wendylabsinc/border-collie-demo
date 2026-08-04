@@ -1,4 +1,4 @@
-"""Read-only Go2 camera, pear inference, and bark sidecar.
+"""Read-only Go2 camera, fruit inference, and bark sidecar.
 
 The process intentionally owns no Unitree motion client. It exposes only fresh
 source/detection evidence and the preloaded bark action.
@@ -20,10 +20,25 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass
 from functools import partial
 from threading import Lock
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Response
+from pydantic import BaseModel
+
+from media.model_router import FruitCandidate, FruitModelRouter, RoutedPrediction
+
+FRUIT_ACQUISITION_CONFIDENCE = {
+    "apple": 0.70,
+    "banana": 0.20,
+    "pear": 0.65,
+}
+SUPPORTED_FRUITS = tuple(FRUIT_ACQUISITION_CONFIDENCE)
+SEARCH_CROP_FRUITS = frozenset({"apple", "banana"})
+
+
+class TargetFruitRequest(BaseModel):
+    target_fruit: Literal["apple", "banana", "pear"]
 
 
 @dataclass(frozen=True)
@@ -44,7 +59,9 @@ class CropConfirmConfig:
             self.minimum_confirmation_confidence,
             self.minimum_agreement_iou,
         )
-        if not all(math.isfinite(value) and 0.0 <= value <= 1.0 for value in confidences):
+        if not all(
+            math.isfinite(value) and 0.0 <= value <= 1.0 for value in confidences
+        ):
             raise ValueError("crop-confirm confidence and IoU values must be in [0, 1]")
         if not (
             math.isfinite(self.small_bbox_area_ratio)
@@ -59,9 +76,7 @@ class CropConfirmConfig:
     @classmethod
     def from_env(cls) -> CropConfirmConfig:
         return cls(
-            enabled=os.environ.get("PEAR_CROP_CONFIRM_ENABLED", "1")
-            .strip()
-            .casefold()
+            enabled=os.environ.get("PEAR_CROP_CONFIRM_ENABLED", "1").strip().casefold()
             in {"1", "true", "yes", "on"},
             minimum_candidate_confidence=float(
                 os.environ.get("PEAR_CROP_CONFIRM_MIN_CANDIDATE_CONFIDENCE", "0.35")
@@ -85,12 +100,6 @@ class CropConfirmConfig:
                 os.environ.get("PEAR_CROP_CONFIRM_MIN_IOU", "0.10")
             ),
         )
-
-
-@dataclass(frozen=True)
-class PearCandidate:
-    confidence: float
-    bbox_xyxy: tuple[int, int, int, int]
 
 
 def configure_media_logging() -> None:
@@ -173,8 +182,7 @@ class EvidenceFrameBuffer:
                     else max(maximum_confidence, confidence)
                 )
             if bbox_area_ratio is not None and (
-                closest is None
-                or bbox_area_ratio > float(closest["bbox_area_ratio"])
+                closest is None or bbox_area_ratio > float(closest["bbox_area_ratio"])
             ):
                 closest = {
                     "source_pts": frame["source_pts"],
@@ -213,7 +221,9 @@ class EvidenceFrameBuffer:
             },
         }
         destination = io.BytesIO()
-        with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_STORED) as archive:
+        with zipfile.ZipFile(
+            destination, "w", compression=zipfile.ZIP_STORED
+        ) as archive:
             archive.writestr("manifest.json", json.dumps(manifest, indent=2))
             for index, frame in enumerate(frames, start=1):
                 archive.writestr(f"frames/{index:06d}.jpg", frame["raw_jpeg"])
@@ -242,33 +252,6 @@ def _valid_bbox(
     if not (0.0 <= x1 < x2 <= width and 0.0 <= y1 < y2 <= height):
         return None
     return x1, y1, x2, y2
-
-
-def _best_candidate(
-    results: object,
-    *,
-    x_offset: int = 0,
-    y_offset: int = 0,
-) -> PearCandidate | None:
-    if not isinstance(results, (list, tuple)) or not results:
-        return None
-    boxes = getattr(results[0], "boxes", None)
-    if boxes is None or len(boxes) == 0:
-        return None
-    confidences = boxes.conf.detach().cpu().tolist()
-    best_index = max(range(len(confidences)), key=confidences.__getitem__)
-    confidence = float(confidences[best_index])
-    coordinates = boxes.xyxy[best_index].detach().cpu().tolist()
-    x1, y1, x2, y2 = (round(float(value)) for value in coordinates)
-    return PearCandidate(
-        confidence=confidence,
-        bbox_xyxy=(
-            x1 + x_offset,
-            y1 + y_offset,
-            x2 + x_offset,
-            y2 + y_offset,
-        ),
-    )
 
 
 def _bbox_area_ratio(
@@ -304,6 +287,19 @@ def _expanded_square_crop(
     return crop_x1, crop_y1, crop_x1 + side, crop_y1 + side
 
 
+def _lower_center_search_crop(
+    *,
+    width: int,
+    height: int,
+    maximum_side_px: int = 512,
+) -> tuple[int, int, int, int]:
+    """Return one bounded floor-facing crop for small optional targets."""
+    side = max(1, min(maximum_side_px, width, height))
+    crop_x1 = max(0, (width - side) // 2)
+    crop_y1 = max(0, height - side)
+    return crop_x1, crop_y1, crop_x1 + side, crop_y1 + side
+
+
 def _bbox_iou(
     first: tuple[int, int, int, int],
     second: tuple[int, int, int, int],
@@ -314,17 +310,16 @@ def _bbox_iou(
     bottom = min(first[3], second[3])
     intersection = max(0, right - left) * max(0, bottom - top)
     first_area = max(0, first[2] - first[0]) * max(0, first[3] - first[1])
-    second_area = max(0, second[2] - second[0]) * max(
-        0, second[3] - second[1]
-    )
+    second_area = max(0, second[2] - second[0]) * max(0, second[3] - second[1])
     union = first_area + second_area - intersection
     return intersection / union if union > 0 else 0.0
 
 
 class PerceptionEvidence:
-    def __init__(self, *, generation: str) -> None:
+    def __init__(self, *, generation: str, target_fruit: str = "pear") -> None:
         self.generation = generation
         self._lock = Lock()
+        self._target_fruit = target_fruit
         self._source: dict[str, object] = {}
         self._detection: dict[str, object] = {}
         self._source_count = 0
@@ -345,16 +340,11 @@ class PerceptionEvidence:
         height: int,
     ) -> None:
         with self._lock:
-            advances = (
-                self._last_source_pts is None
-                or (
-                    pts > self._last_source_pts
-                    and time_base == self._time_base
-                    and self._last_source_received_s is not None
-                    and 0.0
-                    < received_monotonic_s - self._last_source_received_s
-                    <= 0.350
-                )
+            advances = self._last_source_pts is None or (
+                pts > self._last_source_pts
+                and time_base == self._time_base
+                and self._last_source_received_s is not None
+                and 0.0 < received_monotonic_s - self._last_source_received_s <= 0.350
             )
             self._source_count = self._source_count + 1 if advances else 1
             if not advances:
@@ -382,10 +372,15 @@ class PerceptionEvidence:
         inference_s: float,
         completed_monotonic_s: float,
         details: dict[str, object] | None = None,
-    ) -> None:
+    ) -> dict[str, object] | None:
         with self._lock:
-            advances = self._last_detection_pts is None or pts > self._last_detection_pts
-            qualified = label.casefold().strip() == "pear" and confidence >= 0.65
+            normalized_label = label.casefold().strip()
+            if normalized_label != self._target_fruit:
+                return None
+            advances = (
+                self._last_detection_pts is None or pts > self._last_detection_pts
+            )
+            qualified = confidence >= FRUIT_ACQUISITION_CONFIDENCE[self._target_fruit]
             self._detection_count = (
                 self._detection_count + 1 if advances and qualified else 0
             )
@@ -402,10 +397,25 @@ class PerceptionEvidence:
                 "bbox_xyxy": list(bbox_xyxy),
                 **(details or {}),
             }
+            return dict(self._detection)
 
-    def note_miss(self) -> None:
+    def note_miss(self, target_fruit: str) -> None:
         with self._lock:
+            if target_fruit.casefold().strip() != self._target_fruit:
+                return
             self._detection_count = 0
+            self._detection = {}
+
+    def select_target(self, target_fruit: str) -> None:
+        normalized = target_fruit.casefold().strip()
+        if normalized not in FRUIT_ACQUISITION_CONFIDENCE:
+            raise ValueError(f"unsupported Target Fruit: {target_fruit}")
+        with self._lock:
+            if normalized == self._target_fruit:
+                return
+            self._target_fruit = normalized
+            self._detection_count = 0
+            self._last_detection_pts = None
             self._detection = {}
 
     def fail(self, error: str) -> None:
@@ -416,6 +426,8 @@ class PerceptionEvidence:
         with self._lock:
             return {
                 "generation": self.generation,
+                "target_fruit": self._target_fruit,
+                "supported_fruits": list(SUPPORTED_FRUITS),
                 "source": dict(self._source),
                 "detection": dict(self._detection),
                 "error": self._error,
@@ -426,6 +438,15 @@ class PerceptionRuntime:
     def __init__(self) -> None:
         self.robot_ip = os.environ.get("UNITREE_ROBOT_IP", "192.168.123.161")
         self.model_path = os.environ.get("PEAR_MODEL_PATH", "/media/model.engine")
+        self.banana_specialist_model_path = os.environ.get(
+            "BANANA_SPECIALIST_MODEL_PATH", ""
+        ).strip()
+        self.banana_specialist_minimum_confidence = float(
+            os.environ.get("BANANA_SPECIALIST_MIN_CONFIDENCE", "0.55")
+        )
+        self.banana_specialist_minimum_agreement_iou = float(
+            os.environ.get("BANANA_SPECIALIST_MIN_IOU", "0.10")
+        )
         self.bark_uuid = os.environ.get(
             "BORDER_COLLIE_BARK_UUID",
             "161387de-21ab-4f0b-b4e9-97124b000d06",
@@ -447,7 +468,11 @@ class PerceptionRuntime:
         self._audiohub: Any | None = None
         self._detector_task: asyncio.Task[None] | None = None
         self._model: Any | None = None
-        self._pear_class_id: int | None = None
+        self._banana_specialist_model: Any | None = None
+        self._model_router: FruitModelRouter | None = None
+        self._fruit_class_ids: dict[str, int] = {}
+        self._target_lock = Lock()
+        self._target_fruit = "pear"
         self._inference_executor = ThreadPoolExecutor(
             max_workers=1,
             thread_name_prefix="border-collie-inference",
@@ -472,10 +497,48 @@ class PerceptionRuntime:
         )
         names = getattr(self._model, "names", {})
         items = names.items() if isinstance(names, dict) else enumerate(names)
-        self._pear_class_id = next(
-            int(class_id)
-            for class_id, label in items
-            if str(label).casefold().strip() == "pear"
+        available = {
+            str(label).casefold().strip(): int(class_id) for class_id, label in items
+        }
+        self._fruit_class_ids = {
+            fruit: available[fruit] for fruit in SUPPORTED_FRUITS if fruit in available
+        }
+        missing = sorted(set(SUPPORTED_FRUITS) - set(self._fruit_class_ids))
+        if missing:
+            raise RuntimeError(
+                "fruit model is missing required classes: " + ", ".join(missing)
+            )
+        banana_specialist_class_id = None
+        if self.banana_specialist_model_path:
+            self._banana_specialist_model = await loop.run_in_executor(
+                self._inference_executor,
+                partial(YOLO, self.banana_specialist_model_path, task="detect"),
+            )
+            specialist_names = getattr(self._banana_specialist_model, "names", {})
+            specialist_items = (
+                specialist_names.items()
+                if isinstance(specialist_names, dict)
+                else enumerate(specialist_names)
+            )
+            specialist_classes = {
+                str(label).casefold().strip(): int(class_id)
+                for class_id, label in specialist_items
+            }
+            try:
+                banana_specialist_class_id = specialist_classes["banana"]
+            except KeyError as exc:
+                raise RuntimeError(
+                    "banana specialist model is missing required banana class"
+                ) from exc
+        self._model_router = FruitModelRouter(
+            general_model=self._model,
+            general_class_ids=self._fruit_class_ids,
+            banana_specialist_model=self._banana_specialist_model,
+            banana_specialist_class_id=banana_specialist_class_id,
+            banana_minimum_confidence=self.banana_specialist_minimum_confidence,
+            banana_minimum_agreement_iou=(
+                self.banana_specialist_minimum_agreement_iou
+            ),
         )
         self._connection = UnitreeWebRTCConnection(
             WebRTCConnectionMethod.LocalSTA,
@@ -512,6 +575,36 @@ class PerceptionRuntime:
             **self.evidence.status(),
             "bark_ready": self._audiohub is not None and bool(self.bark_uuid),
             "crop_confirm": asdict(self._crop_confirm),
+            "model_router": (
+                self._model_router.status()
+                if self._model_router is not None
+                else {
+                    "mode": "loading"
+                    if self.banana_specialist_model_path
+                    else "general_only",
+                    "banana_specialist_loaded": False,
+                    "banana_minimum_confidence": (
+                        self.banana_specialist_minimum_confidence
+                    ),
+                    "banana_minimum_agreement_iou": (
+                        self.banana_specialist_minimum_agreement_iou
+                    ),
+                }
+            ),
+        }
+
+    def select_target(self, target_fruit: str) -> dict[str, object]:
+        normalized = target_fruit.casefold().strip()
+        if normalized not in FRUIT_ACQUISITION_CONFIDENCE:
+            raise ValueError(f"unsupported Target Fruit: {target_fruit}")
+        if self._fruit_class_ids and normalized not in self._fruit_class_ids:
+            raise RuntimeError(f"model class is unavailable for {normalized}")
+        with self._target_lock:
+            self._target_fruit = normalized
+            self.evidence.select_target(normalized)
+        return {
+            "target_fruit": normalized,
+            "supported_fruits": list(SUPPORTED_FRUITS),
         }
 
     def camera_frame(self) -> bytes:
@@ -553,7 +646,7 @@ class PerceptionRuntime:
             self.evidence.fail(f"camera failure: {type(exc).__name__}: {exc}")
 
     async def _detect(self) -> None:
-        assert self._model is not None and self._pear_class_id is not None
+        assert self._model is not None and self._fruit_class_ids
         loop = asyncio.get_running_loop()
         while True:
             frame, received, pts, time_base = await self._frames.get()
@@ -566,6 +659,27 @@ class PerceptionRuntime:
                 time_base,
             )
 
+    def _predict_candidate(
+        self,
+        *,
+        source: Any,
+        target_fruit: str,
+        x_offset: int = 0,
+        y_offset: int = 0,
+    ) -> RoutedPrediction:
+        assert self._model is not None and self._fruit_class_ids
+        router = self._model_router or FruitModelRouter(
+            general_model=self._model,
+            general_class_ids=self._fruit_class_ids,
+        )
+        return router.predict(
+            source=source,
+            target_fruit=target_fruit,
+            device=0,
+            x_offset=x_offset,
+            y_offset=y_offset,
+        )
+
     def _process_frame(
         self,
         frame: Any,
@@ -574,19 +688,23 @@ class PerceptionRuntime:
         time_base: str,
     ) -> None:
         """Own all frame conversion, model, postprocess, and preview work."""
-        assert self._model is not None and self._pear_class_id is not None
+        assert self._model is not None and self._fruit_class_ids
+        with self._target_lock:
+            target_fruit = self._target_fruit
         bgr = frame.to_ndarray(format="bgr24")
         started = time.monotonic()
         try:
-            results = self._model.predict(
+            full_frame_prediction = self._predict_candidate(
                 source=bgr,
-                conf=0.01,
-                classes=[self._pear_class_id],
-                device=0,
-                verbose=False,
+                target_fruit=target_fruit,
             )
-            candidate = _best_candidate(results)
-            inference_passes = 1
+            candidate = full_frame_prediction.candidate
+            inference_passes = full_frame_prediction.inference_passes
+            model_route: dict[str, object] = {
+                "full_frame": full_frame_prediction.route,
+                "search_crop": None,
+                "crop_confirmation": None,
+            }
             crop_confirmation: dict[str, object] = {
                 "attempted": False,
                 "promoted": False,
@@ -597,10 +715,43 @@ class PerceptionRuntime:
                 "crop_xyxy": None,
                 "agreement_iou": None,
             }
-            if candidate is not None and self._should_crop_confirm(
-                candidate,
-                width=int(bgr.shape[1]),
-                height=int(bgr.shape[0]),
+            search_crop: dict[str, object] = {
+                "attempted": False,
+                "crop_xyxy": None,
+            }
+            if (
+                candidate is None
+                and target_fruit in SEARCH_CROP_FRUITS
+                and not bool(full_frame_prediction.route.get("triggered"))
+            ):
+                search_crop_xyxy = _lower_center_search_crop(
+                    width=int(bgr.shape[1]),
+                    height=int(bgr.shape[0]),
+                )
+                crop_x1, crop_y1, crop_x2, crop_y2 = search_crop_xyxy
+                cropped_bgr = bgr[crop_y1:crop_y2, crop_x1:crop_x2]
+                search_prediction = self._predict_candidate(
+                    source=cropped_bgr,
+                    target_fruit=target_fruit,
+                    x_offset=crop_x1,
+                    y_offset=crop_y1,
+                )
+                inference_passes += search_prediction.inference_passes
+                candidate = search_prediction.candidate
+                model_route["search_crop"] = search_prediction.route
+                search_crop = {
+                    "attempted": True,
+                    "crop_xyxy": list(search_crop_xyxy),
+                }
+            if (
+                candidate is not None
+                and not search_crop["attempted"]
+                and not bool(full_frame_prediction.route.get("triggered"))
+                and self._should_crop_confirm(
+                    candidate,
+                    width=int(bgr.shape[1]),
+                    height=int(bgr.shape[0]),
+                )
             ):
                 crop_xyxy = _expanded_square_crop(
                     candidate.bbox_xyxy,
@@ -611,19 +762,15 @@ class PerceptionRuntime:
                 )
                 crop_x1, crop_y1, crop_x2, crop_y2 = crop_xyxy
                 cropped_bgr = bgr[crop_y1:crop_y2, crop_x1:crop_x2]
-                crop_results = self._model.predict(
+                crop_prediction = self._predict_candidate(
                     source=cropped_bgr,
-                    conf=0.01,
-                    classes=[self._pear_class_id],
-                    device=0,
-                    verbose=False,
-                )
-                inference_passes = 2
-                crop_candidate = _best_candidate(
-                    crop_results,
+                    target_fruit=target_fruit,
                     x_offset=crop_x1,
                     y_offset=crop_y1,
                 )
+                inference_passes += crop_prediction.inference_passes
+                crop_candidate = crop_prediction.candidate
+                model_route["crop_confirmation"] = crop_prediction.route
                 agreement_iou = (
                     None
                     if crop_candidate is None
@@ -667,10 +814,10 @@ class PerceptionRuntime:
             return
         completed = time.monotonic()
         if candidate is None:
-            self.evidence.note_miss()
+            self.evidence.note_miss(target_fruit)
             self._publish_preview(
                 bgr,
-                message="SEARCHING FOR PEAR",
+                message=f"SEARCHING FOR {target_fruit.upper()}",
                 color=(0, 191, 255),
                 pts=pts,
                 time_base=time_base,
@@ -680,18 +827,22 @@ class PerceptionRuntime:
             return
         confidence = candidate.confidence
         bbox = candidate.bbox_xyxy
-        self.evidence.note_detection(
+        detection = self.evidence.note_detection(
             pts=pts,
-            label="pear",
+            label=target_fruit,
             confidence=confidence,
             bbox_xyxy=bbox,
             inference_s=completed - started,
             completed_monotonic_s=completed,
             details={
                 "inference_passes": inference_passes,
+                "model_route": model_route,
                 "crop_confirmation": crop_confirmation,
+                "search_crop": search_crop,
             },
         )
+        if detection is None:
+            return
         crop_message = (
             " | CROP CONFIRMED"
             if crop_confirmation["promoted"]
@@ -699,24 +850,25 @@ class PerceptionRuntime:
             if crop_confirmation["attempted"]
             else ""
         )
+        search_crop_message = " | SEARCH CROP" if search_crop["attempted"] else ""
         self._publish_preview(
             bgr,
             bbox_xyxy=bbox,
             message=(
-                f"PEAR {confidence:.0%} | "
-                f"{self.evidence.status()['detection']['consecutive_detections']}/5"
-                f"{crop_message}"
+                f"{target_fruit.upper()} {confidence:.0%} | "
+                f"{detection['consecutive_detections']}/5"
+                f"{crop_message}{search_crop_message}"
             ),
             color=(0, 200, 0),
             pts=pts,
             time_base=time_base,
             received_monotonic_s=received_monotonic_s,
-            detection=dict(self.evidence.status()["detection"]),
+            detection=detection,
         )
 
     def _should_crop_confirm(
         self,
-        candidate: PearCandidate,
+        candidate: FruitCandidate,
         *,
         width: int,
         height: int,
@@ -756,7 +908,7 @@ class PerceptionRuntime:
         cv2.rectangle(preview, (0, 0), (preview.shape[1], 92), (20, 20, 20), -1)
         cv2.putText(
             preview,
-            "YOLO PEAR MODEL: LIVE",
+            "YOLO FRUIT MODEL: LIVE",
             (20, 35),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.85,
@@ -827,6 +979,13 @@ def create_app(runtime: PerceptionRuntime | None = None) -> FastAPI:
     @app.get("/status")
     async def status() -> dict[str, object]:
         return media.status()
+
+    @app.post("/api/target")
+    async def select_target(request: TargetFruitRequest) -> dict[str, object]:
+        try:
+            return media.select_target(request.target_fruit)
+        except Exception as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.post("/api/bark")
     async def bark() -> dict[str, object]:

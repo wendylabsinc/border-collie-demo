@@ -16,6 +16,26 @@ uncertain full-frame pear proposal. The runtime records both confidences, the
 crop, spatial agreement, promotion decision, pass count, and combined latency.
 This is an adapter behavior, not a new model artifact.
 
+## Banana specialist router
+
+The general TensorRT model remains resident and handles the first pass for all
+fruits. When its requested-class result contains a banana proposal, the media
+sidecar routes the same image to the resident banana specialist at
+`/media/banana-specialist.pt`. A banana detection is published only when the
+specialist reaches `BANANA_SPECIALIST_MIN_CONFIDENCE` and its box overlaps the
+general proposal by at least `BANANA_SPECIALIST_MIN_IOU`.
+
+Apple and pear never spend a specialist pass. A missing general banana proposal
+does not invoke the specialist, and a specialist rejection returns no detection
+so the bounded search continues. Both adapters load once at process startup;
+the frame loop never unloads or cold-swaps model files. Route, confidence,
+agreement, inference-pass count, and combined latency are included in detection
+evidence.
+
+The specialist checkpoint is an ignored experimental artifact. Banana remains
+camera-only until on-device timing, negative-frame behavior, and a guarded
+physical run are independently qualified.
+
 ## Planned adapter: Modular MAX and Mojo
 
 TensorRT is temporary. The intended model runtime is Modular MAX, using the

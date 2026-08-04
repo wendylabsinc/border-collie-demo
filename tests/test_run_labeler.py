@@ -6,7 +6,6 @@ from zipfile import ZipFile
 
 import pytest
 
-
 LABELER_ROOT = Path(__file__).parents[1] / "lab" / "run-labeler"
 
 
@@ -46,3 +45,24 @@ def test_load_manifest_rejects_unsafe_frame_names(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="unsafe"):
         server.load_manifest(archive_path)
+
+
+def test_configure_manifest_adds_the_selected_label_without_mutating_source() -> None:
+    server = load_labeler_module()
+    source = {
+        "format": "fieldmark-image-sequence",
+        "frames": [{"filename": "frames/000001.jpg"}],
+    }
+
+    configured = server.configure_manifest(source, " Banana ")
+
+    assert configured["labeling_class"] == "banana"
+    assert "labeling_class" not in source
+
+
+@pytest.mark.parametrize("class_name", ["", "pear<script>", "../banana"])
+def test_configure_manifest_rejects_unsafe_class_names(class_name: str) -> None:
+    server = load_labeler_module()
+
+    with pytest.raises(ValueError, match="class name"):
+        server.configure_manifest({"frames": []}, class_name)

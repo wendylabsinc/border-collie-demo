@@ -11,18 +11,18 @@ IDLE -> PREFLIGHT -> CAPTURE_HOME -> WAIT_FOR_COMMAND
 
 `STOPPED`, `FAILED`, and `REMOTE_TAKEOVER` are off-ramps from active work.
 
-For the pear-qualified milestone, facing the person is an operator setup
+For the qualified-fruit milestone, facing the person is an operator setup
 condition established before activation. Autonomous person detection is not
 required and the application must not silently adjust the captured Home pose.
 
 Preflight records explicit checks for durable Run Result storage, connected
 hardware, the autonomous-motion gate, fresh pose, disarmed application motion,
-an advancing healthy camera/perception source, and bark-media readiness. Pear
+an advancing healthy camera/perception source, and bark-media readiness. Target Fruit
 evidence is intentionally not an activation gate: `TURN_TO_FRUIT` happens
 first and rotates through at most one measured revolution until fresh qualified
-pear evidence stops the turn. `FIND_FRUIT` then confirms or briefly reacquires
+fruit evidence stops the turn. `FIND_FRUIT` then confirms or briefly reacquires
 that evidence before approach. Completing the bounded search with healthy,
-advancing frames but no qualified pear records `TARGET_RECOGNITION_FAILURE`
+advancing frames but no qualified Target Fruit records `TARGET_RECOGNITION_FAILURE`
 with the strongest candidate statistics and a downloadable raw-frame evidence
 archive for Fieldmark labeling. Any failed or errored preflight check seals the Demo Run as
 `FAILED` with reason `PREFLIGHT_FAILURE`; only an all-ready report may advance
@@ -37,17 +37,25 @@ must record the phase where freshness was lost and the reason
 `CAMERA_FAILURE`. Autonomous work may not resume within that run; a new run is
 allowed only after camera freshness passes preflight again.
 
-During `APPROACH_FRUIT`, translation remains zero while a fixed 0.50 rad/s
-correction turns toward the pear. Once its center enters 0.08 of the horizontal
-frame center, yaw becomes zero and must remain centered for three fresh
-samples. Every later forward heartbeat is counted, including the single
-bounded 0.3 m/s by 1.0-second push after qualified lower-edge disappearance.
+From activation through `TURN_TO_FRUIT` and `FIND_FRUIT`, every velocity command
+has zero forward input. During `APPROACH_FRUIT`, translation remains zero while
+a fixed 0.50 rad/s correction first turns toward the Target Fruit. Once its
+center enters 0.08 of the horizontal frame center, yaw becomes zero and must
+remain centered for three fresh samples. After that initial gate, approach may
+combine forward input with bounded yaw to steer toward the fruit. Every forward
+heartbeat is counted, including the single bounded 0.3 m/s by 1.0-second push
+after qualified lower-edge disappearance.
+
+An acquired red-apple track may survive its observed close-range confidence
+collapse only while its box remains low and spatially continuous with the last
+accepted box. This continuation cannot acquire a fruit, and discontinuous or
+missing evidence commands zero motion.
 Arrival releases motion before `SIT_AND_BARK`; Woof barks while down and holds
 that posture for 5 seconds before `STAND` may begin. After the measured turn
 toward Home,
 `RETURN_HOME` replays the recorded number of forward heartbeats at the same
-1.0 m/s signal. Heading-only course corrections do not consume a forward
-heartbeat.
+1.0 m/s signal. Heading-only corrections do not consume a forward heartbeat;
+bounded course correction may accompany forward replay after approach.
 
 Return-to-Home must not use open-ended recovery. Loss of trustworthy pose or
 failure to make bounded progress must stop and disarm Woof, terminate the run

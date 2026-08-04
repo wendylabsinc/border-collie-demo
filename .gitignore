@@ -5,8 +5,11 @@ __pycache__/
 .ruff_cache/
 .venv/
 .venv314/
+.venv-training/
 dist/
 build/
 artifacts/runs/
+artifacts/fruit-model/
 lab/*/model/
 media/model/*.engine
+media/model/*.pt

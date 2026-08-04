@@ -57,6 +57,40 @@ def test_qualified_camera_and_pear_evidence_is_ready() -> None:
     assert status["detection"]["age_s"] < 0.250
 
 
+def test_qualified_apple_evidence_uses_its_own_threshold() -> None:
+    payload = valid_payload()
+    payload["target_fruit"] = "apple"
+    payload["supported_fruits"] = ["apple", "banana", "pear"]
+    payload["detection"]["label"] = "apple"
+    payload["detection"]["confidence"] = 0.70
+
+    status = client_for(payload).status()
+
+    assert status["target_fruit"] == "apple"
+    assert status["target_ready"] is True
+    assert status["motion_qualified"] is True
+    assert status["thresholds"]["target_minimum_confidence"] == 0.70
+
+
+def test_perception_client_selects_target_through_the_read_only_sidecar() -> None:
+    calls: list[tuple[str, str, float]] = []
+    client = PerceptionStatusClient(
+        PerceptionConfig(enabled=True),
+        target_poster=lambda url, fruit, timeout: (
+            calls.append((url, fruit, timeout))
+            or {
+                "target_fruit": fruit,
+                "supported_fruits": ["apple", "banana", "pear"],
+            }
+        ),
+    )
+
+    selected = client.select_target("banana")
+
+    assert selected["target_fruit"] == "banana"
+    assert calls == [("http://127.0.0.1:8111/api/target", "banana", 0.25)]
+
+
 def test_status_preserves_validated_geometry_for_approach_and_arrival() -> None:
     status = client_for(valid_payload()).status()
 

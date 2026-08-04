@@ -127,6 +127,12 @@ may be relaxed only after new acceptance evidence is recorded.
   freshness, generation, geometry, or camera-health gate. A weaker or missing
   track commands zero motion until the approach contract either reacquires the
   pear or performs its already-qualified lower-edge final push.
+- A previously acquired red-apple track may continue below the normal tracking
+  floor, down to 0.10 confidence, only after its lower edge or the prior lower
+  edge reaches 0.70 of frame height and its geometry remains continuous. Its
+  horizontal center may move at most 0.20 of frame width between accepted
+  samples; its vertical center and lower edge may retreat by at most 0.08.
+  This rule cannot acquire an apple or accept a label change.
 - Warm-up must finish before preflight passes. After preflight, detector
   execution time must be **no greater than 0.200 seconds**.
 - Detection age must be **no greater than 0.250 seconds**, measured with the
@@ -160,6 +166,15 @@ camera-guided motion stops and the approach contract decides whether bounded
 reacquisition is allowed or the run terminates as target loss.
 
 ## Evidence and remaining qualification
+
+The provisioned engine also represents apple and banana. `RED-APPLE-001`
+qualifies red apple at 0.70 confidence by five fresh detections; pear remains
+qualified at 0.65 by five. Banana stays a camera-only **Supported Fruit**. The
+green apple trial produced no apple proposal and was classified as pear when
+class filtering was removed, so green apple is outside the qualified operating
+envelope. The `/fruit-test` surface remains motion-free. Selecting a different
+class clears detection stability, and starting a Demo Run explicitly restores
+its chosen qualified class before preflight.
 
 The thresholds above are based on the guarded clean-repository results in
 [`validation-results.md`](validation-results.md):

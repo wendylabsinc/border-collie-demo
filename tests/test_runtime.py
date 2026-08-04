@@ -19,9 +19,7 @@ def test_explicit_simulation_runtime_completes_activate_demo(
         assert status["runtime_mode"] == "simulation"
         assert status["activation"]["ready"] is True
 
-        started = client.post(
-            "/api/run", json={"target_fruit": "pear"}
-        ).json()["run"]
+        started = client.post("/api/run", json={"target_fruit": "pear"}).json()["run"]
         deadline = time.monotonic() + 1.0
         while time.monotonic() < deadline:
             run = client.get(f"/api/results/{started['run_id']}").json()["run"]
@@ -37,7 +35,9 @@ def test_explicit_simulation_runtime_completes_activate_demo(
         )
 
 
-def test_production_runtime_wires_the_real_stage_executor(tmp_path, monkeypatch) -> None:
+def test_production_runtime_wires_the_real_stage_executor(
+    tmp_path, monkeypatch
+) -> None:
     import border_collie_demo.main as main_module
 
     created = []
@@ -47,6 +47,14 @@ def test_production_runtime_wires_the_real_stage_executor(tmp_path, monkeypatch)
             pass
 
         status = staticmethod(simulated_camera_perception)
+
+        @staticmethod
+        def select_target(target_fruit: str):
+            return {"target_fruit": target_fruit}
+
+        @staticmethod
+        def camera_frame():
+            return b"\xff\xd8preview\xff\xd9"
 
     def stages(hardware, perception, bark):
         created.append((hardware, perception, bark))

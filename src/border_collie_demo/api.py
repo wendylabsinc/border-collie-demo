@@ -7,11 +7,12 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from .evidence import EvidenceArtifact
+from .fruits import QUALIFIED_FRUITS, SUPPORTED_FRUITS
 from .hardware import HardwareManager, HardwareUnavailable
 from .mission import MissionMachine, RestartRequired
 from .orchestrator import EXECUTED_STAGES, DemoOrchestrator, StageExecutor
@@ -24,7 +25,11 @@ class ForwardPulseRequest(BaseModel):
 
 
 class RunRequest(BaseModel):
-    target_fruit: Literal["pear"] = "pear"
+    target_fruit: Literal["apple", "pear"] = "pear"
+
+
+class FruitPreviewRequest(BaseModel):
+    target_fruit: Literal["apple", "banana", "pear"]
 
 
 def create_app(
@@ -33,6 +38,8 @@ def create_app(
     web_root: Path | None = None,
     runs_root: Path | None = None,
     camera_perception_status: Callable[[], dict[str, object]] | None = None,
+    camera_frame: Callable[[], bytes] | None = None,
+    select_perception_target: Callable[[str], dict[str, object]] | None = None,
     media_status: Callable[[], dict[str, object]] | None = None,
     stage_executor: StageExecutor | None = None,
     terminal_evidence: Callable[[], list[EvidenceArtifact]] | None = None,
@@ -42,8 +49,7 @@ def create_app(
     robot = hardware or HardwareManager()
     root = web_root or Path(os.environ.get("BORDER_COLLIE_WEB_ROOT", "web")).resolve()
     results = RunResultStore(
-        runs_root
-        or Path(os.environ.get("BORDER_COLLIE_RUNS_DIR", "artifacts/runs"))
+        runs_root or Path(os.environ.get("BORDER_COLLIE_RUNS_DIR", "artifacts/runs"))
     )
     read_camera_perception = camera_perception_status or (
         lambda: {
@@ -63,6 +69,7 @@ def create_app(
                 "ready": False,
                 "detail": f"bark media readiness error: {exc}",
             }
+
     active_tasks: set[asyncio.Task[dict[str, object]]] = set()
     orchestrator = (
         None
@@ -102,6 +109,63 @@ def create_app(
     @app.get("/debug")
     async def debug() -> FileResponse:
         return FileResponse(root / "debug.html")
+
+    @app.get("/fruit-test")
+    async def fruit_test() -> FileResponse:
+        return FileResponse(root / "fruit-test.html")
+
+    @app.get("/api/camera/frame.jpg")
+    async def camera_frame_proxy() -> Response:
+        if camera_frame is None:
+            raise HTTPException(
+                status_code=503, detail="camera preview is not connected"
+            )
+        try:
+            jpeg = await asyncio.to_thread(camera_frame)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"camera preview unavailable: {exc}",
+            ) from exc
+        return Response(
+            content=jpeg,
+            media_type="image/jpeg",
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get("/api/fruits")
+    async def fruits() -> dict[str, object]:
+        return {
+            "supported_fruits": list(SUPPORTED_FRUITS),
+            "qualified_fruits": list(QUALIFIED_FRUITS),
+        }
+
+    @app.post("/api/fruits/preview")
+    async def preview_fruit(request: FruitPreviewRequest) -> dict[str, object]:
+        if results.active_run_id is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="fruit preview cannot change during an active Demo Run",
+            )
+        if select_perception_target is None:
+            raise HTTPException(
+                status_code=503,
+                detail="fruit perception selector is not connected",
+            )
+        try:
+            selected = select_perception_target(request.target_fruit)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"fruit perception selection failed: {exc}",
+            ) from exc
+        return {
+            "target_fruit": request.target_fruit,
+            "qualified_for_demo": request.target_fruit in QUALIFIED_FRUITS,
+            "supported_fruits": selected.get(
+                "supported_fruits", list(SUPPORTED_FRUITS)
+            ),
+        }
 
     @app.get("/api/status")
     async def status() -> dict[str, object]:
@@ -154,6 +218,8 @@ def create_app(
             message="preflight entered; verifying production motion and media gates",
         )
         try:
+            if select_perception_target is not None:
+                select_perception_target(request.target_fruit)
             camera_perception = read_camera_perception()
         except Exception as exc:  # noqa: BLE001 - external adapter boundary
             camera_perception = {
@@ -216,7 +282,10 @@ def create_app(
                     run["run_id"],
                     phase=machine.phase.value,
                     reason="WAITING_FOR_COMMAND",
-                    message="Home captured; waiting for the qualified pear command",
+                    message=(
+                        "Home captured; waiting for the qualified "
+                        f"{request.target_fruit} command"
+                    ),
                 )
                 if orchestrator is not None:
                     task = asyncio.create_task(orchestrator.run(run["run_id"]))
@@ -236,7 +305,9 @@ def create_app(
         try:
             path, content_type = results.artifact_path(run_id, filename)
         except RunResultNotFound as exc:
-            raise HTTPException(status_code=404, detail="Run artifact not found") from exc
+            raise HTTPException(
+                status_code=404, detail="Run artifact not found"
+            ) from exc
         return FileResponse(
             path,
             media_type=content_type,

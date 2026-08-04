@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 from media import perception_sidecar
+from media.model_router import FruitModelRouter
 from media.perception_sidecar import EvidenceFrameBuffer, PerceptionEvidence, create_app
 
 
@@ -67,7 +68,7 @@ def test_preview_encoding_cannot_starve_the_sidecar_status_event_loop() -> None:
     async def scenario() -> None:
         runtime = perception_sidecar.PerceptionRuntime()
         runtime._model = Model()
-        runtime._pear_class_id = 0
+        runtime._fruit_class_ids = {"pear": 0}
 
         def slow_preview(*_args, **_options) -> None:
             time.sleep(0.15)
@@ -103,20 +104,14 @@ def test_small_uncertain_pear_is_confirmed_with_one_bounded_crop_pass() -> None:
             self.sources.append(source)
             if len(self.sources) == 1:
                 return [
-                    SimpleNamespace(
-                        boxes=FakeBoxes([0.60], [[610, 480, 640, 520]])
-                    )
+                    SimpleNamespace(boxes=FakeBoxes([0.60], [[610, 480, 640, 520]]))
                 ]
-            return [
-                SimpleNamespace(
-                    boxes=FakeBoxes([0.84], [[113, 108, 143, 148]])
-                )
-            ]
+            return [SimpleNamespace(boxes=FakeBoxes([0.84], [[113, 108, 143, 148]]))]
 
     runtime = perception_sidecar.PerceptionRuntime()
     model = Model()
     runtime._model = model
-    runtime._pear_class_id = 0
+    runtime._fruit_class_ids = {"pear": 0}
     previews = []
     runtime._publish_preview = lambda *_args, **options: previews.append(options)
     received = time.monotonic()
@@ -162,16 +157,12 @@ def test_large_confident_pear_does_not_spend_a_second_inference_pass() -> None:
 
         def predict(self, **_options):
             self.calls += 1
-            return [
-                SimpleNamespace(
-                    boxes=FakeBoxes([0.82], [[400, 300, 800, 700]])
-                )
-            ]
+            return [SimpleNamespace(boxes=FakeBoxes([0.82], [[400, 300, 800, 700]]))]
 
     runtime = perception_sidecar.PerceptionRuntime()
     model = Model()
     runtime._model = model
-    runtime._pear_class_id = 0
+    runtime._fruit_class_ids = {"pear": 0}
     runtime._publish_preview = lambda *_args, **_options: None
 
     runtime._process_frame(
@@ -210,16 +201,14 @@ def test_crop_result_must_overlap_and_improve_the_full_frame_candidate() -> None
             self.calls += 1
             if self.calls == 1:
                 return [
-                    SimpleNamespace(
-                        boxes=FakeBoxes([0.60], [[610, 480, 640, 520]])
-                    )
+                    SimpleNamespace(boxes=FakeBoxes([0.60], [[610, 480, 640, 520]]))
                 ]
             return [SimpleNamespace(boxes=FakeBoxes([0.95], [[0, 0, 20, 20]]))]
 
     runtime = perception_sidecar.PerceptionRuntime()
     model = Model()
     runtime._model = model
-    runtime._pear_class_id = 0
+    runtime._fruit_class_ids = {"pear": 0}
     runtime._publish_preview = lambda *_args, **_options: None
 
     runtime._process_frame(
@@ -248,16 +237,12 @@ def test_tiny_weak_proposal_does_not_trigger_crop_confirmation() -> None:
 
         def predict(self, **_options):
             self.calls += 1
-            return [
-                SimpleNamespace(
-                    boxes=FakeBoxes([0.20], [[610, 480, 640, 520]])
-                )
-            ]
+            return [SimpleNamespace(boxes=FakeBoxes([0.20], [[610, 480, 640, 520]]))]
 
     runtime = perception_sidecar.PerceptionRuntime()
     model = Model()
     runtime._model = model
-    runtime._pear_class_id = 0
+    runtime._fruit_class_ids = {"pear": 0}
     runtime._publish_preview = lambda *_args, **_options: None
 
     runtime._process_frame(
@@ -270,6 +255,141 @@ def test_tiny_weak_proposal_does_not_trigger_crop_confirmation() -> None:
     detection = runtime.evidence.status()["detection"]
     assert model.calls == 1
     assert detection["crop_confirmation"]["attempted"] is False
+    runtime._inference_executor.shutdown(wait=True, cancel_futures=True)
+
+
+def test_camera_only_fruit_without_full_frame_proposal_gets_bounded_search_crop() -> (
+    None
+):
+    full_frame = FakeImage(720, 1280)
+
+    class Model:
+        def __init__(self) -> None:
+            self.sources = []
+
+        def predict(self, **options):
+            self.sources.append(options["source"])
+            if len(self.sources) == 1:
+                return [SimpleNamespace(boxes=FakeBoxes([], []))]
+            return [SimpleNamespace(boxes=FakeBoxes([0.58], [[180, 280, 200, 300]]))]
+
+    runtime = perception_sidecar.PerceptionRuntime()
+    model = Model()
+    runtime._model = model
+    runtime._fruit_class_ids = {"apple": 0}
+    runtime.select_target("apple")
+    previews = []
+    runtime._publish_preview = lambda *_args, **options: previews.append(options)
+
+    runtime._process_frame(
+        ArrayFrame(full_frame),
+        time.monotonic(),
+        100,
+        "1/90000",
+    )
+
+    detection = runtime.evidence.status()["detection"]
+    assert len(model.sources) == 2
+    assert model.sources[1].shape == (512, 512, 3)
+    assert detection["confidence"] == 0.58
+    assert detection["bbox_xyxy"] == [564, 488, 584, 508]
+    assert detection["inference_passes"] == 2
+    assert detection["search_crop"] == {
+        "attempted": True,
+        "crop_xyxy": [384, 208, 896, 720],
+    }
+    assert "SEARCH CROP" in previews[-1]["message"]
+    runtime._inference_executor.shutdown(wait=True, cancel_futures=True)
+
+
+def test_banana_specialist_confirmation_reaches_existing_evidence_pipeline() -> None:
+    full_frame = FakeImage(720, 1280)
+
+    class Model:
+        def __init__(self, confidence, bbox) -> None:
+            self.confidence = confidence
+            self.bbox = bbox
+            self.calls = 0
+
+        def predict(self, **_options):
+            self.calls += 1
+            return [
+                SimpleNamespace(
+                    boxes=FakeBoxes([self.confidence], [self.bbox])
+                )
+            ]
+
+    runtime = perception_sidecar.PerceptionRuntime()
+    general = Model(0.42, [550, 575, 675, 620])
+    specialist = Model(0.79, [555, 578, 680, 623])
+    runtime._model = general
+    runtime._fruit_class_ids = {"apple": 1, "banana": 2, "pear": 3}
+    runtime._model_router = FruitModelRouter(
+        general_model=general,
+        general_class_ids=runtime._fruit_class_ids,
+        banana_specialist_model=specialist,
+        banana_specialist_class_id=0,
+    )
+    runtime.select_target("banana")
+    runtime._publish_preview = lambda *_args, **_options: None
+
+    runtime._process_frame(
+        ArrayFrame(full_frame),
+        time.monotonic(),
+        100,
+        "1/90000",
+    )
+
+    detection = runtime.evidence.status()["detection"]
+    assert general.calls == specialist.calls == 1
+    assert detection["label"] == "banana"
+    assert detection["confidence"] == 0.79
+    assert detection["inference_passes"] == 2
+    assert detection["model_route"]["full_frame"]["mode"] == "banana_specialist"
+    assert detection["model_route"]["full_frame"]["confirmed"] is True
+    assert detection["crop_confirmation"]["attempted"] is False
+    runtime._inference_executor.shutdown(wait=True, cancel_futures=True)
+
+
+def test_rejected_banana_specialist_proposal_continues_search_without_more_passes() -> (
+    None
+):
+    full_frame = FakeImage(720, 1280)
+
+    class Model:
+        def __init__(self, bbox) -> None:
+            self.bbox = bbox
+            self.calls = 0
+
+        def predict(self, **_options):
+            self.calls += 1
+            return [SimpleNamespace(boxes=FakeBoxes([0.90], [self.bbox]))]
+
+    runtime = perception_sidecar.PerceptionRuntime()
+    general = Model([100, 200, 180, 300])
+    specialist = Model([800, 100, 900, 200])
+    runtime._model = general
+    runtime._fruit_class_ids = {"apple": 1, "banana": 2, "pear": 3}
+    runtime._model_router = FruitModelRouter(
+        general_model=general,
+        general_class_ids=runtime._fruit_class_ids,
+        banana_specialist_model=specialist,
+        banana_specialist_class_id=0,
+    )
+    runtime.select_target("banana")
+    previews = []
+    runtime._publish_preview = lambda *_args, **options: previews.append(options)
+
+    runtime._process_frame(
+        ArrayFrame(full_frame),
+        time.monotonic(),
+        100,
+        "1/90000",
+    )
+
+    assert general.calls == specialist.calls == 1
+    assert runtime.evidence.status()["detection"] == {}
+    assert previews[-1]["message"] == "SEARCHING FOR BANANA"
     runtime._inference_executor.shutdown(wait=True, cancel_futures=True)
 
 
@@ -329,6 +449,82 @@ def test_sidecar_status_binds_pear_geometry_to_advancing_source_markers() -> Non
     assert status["error"] is None
 
 
+def test_switching_supported_fruit_clears_old_detection_stability() -> None:
+    evidence = PerceptionEvidence(generation="camera-1")
+    evidence.note_detection(
+        pts=100,
+        label="pear",
+        confidence=0.81,
+        bbox_xyxy=(480, 360, 800, 700),
+        inference_s=0.08,
+        completed_monotonic_s=10.08,
+    )
+
+    evidence.select_target("apple")
+    evidence.note_detection(
+        pts=101,
+        label="pear",
+        confidence=0.99,
+        bbox_xyxy=(480, 360, 800, 700),
+        inference_s=0.08,
+        completed_monotonic_s=10.18,
+    )
+    evidence.note_detection(
+        pts=102,
+        label="apple",
+        confidence=0.80,
+        bbox_xyxy=(480, 360, 800, 700),
+        inference_s=0.08,
+        completed_monotonic_s=10.28,
+    )
+    evidence.note_miss("pear")
+
+    status = evidence.status()
+    assert status["target_fruit"] == "apple"
+    assert status["detection"]["label"] == "apple"
+    assert status["detection"]["consecutive_detections"] == 1
+
+
+def test_in_flight_old_target_result_cannot_kill_the_preview_worker() -> None:
+    full_frame = FakeImage(720, 1280)
+
+    class Model:
+        def __init__(self, runtime: perception_sidecar.PerceptionRuntime) -> None:
+            self.runtime = runtime
+            self.calls = 0
+
+        def predict(self, **_options):
+            self.calls += 1
+            if self.calls == 1:
+                self.runtime.select_target("apple")
+            return [SimpleNamespace(boxes=FakeBoxes([0.82], [[400, 300, 800, 700]]))]
+
+    runtime = perception_sidecar.PerceptionRuntime()
+    runtime._fruit_class_ids = {"apple": 1, "pear": 0}
+    runtime._model = Model(runtime)
+    previews = []
+    runtime._publish_preview = lambda *_args, **options: previews.append(options)
+
+    runtime._process_frame(
+        ArrayFrame(full_frame),
+        time.monotonic(),
+        100,
+        "1/90000",
+    )
+    runtime._process_frame(
+        ArrayFrame(full_frame),
+        time.monotonic(),
+        101,
+        "1/90000",
+    )
+
+    detection = runtime.evidence.status()["detection"]
+    assert detection["label"] == "apple"
+    assert len(previews) == 1
+    assert "APPLE" in previews[0]["message"]
+    runtime._inference_executor.shutdown(wait=True, cancel_futures=True)
+
+
 def test_media_http_boundary_exposes_readiness_and_bark() -> None:
     class Runtime:
         def __init__(self) -> None:
@@ -353,6 +549,36 @@ def test_media_http_boundary_exposes_readiness_and_bark() -> None:
         assert client.post("/api/bark").json() == {"ok": True, "uuid": "bark-1"}
 
     assert runtime.events == ["start", "bark", "close"]
+
+
+def test_media_http_boundary_selects_a_supported_camera_only_target() -> None:
+    class Runtime:
+        def __init__(self) -> None:
+            self.target_fruit = "pear"
+
+        async def start(self) -> None:
+            pass
+
+        async def close(self) -> None:
+            pass
+
+        def select_target(self, target_fruit: str) -> dict[str, object]:
+            self.target_fruit = target_fruit
+            return {
+                "target_fruit": target_fruit,
+                "supported_fruits": ["apple", "banana", "pear"],
+            }
+
+    runtime = Runtime()
+    with TestClient(create_app(runtime)) as client:
+        response = client.post(
+            "/api/target",
+            json={"target_fruit": "banana"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["target_fruit"] == "banana"
+    assert runtime.target_fruit == "banana"
 
 
 def test_media_http_boundary_exposes_the_latest_annotated_camera_frame() -> None:

@@ -163,8 +163,9 @@ still use `TARGET_LOST`; neither condition is mislabeled as a camera failure.
 Each motion primitive records its phase, name, start and end offsets, requested
 velocity or turn rate, requested bound, motion owner or lease, watchdog state,
 pose before and after when trustworthy, completion status, and stop/release
-evidence. Heartbeat commands may be summarized, but the last non-zero command
-and the first confirmed zero/disarmed state must be retained.
+evidence. Every accepted velocity heartbeat is retained in stage evidence with
+its sequence, phase, monotonic timestamp, forward input, yaw input, and reason.
+Failed-stage velocity heartbeats are retained in `failure_details`.
 
 The approach summary records `forward_pulse_count`. The return summary records
 `requested_forward_pulses` and `replayed_forward_pulses`, plus the latest fresh

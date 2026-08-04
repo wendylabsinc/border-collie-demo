@@ -55,7 +55,7 @@ implementation must earn these values in a new acceptance run.
 ## Route, progress, and recovery
 
 - Translation is forward-only. The return controller does not reverse toward
-  an unseen route.
+  an unseen route. Bounded course correction may accompany forward replay.
 - Translation must retain factory obstacle avoidance or use another
   independently qualified collision-aware planner. Direct unprotected body
   translation cannot implement production return-to-Home.

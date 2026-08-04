@@ -14,18 +14,20 @@ reference, but it is not a runtime dependency.
 2. Confirm that Woof is facing the person. This is initially an operator setup
    requirement rather than autonomous person detection.
 3. Capture a stable Home position and heading.
-4. Start from the audience UI's single **Activate Demo** control with pear as
-   the configured Target Fruit.
+4. Choose Pear or Red apple from the audience UI's qualified-fruit list, then
+   use the single **Activate Demo** control.
 5. Turn through the fruit-search area until the requested fruit is recognized,
    bounded by one measured revolution and a 30-second timeout. A 50%+
-   full-frame pear proposal triggers crop confirmation and a 50% duty-cycled
+   full-frame fruit proposal triggers crop confirmation and a 50% duty-cycled
    turn using the same reliable yaw signal; an unqualified crop keeps rotating
    rather than becoming a false stop.
 6. Confirm/reacquire and approach the requested fruit using fresh detections.
+   No forward command is permitted before this stage. Once approach begins,
+   forward and yaw inputs may be combined to steer toward the fruit.
 7. After confirmed near-fruit evidence, allow one bounded final approach when
    the fruit leaves the lower camera edge.
-8. First turn at a fixed 0.50 rad/s until the pear is within the middle 16% of
-   the camera, then hold zero yaw for three fresh centered samples. After
+8. First turn at a fixed 0.50 rad/s until the Target Fruit is within the middle
+   16% of the camera, then hold zero yaw for three fresh centered samples. After
    qualified lower-edge disappearance, send one 0.3 m/s by
    1.0-second final push, stop, lie down, bark, and remain down for 5 seconds.
 9. Stand, turn toward Home, replay the recorded number of outbound forward
@@ -33,9 +35,33 @@ reference, but it is not a runtime dependency.
    the authority for the 10 cm Home success gate and recorded Home Distance.
 10. Stop all motion, record the result, and report completion.
 
-Arbitrary typed commands belong on the separate debug surface until more than
-one fruit is qualified. Speech input remains outside this milestone until the
-replacement microphone is available and independently validated.
+Arbitrary typed commands remain on the separate debug surface. Speech input
+remains outside this milestone until the replacement microphone is available
+and independently validated.
+
+### Test another fruit without motion
+
+The provisioned TensorRT engine contains `apple`, `banana`, and `pear`. Pear and
+red apple are **Qualified Fruits** available in the audience UI. Banana remains
+a camera-only **Supported Fruit** and cannot be submitted to an autonomous Demo
+Run. The apple qualification is explicitly limited to a red apple in the
+tested placement and lighting: the green apple trial was misclassified as pear
+and is not an interchangeable substitute.
+
+Open `http://woof.local:8110/fruit-test`, choose Apple or Banana, and select
+**Show this fruit**. The live overlay switches the engine to that class while
+the page exposes no motion control. Start with an apple, then repeat with a
+banana at the same placement and lighting used for the pear qualification.
+Record the visible confidence, whether the box stays on the correct fruit, and
+whether five consecutive detections are reached. Switching fruit clears prior
+detection stability so evidence from one class cannot qualify another. The red
+apple passed `RED-APPLE-001` at the unchanged 0.70 threshold and reached 15
+consecutive qualifying detections.
+
+The acquisition thresholds are 0.70 for apple, 0.20 for banana, and 0.65 for
+pear. Banana's value remains a camera-only hypothesis, not permission for
+motion. Fruit-specific thresholds may change only after fresh evidence; the
+qualified pear and red-apple thresholds remain unchanged.
 
 Any physical remote-control input must eventually cause a latched
 `REMOTE_TAKEOVER`. Autonomous control must stop and cannot resume until the
@@ -65,7 +91,7 @@ stop safely instead of improvising.
 ## Repository boundary
 
 - `src/border_collie_demo/`: mission domain and narrow hardware contracts.
-- `media/`: sole owner of Go2 WebRTC camera, pear inference, and bark audio.
+- `media/`: sole owner of Go2 WebRTC camera, fruit inference, and bark audio.
 - `web/`: minimal audience and debug surfaces.
 - `lab/`: isolated human-operated hardware tests, never imported by production.
 - `tests/`: unit, contract, replay, and later hardware acceptance tests.
@@ -125,10 +151,10 @@ authority. There are two supported ways to give it images:
 The files under `frames/` are deliberately unannotated so the current detector
 cannot bias manual boxes. `terminal/annotated.jpg`, `terminal.jpg`, and
 `manifest.json` retain the model output and source metadata for comparison.
-Choose or create the `pear` class in Fieldmark, draw the boxes, then export the
-dataset in the required YOLO or COCO format. Fruit selection is temporarily
-fixed to pear; future fruit classes must use this same runtime-neutral evidence
-contract rather than adding motion controls to the labeler.
+Choose the matching fruit class in Fieldmark, draw the boxes, then export the
+dataset in the required YOLO or COCO format. Every fruit class uses this same
+runtime-neutral evidence contract rather than adding motion controls to the
+labeler.
 
 Pear acquisition remains fixed at 0.65 confidence for five consecutive fresh
 frames. Once that acquisition has succeeded, approach tracking may continue at
@@ -137,6 +163,14 @@ separately configurable with
 `BORDER_COLLIE_PEAR_TRACKING_MIN_CONFIDENCE` and
 `BORDER_COLLIE_PEAR_TRACKING_CONFIRMATIONS`; changing them does not alter the
 acquisition rule.
+
+Red apple acquisition remains fixed at 0.70 confidence for five fresh frames.
+After acquisition, a close red-apple track may continue down to 0.10 confidence
+only when the box is already low in the image and remains spatially continuous:
+its horizontal center cannot jump by more than 0.20 of the frame and its lower
+edge or vertical center cannot retreat by more than 0.08. This close-range rule
+cannot acquire an apple and must be requalified if the fruit, model, camera, or
+stage setup changes.
 
 For a complete zero-motion base Demo Run, explicitly start with
 `BORDER_COLLIE_RUNTIME_MODE=simulation`. The audience UI shows a persistent
@@ -188,6 +222,11 @@ engine is a temporary provisioned deployment artifact at `/media/model.engine`;
 it is not committed to Git. The planned model adapter uses Modular MAX and the
 MAX/Mojo stack while preserving the same runtime-neutral camera/perception
 contract; see [`media/model/README.md`](media/model/README.md).
+
+Banana recognition uses a resident specialist router: the general model must
+first propose banana, then a banana-only model must confirm the same object.
+Both models load at media startup, so the frame loop routes inference without a
+cold model swap. This does not qualify banana for autonomous motion.
 
 To make a real run eligible after the DLO comparison and deployment, set:
 
