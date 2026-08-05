@@ -40,9 +40,18 @@ reference, but it is not a runtime dependency.
    the authority for the 10 cm Home success gate and recorded Home Distance.
 10. Stop all motion, record the result, and report completion.
 
-Arbitrary typed commands remain on the separate debug surface. Speech input
-remains outside this milestone until the replacement microphone is available
-and independently validated.
+Arbitrary typed commands remain on the separate debug surface. The supervised
+voice adapter may activate a supported fruit request through the same narrow
+mission API; it does not bypass any readiness or motion gate.
+
+## Deferred interaction features
+
+- **Unsupported voice command reaction (not implemented):** if speech is
+  recognized but does not map to a supported fruit request, Woof should look
+  back toward the person and tilt its head as expressive feedback. This future
+  reaction must not start a Demo Run, infer a different command, or continue
+  autonomous movement. Person reacquisition and the head-tilt behavior require
+  their own safety and acceptance work before this can become runtime behavior.
 
 ### Test another fruit without motion
 
