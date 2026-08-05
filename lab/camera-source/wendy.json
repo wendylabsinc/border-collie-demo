@@ -1,0 +1,18 @@
+{
+  "appId": "border-collie-camera-source-probe",
+  "version": "0.2.0",
+  "services": {
+    "probe": {
+      "context": ".",
+      "env": {
+        "UNITREE_ROBOT_IP": "192.168.123.161",
+        "CAMERA_PROBE_DURATION_S": "30",
+        "CAMERA_PROBE_STARTUP_TIMEOUT_S": "15",
+        "CAMERA_PROBE_SNAPSHOT_PORT": "8122"
+      },
+      "entitlements": [
+        {"type": "network", "mode": "host"}
+      ]
+    }
+  }
+}

@@ -1,0 +1,21 @@
+version: 1
+verification:
+  commands:
+    - >-
+      docker run --rm -v "$PWD":/workspace -w /workspace
+      python:3.11-slim-bookworm sh -c
+      'python -m pip install --quiet ".[test]" && python -m pytest -q'
+    - >-
+      docker run --rm --entrypoint sh "$DLO_IMAGE_TAG" -c
+      'command -v border-collie-demo >/dev/null && python -c
+      "import inspect; import border_collie_demo.api as api;
+      assert inspect.getfile(api).startswith(\"/app/src/\")"'
+benchmark:
+  source_path: src/border_collie_demo/api.py
+  trials: 3
+  budget_seconds: 600
+  min_relative_improvement: 0.10
+  min_absolute_seconds: 0.5
+  max_relative_regression: 0.10
+  max_absolute_regression_seconds: 0.5
+  payback_deploys: 20

@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "experiment_id": "BANANA-001",
+  "purpose": "first local whole-banana detector comparison",
+  "status": "camera_only_resident_specialist_deployed",
+  "training_source": {
+    "manifest": "artifacts/fruit-model/curated/open-images-v7/banana/manifest.json",
+    "manifest_sha256": "66a0ee094cc94fd47adff584d2bfe24107ec1ca4d59158a0de9f8fa9955c992c",
+    "images": 93,
+    "positive_images": 72,
+    "hard_negative_images": 21,
+    "boxes": 80
+  },
+  "dataset": {
+    "path": "artifacts/fruit-model/experiments/BANANA-001/dataset-v2",
+    "seed": 24601,
+    "train_images": 74,
+    "train_boxes": 61,
+    "validation_images": 19,
+    "validation_boxes": 19
+  },
+  "evaluation_source": {
+    "evaluation_id": "BANANA-EVAL-001",
+    "training_use_allowed": false,
+    "frames": 40,
+    "negative_frames": 0
+  },
+  "model": {
+    "base_weights": "artifacts/fruit-model/base-models/yolo11s.pt",
+    "base_weights_sha256": "85a76fe86dd8afe384648546b56a7a78580c7cb7b404fc595f97969322d502d5",
+    "library": "ultralytics 8.4.102",
+    "training_image_size": 640,
+    "epochs": 12,
+    "seed": 24601
+  },
+  "selected_candidate": {
+    "checkpoint": "artifacts/fruit-model/experiments/BANANA-001/training-runs/finetune-whole-v2-stable/weights/best.pt",
+    "checkpoint_sha256": "aace39065905db077ee6361430875c44074a3762cea96ea95532d1c3d052eed8",
+    "training_run": "finetune-whole-v2-stable",
+    "training_configuration": {
+      "optimizer": "AdamW",
+      "initial_learning_rate": 0.0001,
+      "frozen_layers": 10,
+      "epochs": 12
+    },
+    "public_validation": {
+      "precision": 0.79143,
+      "recall": 0.78947,
+      "map50": 0.86551,
+      "map50_95": 0.73496
+    },
+    "frozen_go2_evaluation": {
+      "acquired_frames": 40,
+      "total_frames": 40,
+      "mean_confidence": 0.7838536560535431,
+      "mean_iou": 0.7887984106218722,
+      "maximum_qualifying_streak": 40
+    },
+    "deployment": {
+      "role": "camera-only resident banana specialist",
+      "router": "general_with_banana_specialist",
+      "device_test": "BANANA-ROUTER-20260804-001",
+      "autonomous_motion_qualified": false
+    }
+  },
+  "rejected_runs": [
+    {
+      "training_run": "finetune-whole-v1",
+      "reason": "automatic optimizer learning-rate schedule caused an unstable validation trajectory"
+    }
+  ],
+  "result": "training/results/BANANA-001.json",
+  "eligibility": {
+    "experimental_local_comparison": true,
+    "deployment": true,
+    "autonomous_motion": false,
+    "production": false,
+    "blockers": [
+      "the frozen evaluation contains no negative frames",
+      "the candidate detects only bananas",
+      "independent source-image rights verification remains incomplete"
+    ]
+  }
+}

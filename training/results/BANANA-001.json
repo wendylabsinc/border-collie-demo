@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "experiment_id": "BANANA-001",
+  "status": "resident_specialist_camera_only_deployed",
+  "gate": {
+    "confidence": 0.2,
+    "iou": 0.5
+  },
+  "frozen_go2_evaluation": {
+    "frames": 40,
+    "negative_frames": 0,
+    "training_use_allowed": false,
+    "comparisons": [
+      {
+        "name": "current_deployed_yoloe_tensorrt",
+        "role": "control",
+        "acquired_frames": 28,
+        "acquisition_recall": 0.7,
+        "mean_confidence": 0.2150963061,
+        "maximum_qualifying_streak": 14
+      },
+      {
+        "name": "generic_pretrained_yolo11s",
+        "role": "pretrained_control",
+        "model_sha256": "85a76fe86dd8afe384648546b56a7a78580c7cb7b404fc595f97969322d502d5",
+        "acquired_frames": 40,
+        "acquisition_recall": 1.0,
+        "mean_confidence": 0.5658418200910091,
+        "mean_iou": 0.9122242322181515,
+        "maximum_qualifying_streak": 40
+      },
+      {
+        "name": "finetuned_whole_banana_v2_stable",
+        "role": "selected_candidate",
+        "model_sha256": "aace39065905db077ee6361430875c44074a3762cea96ea95532d1c3d052eed8",
+        "acquired_frames": 40,
+        "acquisition_recall": 1.0,
+        "mean_confidence": 0.7838536560535431,
+        "mean_iou": 0.7887984106218722,
+        "maximum_qualifying_streak": 40
+      }
+    ]
+  },
+  "selected_candidate_validation": {
+    "precision": 0.79143,
+    "recall": 0.78947,
+    "map50": 0.86551,
+    "map50_95": 0.73496
+  },
+  "live_woof_camera_check": {
+    "test_id": "BANANA-LIVE-20260804-001",
+    "status": "passed",
+    "motion_enabled": false,
+    "candidate_deployed": false,
+    "method": "ten raw frames from the live Woof camera evaluated locally with the selected checkpoint",
+    "frames": 10,
+    "detected_frames": 10,
+    "confidence": {
+      "minimum": 0.765745,
+      "mean": 0.782824,
+      "maximum": 0.795626
+    },
+    "snapshot": "artifacts/fruit-model/live/BANANA-LIVE-20260804-001/predictions/frame-05.jpg",
+    "deployed_detector_observation": {
+      "recognized_banana": true,
+      "observed_confidence": 0.692642092704773,
+      "consecutive_detections": 344
+    }
+  },
+  "resident_router_device_check": {
+    "test_id": "BANANA-ROUTER-20260804-001",
+    "status": "passed_camera_only",
+    "motion_enabled": false,
+    "router": "general_with_banana_specialist",
+    "specialist_loaded_at_startup": true,
+    "confirmed_unique_frames": 94,
+    "combined_two_pass_inference_ms": {
+      "median": 137.736,
+      "p95": 189.887,
+      "maximum": 240.906
+    },
+    "status_endpoint_ms": {
+      "requests": 100,
+      "median": 18.991,
+      "p95": 107.343,
+      "maximum": 123.020
+    },
+    "specialist_confidence_mean": 0.767904,
+    "agreement_iou_mean": 0.904933,
+    "snapshot": "artifacts/fruit-model/live/BANANA-ROUTER-20260804-001/annotated.jpg",
+    "dlo_deployment_seconds": 78.108,
+    "dlo_dominant_deployment_phase": "export"
+  },
+  "selection": {
+    "candidate": "finetuned_whole_banana_v2_stable",
+    "reason": "it preserved 40-of-40 frozen-frame acquisition while raising mean confidence from 0.5658 for the generic pretrained model to 0.7839",
+    "deployed": true,
+    "deployment_role": "camera-only resident banana specialist"
+  },
+  "limitations": [
+    "The frozen Go2 evaluation contains only positive banana frames, so false-positive behavior and precision are not measured.",
+    "The public hard-negative images were used in training and are not an independent negative evaluation set.",
+    "The frozen Go2 bounding boxes were seeded by the current model, which biases localization comparisons.",
+    "Local Mac timing is not comparable to Woof device timing and is intentionally omitted.",
+    "The selected candidate is banana-only and cannot replace the current pear, apple, and banana production detector.",
+    "The Ultralytics training/runtime licensing path must be resolved before production use."
+  ],
+  "next_safe_test": "Capture an independent negative-frame set and verify false-positive behavior before banana can be considered for autonomous motion."
+}

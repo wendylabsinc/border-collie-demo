@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Fruit Recognition Test</title>
+    <style>
+      :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; }
+      main { width: calc(100% - 2rem); max-width: 48rem; text-align: center; }
+      .notice { padding: 0.8rem; border: 2px solid #2e9d55; border-radius: 0.6rem; font-weight: 700; }
+      .controls { display: flex; gap: 0.75rem; justify-content: center; margin: 1rem 0; }
+      select, button { min-height: 3rem; padding: 0 1rem; font: inherit; }
+      img { width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: #111; border-radius: 0.6rem; }
+      #result { min-height: 3rem; font-weight: 700; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Fruit Recognition Test</h1>
+      <p class="notice">Camera only — Woof will not move</p>
+      <div class="controls">
+        <label>
+          Fruit
+          <select id="fruit">
+            <option value="apple">Apple</option>
+            <option value="banana">Banana</option>
+            <option value="pear">Pear</option>
+          </select>
+        </label>
+        <button id="preview" type="button">Show this fruit</button>
+      </div>
+      <img id="camera" alt="Live Woof camera with fruit recognition overlay">
+      <p id="result" role="status" aria-live="polite">Choose a fruit, then hold it in view.</p>
+      <p><a href="/">Back to the pear demo</a></p>
+    </main>
+    <script>
+      const fruit = document.querySelector('#fruit');
+      const preview = document.querySelector('#preview');
+      const camera = document.querySelector('#camera');
+      const result = document.querySelector('#result');
+      const frameUrl = '/api/camera/frame.jpg';
+      let refreshTimer = null;
+
+      function refreshCamera() {
+        if (document.hidden) return;
+        camera.src = `${frameUrl}?now=${Date.now()}`;
+      }
+      function scheduleRefresh(delayMs) {
+        window.clearTimeout(refreshTimer);
+        if (document.hidden) return;
+        refreshTimer = window.setTimeout(refreshCamera, delayMs);
+      }
+      camera.addEventListener('load', () => scheduleRefresh(500));
+      camera.addEventListener('error', () => scheduleRefresh(1500));
+      document.addEventListener('visibilitychange', () => {
+        window.clearTimeout(refreshTimer);
+        if (!document.hidden) refreshCamera();
+      });
+
+      preview.addEventListener('click', async () => {
+        preview.disabled = true;
+        result.textContent = `Switching the camera test to ${fruit.value}…`;
+        try {
+          const response = await fetch('/api/fruits/preview', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({target_fruit: fruit.value}),
+          });
+          const body = await response.json();
+          if (!response.ok) throw new Error(body.detail || 'Selection failed.');
+          const fruitLabel = fruit.options[fruit.selectedIndex].textContent;
+          result.textContent = body.qualified_for_demo
+            ? `Looking for ${fruitLabel}. This fruit is qualified for the full demo.`
+            : `Looking for ${fruitLabel}. Recognition test only; demo motion stays locked.`;
+        } catch (error) {
+          result.textContent = error.message;
+        } finally {
+          preview.disabled = false;
+        }
+      });
+
+      refreshCamera();
+    </script>
+  </body>
+</html>

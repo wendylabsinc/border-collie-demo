@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "review_id": "BANANA-WHOLE-FRUIT-001",
+  "source_manifest_sha256": "6a365daf2fc9e10da6e9253a16b005b0f752ac199439214d8cc3deefbd221156",
+  "review_artifact_sha256": "5ff8196f36430a5d5b6ea917d917ac08ae79117d612c2e21f202832d0c6092b7",
+  "reviewed_candidates": 200,
+  "decisions": {
+    "accept_whole": 116,
+    "reject_cut_or_food": 21,
+    "reject_bunch": 7,
+    "reject_bad_box": 0,
+    "skip": 56
+  },
+  "clean_subset": {
+    "artifact_path": "artifacts/fruit-model/curated/open-images-v7/banana",
+    "manifest_sha256": "66a0ee094cc94fd47adff584d2bfe24107ec1ca4d59158a0de9f8fa9955c992c",
+    "images": 93,
+    "positive_images": 72,
+    "hard_negative_images": 21,
+    "accepted_boxes": 80,
+    "hard_negative_boxes_by_reason": {
+      "reject_bunch": 2,
+      "reject_cut_or_food": 19
+    },
+    "withheld_images": {
+      "contains_unreviewed_target_class": 2,
+      "incomplete_image_review": 30
+    }
+  },
+  "eligibility": {
+    "content_review_complete": true,
+    "experimental_training": true,
+    "production_training": false,
+    "production_blocker": "independent source-image rights verification remains incomplete"
+  }
+}

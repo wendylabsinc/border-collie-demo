@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "test_id": "RED-APPLE-001",
+  "observed_date": "2026-08-04",
+  "device": "woof.local",
+  "target_fruit": "apple",
+  "fruit_description": "red apple",
+  "safety": {
+    "camera_only": true,
+    "motion_armed": false,
+    "motion_activated": false
+  },
+  "acceptance": {
+    "confidence_threshold": 0.7,
+    "required_consecutive_detections": 5,
+    "box_visually_on_target": true
+  },
+  "sample_window": {
+    "status_samples": 20,
+    "mean_confidence": 0.698716953,
+    "minimum_confidence": 0.667147458,
+    "maximum_confidence": 0.740175724,
+    "samples_at_or_above_threshold": 9,
+    "maximum_observed_consecutive_detections": 15
+  },
+  "terminal_snapshot": {
+    "confidence": 0.704160333,
+    "consecutive_detections": 2,
+    "bbox_xyxy": [576, 470, 600, 496],
+    "crop_attempted": true,
+    "crop_promoted": false,
+    "filename": "RED-APPLE-001.jpg",
+    "sha256": "9a73ba0fa90ccce5090c4ee2b7d7936d85296b5d66bf42739452b8e1a04e7107"
+  },
+  "result": "passed",
+  "qualification_scope": "read_only_recognition_only",
+  "limitation": "This does not qualify apple for autonomous motion or the end-to-end demo."
+}

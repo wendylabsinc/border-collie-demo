@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "evaluation_id": "BANANA-EVAL-001",
+  "captured_on": "2026-08-04",
+  "split": "evaluation",
+  "training_use_allowed": false,
+  "target_fruit": "banana",
+  "capture": {
+    "source": "deployed Go2 camera evidence buffer",
+    "camera_generation": "9f386fb1a46d4554926f856ea1e228db",
+    "frame_count": 40,
+    "frame_width": 1280,
+    "frame_height": 720,
+    "archive_path": "artifacts/fruit-model/evaluation/BANANA-EVAL-001/evidence.zip",
+    "archive_sha256": "f6860b79df9d4243777aa8f1876593dc38e7629cec3b9bc80f57dbcf9ff6a5d7",
+    "archive_bytes": 1969451
+  },
+  "scene": {
+    "robot_motion": false,
+    "fruit_position": "small banana near bottom-center of the image on a dark floor",
+    "background": "indoor demo space with white wall and door",
+    "bbox_area_ratio_maximum": 0.0021875
+  },
+  "current_model_observation": {
+    "label": "banana",
+    "maximum_confidence": 0.2877672612667084,
+    "crop_confirmation_attempted": false
+  },
+  "annotations": {
+    "status": "complete",
+    "human_reviewed_frames": 40,
+    "ground_truth_positive_frames": 40,
+    "ground_truth_negative_frames": 0,
+    "artifact_path": "artifacts/fruit-model/evaluation/BANANA-EVAL-001/labels.json",
+    "artifact_sha256": "36a4c1a918399ce95884d9c1a6a4f62740692c8b38ea95a759f835df951ff3f4",
+    "current_model_proposals_accepted_exactly": 39
+  },
+  "current_model_benchmark": "../results/BANANA-EVAL-001-CURRENT.json",
+  "notes": [
+    "The complete camera generation is assigned to evaluation and must not be used for training or augmentation.",
+    "The archive is intentionally stored outside Git; this record preserves its identity and split assignment.",
+    "Human review establishes fruit presence in every frame.",
+    "Because 39 of 40 human boxes exactly accepted the current model proposal, localization comparisons are biased toward the current model."
+  ]
+}

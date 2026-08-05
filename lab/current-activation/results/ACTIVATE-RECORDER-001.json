@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "test_id": "ACTIVATE-RECORDER-001",
+  "observed_at_local": "2026-08-03T11:04:54-07:00",
+  "application": "border-collie-demo",
+  "url": "http://127.0.0.1:8110/",
+  "hardware_enabled": false,
+  "lab_motion_enabled": false,
+  "hardware_connected": false,
+  "target_fruit": "pear",
+  "activate_control": {
+    "visible": true,
+    "enabled_before": true,
+    "enabled_while_active": false,
+    "enabled_after_stop": true
+  },
+  "run": {
+    "run_id": "196ddbfc-57b2-49b0-9f98-3c6ac2a68935",
+    "activation_source": "audience_ui",
+    "phase_after_activation": "preflight",
+    "outcome_after_stop": "STOPPED",
+    "reason_after_stop": "OPERATOR_STOP",
+    "final_safety_state": "DISARMED_CONFIRMED",
+    "event_phases": [
+      "idle",
+      "preflight",
+      "stopped"
+    ]
+  },
+  "persistence": {
+    "events_journal_present": true,
+    "atomic_result_present": true,
+    "readback_api_status": 200
+  },
+  "physical_motion_command_sent": false,
+  "outcome": "PASSED",
+  "limitation": "Activation currently stops at preflight because autonomous orchestration is not connected."
+}

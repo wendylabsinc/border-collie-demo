@@ -1,7 +1,6 @@
 import ast
 from pathlib import Path
 
-
 LEGACY_ROOTS = {"collie_demo", "voice", "nav2"}
 
 

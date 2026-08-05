@@ -1,0 +1,150 @@
+{
+  "acceptance": {
+    "generation_timeout_s": 30.0,
+    "minimum_samples_per_generation": 30,
+    "required_match_ratio": 0.8
+  },
+  "baseline": {
+    "camera": {
+      "decoded_frames": 117,
+      "dropped_for_inference": 85,
+      "error": "",
+      "identical_luma_frames": 0,
+      "last_time_base": "1/90000",
+      "pts_missing": 0,
+      "pts_regressed": 0,
+      "pts_repeated": 0,
+      "strict_source_identity": true,
+      "time_base_changes": 0,
+      "time_base_missing": 0
+    },
+    "connect_attempt_at_s": 0.405625,
+    "connect_completed_after_s": 1.009273,
+    "detection_age_s": {
+      "maximum": 3.697526,
+      "mean": 0.196959,
+      "minimum": 0.066481,
+      "p95": 0.137024
+    },
+    "detector_error": "",
+    "disconnect_duration_s": 0.008172,
+    "disconnect_started_at_s": 11.203709,
+    "first_frame_after_s": 2.597163,
+    "first_match_after_s": 6.294689,
+    "generation": "0b9e7404b6984a1fbee30d619d6114a2",
+    "inference_s": {
+      "maximum": 3.690684,
+      "mean": 0.177926,
+      "minimum": 0.056972,
+      "p95": 0.091716
+    },
+    "label": "baseline",
+    "preflight_passed": true,
+    "preflight_ready_after_s": 10.694875,
+    "recognition": {
+      "confidence": {
+        "maximum": 0.89181,
+        "mean": 0.873989,
+        "minimum": 0.860601,
+        "p95": 0.887981
+      },
+      "eligible_samples": 32,
+      "first_match_marker": {
+        "generation": "0b9e7404b6984a1fbee30d619d6114a2",
+        "pts": 1260,
+        "time_base": "1/90000"
+      },
+      "match_ratio": 1.0,
+      "matches": 32,
+      "maximum_consecutive_misses": 0,
+      "misses": 0
+    }
+  },
+  "generation_boundary": {
+    "active_run_resumed": false,
+    "distinct": true,
+    "replacement_detection_bound_to_replacement_generation": true
+  },
+  "measurement_complete": true,
+  "mode": "read_only_no_motion_imports",
+  "model": {
+    "confidence_threshold": 0.35,
+    "path": "/probe/model.engine",
+    "pear_class_id": 2
+  },
+  "motion_commands_sent": false,
+  "observed_duration_s": 18.053,
+  "passed": true,
+  "planned_disconnect": {
+    "offline_hold_requested_s": 2.0,
+    "outage_to_first_replacement_frame_s": 4.409236,
+    "outage_to_reconnect_attempt_s": 2.008893,
+    "outage_to_replacement_preflight_s": 6.676999,
+    "type": "client_initiated_webrtc_disconnect"
+  },
+  "replacement": {
+    "camera": {
+      "decoded_frames": 34,
+      "dropped_for_inference": 2,
+      "error": "",
+      "identical_luma_frames": 0,
+      "last_time_base": "1/90000",
+      "pts_missing": 0,
+      "pts_regressed": 0,
+      "pts_repeated": 0,
+      "strict_source_identity": true,
+      "time_base_changes": 0,
+      "time_base_missing": 0
+    },
+    "connect_attempt_at_s": 13.212602,
+    "connect_completed_after_s": 0.652727,
+    "detection_age_s": {
+      "maximum": 0.154568,
+      "mean": 0.097458,
+      "minimum": 0.063106,
+      "p95": 0.143243
+    },
+    "detector_error": "",
+    "disconnect_duration_s": 0.007473,
+    "disconnect_started_at_s": 17.992787,
+    "first_frame_after_s": 2.400343,
+    "first_match_after_s": 2.489881,
+    "generation": "8fa5a72ed21d4e1eb8c3ff81f1115113",
+    "inference_s": {
+      "maximum": 0.097017,
+      "mean": 0.065887,
+      "minimum": 0.056703,
+      "p95": 0.084229
+    },
+    "label": "replacement",
+    "preflight_passed": true,
+    "preflight_ready_after_s": 4.668106,
+    "recognition": {
+      "confidence": {
+        "maximum": 0.90599,
+        "mean": 0.889068,
+        "minimum": 0.873218,
+        "p95": 0.903294
+      },
+      "eligible_samples": 32,
+      "first_match_marker": {
+        "generation": "8fa5a72ed21d4e1eb8c3ff81f1115113",
+        "pts": 1380,
+        "time_base": "1/90000"
+      },
+      "match_ratio": 1.0,
+      "matches": 32,
+      "maximum_consecutive_misses": 0,
+      "misses": 0
+    }
+  },
+  "robot_ip": "192.168.123.161",
+  "snapshot": {
+    "error": "",
+    "generation": "8fa5a72ed21d4e1eb8c3ff81f1115113",
+    "path": "snapshot.jpg",
+    "port": 8124,
+    "written": true
+  },
+  "test_id": "CAMERA-RECONNECT-001"
+}
