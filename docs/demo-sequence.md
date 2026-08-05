@@ -4,10 +4,16 @@ The production sequence is:
 
 ```text
 IDLE -> PREFLIGHT -> CAPTURE_HOME -> WAIT_FOR_COMMAND
-     -> TURN_TO_FRUIT -> FIND_FRUIT -> APPROACH_FRUIT -> ARRIVED
+     -> [TURN_TO_FRUIT -> FIND_FRUIT] -> APPROACH_FRUIT -> ARRIVED
      -> SIT_AND_BARK -> STAND -> TURN_TOWARD_HOME -> RETURN_HOME
      -> RESTORE_HEADING -> COMPLETE
 ```
+
+Square brackets mark the **conditional initial search**. `TURN_TO_FRUIT` and
+`FIND_FRUIT` remain in every Run Result for auditability, but when the selected
+Target Fruit is already freshly qualified they are recorded as skipped and no
+search rotation is sent. They execute normally only when that qualification is
+not already present.
 
 `STOPPED`, `FAILED`, and `REMOTE_TAKEOVER` are off-ramps from active work.
 
@@ -18,8 +24,9 @@ required and the application must not silently adjust the captured Home pose.
 Preflight records explicit checks for durable Run Result storage, connected
 hardware, the autonomous-motion gate, fresh pose, disarmed application motion,
 an advancing healthy camera/perception source, and bark-media readiness. Target Fruit
-evidence is intentionally not an activation gate. At the start of both search
-stages, fresh qualified evidence for the selected Target Fruit records
+evidence is intentionally not an activation gate. The initial search is
+conditional: at the start of both search stages, fresh qualified evidence for
+the selected Target Fruit records
 `target_already_visible` and skips search without arming motion. Otherwise,
 `TURN_TO_FRUIT` rotates through at most one measured revolution until fresh
 qualified fruit evidence stops the turn, and `FIND_FRUIT` confirms or briefly

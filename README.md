@@ -16,10 +16,11 @@ reference, but it is not a runtime dependency.
 3. Capture a stable Home position and heading.
 4. Choose Pear or Red apple from the audience UI's qualified-fruit list, then
    use the single **Activate Demo** control.
-5. If fresh qualified evidence already shows the requested fruit, record the
-   turn/search stages as skipped and proceed directly to approach centering.
-   Otherwise, turn through the fruit-search area until it is recognized,
-   bounded by one measured revolution and a 30-second timeout. A 50%+
+5. **Conditional search:** if fresh qualified evidence already shows the
+   requested fruit, do not perform the initial rotation. Record the
+   turn/search stages as conditionally skipped and proceed directly to approach
+   centering. Otherwise, turn through the fruit-search area until it is
+   recognized, bounded by one measured revolution and a 30-second timeout. A 50%+
    full-frame fruit proposal triggers crop confirmation and a 50% duty-cycled
    turn using the same reliable yaw signal; an unqualified crop keeps rotating
    rather than becoming a false stop.
@@ -121,11 +122,12 @@ restart seals unfinished work as `PROCESS_INTERRUPTED`. The production executor
 uses measured pose turns, bounded camera-guided search, geometry-gated approach,
 one 0.3 m/s by 1.0 s off-screen final push, Unitree posture actions, bark, and
 closed-loop odometry return through factory obstacle avoidance.
-Pear qualification may already be present when `TURN_TO_FRUIT` begins. Fresh
-qualified evidence for the selected Target Fruit skips both broad-search
-stages without arming motion; otherwise it stops the camera-guided turn and
-`FIND_FRUIT` confirms or reacquires it. The absence of a pear before activation
-is expected and does not block the button.
+The initial turn/search is explicitly **conditional**, not an unconditional
+part of every run. Target Fruit qualification may already be present when
+`TURN_TO_FRUIT` begins. Fresh qualified evidence for the selected Target Fruit
+skips both broad-search stages without arming motion; otherwise Woof performs
+the camera-guided turn and `FIND_FRUIT` confirms or reacquires it. The absence
+of a fruit before activation is expected and does not block the button.
 The audience UI also shows the media sidecar's latest annotated camera frame so
 the operator can see the live image, pear box, confidence, and 5-frame model
 qualification progress without granting the UI any motion authority.

@@ -93,8 +93,9 @@ may be relaxed only after new acceptance evidence is recorded.
 - Missing identity, repeated or regressed PTS, a time-base change, a generation
   change, or an excessive inter-frame gap resets the preflight count to zero.
 - Advancing-camera preflight must pass before activation. A visible pear is not
-  required by this gate. If fresh qualified Target Fruit evidence is already
-  present when a search stage begins, the stage records a zero-motion skip;
+  required by this gate. **The initial search is conditional:** if fresh
+  qualified Target Fruit evidence is already present when a search stage
+  begins, the stage records a zero-motion skip and sends no search rotation;
   otherwise Woof turns through the fruit-search area after the run starts.
 - The perception service and model must be healthy before activation, but pear
   qualification starts no later than `TURN_TO_FRUIT`. Five fresh qualified
