@@ -44,6 +44,21 @@ Arbitrary typed commands remain on the separate debug surface. The supervised
 voice adapter may activate a supported fruit request through the same narrow
 mission API; it does not bypass any readiness or motion gate.
 
+## Voice Demo V1 checkpoint
+
+The first working voice-demo checkpoint supports a spoken request for a
+Qualified Fruit and both initial camera conditions:
+
+- when the requested fruit is already freshly qualified in view, the initial
+  rotation/search is conditionally skipped; and
+- when the requested fruit is not initially in view, Woof performs the bounded
+  search before beginning the same approach sequence.
+
+This is a working demo checkpoint, not a claim of precise motion. The next
+motion-quality work is to make Return to Home finish more consistently at the
+captured Home position and heading, and to make the final fruit distance more
+consistent so Woof does not finish too close or too far away.
+
 ## Deferred interaction features
 
 - **Unsupported voice command reaction (not implemented):** if speech is

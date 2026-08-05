@@ -343,3 +343,27 @@ heading-restoration no-response failure as a known follow-up.
 
 Evidence: `lab/fruit-recognition/results/RED-APPLE-001.json` and
 `lab/fruit-recognition/results/RED-APPLE-001.jpg`.
+
+## VOICE-DEMO-V1 — working checkpoint
+
+- Recorded: 2026-08-05 from supervised operator validation on `woof.local`.
+- Voice activation: a recognized supported fruit request reaches the same
+  narrow Demo Run API as the audience control and does not bypass readiness or
+  motion gates.
+- Fruit already in view: fresh qualified evidence conditionally skips the
+  initial turn/search stages and proceeds to approach centering.
+- Fruit not initially in view: Woof performs the bounded camera-guided search,
+  acquires the Target Fruit, and then enters the same approach path.
+- Checkpoint meaning: this is the first working voice-triggered demo version
+  with both initial-visibility paths. It is not a new general Operating
+  Envelope or a claim of precise final pose.
+
+Known motion-quality follow-ups:
+
+- **Return to Home precision:** Woof returns approximately to Home, but may
+  finish slightly over- or undershot and may retain a small heading error.
+- **Fruit approach precision:** the final distance varies between runs and can
+  place Woof too close to or too far from the fruit.
+- These are calibration and closed-loop-control priorities for the next
+  checkpoint. Existing camera, timeout, disarm, and bounded-motion failures
+  remain fail-closed while that work is underway.
