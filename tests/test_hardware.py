@@ -570,9 +570,99 @@ def test_approach_requires_near_geometry_then_one_offscreen_final_push() -> None
         assert result["near_confirmations"] == 3
         assert result["final_push_mps"] == 1.0
         assert result["final_push_count"] == 1
-        assert result["forward_pulse_count"] == 4
+        assert result["forward_pulse_count"] == 5
+        assert any(
+            command.reason == "approach_target_near_visible"
+            and command.forward_mps == 0.50
+            for command in motion.commands
+        )
         assert any(command.forward_mps == 0.50 for command in motion.commands)
         assert any(command.forward_mps == 1.0 for command in motion.commands)
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_approach_keeps_moving_while_near_pear_remains_visible() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+
+        def seen(*, center_y: float, bottom: float) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": True,
+                "detection": {
+                    "label": "pear",
+                    "confidence": 0.81,
+                    "consecutive_detections": 5,
+                    "center_x_ratio": 0.50,
+                    "center_y_ratio": center_y,
+                    "bottom_ratio": bottom,
+                },
+            }
+
+        statuses = iter(
+            (
+                seen(center_y=0.50, bottom=0.65),
+                seen(center_y=0.50, bottom=0.65),
+                seen(center_y=0.50, bottom=0.65),
+                seen(center_y=0.75, bottom=0.90),
+                seen(center_y=0.76, bottom=0.91),
+                seen(center_y=0.77, bottom=0.92),
+                seen(center_y=0.78, bottom=0.93),
+                seen(center_y=0.79, bottom=0.94),
+                {"camera_healthy": True, "target_ready": False},
+            )
+        )
+
+        result = await manager.approach_target(
+            lambda: next(
+                statuses,
+                {"camera_healthy": True, "target_ready": False},
+            ),
+            "pear",
+            forward_mps=1.0,
+            maximum_yaw_rps=0.30,
+            near_bottom_ratio=0.86,
+            near_center_ratio=0.72,
+            near_confirmations=3,
+            near_loss_grace_s=0.75,
+            final_push_mps=0.30,
+            final_push_duration_s=0.001,
+            timeout_s=0.5,
+        )
+
+        visible_forward = [
+            command
+            for command in motion.commands
+            if command.reason
+            in {"approach_target", "approach_target_near_visible"}
+            and command.forward_mps == 1.0
+        ]
+        assert len(visible_forward) == 6
+        assert len(
+            [
+                command
+                for command in motion.commands
+                if command.reason == "approach_target_near_visible"
+                and command.forward_mps == 1.0
+            ]
+        ) == 3
+        assert not any(
+            command.reason == "near_target_confirmed"
+            for command in motion.commands
+        )
+        assert result["near_confirmations"] == 5
+        assert result["forward_pulse_count"] == 7
+        assert result["final_push_count"] == 1
         assert motion.armed is False
         await manager.close()
 

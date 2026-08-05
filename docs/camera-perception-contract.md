@@ -137,6 +137,10 @@ may be relaxed only after new acceptance evidence is recorded.
   horizontal center may move at most 0.20 of frame width between accepted
   samples; its vertical center and lower edge may retreat by at most 0.08.
   This rule cannot acquire an apple or accept a label change.
+- Near-fruit geometry does not itself stop motion or confirm Arrival. It arms
+  the lower-edge disappearance gate while fresh, centered Target Fruit evidence
+  continues authorizing the bounded forward approach. Only a subsequent
+  qualified lower-edge disappearance permits the one bounded final push.
 - Warm-up must finish before preflight passes. After preflight, detector
   execution time must be **no greater than 0.200 seconds**.
 - Detection age must be **no greater than 0.250 seconds**, measured with the

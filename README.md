@@ -27,8 +27,10 @@ reference, but it is not a runtime dependency.
 6. Confirm/reacquire and approach the requested fruit using fresh detections.
    No forward command is permitted before this stage. Once approach begins,
    forward and yaw inputs may be combined to steer toward the fruit.
-7. After confirmed near-fruit evidence, allow one bounded final approach when
-   the fruit leaves the lower camera edge.
+7. Near-fruit geometry arms the lower-edge Arrival gate but does not stop the
+   approach. While the requested fruit remains freshly visible, continue the
+   bounded forward approach. Only after it disappears through the lower camera
+   edge may Woof send the single bounded final movement.
 8. First turn at a fixed 0.50 rad/s until the Target Fruit is within the middle
    16% of the camera, then hold zero yaw for three fresh centered samples. After
    qualified lower-edge disappearance, send one 0.3 m/s by

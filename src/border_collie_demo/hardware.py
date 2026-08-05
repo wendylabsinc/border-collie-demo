@@ -916,33 +916,33 @@ class HardwareManager:
                         initial_centered = True
                     near = bottom >= near_bottom_ratio and center_y >= near_center_ratio
                     confirmations = confirmations + 1 if near else 0
-                    if confirmations >= near_confirmations:
+                    near_confirmed = confirmations >= near_confirmations
+                    if near_confirmed:
                         near_at = now
-                        await self._send_motion_command(
-                            lease,
-                            VelocityCommand(reason="near_target_confirmed"),
+                    horizontal_error = center_x - 0.5
+                    yaw = (
+                        0.0
+                        if abs(horizontal_error)
+                        <= APPROACH_CENTER_TOLERANCE_RATIO
+                        else -math.copysign(
+                            maximum_yaw_rps,
+                            horizontal_error,
                         )
-                    else:
-                        horizontal_error = center_x - 0.5
-                        yaw = (
-                            0.0
-                            if abs(horizontal_error)
-                            <= APPROACH_CENTER_TOLERANCE_RATIO
-                            else -math.copysign(
-                                maximum_yaw_rps,
-                                horizontal_error,
-                            )
-                        )
-                        await self._send_motion_command(
-                            lease,
-                            VelocityCommand(
-                                forward_mps,
-                                yaw,
-                                "approach_target",
+                    )
+                    await self._send_motion_command(
+                        lease,
+                        VelocityCommand(
+                            forward_mps,
+                            yaw,
+                            (
+                                "approach_target_near_visible"
+                                if near_confirmed
+                                else "approach_target"
                             ),
-                        )
-                        forward_pulse_count += 1
-                        commands_sent = True
+                        ),
+                    )
+                    forward_pulse_count += 1
+                    commands_sent = True
                     await asyncio.sleep(self.config.command_heartbeat_s)
                 else:
                     raise TargetLost(f"qualified {target_fruit} Arrival timed out")
