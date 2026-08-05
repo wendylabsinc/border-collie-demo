@@ -113,6 +113,8 @@ class ProductionStageExecutor:
         context: StageContext,
     ) -> dict[str, Any]:
         if phase is MissionPhase.TURN_TO_FRUIT:
+            if visible := self._visible_target_evidence(context.target_fruit):
+                return visible
             return await self._hardware.find_target(
                 self._perception_status,
                 context.target_fruit,
@@ -121,6 +123,8 @@ class ProductionStageExecutor:
                 timeout_s=30.0,
             )
         if phase is MissionPhase.FIND_FRUIT:
+            if visible := self._visible_target_evidence(context.target_fruit):
+                return visible
             return await self._hardware.find_target(
                 self._perception_status,
                 context.target_fruit,
@@ -197,6 +201,39 @@ class ProductionStageExecutor:
                 timeout_s=15.0,
             )
         raise StageFailure("INTERNAL_ERROR", f"production stage is not implemented: {phase.value}")
+
+    def _visible_target_evidence(self, target_fruit: str) -> dict[str, Any] | None:
+        """Skip broad search only for current, fully qualified target evidence."""
+        status = self._perception_status()
+        detection = status.get("detection")
+        selected_target = str(status.get("target_fruit") or "").casefold()
+        detection_label = (
+            str(detection.get("label") or "").casefold()
+            if isinstance(detection, dict)
+            else ""
+        )
+        target = target_fruit.casefold()
+        if not (
+            status.get("camera_healthy") is True
+            and status.get("target_ready") is True
+            and selected_target == target
+            and detection_label == target
+            and isinstance(detection, dict)
+        ):
+            return None
+        return {
+            "label": target_fruit,
+            "confidence": detection.get("confidence"),
+            "stable_detections": detection.get("consecutive_detections"),
+            "detection_age_s": detection.get("age_s"),
+            "center_x_ratio": detection.get("center_x_ratio"),
+            "center_y_ratio": detection.get("center_y_ratio"),
+            "bottom_ratio": detection.get("bottom_ratio"),
+            "search_progress_rad": 0.0,
+            "search_skipped": True,
+            "skip_reason": "target_already_visible",
+            "motion_commands_sent": False,
+        }
 
     async def stop(self) -> list[str]:
         return await self._hardware.emergency_stop()

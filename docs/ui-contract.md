@@ -20,9 +20,10 @@ The audience route is intentionally minimal:
 Activate Demo is enabled only when there is no active run or latched Remote
 Takeover and the application reports advancing-camera, perception-service,
 pose, motion, media, and result-storage readiness. A qualifying Target Fruit is
-not required before activation: Woof turns first and acquires it during
-`TURN_TO_FRUIT`, with `FIND_FRUIT` retaining the confirmation/reacquisition
-boundary. One click creates the Run Result before hardware action and disables
+not required before activation. Fresh qualified evidence already in view skips
+the two broad-search stages without arming motion; otherwise Woof turns and
+acquires it during `TURN_TO_FRUIT`, with `FIND_FRUIT` retaining the
+confirmation/reacquisition boundary. One click creates the Run Result before hardware action and disables
 repeated activation until that run is terminal.
 
 The audience surface never provides an arbitrary fruit value, typed command,

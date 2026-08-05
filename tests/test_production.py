@@ -112,6 +112,51 @@ def test_turn_to_fruit_uses_the_selected_red_apple_target() -> None:
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize(
+    "phase",
+    [MissionPhase.TURN_TO_FRUIT, MissionPhase.FIND_FRUIT],
+)
+def test_search_stage_skips_motion_when_target_is_already_visible(
+    phase: MissionPhase,
+) -> None:
+    async def scenario() -> None:
+        hardware = FakeProductionHardware()
+        status_reader = lambda: {
+            "camera_healthy": True,
+            "target_ready": True,
+            "target_fruit": "pear",
+            "detection": {
+                "label": "pear",
+                "confidence": 0.82,
+                "consecutive_detections": 7,
+                "age_s": 0.04,
+                "center_x_ratio": 0.54,
+                "center_y_ratio": 0.61,
+                "bottom_ratio": 0.70,
+            },
+        }
+        stages = ProductionStageExecutor(hardware, status_reader, FakeBark())
+
+        evidence = await stages.execute(phase, context())
+
+        assert hardware.calls == []
+        assert evidence == {
+            "label": "pear",
+            "confidence": 0.82,
+            "stable_detections": 7,
+            "detection_age_s": 0.04,
+            "center_x_ratio": 0.54,
+            "center_y_ratio": 0.61,
+            "bottom_ratio": 0.70,
+            "search_progress_rad": 0.0,
+            "search_skipped": True,
+            "skip_reason": "target_already_visible",
+            "motion_commands_sent": False,
+        }
+
+    asyncio.run(scenario())
+
+
 def test_find_fruit_runs_bounded_camera_guided_search() -> None:
     async def scenario() -> None:
         hardware = FakeProductionHardware()

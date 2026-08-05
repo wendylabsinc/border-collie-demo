@@ -18,10 +18,12 @@ required and the application must not silently adjust the captured Home pose.
 Preflight records explicit checks for durable Run Result storage, connected
 hardware, the autonomous-motion gate, fresh pose, disarmed application motion,
 an advancing healthy camera/perception source, and bark-media readiness. Target Fruit
-evidence is intentionally not an activation gate: `TURN_TO_FRUIT` happens
-first and rotates through at most one measured revolution until fresh qualified
-fruit evidence stops the turn. `FIND_FRUIT` then confirms or briefly reacquires
-that evidence before approach. Completing the bounded search with healthy,
+evidence is intentionally not an activation gate. At the start of both search
+stages, fresh qualified evidence for the selected Target Fruit records
+`target_already_visible` and skips search without arming motion. Otherwise,
+`TURN_TO_FRUIT` rotates through at most one measured revolution until fresh
+qualified fruit evidence stops the turn, and `FIND_FRUIT` confirms or briefly
+reacquires that evidence before approach. Completing the bounded search with healthy,
 advancing frames but no qualified Target Fruit records `TARGET_RECOGNITION_FAILURE`
 with the strongest candidate statistics and a downloadable raw-frame evidence
 archive for Fieldmark labeling. Any failed or errored preflight check seals the Demo Run as
