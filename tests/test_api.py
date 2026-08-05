@@ -738,6 +738,17 @@ def test_activate_accepts_the_qualified_red_apple_target(tmp_path) -> None:
         assert selected == ["apple"]
 
 
+def test_activate_records_voice_as_the_activation_source(tmp_path) -> None:
+    with TestClient(create_app(runs_root=tmp_path)) as client:
+        response = client.post(
+            "/api/run",
+            json={"target_fruit": "pear", "activation_source": "voice"},
+        )
+
+        assert response.status_code == 201
+        assert response.json()["run"]["activation_source"] == "voice"
+
+
 def test_activate_rejects_an_unqualified_target_fruit(tmp_path) -> None:
     with TestClient(create_app(runs_root=tmp_path)) as client:
         response = client.post("/api/run", json={"target_fruit": "banana"})
