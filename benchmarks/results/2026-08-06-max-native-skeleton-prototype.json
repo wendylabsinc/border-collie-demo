@@ -1,0 +1,88 @@
+{
+  "captured_at": "2026-08-06T21:05:52Z",
+  "question": "Can a small detection-only network written directly with MAX Graph run fast enough on Woof's sm_87 GPU to justify training matching fruit-model weights?",
+  "prototype": true,
+  "backend": "max",
+  "max_version": "26.4.0",
+  "precision": "fp16",
+  "layout": "NHWC",
+  "architecture_sha256": "8fc72721a300479f31c4585ed22e08c87815f934a9beaa470ed1564f82bc3313",
+  "architecture": {
+    "type": "MobileNet-style inverted-residual detector skeleton",
+    "classes": ["pear", "apple", "banana"],
+    "convolution_layers": 48,
+    "parameters": 1248653,
+    "raw_detection_head_strides": [8, 16, 32],
+    "postprocessing_in_graph": false,
+    "weights": "deterministic random values"
+  },
+  "protocol": {
+    "warmups_per_resolution": 5,
+    "timed_samples_per_resolution": 30,
+    "input": "zero tensor",
+    "includes_host_to_gpu_input_and_gpu_to_host_output": true,
+    "fresh_process_per_resolution": true,
+    "cuda_disable_ptx_jit": true,
+    "median_gate_ms": 150.0,
+    "p95_gate_ms": 200.0
+  },
+  "results": [
+    {
+      "resolution": 320,
+      "estimated_macs": 407203200,
+      "compile_seconds": 116.54996328199991,
+      "median_ms": 28.187594499968327,
+      "p95_ms": 28.5627780001505,
+      "maximum_ms": 28.679485999873577,
+      "fps_from_median": 35.476599466517925,
+      "peak_rss_bytes": 3400974336,
+      "passes": true
+    },
+    {
+      "resolution": 416,
+      "estimated_macs": 688173408,
+      "compile_seconds": 110.03828949199988,
+      "median_ms": 39.22626400003537,
+      "p95_ms": 39.643812999884176,
+      "maximum_ms": 39.64934600003289,
+      "fps_from_median": 25.493123688738194,
+      "peak_rss_bytes": 3307671552,
+      "passes": true
+    },
+    {
+      "resolution": 640,
+      "estimated_macs": 1628812800,
+      "compile_seconds": 109.94041626299986,
+      "median_ms": 66.03156899996065,
+      "p95_ms": 67.33988399992086,
+      "maximum_ms": 67.3439160000271,
+      "fps_from_median": 15.144271371176957,
+      "peak_rss_bytes": 3434291200,
+      "passes": true
+    }
+  ],
+  "device_guard": {
+    "battery_percent_at_start": 93,
+    "battery_percent_at_stop": 91,
+    "jetson_temperature_c_at_stop": 50.531,
+    "guarded_temperature_c_at_stop": 79.0,
+    "swap_used_bytes_at_end": 524288,
+    "probe_stopped_after_result": true
+  },
+  "comparison": {
+    "previous_imported_yoloe_median_ms": 11916.18619000019,
+    "native_skeleton_640_median_ms": 66.03156899996065,
+    "latency_ratio": 180.46042436969558,
+    "warning": "The architectures and outputs differ, so this ratio diagnoses graph shape and importer cost; it is not an equivalent-model speedup claim."
+  },
+  "verdict": {
+    "train_candidate": true,
+    "reason": "All three fixed-shape native graphs passed the forward-pass latency gates with wide margin."
+  },
+  "remaining_uncertainty": [
+    "Random weights do not measure fruit accuracy.",
+    "The skeleton omits trained box decode, confidence filtering, and NMS.",
+    "A trained checkpoint and weight adapter may add operations or memory traffic.",
+    "Real camera frames and end-to-end application latency remain unmeasured."
+  ]
+}

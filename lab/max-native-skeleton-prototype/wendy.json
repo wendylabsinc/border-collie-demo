@@ -1,0 +1,38 @@
+{
+  "appId": "border-collie-max-native-skeleton-prototype",
+  "version": "0.1.0",
+  "services": {
+    "probe": {
+      "context": ".",
+      "resources": {
+        "cpus": "8.0",
+        "memory": "14Gi",
+        "pids": 512
+      },
+      "env": {
+        "MAX_SKELETON_RESOLUTIONS": "320,416,640",
+        "MAX_SKELETON_WARMUPS": "5",
+        "MAX_SKELETON_SAMPLES": "30",
+        "MAX_SKELETON_CPU_AFFINITY_COUNT": "8",
+        "MAX_SKELETON_MIN_AVAILABLE_GIB": "1.0",
+        "MAX_SKELETON_MAX_SWAP_USED_GIB": "2.0",
+        "MAX_SKELETON_RESOLUTION_TIMEOUT_S": "1200",
+        "MAX_SKELETON_THERMAL_LIMIT_C": "82",
+        "MAX_SKELETON_MIN_START_BATTERY_PERCENT": "60",
+        "MAX_SKELETON_BATTERY_ABORT_PERCENT": "25",
+        "MAX_SKELETON_REQUIRE_BATTERY_STATUS": "1",
+        "MAX_SKELETON_OOM_SCORE_ADJ": "500",
+        "CUDA_DISABLE_PTX_JIT": "1"
+      },
+      "entitlements": [
+        {"type": "network", "mode": "host"},
+        {"type": "gpu"},
+        {
+          "type": "persist",
+          "name": "border-collie-max-native-skeleton-artifacts",
+          "path": "/artifacts"
+        }
+      ]
+    }
+  }
+}
