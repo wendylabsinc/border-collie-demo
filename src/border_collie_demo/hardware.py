@@ -31,6 +31,7 @@ INITIAL_CENTER_CONFIRMATIONS = 3
 INITIAL_CENTER_YAW_RPS = 0.50
 SEARCH_CROP_CANDIDATE_CONFIDENCE = 0.50
 APPROACH_CENTER_TOLERANCE_RATIO = 0.08
+APPROACH_REACQUIRE_YAW_RPS = 0.20
 CLOSE_RANGE_MINIMUM_BOTTOM_RATIO = 0.70
 CLOSE_RANGE_MAXIMUM_CENTER_DELTA_RATIO = 0.20
 CLOSE_RANGE_MAXIMUM_VERTICAL_RETREAT_RATIO = 0.08
@@ -792,73 +793,88 @@ class HardwareManager:
                             isinstance(detection, dict)
                             and detection_label == target_fruit.casefold()
                         )
-                        if (
-                            target_still_visible
-                            or near_at is None
-                            or now - near_at > near_loss_grace_s
-                        ):
+                        if target_still_visible:
                             await self._send_motion_command(
                                 lease,
                                 VelocityCommand(reason="target_not_visible"),
                             )
                             await asyncio.sleep(self.config.command_heartbeat_s)
                             continue
-                        push_deadline = now + final_push_duration_s
-                        while time.monotonic() < push_deadline:
-                            push_status = status_reader()
-                            if not push_status.get("camera_healthy"):
-                                raise CameraFailure(
-                                    str(
-                                        push_status.get("detail")
-                                        or "camera evidence failed during final push"
+                        if (
+                            near_at is not None
+                            and now - near_at <= near_loss_grace_s
+                        ):
+                            push_deadline = now + final_push_duration_s
+                            while time.monotonic() < push_deadline:
+                                push_status = status_reader()
+                                if not push_status.get("camera_healthy"):
+                                    raise CameraFailure(
+                                        str(
+                                            push_status.get("detail")
+                                            or "camera evidence failed during final push"
+                                        )
+                                    )
+                                await self._send_motion_command(
+                                    lease,
+                                    VelocityCommand(
+                                        final_push_mps,
+                                        0.0,
+                                        "fruit_offscreen_final_push",
+                                    ),
+                                )
+                                commands_sent = True
+                                forward_pulse_count += 1
+                                await asyncio.sleep(
+                                    min(
+                                        self.config.command_heartbeat_s,
+                                        max(0.0, push_deadline - time.monotonic()),
                                     )
                                 )
-                            await self._send_motion_command(
-                                lease,
-                                VelocityCommand(
-                                    final_push_mps,
-                                    0.0,
-                                    "fruit_offscreen_final_push",
+                            evidence = {
+                                "arrival_confirmed": True,
+                                "near_confirmations": confirmations,
+                                "final_push_mps": final_push_mps,
+                                "final_push_duration_s": final_push_duration_s,
+                                "final_push_count": 1,
+                                "initial_center_confirmations": (
+                                    initial_center_confirmations
                                 ),
-                            )
-                            commands_sent = True
-                            forward_pulse_count += 1
-                            await asyncio.sleep(
-                                min(
-                                    self.config.command_heartbeat_s,
-                                    max(0.0, push_deadline - time.monotonic()),
-                                )
-                            )
-                        evidence = {
-                            "arrival_confirmed": True,
-                            "near_confirmations": confirmations,
-                            "final_push_mps": final_push_mps,
-                            "final_push_duration_s": final_push_duration_s,
-                            "final_push_count": 1,
-                            "initial_center_confirmations": (
-                                initial_center_confirmations
+                                "initial_center_tolerance_ratio": (
+                                    INITIAL_CENTER_TOLERANCE_RATIO
+                                ),
+                                "initial_center_yaw_rps": INITIAL_CENTER_YAW_RPS,
+                                "forward_pulse_count": forward_pulse_count,
+                                "forward_pulse_period_s": self.config.command_heartbeat_s,
+                                "motion_commands_sent": commands_sent,
+                                "tracking_minimum_confidence": (
+                                    self.config.pear_tracking_minimum_confidence
+                                ),
+                                "minimum_observed_tracking_confidence": (
+                                    minimum_observed_tracking_confidence
+                                ),
+                                "close_range_tracking_confidence": (
+                                    policy.close_range_tracking_confidence
+                                ),
+                                "close_range_continuation_samples": (
+                                    close_range_continuation_samples
+                                ),
+                            }
+                            break
+
+                        # A search-stage detection may vanish during the
+                        # handoff. Continue the bounded in-place sweep instead
+                        # of waiting motionless for the overall timeout.
+                        await self._send_motion_command(
+                            lease,
+                            VelocityCommand(
+                                0.0,
+                                min(APPROACH_REACQUIRE_YAW_RPS, maximum_yaw_rps),
+                                "reacquire_target_before_approach",
                             ),
-                            "initial_center_tolerance_ratio": (
-                                INITIAL_CENTER_TOLERANCE_RATIO
-                            ),
-                            "initial_center_yaw_rps": INITIAL_CENTER_YAW_RPS,
-                            "forward_pulse_count": forward_pulse_count,
-                            "forward_pulse_period_s": self.config.command_heartbeat_s,
-                            "motion_commands_sent": commands_sent,
-                            "tracking_minimum_confidence": (
-                                self.config.pear_tracking_minimum_confidence
-                            ),
-                            "minimum_observed_tracking_confidence": (
-                                minimum_observed_tracking_confidence
-                            ),
-                            "close_range_tracking_confidence": (
-                                policy.close_range_tracking_confidence
-                            ),
-                            "close_range_continuation_samples": (
-                                close_range_continuation_samples
-                            ),
-                        }
-                        break
+                        )
+                        commands_sent = True
+                        await asyncio.sleep(self.config.command_heartbeat_s)
+                        continue
 
                     assert isinstance(detection, dict)
                     label = detection_label
@@ -917,7 +933,11 @@ class HardwareManager:
                     near = bottom >= near_bottom_ratio and center_y >= near_center_ratio
                     confirmations = confirmations + 1 if near else 0
                     near_confirmed = confirmations >= near_confirmations
-                    if near_confirmed:
+                    # A qualified lower-edge sample is sufficient to latch
+                    # proximity. Requiring another consecutive camera frame
+                    # makes the expected next state (the fruit leaving the
+                    # bottom of frame) indistinguishable from target loss.
+                    if near:
                         near_at = now
                     horizontal_error = center_x - 0.5
                     yaw = (

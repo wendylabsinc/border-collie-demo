@@ -9,7 +9,4 @@ __pycache__/
 dist/
 build/
 artifacts/runs/
-artifacts/fruit-model/
-lab/*/model/
-media/model/*.engine
-media/model/*.pt
+# Model binaries are reproducible demo checkpoints and must remain versioned.

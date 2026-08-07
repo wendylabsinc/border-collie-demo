@@ -584,6 +584,137 @@ def test_approach_requires_near_geometry_then_one_offscreen_final_push() -> None
     asyncio.run(scenario())
 
 
+def test_approach_latches_one_qualified_near_frame_before_disappearance() -> None:
+    """A trustworthy lower-edge sample must survive the next-frame track loss."""
+
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+
+        def seen(*, near: bool = False) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": True,
+                "detection": {
+                    "label": "pear",
+                    "confidence": 0.83,
+                    "center_x_ratio": 0.50,
+                    "center_y_ratio": 0.78 if near else 0.60,
+                    "bottom_ratio": 0.90 if near else 0.70,
+                },
+            }
+
+        statuses = iter(
+            (
+                seen(),
+                seen(),
+                seen(),
+                seen(near=True),
+                {"camera_healthy": True, "target_ready": False},
+            )
+        )
+
+        result = await manager.approach_target(
+            lambda: next(
+                statuses,
+                {"camera_healthy": True, "target_ready": False},
+            ),
+            "pear",
+            forward_mps=1.0,
+            maximum_yaw_rps=0.30,
+            near_bottom_ratio=0.86,
+            near_center_ratio=0.72,
+            near_confirmations=3,
+            near_loss_grace_s=0.75,
+            final_push_mps=0.30,
+            final_push_duration_s=0.001,
+            timeout_s=0.08,
+        )
+
+        assert result["arrival_confirmed"] is True
+        assert result["near_confirmations"] == 1
+        assert any(
+            command.reason == "fruit_offscreen_final_push"
+            for command in motion.commands
+        )
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_approach_reacquires_when_search_handoff_track_disappears() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+
+        def seen(*, near: bool = False) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": True,
+                "detection": {
+                    "label": "pear",
+                    "confidence": 0.83,
+                    "center_x_ratio": 0.50,
+                    "center_y_ratio": 0.78 if near else 0.60,
+                    "bottom_ratio": 0.90 if near else 0.70,
+                },
+            }
+
+        missing = {"camera_healthy": True, "target_ready": False}
+        statuses = iter(
+            (
+                missing,
+                missing,
+                seen(),
+                seen(),
+                seen(),
+                seen(near=True),
+                missing,
+            )
+        )
+
+        result = await manager.approach_target(
+            lambda: next(statuses, missing),
+            "pear",
+            forward_mps=1.0,
+            maximum_yaw_rps=0.30,
+            near_bottom_ratio=0.86,
+            near_center_ratio=0.72,
+            near_confirmations=3,
+            near_loss_grace_s=0.75,
+            final_push_mps=0.30,
+            final_push_duration_s=0.001,
+            timeout_s=0.15,
+        )
+
+        reacquisition = [
+            command
+            for command in motion.commands
+            if command.reason == "reacquire_target_before_approach"
+        ]
+        assert len(reacquisition) == 2
+        assert all(command.forward_mps == 0.0 for command in reacquisition)
+        assert all(command.yaw_rps == 0.20 for command in reacquisition)
+        assert result["arrival_confirmed"] is True
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
 def test_approach_keeps_moving_while_near_pear_remains_visible() -> None:
     async def scenario() -> None:
         motion = FakeMotion()
