@@ -649,6 +649,82 @@ def test_approach_latches_one_qualified_near_frame_before_disappearance() -> Non
     asyncio.run(scenario())
 
 
+def test_approach_treats_unqualified_near_proposal_as_lower_edge_loss() -> None:
+    """Replay run 3f1d22de: near track degrades to a weak pear proposal."""
+
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+
+        def qualified(*, near: bool = False) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": True,
+                "detection": {
+                    "label": "pear",
+                    "confidence": 0.80,
+                    "center_x_ratio": 0.50,
+                    "center_y_ratio": 0.78 if near else 0.60,
+                    "bottom_ratio": 0.90 if near else 0.70,
+                },
+            }
+
+        weak_near = {
+            "camera_healthy": True,
+            "target_ready": False,
+            "detection": {
+                "label": "pear",
+                "confidence": 0.30,
+                "center_x_ratio": 0.50,
+                "center_y_ratio": 0.78,
+                "bottom_ratio": 0.90,
+            },
+        }
+        statuses = iter(
+            (
+                qualified(),
+                qualified(),
+                qualified(),
+                qualified(near=True),
+                qualified(near=True),
+                qualified(near=True),
+                weak_near,
+                weak_near,
+            )
+        )
+
+        result = await manager.approach_target(
+            lambda: next(statuses, weak_near),
+            "pear",
+            forward_mps=1.0,
+            maximum_yaw_rps=0.30,
+            near_bottom_ratio=0.86,
+            near_center_ratio=0.72,
+            near_confirmations=3,
+            near_loss_grace_s=0.75,
+            final_push_mps=0.30,
+            final_push_duration_s=0.001,
+            timeout_s=0.12,
+        )
+
+        assert result["arrival_confirmed"] is True
+        assert result["near_confirmations"] == 3
+        assert any(
+            command.reason == "fruit_offscreen_final_push"
+            for command in motion.commands
+        )
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
 def test_approach_reacquires_when_search_handoff_track_disappears() -> None:
     async def scenario() -> None:
         motion = FakeMotion()

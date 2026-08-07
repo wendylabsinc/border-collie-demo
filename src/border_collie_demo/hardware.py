@@ -793,7 +793,10 @@ class HardwareManager:
                             isinstance(detection, dict)
                             and detection_label == target_fruit.casefold()
                         )
-                        if target_still_visible:
+                        if target_still_visible and (
+                            near_at is None
+                            or now - near_at > near_loss_grace_s
+                        ):
                             await self._send_motion_command(
                                 lease,
                                 VelocityCommand(reason="target_not_visible"),
