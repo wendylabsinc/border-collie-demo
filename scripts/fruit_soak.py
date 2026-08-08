@@ -34,6 +34,7 @@ import json
 import random
 import shutil
 import subprocess
+import threading
 import sys
 import time
 import urllib.error
@@ -110,18 +111,44 @@ class ApiClient:
 
 
 class TempSource:
-    """Optional per-sample temperature reader: an HTTP JSON URL or a command."""
+    """Optional temperature reader: an HTTP JSON URL, a command, or the
+    device's thermal zones through ``wendy device top`` (agent mode)."""
 
-    def __init__(self, url: str | None = None, command: str | None = None) -> None:
+    def __init__(
+        self,
+        url: str | None = None,
+        command: str | None = None,
+        agent: str | None = None,
+    ) -> None:
         self.url = url
         self.command = command
+        self.agent = agent
 
     @property
     def enabled(self) -> bool:
-        return bool(self.url or self.command)
+        return bool(self.url or self.command or self.agent)
 
     def read(self) -> tuple[dict | None, str | None]:
         try:
+            if self.agent:
+                completed = subprocess.run(
+                    ["wendy", "device", "top", "--device", self.agent, "--json"],
+                    capture_output=True,
+                    timeout=20.0,
+                    text=True,
+                )
+                if completed.returncode != 0:
+                    return None, completed.stderr.strip()[:200] or "wendy top failed"
+                zones = (
+                    json.loads(completed.stdout).get("host", {}).get("thermalZones")
+                    or []
+                )
+                temps = {
+                    z["name"]: z["tempC"]
+                    for z in zones
+                    if isinstance(z.get("tempC"), (int, float))
+                }
+                return (temps or None), (None if temps else "no thermal zones reported")
             if self.url:
                 with urllib.request.urlopen(self.url, timeout=4.0) as response:
                     return json.loads(response.read()), None
@@ -135,6 +162,54 @@ class TempSource:
         except Exception as exc:  # noqa: BLE001 - sampled probe failures are data
             return None, str(exc)
         return None, None
+
+
+class ThreadedTempSampler:
+    """Samples a slow TempSource on its own thread so the poll loop never
+    blocks on it. Runs across the whole session, so cooldown-period cooling
+    between runs is captured too. ``latest()`` falls back to a synchronous
+    read when the thread was never started (tests, one-shot use)."""
+
+    def __init__(self, source: TempSource, interval_s: float = 10.0) -> None:
+        self.source = source
+        self.interval_s = interval_s
+        self._lock = threading.Lock()
+        self._latest: tuple[dict | None, str | None, float | None] = (None, None, None)
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    @property
+    def enabled(self) -> bool:
+        return self.source.enabled
+
+    def _read_once(self) -> None:
+        temps, error = self.source.read()
+        with self._lock:
+            self._latest = (temps, error, time.monotonic())
+
+    def _loop(self) -> None:
+        while not self._stop.is_set():
+            self._read_once()
+            self._stop.wait(self.interval_s)
+
+    def start(self) -> None:
+        if not self.enabled or self._thread is not None:
+            return
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=2.0)
+
+    def latest(self) -> tuple[dict | None, str | None, float | None]:
+        if self.enabled and self._thread is None and self._latest[2] is None:
+            self._read_once()
+        with self._lock:
+            temps, error, read_at = self._latest
+        age_s = None if read_at is None else time.monotonic() - read_at
+        return temps, error, age_s
 
 
 class DeviceProbe:
@@ -164,17 +239,41 @@ class DeviceProbe:
     def wifi_status(self) -> dict | list | None:
         return self._cli_json("device", "wifi", "status") if self.enabled else None
 
+    def usb_devices(self) -> list | dict | None:
+        """USB device descriptions from the hardware capability list. The
+        voice dongle enumerates here (not in the ALSA audio list), and so
+        does the Wi-Fi adapter."""
+        if not self.enabled:
+            return None
+        listing = self._cli_json("device", "hardware", "list")
+        if isinstance(listing, dict):  # error payload
+            return listing
+        return [
+            entry.get("description")
+            for entry in listing or []
+            if isinstance(entry, dict) and entry.get("category") == "usb"
+        ]
 
-def dongle_check(audio_devices: dict | list | None, match: str | None) -> dict:
-    """Record voice-dongle visibility from the device audio list."""
-    if audio_devices is None:
+
+def dongle_check(sources: dict | None, match: str | None) -> dict:
+    """Record voice-dongle visibility across the device's USB and audio lists."""
+    if sources is None:
         return {"checked": False, "visible": None, "detail": "device probes disabled"}
-    rendered = json.dumps(audio_devices)
-    if isinstance(audio_devices, dict) and "error" in audio_devices:
-        return {"checked": False, "visible": None, "detail": audio_devices["error"]}
-    result: dict = {"checked": True, "audio_devices": audio_devices}
+    errors = {
+        name: payload["error"]
+        for name, payload in sources.items()
+        if isinstance(payload, dict) and "error" in payload
+    }
+    if errors and len(errors) == len(sources):
+        return {"checked": False, "visible": None, "detail": "; ".join(errors.values())}
+    result: dict = {"checked": True, **sources}
+    if errors:
+        result["probe_errors"] = errors
     if match:
         result["match"] = match
+        rendered = json.dumps(
+            {k: v for k, v in sources.items() if k not in errors}
+        )
         result["visible"] = match.casefold() in rendered.casefold()
     return result
 
@@ -190,7 +289,7 @@ def draw_fruit_sequence(qualified: list[str], runs: int, seed: int) -> list[str]
 def take_sample(
     client: ApiClient,
     target_fruit: str,
-    temp_source: TempSource,
+    temp_sampler: "ThreadedTempSampler | None",
     *,
     clock=time.monotonic,
 ) -> dict:
@@ -220,10 +319,12 @@ def take_sample(
         route = detection.get("route")
         if route is not None:
             sample["route"] = route
-    if temp_source.enabled:
-        temps, temp_error = temp_source.read()
+    if temp_sampler is not None and temp_sampler.enabled:
+        temps, temp_error, age_s = temp_sampler.latest()
         if temps is not None:
             sample["temps"] = temps
+            if age_s is not None:
+                sample["temps_age_s"] = round(age_s, 1)
         if temp_error:
             sample["temp_error"] = temp_error
     return sample
@@ -393,17 +494,16 @@ def wait_for_terminal(
     run_id: str,
     *,
     target_fruit: str,
-    temp_source: TempSource | None = None,
+    temp_sampler: "ThreadedTempSampler | None" = None,
     timeout_s: float = RUN_TIMEOUT_S,
     sleep=time.sleep,
     clock=time.monotonic,
 ) -> tuple[dict, list[dict], str | None]:
     """Poll one run to terminal state, sampling telemetry on every tick."""
-    temp_source = temp_source or TempSource()
     deadline = clock() + timeout_s
     samples: list[dict] = []
     while True:
-        samples.append(take_sample(client, target_fruit, temp_source, clock=clock))
+        samples.append(take_sample(client, target_fruit, temp_sampler, clock=clock))
         run = client.result(run_id).get("run") or {}
         if run.get("outcome"):
             return run, samples, None
@@ -430,7 +530,7 @@ def run_session(
     sleep=time.sleep,
     log=print,
 ) -> dict:
-    temp_source = temp_source or TempSource()
+    temp_sampler = ThreadedTempSampler(temp_source or TempSource())
     status = wait_for_ready(client)
     build_label = status.get("build_label", "unlabelled")
     qualified = list(client.fruits().get("qualified_fruits", []))
@@ -448,7 +548,12 @@ def run_session(
         "target_runs": runs,
         "seed": seed,
         "fruit_sequence": sequence,
-        "temperature_source": temp_source.url or temp_source.command,
+        "temperature_source": (
+            temp_sampler.source.url
+            or temp_sampler.source.command
+            or (f"wendy device top ({temp_sampler.source.agent})"
+                if temp_sampler.source.agent else None)
+        ),
         "runs": [],
         "aborted": None,
     }
@@ -461,6 +566,7 @@ def run_session(
         output_path.write_text(json.dumps(session, indent=2) + "\n")
 
     persist()
+    temp_sampler.start()
     try:
         for number, fruit in enumerate(sequence, start=1):
             if number > 1:
@@ -469,14 +575,18 @@ def run_session(
             preflight: dict = {}
             if device_probe is not None:
                 preflight["dongle"] = dongle_check(
-                    device_probe.audio_devices(), dongle_match
+                    {
+                        "usb_devices": device_probe.usb_devices(),
+                        "audio_devices": device_probe.audio_devices(),
+                    },
+                    dongle_match,
                 )
                 preflight["wifi_before"] = device_probe.wifi_status()
             lighting_frame = capture_lighting_frame(client, frames_dir, number)
             log(f"run {number}/{runs}: activating {fruit}")
             run_id = client.activate(fruit)["run"]["run_id"]
             run, samples, harness_note = wait_for_terminal(
-                client, run_id, target_fruit=fruit, temp_source=temp_source
+                client, run_id, target_fruit=fruit, temp_sampler=temp_sampler
             )
             record = summarize_run(run, fruit, number)
             record["lighting_frame"] = lighting_frame
@@ -508,6 +618,8 @@ def run_session(
         log("operator interrupt; requesting robot stop")
         client.stop()
         raise
+    finally:
+        temp_sampler.stop()
 
     completed = sum(1 for r in session["runs"] if r["outcome"] == "COMPLETED")
     log(f"recorded {len(session['runs'])} runs ({completed} COMPLETED) -> {output_path}")
@@ -526,6 +638,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--note", default=None, help="session context, e.g. fruit placements")
     parser.add_argument("--temp-url", default=None, help="HTTP JSON endpoint of temperatures")
     parser.add_argument("--temp-cmd", default=None, help="shell command printing temperature JSON")
+    parser.add_argument("--no-temps", action="store_true", help="disable temperature sampling")
     parser.add_argument("--device-probes", action="store_true", help="enable wendy CLI probes")
     parser.add_argument("--dongle-match", default=None, help="substring marking the voice dongle")
     parser.add_argument("--no-samples", action="store_true", help="omit raw sample series")
@@ -539,6 +652,9 @@ def main(argv: list[str] | None = None) -> int:
         f"http://{args.host}:{args.port}", f"http://{args.host}:{args.sidecar_port}"
     )
     agent = args.agent or f"{args.host}:50052"
+    temp_agent = None
+    if not args.no_temps and not args.temp_url and not args.temp_cmd:
+        temp_agent = agent  # default: device thermal zones via wendy top
     try:
         session = run_session(
             client,
@@ -546,7 +662,9 @@ def main(argv: list[str] | None = None) -> int:
             seed=seed,
             output_path=output,
             cooldown_s=args.cooldown,
-            temp_source=TempSource(url=args.temp_url, command=args.temp_cmd),
+            temp_source=TempSource()
+            if args.no_temps
+            else TempSource(url=args.temp_url, command=args.temp_cmd, agent=temp_agent),
             device_probe=DeviceProbe(agent, args.device_probes),
             dongle_match=args.dongle_match,
             note=args.note,
