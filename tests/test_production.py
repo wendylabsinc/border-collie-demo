@@ -42,6 +42,15 @@ class FakeProductionHardware:
             **options,
         }
 
+    async def step_back(self, **options: float) -> dict[str, object]:
+        self.calls.append(("step_back", options))
+        return {
+            "commanded_reverse_mps": options.get("reverse_mps"),
+            "commanded_duration_s": options.get("duration_s"),
+            "measured_backward_m": 0.24,
+            "motion_commands_sent": True,
+        }
+
     async def turn_toward_home(self, home: dict[str, object], **options: float) -> dict[str, object]:
         self.calls.append(("turn_toward_home", home, options))
         return {"home_bearing_error_rad": 0.02, "motion_commands_sent": True}
@@ -238,8 +247,11 @@ def test_approach_uses_measured_factory_motion_and_one_final_push() -> None:
             "near_center_ratio": 0.72,
             "near_confirmations": 3,
             "near_loss_grace_s": 0.75,
+            # Shortened from 1.0 s after the 2026-08-08 supervised baseline
+            # arrived too close to the fruit; the 0.3 m/s signal and the push
+            # trigger are unchanged.
             "final_push_mps": 0.3,
-            "final_push_duration_s": 1.0,
+            "final_push_duration_s": 0.6,
             "timeout_s": 20.0,
         }
         assert evidence["arrival_confirmed"] is True
@@ -280,6 +292,31 @@ def test_audience_action_sits_barks_then_stands_in_separate_stages() -> None:
             "motion_commands_sent": True,
             "settle_s": 1.0,
         }
+
+    asyncio.run(scenario())
+
+
+def test_step_back_runs_between_stand_and_home_turn_with_locked_values() -> None:
+    async def scenario() -> None:
+        hardware = FakeProductionHardware()
+        stages = ProductionStageExecutor(hardware, dict, FakeBark())
+
+        evidence = await stages.execute(MissionPhase.STEP_BACK, context())
+
+        assert hardware.calls == [
+            (
+                "step_back",
+                {
+                    # 1.0 m/s is the separately qualified factory-avoidance
+                    # signal; 0.50 m/s is the observed deadband edge.
+                    "reverse_mps": 1.0,
+                    "duration_s": 0.4,
+                    "minimum_backward_m": 0.05,
+                },
+            )
+        ]
+        assert evidence["measured_backward_m"] == 0.24
+        assert evidence["motion_commands_sent"] is True
 
     asyncio.run(scenario())
 

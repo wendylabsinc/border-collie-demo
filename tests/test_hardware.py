@@ -13,6 +13,7 @@ from border_collie_demo.hardware import (
     CameraFailure,
     HardwareManager,
     HardwareUnavailable,
+    StepBackNoResponse,
     TargetLost,
 )
 from border_collie_demo.models import Pose, VelocityCommand
@@ -23,6 +24,7 @@ class FakeMotion:
         self.armed = False
         self.initialized = False
         self.commands: list[VelocityCommand] = []
+        self.step_back_commands: list[VelocityCommand] = []
         self.stop_calls = 0
         self.postures: list[str] = []
 
@@ -49,6 +51,16 @@ class FakeMotion:
         assert lease == "lease"
         assert self.armed
         self.commands.append(command)
+        return command
+
+    async def command_step_back(
+        self, lease: str, reverse_mps: float
+    ) -> VelocityCommand:
+        assert lease == "lease"
+        assert self.armed
+        command = VelocityCommand(-reverse_mps, 0.0, "step_back_clearance")
+        self.commands.append(command)
+        self.step_back_commands.append(command)
         return command
 
     async def release(self, lease: str) -> None:
@@ -180,6 +192,26 @@ class RecoveringMotion(FakeMotion):
         self._pose.recovered = True
 
 
+class SteppingBackPose(FakePose):
+    """Fresh poses for one step back: readiness, before, and after samples."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._poses = iter(
+            (
+                Pose(1.0, 0.0, 0.0, 1.0),
+                Pose(1.0, 0.0, 0.0, 1.1),
+                Pose(0.72, 0.05, 0.0, 1.2),
+            )
+        )
+        self._last = Pose(1.0, 0.0, 0.0, 1.0)
+
+    def status(self) -> PoseStatus:
+        if self.started:
+            self._last = next(self._poses, self._last)
+        return PoseStatus(self._last, 0.0, self.started, None)
+
+
 class RestorePose(FakePose):
     def __init__(self) -> None:
         super().__init__()
@@ -287,6 +319,144 @@ def test_posture_actions_run_disarmed_for_demo_stages() -> None:
             "motion_commands_sent": True,
             "settle_s": 1.0,
         }
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_step_back_reverses_measures_displacement_then_disarms() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: SteppingBackPose(),
+        )
+        await manager.start()
+        manager.start_motion_trace("step_back")
+
+        result = await manager.step_back(
+            reverse_mps=1.0,
+            duration_s=0.03,
+            minimum_backward_m=0.02,
+        )
+
+        assert result["motion_path"] == "factory_avoidance"
+        assert result["commanded_reverse_mps"] == 1.0
+        assert result["commanded_duration_s"] == 0.03
+        assert result["command_count"] >= 1
+        assert result["measured_backward_m"] == pytest.approx(0.28)
+        assert result["measured_lateral_m"] == pytest.approx(0.05)
+        assert result["minimum_backward_m"] == 0.02
+        assert result["motion_commands_sent"] is True
+        assert len(motion.step_back_commands) == result["command_count"]
+        assert all(
+            command.forward_mps == -1.0 and command.yaw_rps == 0.0
+            for command in motion.step_back_commands
+        )
+        assert all(
+            command["phase"] == "step_back" and command["forward_mps"] == -1.0
+            for command in manager.motion_trace()
+        )
+        assert motion.armed is False
+        assert manager.status()["active_operation"] is None
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_step_back_fails_closed_when_odometry_measures_no_movement() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+
+        with pytest.raises(StepBackNoResponse, match="measured only"):
+            await manager.step_back(
+                reverse_mps=1.0,
+                duration_s=0.03,
+                minimum_backward_m=0.02,
+            )
+
+        assert len(motion.step_back_commands) >= 1
+        assert motion.armed is False
+        assert manager.status()["active_operation"] is None
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_step_back_window_starts_only_after_the_motion_arm_settle() -> None:
+    """Regression for the 2026-08-07 run-2 trap: a settle-consumed window."""
+
+    class SlowArmMotion(FakeMotion):
+        def __init__(self, settle_s: float) -> None:
+            super().__init__()
+            self._settle_s = settle_s
+
+        async def arm(self) -> str:
+            await asyncio.sleep(self._settle_s)
+            return await super().arm()
+
+    async def scenario() -> None:
+        motion = SlowArmMotion(settle_s=0.08)
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: SteppingBackPose(),
+        )
+        await manager.start()
+
+        # The arm settle (0.08 s) is longer than the whole reverse window
+        # (0.02 s). If the window timer started before the settle finished,
+        # zero reverse commands would be sent.
+        result = await manager.step_back(
+            reverse_mps=1.0,
+            duration_s=0.02,
+            minimum_backward_m=0.01,
+        )
+
+        assert result["command_count"] >= 2
+        assert len(motion.step_back_commands) == result["command_count"]
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_step_back_rejects_inconsistent_command_values() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: SteppingBackPose(),
+        )
+        await manager.start()
+
+        with pytest.raises(ValueError, match="configured limit"):
+            await manager.step_back(
+                reverse_mps=1.5,
+                duration_s=0.4,
+                minimum_backward_m=0.05,
+            )
+        with pytest.raises(ValueError, match="displacement gate"):
+            await manager.step_back(
+                reverse_mps=1.0,
+                duration_s=0.03,
+                minimum_backward_m=0.05,
+            )
+
+        assert motion.commands == []
         assert motion.armed is False
         await manager.close()
 
@@ -743,6 +913,88 @@ def test_approach_centers_pear_before_first_forward_command() -> None:
         assert result["initial_center_confirmations"] == 3
         assert result["initial_center_tolerance_ratio"] == 0.08
         assert result["initial_center_yaw_rps"] == 0.50
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_late_approach_tightens_centering_before_the_blind_push() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+
+        def seen(*, center_y: float, bottom: float) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": True,
+                "detection": {
+                    "label": "pear",
+                    "confidence": 0.81,
+                    "consecutive_detections": 5,
+                    # A constant 0.06 offset: inside the wide 0.08 band,
+                    # outside the tighter 0.04 late-approach band.
+                    "center_x_ratio": 0.56,
+                    "center_y_ratio": center_y,
+                    "bottom_ratio": bottom,
+                },
+            }
+
+        statuses = iter(
+            (
+                seen(center_y=0.50, bottom=0.65),
+                seen(center_y=0.50, bottom=0.65),
+                seen(center_y=0.50, bottom=0.65),
+                seen(center_y=0.50, bottom=0.65),
+                seen(center_y=0.76, bottom=0.91),
+                seen(center_y=0.76, bottom=0.91),
+                seen(center_y=0.77, bottom=0.92),
+                {"camera_healthy": True, "target_ready": False},
+            )
+        )
+
+        result = await manager.approach_target(
+            lambda: next(
+                statuses,
+                {"camera_healthy": True, "target_ready": False},
+            ),
+            "pear",
+            forward_mps=1.0,
+            maximum_yaw_rps=0.30,
+            near_bottom_ratio=0.86,
+            near_center_ratio=0.72,
+            near_confirmations=3,
+            near_loss_grace_s=0.75,
+            final_push_mps=0.30,
+            final_push_duration_s=0.001,
+            timeout_s=0.5,
+        )
+
+        forward_commands = [
+            command
+            for command in motion.commands
+            if command.reason in {"approach_target", "approach_target_near_visible"}
+        ]
+        early = [command for command in forward_commands if command.yaw_rps == 0.0]
+        late = [command for command in forward_commands if command.yaw_rps == -0.30]
+        # Far approach: the 0.06 offset stays inside the 0.08 band, no yaw.
+        assert len(early) == 2
+        # Late approach: the same offset now draws the fixed correction while
+        # forward translation continues, so every iteration still records
+        # exactly one forward pulse.
+        assert len(late) == 3
+        assert all(command.forward_mps == 1.0 for command in forward_commands)
+        assert result["approach_center_tolerance_ratio"] == 0.08
+        assert result["late_center_tolerance_ratio"] == 0.04
+        assert result["late_center_corrections"] == 3
+        assert result["forward_pulse_count"] == len(forward_commands) + 1
+        assert result["final_push_count"] == 1
         assert motion.armed is False
         await manager.close()
 

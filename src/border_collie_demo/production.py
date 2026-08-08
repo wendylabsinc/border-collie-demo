@@ -24,6 +24,14 @@ class BarkPort(Protocol):
 DOWN_HOLD_S = 5.0
 ARRIVAL_STOP_SETTLE_S = 1.0
 STAND_UP_SETTLE_S = 1.0
+# The step back uses the separately qualified 1.0 m/s factory-avoidance
+# signal (0.50 m/s is the observed deadband edge) for one bounded window, so
+# the following Home turn rotates with clearance from the fruit. Displacement
+# is verified by odometry; no return-pulse credit is taken (see
+# HardwareManager.step_back).
+STEP_BACK_REVERSE_MPS = 1.0
+STEP_BACK_DURATION_S = 0.4
+STEP_BACK_MINIMUM_BACKWARD_M = 0.05
 
 
 class ProductionStageExecutor:
@@ -141,6 +149,10 @@ class ProductionStageExecutor:
                 # physical step during camera-guided approach. Once qualified
                 # lower-edge disappearance proves arrival, soften the one
                 # bounded final movement before the stop-and-lie-down stage.
+                # The 2026-08-08 supervised baseline arrived too close to the
+                # fruit, so the blind push window is shortened from 1.0 s to
+                # 0.6 s at the same 0.3 m/s signal; the push trigger and the
+                # forward-pulse accounting are unchanged.
                 forward_mps=1.0,
                 maximum_yaw_rps=0.30,
                 near_bottom_ratio=0.86,
@@ -148,7 +160,7 @@ class ProductionStageExecutor:
                 near_confirmations=3,
                 near_loss_grace_s=0.75,
                 final_push_mps=0.3,
-                final_push_duration_s=1.0,
+                final_push_duration_s=0.6,
                 timeout_s=20.0,
             )
         if phase is MissionPhase.SIT_AND_BARK:
@@ -170,6 +182,12 @@ class ProductionStageExecutor:
             }
         if phase is MissionPhase.STAND:
             return await self._hardware.stand_up(settle_s=STAND_UP_SETTLE_S)
+        if phase is MissionPhase.STEP_BACK:
+            return await self._hardware.step_back(
+                reverse_mps=STEP_BACK_REVERSE_MPS,
+                duration_s=STEP_BACK_DURATION_S,
+                minimum_backward_m=STEP_BACK_MINIMUM_BACKWARD_M,
+            )
         if phase is MissionPhase.TURN_TOWARD_HOME:
             return await self._hardware.turn_toward_home(
                 context.home,

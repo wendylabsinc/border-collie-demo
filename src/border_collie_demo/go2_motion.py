@@ -140,6 +140,7 @@ class Go2Motion:
                 "yaw_rps": self.config.maximum_yaw_rps,
                 "lateral_mps": 0.0,
                 "reverse_allowed": False,
+                "step_back_reverse_mps": self.config.maximum_forward_mps,
             },
             "last_command": self._last_command.to_dict(),
         }
@@ -203,6 +204,39 @@ class Go2Motion:
             self._last_command = VelocityCommand(forward, yaw, command.reason)
             if forward != 0.0 or yaw != 0.0:
                 self._arm_watchdog()
+            return self._last_command
+
+    async def command_step_back(
+        self,
+        lease: str,
+        reverse_mps: float,
+        reason: str = "step_back_clearance",
+    ) -> VelocityCommand:
+        """Send one bounded reverse-only pulse through factory avoidance.
+
+        The general ``command`` path stays forward-only. This dedicated entry
+        point exists solely for the bounded post-stand clearance step: it
+        never combines reverse translation with yaw or lateral input, it is
+        limited by the same configured forward-speed bound, and it renews the
+        same command watchdog as every other velocity command.
+        """
+        speed = float(reverse_mps)
+        if not math.isfinite(speed) or speed <= 0.0:
+            raise ValueError("step-back speed must be finite and positive")
+        if speed > self.config.maximum_forward_mps:
+            raise ValueError("step-back speed exceeds the configured limit")
+        async with self._lock:
+            self._require_owner(lease)
+            self._cancel_watchdog()
+            try:
+                await self._verify_avoidance_if_due()
+                await self._success(self.avoidance.Move, -speed, 0.0, 0.0)
+            except Exception as exc:
+                self._fault = f"step-back command failed: {exc}"
+                await self._release_locked(use_stop=True)
+                raise MotionNotReady(self._fault) from exc
+            self._last_command = VelocityCommand(-speed, 0.0, reason)
+            self._arm_watchdog()
             return self._last_command
 
     async def release(self, lease: str) -> None:

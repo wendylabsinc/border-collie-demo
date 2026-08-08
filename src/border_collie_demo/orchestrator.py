@@ -51,6 +51,7 @@ EXECUTED_STAGES = (
     MissionPhase.APPROACH_FRUIT,
     MissionPhase.SIT_AND_BARK,
     MissionPhase.STAND,
+    MissionPhase.STEP_BACK,
     MissionPhase.TURN_TOWARD_HOME,
     MissionPhase.RETURN_HOME,
     MissionPhase.RESTORE_HEADING,
@@ -62,6 +63,7 @@ DEFAULT_STAGE_FAILURE_REASONS = {
     MissionPhase.APPROACH_FRUIT: "ARRIVAL_FAILURE",
     MissionPhase.SIT_AND_BARK: "ACTION_FAILURE",
     MissionPhase.STAND: "ACTION_FAILURE",
+    MissionPhase.STEP_BACK: "ACTION_FAILURE",
     MissionPhase.TURN_TOWARD_HOME: "RETURN_HOME_FAILURE",
     MissionPhase.RETURN_HOME: "RETURN_HOME_FAILURE",
     MissionPhase.RESTORE_HEADING: "RETURN_HOME_FAILURE",
@@ -203,7 +205,7 @@ class SimulatedStageExecutor:
         MissionPhase.APPROACH_FRUIT: {
             "arrival_confirmed": True,
             "final_push_mps": 0.3,
-            "final_push_duration_s": 1.0,
+            "final_push_duration_s": 0.6,
             "forward_pulse_count": 7,
             "motion_commands_sent": False,
         },
@@ -215,6 +217,12 @@ class SimulatedStageExecutor:
         },
         MissionPhase.STAND: {
             "posture": "balance_stand",
+            "motion_commands_sent": False,
+        },
+        MissionPhase.STEP_BACK: {
+            "commanded_reverse_mps": 1.0,
+            "commanded_duration_s": 0.4,
+            "measured_backward_m": 0.24,
             "motion_commands_sent": False,
         },
         MissionPhase.TURN_TOWARD_HOME: {

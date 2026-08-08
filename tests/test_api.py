@@ -313,6 +313,7 @@ def test_activate_demo_completes_every_stage_with_simulated_adapters(tmp_path) -
             "approach_fruit",
             "sit_and_bark",
             "stand",
+            "step_back",
             "turn_toward_home",
             "return_home",
             "restore_heading",
@@ -320,7 +321,9 @@ def test_activate_demo_completes_every_stage_with_simulated_adapters(tmp_path) -
         assert run["stage_results"]["return_home"]["home_distance_m"] == 0.08
         assert run["stage_results"]["approach_fruit"]["forward_pulse_count"] == 7
         assert run["stage_results"]["approach_fruit"]["final_push_mps"] == 0.3
-        assert run["stage_results"]["approach_fruit"]["final_push_duration_s"] == 1.0
+        assert run["stage_results"]["approach_fruit"]["final_push_duration_s"] == 0.6
+        assert run["stage_results"]["step_back"]["commanded_reverse_mps"] == 1.0
+        assert run["stage_results"]["step_back"]["measured_backward_m"] == 0.24
         assert run["stage_results"]["sit_and_bark"]["down_hold_s"] == 5.0
         assert run["stage_results"]["return_home"]["requested_forward_pulses"] == 7
         assert run["stage_results"]["return_home"]["replayed_forward_pulses"] == 7
@@ -526,6 +529,7 @@ def test_stop_during_a_stage_cancels_the_demo_without_late_resume(tmp_path) -> N
         ("approach_fruit", "ARRIVAL_FAILURE"),
         ("sit_and_bark", "ACTION_FAILURE"),
         ("stand", "ACTION_FAILURE"),
+        ("step_back", "ACTION_FAILURE"),
         ("turn_toward_home", "RETURN_HOME_FAILURE"),
         ("return_home", "RETURN_HOME_FAILURE"),
         ("restore_heading", "RETURN_HOME_FAILURE"),
@@ -605,6 +609,7 @@ def test_diagnostics_identifies_completed_failed_and_unreached_stages(
             "approach_fruit",
             "sit_and_bark",
             "stand",
+            "step_back",
             "turn_toward_home",
             "return_home",
             "restore_heading",
@@ -616,14 +621,15 @@ def test_diagnostics_identifies_completed_failed_and_unreached_stages(
             "COMPLETED",
             "COMPLETED",
             "COMPLETED",
+            "COMPLETED",
             "FAILED",
             "NOT_RUN",
         ]
-        assert body["stages"][5]["evidence"] == {
+        assert body["stages"][6]["evidence"] == {
             "home_bearing_error_rad": 0.03,
             "motion_commands_sent": False,
         }
-        assert body["stages"][6]["evidence"] is None
+        assert body["stages"][7]["evidence"] is None
 
 
 def test_home_capture_fails_closed_if_pose_freshness_is_lost(tmp_path) -> None:

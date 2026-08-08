@@ -131,6 +131,82 @@ def test_unsafe_velocity_is_rejected_before_hardware(
     asyncio.run(scenario())
 
 
+def test_step_back_sends_bounded_reverse_through_avoidance() -> None:
+    async def scenario() -> None:
+        sport, avoidance = FakeSport(), FakeAvoidance()
+        motion = Go2Motion(
+            sport,
+            avoidance,
+            MotionConfig(remote_api_settle_s=0.0),
+        )
+        await motion.initialize()
+        lease = await motion.arm()
+
+        sent = await motion.command_step_back(lease, 1.0)
+
+        assert sent == VelocityCommand(-1.0, 0.0, "step_back_clearance")
+        assert avoidance.moves[-1] == (-1.0, 0.0, 0.0)
+        assert motion.armed is True
+        await motion.release(lease)
+        assert avoidance.moves[-1] == (0.0, 0.0, 0.0)
+        assert motion.armed is False
+        await motion.close()
+
+    asyncio.run(scenario())
+
+
+def test_step_back_rejects_unsafe_speeds_and_stale_leases() -> None:
+    async def scenario() -> None:
+        sport, avoidance = FakeSport(), FakeAvoidance()
+        motion = Go2Motion(
+            sport,
+            avoidance,
+            MotionConfig(remote_api_settle_s=0.0),
+        )
+        await motion.initialize()
+        lease = await motion.arm()
+        moves_before = list(avoidance.moves)
+
+        with pytest.raises(ValueError, match="finite and positive"):
+            await motion.command_step_back(lease, 0.0)
+        with pytest.raises(ValueError, match="finite and positive"):
+            await motion.command_step_back(lease, -0.5)
+        with pytest.raises(ValueError, match="configured limit"):
+            await motion.command_step_back(lease, 1.01)
+        with pytest.raises(LeaseMismatch):
+            await motion.command_step_back("not-the-lease", 0.5)
+
+        assert avoidance.moves == moves_before
+        await motion.close()
+
+    asyncio.run(scenario())
+
+
+def test_step_back_command_is_covered_by_the_watchdog() -> None:
+    async def scenario() -> None:
+        sport, avoidance = FakeSport(), FakeAvoidance()
+        motion = Go2Motion(
+            sport,
+            avoidance,
+            MotionConfig(
+                command_watchdog_s=0.03,
+                remote_api_settle_s=0.0,
+            ),
+        )
+        await motion.initialize()
+        lease = await motion.arm()
+        await motion.command_step_back(lease, 1.0)
+
+        await asyncio.sleep(0.08)
+
+        assert motion.armed is False
+        assert sport.stop_calls >= 1
+        assert avoidance.moves[-1] == (0.0, 0.0, 0.0)
+        await motion.close()
+
+    asyncio.run(scenario())
+
+
 def test_stale_command_watchdog_brakes_and_revokes_lease() -> None:
     async def scenario() -> None:
         sport, avoidance = FakeSport(), FakeAvoidance()

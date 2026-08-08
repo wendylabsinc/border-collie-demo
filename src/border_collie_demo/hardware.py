@@ -31,6 +31,11 @@ INITIAL_CENTER_CONFIRMATIONS = 3
 INITIAL_CENTER_YAW_RPS = 0.50
 SEARCH_CROP_CANDIDATE_CONFIDENCE = 0.50
 APPROACH_CENTER_TOLERANCE_RATIO = 0.08
+# Late approach keeps the same fixed 0.30 rad/s correction signal but engages
+# it earlier: once the track's lower edge crosses the close-range boundary, a
+# lateral offset the wide 0.08 band would ignore is corrected before the fruit
+# leaves the frame and the blind final push begins.
+LATE_APPROACH_CENTER_TOLERANCE_RATIO = 0.04
 CLOSE_RANGE_MINIMUM_BOTTOM_RATIO = 0.70
 CLOSE_RANGE_MAXIMUM_CENTER_DELTA_RATIO = 0.20
 CLOSE_RANGE_MAXIMUM_VERTICAL_RETREAT_RATIO = 0.08
@@ -77,6 +82,10 @@ class TurnNoResponse(HardwareUnavailable):
     """The SDK accepted yaw commands but odometry measured no physical turn."""
 
 
+class StepBackNoResponse(HardwareUnavailable):
+    """Reverse commands were accepted but odometry measured no backward motion."""
+
+
 class MotionAdapterProtocol(Protocol):
     @property
     def armed(self) -> bool: ...
@@ -89,6 +98,10 @@ class MotionAdapterProtocol(Protocol):
 
     async def command(
         self, lease: str, command: VelocityCommand
+    ) -> VelocityCommand: ...
+
+    async def command_step_back(
+        self, lease: str, reverse_mps: float
     ) -> VelocityCommand: ...
 
     async def release(self, lease: str) -> None: ...
@@ -260,6 +273,131 @@ class HardwareManager:
             evidence_posture="balance_stand",
             settle_s=settle_s,
         )
+
+    async def step_back(
+        self,
+        *,
+        reverse_mps: float,
+        duration_s: float,
+        minimum_backward_m: float,
+    ) -> dict[str, object]:
+        """Reverse for one bounded window and verify displacement by odometry.
+
+        The step exists only to give the following Home turn clearance from
+        the fruit. It deliberately does not touch forward-pulse accounting:
+        the outbound `forward_pulse_count` recorded during approach remains
+        the return-playback bound, and `return_home` keeps measuring the real
+        pose from wherever the robot actually stands. The 2026-08-07 attempt
+        that credited step-back pulses against the return replay desynchronized
+        return-home (0.187-0.375 m misses); this implementation verifies the
+        actual movement instead of assuming the commanded motion happened.
+        """
+        reverse = float(reverse_mps)
+        duration = float(duration_s)
+        minimum = float(minimum_backward_m)
+        if not all(math.isfinite(value) for value in (reverse, duration, minimum)):
+            raise ValueError("step-back values must be finite")
+        if not 0.0 < reverse <= self.config.maximum_forward_mps:
+            raise ValueError("step-back speed is outside the configured limit")
+        if duration <= 0.0:
+            raise ValueError("step-back duration must be positive")
+        if not 0.0 < minimum <= reverse * duration:
+            raise ValueError(
+                "step-back displacement gate is inconsistent with the command"
+            )
+        self._require_autonomy_ready()
+
+        async with self._operation_lock:
+            if self._active_operation is not None:
+                raise HardwareUnavailable(
+                    f"hardware operation already active: {self._active_operation}"
+                )
+            self._active_operation = "step_back"
+            lease: str | None = None
+            release_error: str | None = None
+            operation_error: Exception | None = None
+            command_count = 0
+            elapsed_s = 0.0
+            origin = None
+            try:
+                assert self._motion is not None and self._pose is not None
+                before = self._pose.status()
+                if not before.healthy or before.pose is None:
+                    raise HardwareUnavailable(
+                        before.error or "fresh Go2 pose is required before step back"
+                    )
+                origin = before.pose
+                lease = await self._motion.arm()
+                # The arm sequence, including its remote-API settle, has
+                # completed before this timestamp, so the reverse window
+                # always gets its full duration. (Run 2 of the 2026-08-07
+                # attempt started this timer before the 0.5-second settle
+                # and sent zero reverse commands.)
+                pulse_started = time.monotonic()
+                deadline = pulse_started + duration
+                while True:
+                    await self._send_step_back_command(lease, reverse)
+                    command_count += 1
+                    now = time.monotonic()
+                    if now >= deadline:
+                        break
+                    await asyncio.sleep(
+                        min(self.config.command_heartbeat_s, deadline - now)
+                    )
+                elapsed_s = time.monotonic() - pulse_started
+            except Exception as exc:  # noqa: BLE001 - always disarm below
+                operation_error = exc
+            finally:
+                if lease is not None and self._motion is not None and self._motion.armed:
+                    try:
+                        await self._motion.release(lease)
+                    except MotionError as exc:
+                        release_error = str(exc)
+                        stop_errors = await self._motion.emergency_stop()
+                        if stop_errors:
+                            release_error = "; ".join([release_error, *stop_errors])
+                elif self._motion is not None:
+                    stop_errors = await self._motion.emergency_stop()
+                    if stop_errors:
+                        release_error = "; ".join(stop_errors)
+                self._active_operation = None
+
+            if operation_error is not None:
+                raise HardwareUnavailable(
+                    f"step back failed: {operation_error}"
+                ) from operation_error
+            if release_error is not None:
+                raise HardwareUnavailable(f"step back stop failed: {release_error}")
+
+            assert self._pose is not None and origin is not None
+            after = self._pose.status()
+            if not after.healthy or after.pose is None:
+                raise HardwareUnavailable(
+                    after.error or "Go2 pose became stale after step back"
+                )
+            dx = after.pose.x_m - origin.x_m
+            dy = after.pose.y_m - origin.y_m
+            heading = origin.yaw_rad
+            backward_m = -(dx * math.cos(heading) + dy * math.sin(heading))
+            lateral_m = abs(-dx * math.sin(heading) + dy * math.cos(heading))
+            if backward_m < minimum:
+                raise StepBackNoResponse(
+                    f"step back sent {command_count} reverse commands but odometry "
+                    f"measured only {backward_m:.3f} m backward movement "
+                    f"(gate {minimum:.3f} m)"
+                )
+            return {
+                "motion_path": "factory_avoidance",
+                "commanded_reverse_mps": reverse,
+                "commanded_duration_s": duration,
+                "command_count": command_count,
+                "command_period_s": self.config.command_heartbeat_s,
+                "elapsed_s": round(elapsed_s, 3),
+                "measured_backward_m": backward_m,
+                "measured_lateral_m": lateral_m,
+                "minimum_backward_m": minimum,
+                "motion_commands_sent": command_count > 0,
+            }
 
     async def turn_relative(
         self,
@@ -678,6 +816,7 @@ class HardwareManager:
             forward_pulse_count = 0
             initial_centered = False
             initial_center_confirmations = 0
+            late_center_corrections = 0
             tracking_confirmations = 0
             minimum_observed_tracking_confidence: float | None = None
             close_range_continuation_samples = 0
@@ -842,6 +981,13 @@ class HardwareManager:
                                 INITIAL_CENTER_TOLERANCE_RATIO
                             ),
                             "initial_center_yaw_rps": INITIAL_CENTER_YAW_RPS,
+                            "approach_center_tolerance_ratio": (
+                                APPROACH_CENTER_TOLERANCE_RATIO
+                            ),
+                            "late_center_tolerance_ratio": (
+                                LATE_APPROACH_CENTER_TOLERANCE_RATIO
+                            ),
+                            "late_center_corrections": late_center_corrections,
                             "forward_pulse_count": forward_pulse_count,
                             "forward_pulse_period_s": self.config.command_heartbeat_s,
                             "motion_commands_sent": commands_sent,
@@ -920,15 +1066,22 @@ class HardwareManager:
                     if near_confirmed:
                         near_at = now
                     horizontal_error = center_x - 0.5
+                    late_approach = bottom >= CLOSE_RANGE_MINIMUM_BOTTOM_RATIO
+                    center_tolerance = (
+                        LATE_APPROACH_CENTER_TOLERANCE_RATIO
+                        if late_approach
+                        else APPROACH_CENTER_TOLERANCE_RATIO
+                    )
                     yaw = (
                         0.0
-                        if abs(horizontal_error)
-                        <= APPROACH_CENTER_TOLERANCE_RATIO
+                        if abs(horizontal_error) <= center_tolerance
                         else -math.copysign(
                             maximum_yaw_rps,
                             horizontal_error,
                         )
                     )
+                    if late_approach and yaw != 0.0:
+                        late_center_corrections += 1
                     await self._send_motion_command(
                         lease,
                         VelocityCommand(
@@ -1319,6 +1472,28 @@ class HardwareManager:
                 "forward command blocked before approach or return motion"
             )
         sent = await self._motion.command(lease, command)
+        self._motion_trace.append(
+            {
+                "sequence": len(self._motion_trace) + 1,
+                "phase": self._motion_trace_phase,
+                "recorded_monotonic_s": time.monotonic(),
+                **sent.to_dict(),
+            }
+        )
+        return sent
+
+    async def _send_step_back_command(
+        self,
+        lease: str,
+        reverse_mps: float,
+    ) -> VelocityCommand:
+        if self._motion is None:
+            raise HardwareUnavailable("Go2 motion adapter is not connected")
+        if self._active_operation != "step_back":
+            raise HardwareUnavailable(
+                "reverse command blocked outside the step-back stage"
+            )
+        sent = await self._motion.command_step_back(lease, reverse_mps)
         self._motion_trace.append(
             {
                 "sequence": len(self._motion_trace) + 1,

@@ -16,6 +16,7 @@ class MissionPhase(str, Enum):
     ARRIVED = "arrived"
     SIT_AND_BARK = "sit_and_bark"
     STAND = "stand"
+    STEP_BACK = "step_back"
     TURN_TOWARD_HOME = "turn_toward_home"
     RETURN_HOME = "return_home"
     RESTORE_HEADING = "restore_heading"

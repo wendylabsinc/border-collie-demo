@@ -23,6 +23,7 @@ def test_happy_path_has_one_explicit_order() -> None:
         MissionPhase.ARRIVED,
         MissionPhase.SIT_AND_BARK,
         MissionPhase.STAND,
+        MissionPhase.STEP_BACK,
         MissionPhase.TURN_TOWARD_HOME,
         MissionPhase.RETURN_HOME,
         MissionPhase.RESTORE_HEADING,
