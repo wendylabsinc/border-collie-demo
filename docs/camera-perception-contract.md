@@ -197,3 +197,31 @@ The thresholds above are based on the guarded clean-repository results in
 Packet loss, robot-side camera failure, and active-run `CAMERA_FAILURE` Run
 Result behavior remain acceptance work. They do not authorize looser thresholds
 or in-run recovery.
+
+## Published detection confidence is raw by design
+
+The sidecar publishes the model router's best candidate for the selected
+fruit at whatever confidence the model produced, including very weak
+detections. This is a deliberate contract, decided 2026-08-08 after a static
+0.010-0.016 "pear" phantom held an arrival check open (the check lacked a
+confidence floor; see the arrival-visibility fix on the approach-consistency
+branch):
+
+- **Every motion-relevant consumer MUST apply its own explicit confidence
+  floor.** Current floors live in `fruits.py` (acquisition and close-range
+  tracking per fruit) and in the arrival-visibility check. The lowest
+  legitimate consumer floor is apple's 0.10 close-range tracking confidence,
+  so a sidecar-side floor would have to sit below 0.10 to avoid starving the
+  close-range continuation path - at which point it filters only absolute
+  noise while adding a second policy location that must forever stay below
+  every app floor.
+- Raw publication is what makes failures diagnosable from telemetry: the
+  phantom above was identified from recorded sub-floor samples, and the
+  close-range confidence collapse of a real pear (0.27 at bottom 0.997) was
+  distinguishable from track loss only because sub-floor frames were visible.
+- The camera-only `/fruit-test` page intentionally displays weak detections
+  for exploration and qualification evidence.
+
+Consequently the sidecar stays runtime-neutral and policy-free: gating
+belongs to consumers, and new consumers must not assume published detections
+are qualified.

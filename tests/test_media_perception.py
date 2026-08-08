@@ -719,3 +719,35 @@ def test_source_gap_resets_camera_and_detection_stability() -> None:
     status = evidence.status()
     assert status["source"]["consecutive_frames"] == 1
     assert status["detection"] == {}
+
+
+def test_sidecar_publishes_sub_floor_detections_by_contract() -> None:
+    """Weak detections are published raw; gating belongs to consumers.
+
+    Deliberate pin for the contract documented in
+    docs/camera-perception-contract.md: the close-range continuation path
+    consumes detections down to per-fruit floors as low as 0.10, and
+    telemetry diagnosability depends on sub-floor samples being visible. A
+    helpful-looking publish floor added here would silently break both.
+    """
+    evidence = PerceptionEvidence(generation="camera-1")
+    evidence.note_source(
+        pts=100,
+        time_base="1/90000",
+        received_monotonic_s=10.0,
+        width=1280,
+        height=720,
+    )
+    evidence.note_detection(
+        pts=100,
+        label="pear",
+        confidence=0.01,
+        bbox_xyxy=(480, 360, 800, 700),
+        inference_s=0.08,
+        completed_monotonic_s=10.1,
+    )
+
+    detection = evidence.status()["detection"]
+
+    assert detection["label"] == "pear"
+    assert detection["confidence"] == 0.01
