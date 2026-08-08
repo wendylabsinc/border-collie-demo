@@ -3,7 +3,18 @@
 Runs from the operator's machine against a deployed demo and records every
 result. It never selects a fruit the deployed build does not qualify: the
 sequence is drawn from the live ``/api/fruits`` qualified list, so the same
-harness is valid on base (pear/apple) and edge (pear/apple/banana) builds.
+harness is valid on base (pear/apple/banana) and edge builds.
+
+Beyond outcomes, each run records an in-run telemetry series sampled every
+poll tick and aggregated per stage:
+
+- fruit-detection confidence and bounding-box bottom ratio ("how close we
+  thought") from the perception sidecar, tagged with the stage in play
+- app-poll HTTP latency and errors, which double as the Wi-Fi cutout/slowdown
+  record from the operator vantage
+- device temperatures, when a ``--temp-url`` or ``--temp-cmd`` source is given
+- voice-dongle visibility (``wendy device audio list``) and device Wi-Fi
+  status before each run, when ``--device-probes`` is enabled
 
 An operator must supervise the robot for the whole session. The harness is a
 trigger-and-recorder; every safety behavior (preflight, watchdogs, takeover,
@@ -11,7 +22,9 @@ fail-closed camera rules) belongs to the deployed application, and a latched
 restart-required state aborts the session immediately.
 
 Usage:
-    python3 scripts/fruit_soak.py --host 192.168.0.107 --runs 10 --seed 7
+    python3 scripts/fruit_soak.py --host 192.168.0.107 --runs 10 --seed 7 \
+        --note "apple at 94in; banana and pear at 84in" \
+        --dongle-match "USB Audio" --device-probes
 """
 
 from __future__ import annotations
@@ -19,6 +32,8 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import shutil
+import subprocess
 import sys
 import time
 import urllib.error
@@ -26,8 +41,8 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 1
-POLL_INTERVAL_S = 2.0
+SCHEMA_VERSION = 2
+POLL_INTERVAL_S = 1.5
 READY_TIMEOUT_S = 90.0
 RUN_TIMEOUT_S = 180.0
 COOLDOWN_S = 10.0
@@ -38,37 +53,120 @@ class HarnessAbort(RuntimeError):
 
 
 class ApiClient:
-    """Minimal JSON client for the demo API."""
+    """Minimal JSON client for the demo app and its perception sidecar."""
 
-    def __init__(self, base_url: str, timeout_s: float = 8.0) -> None:
+    def __init__(self, base_url: str, sidecar_url: str, timeout_s: float = 8.0) -> None:
         self.base_url = base_url.rstrip("/")
+        self.sidecar_url = sidecar_url.rstrip("/")
         self.timeout_s = timeout_s
 
-    def _request(self, method: str, path: str, payload: dict | None = None) -> dict:
+    def _request(self, url: str, method: str = "GET", payload: dict | None = None) -> dict:
         body = None if payload is None else json.dumps(payload).encode()
         request = urllib.request.Request(
-            f"{self.base_url}{path}",
-            data=body,
-            method=method,
-            headers={"Content-Type": "application/json"},
+            url, data=body, method=method, headers={"Content-Type": "application/json"}
         )
         with urllib.request.urlopen(request, timeout=self.timeout_s) as response:
             return json.loads(response.read())
 
     def status(self) -> dict:
-        return self._request("GET", "/api/status")
+        return self._request(f"{self.base_url}/api/status")
+
+    def timed_status(self) -> tuple[dict | None, float, str | None]:
+        """Status plus round-trip latency; errors are data, not exceptions."""
+        started = time.monotonic()
+        try:
+            payload = self.status()
+            return payload, (time.monotonic() - started) * 1000.0, None
+        except Exception as exc:  # noqa: BLE001 - sampled link failures are data
+            return None, (time.monotonic() - started) * 1000.0, str(exc)
+
+    def sidecar_status(self) -> tuple[dict | None, str | None]:
+        try:
+            return self._request(f"{self.sidecar_url}/status"), None
+        except Exception as exc:  # noqa: BLE001 - sampled link failures are data
+            return None, str(exc)
 
     def fruits(self) -> dict:
-        return self._request("GET", "/api/fruits")
+        return self._request(f"{self.base_url}/api/fruits")
 
     def activate(self, fruit: str) -> dict:
-        return self._request("POST", "/api/run", {"target_fruit": fruit})
+        return self._request(f"{self.base_url}/api/run", "POST", {"target_fruit": fruit})
 
     def result(self, run_id: str) -> dict:
-        return self._request("GET", f"/api/results/{run_id}")
+        return self._request(f"{self.base_url}/api/results/{run_id}")
 
     def stop(self) -> dict:
-        return self._request("POST", "/api/stop")
+        return self._request(f"{self.base_url}/api/stop", "POST")
+
+
+class TempSource:
+    """Optional per-sample temperature reader: an HTTP JSON URL or a command."""
+
+    def __init__(self, url: str | None = None, command: str | None = None) -> None:
+        self.url = url
+        self.command = command
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.url or self.command)
+
+    def read(self) -> tuple[dict | None, str | None]:
+        try:
+            if self.url:
+                with urllib.request.urlopen(self.url, timeout=4.0) as response:
+                    return json.loads(response.read()), None
+            if self.command:
+                completed = subprocess.run(
+                    self.command, shell=True, capture_output=True, timeout=8.0, text=True
+                )
+                if completed.returncode != 0:
+                    return None, completed.stderr.strip() or "temp command failed"
+                return json.loads(completed.stdout), None
+        except Exception as exc:  # noqa: BLE001 - sampled probe failures are data
+            return None, str(exc)
+        return None, None
+
+
+class DeviceProbe:
+    """Pre/post-run device checks through the wendy CLI (dongle, Wi-Fi)."""
+
+    def __init__(self, agent: str, enabled: bool) -> None:
+        self.agent = agent
+        self.enabled = enabled and shutil.which("wendy") is not None
+
+    def _cli_json(self, *args: str) -> dict | list | None:
+        try:
+            completed = subprocess.run(
+                ["wendy", *args, "--device", self.agent, "--json"],
+                capture_output=True,
+                timeout=20.0,
+                text=True,
+            )
+            if completed.returncode != 0:
+                return {"error": completed.stderr.strip()[:300] or "wendy CLI failed"}
+            return json.loads(completed.stdout)
+        except Exception as exc:  # noqa: BLE001 - probe failures are data
+            return {"error": str(exc)[:300]}
+
+    def audio_devices(self) -> dict | list | None:
+        return self._cli_json("device", "audio", "list") if self.enabled else None
+
+    def wifi_status(self) -> dict | list | None:
+        return self._cli_json("device", "wifi", "status") if self.enabled else None
+
+
+def dongle_check(audio_devices: dict | list | None, match: str | None) -> dict:
+    """Record voice-dongle visibility from the device audio list."""
+    if audio_devices is None:
+        return {"checked": False, "visible": None, "detail": "device probes disabled"}
+    rendered = json.dumps(audio_devices)
+    if isinstance(audio_devices, dict) and "error" in audio_devices:
+        return {"checked": False, "visible": None, "detail": audio_devices["error"]}
+    result: dict = {"checked": True, "audio_devices": audio_devices}
+    if match:
+        result["match"] = match
+        result["visible"] = match.casefold() in rendered.casefold()
+    return result
 
 
 def draw_fruit_sequence(qualified: list[str], runs: int, seed: int) -> list[str]:
@@ -77,6 +175,119 @@ def draw_fruit_sequence(qualified: list[str], runs: int, seed: int) -> list[str]
         raise HarnessAbort("deployed build reports no qualified fruits")
     rng = random.Random(seed)
     return [rng.choice(sorted(qualified)) for _ in range(runs)]
+
+
+def take_sample(
+    client: ApiClient,
+    target_fruit: str,
+    temp_source: TempSource,
+    *,
+    clock=time.monotonic,
+) -> dict:
+    """One telemetry tick: stage, confidence, proximity, link, temperature."""
+    status, latency_ms, app_error = client.timed_status()
+    mission = (status or {}).get("mission") or {}
+    sample: dict = {
+        "t_monotonic_s": clock(),
+        "phase": mission.get("phase"),
+        "app_latency_ms": round(latency_ms, 1),
+        "app_error": app_error,
+    }
+    sidecar, sidecar_error = client.sidecar_status()
+    if sidecar_error:
+        sample["sidecar_error"] = sidecar_error
+    elif sidecar is not None:
+        detection = sidecar.get("detection") or {}
+        source = sidecar.get("source") or {}
+        height = source.get("height")
+        bbox = detection.get("bbox_xyxy")
+        sample["detection_label"] = detection.get("label")
+        sample["confidence"] = detection.get("confidence")
+        sample["inference_s"] = detection.get("inference_s")
+        sample["target_matches"] = detection.get("label") == target_fruit
+        if bbox and height:
+            sample["bbox_bottom_ratio"] = round(float(bbox[3]) / float(height), 4)
+        route = detection.get("route")
+        if route is not None:
+            sample["route"] = route
+    if temp_source.enabled:
+        temps, temp_error = temp_source.read()
+        if temps is not None:
+            sample["temps"] = temps
+        if temp_error:
+            sample["temp_error"] = temp_error
+    return sample
+
+
+def _stats(values: list[float]) -> dict | None:
+    if not values:
+        return None
+    return {
+        "min": round(min(values), 4),
+        "mean": round(sum(values) / len(values), 4),
+        "max": round(max(values), 4),
+        "samples": len(values),
+    }
+
+
+def aggregate_stage_telemetry(samples: list[dict]) -> dict:
+    """Group the sample series by stage and reduce each stage's signals."""
+    stages: dict[str, dict] = {}
+    for sample in samples:
+        phase = sample.get("phase") or "unknown"
+        bucket = stages.setdefault(
+            phase,
+            {
+                "confidences": [],
+                "bottom_ratios": [],
+                "latencies": [],
+                "errors": 0,
+                "temp_series": {},
+            },
+        )
+        if sample.get("target_matches") and sample.get("confidence") is not None:
+            bucket["confidences"].append(float(sample["confidence"]))
+        if sample.get("target_matches") and sample.get("bbox_bottom_ratio") is not None:
+            bucket["bottom_ratios"].append(float(sample["bbox_bottom_ratio"]))
+        bucket["latencies"].append(float(sample["app_latency_ms"]))
+        if sample.get("app_error"):
+            bucket["errors"] += 1
+        for zone, value in (sample.get("temps") or {}).items():
+            if isinstance(value, (int, float)):
+                bucket["temp_series"].setdefault(zone, []).append(float(value))
+
+    aggregated: dict[str, dict] = {}
+    for phase, bucket in stages.items():
+        aggregated[phase] = {
+            "target_confidence": _stats(bucket["confidences"]),
+            "bbox_bottom_ratio": _stats(bucket["bottom_ratios"]),
+            "app_latency_ms": _stats(bucket["latencies"]),
+            "app_errors": bucket["errors"],
+            "temps_c": {
+                zone: _stats(series) for zone, series in bucket["temp_series"].items()
+            }
+            or None,
+        }
+    return aggregated
+
+
+def summarize_network(samples: list[dict]) -> dict:
+    """Session-facing Wi-Fi verdict: cutouts (errors) and slowdowns (latency)."""
+    latencies = sorted(s["app_latency_ms"] for s in samples if s.get("app_error") is None)
+    errors = [
+        {"t_monotonic_s": s["t_monotonic_s"], "error": s["app_error"]}
+        for s in samples
+        if s.get("app_error")
+    ]
+    p95 = latencies[max(0, int(len(latencies) * 0.95) - 1)] if latencies else None
+    return {
+        "poll_count": len(samples),
+        "error_count": len(errors),
+        "errors": errors,
+        "latency_ms": _stats(list(latencies)),
+        "latency_p95_ms": p95,
+        "cut_out": bool(errors),
+    }
 
 
 def summarize_run(run: dict, fruit: str, number: int) -> dict:
@@ -95,6 +306,7 @@ def summarize_run(run: dict, fruit: str, number: int) -> dict:
         "final_safety_state": run.get("final_safety_state"),
         "home_distance_m": terminal.get("home_distance_m"),
         "heading_error_rad": terminal.get("heading_error_rad"),
+        "stage_results": run.get("stage_results"),
     }
 
 
@@ -135,21 +347,26 @@ def wait_for_terminal(
     client: ApiClient,
     run_id: str,
     *,
+    target_fruit: str,
+    temp_source: TempSource | None = None,
     timeout_s: float = RUN_TIMEOUT_S,
     sleep=time.sleep,
     clock=time.monotonic,
-) -> tuple[dict, str | None]:
-    """Poll one run to its terminal state; stop the robot if it overruns."""
+) -> tuple[dict, list[dict], str | None]:
+    """Poll one run to terminal state, sampling telemetry on every tick."""
+    temp_source = temp_source or TempSource()
     deadline = clock() + timeout_s
+    samples: list[dict] = []
     while True:
+        samples.append(take_sample(client, target_fruit, temp_source, clock=clock))
         run = client.result(run_id).get("run") or {}
         if run.get("outcome"):
-            return run, None
+            return run, samples, None
         if clock() >= deadline:
             client.stop()
             note = f"harness stop issued after {timeout_s:.0f}s without a terminal state"
             run = client.result(run_id).get("run") or run
-            return run, note
+            return run, samples, note
         sleep(POLL_INTERVAL_S)
 
 
@@ -160,9 +377,15 @@ def run_session(
     seed: int,
     output_path: Path,
     cooldown_s: float = COOLDOWN_S,
+    temp_source: TempSource | None = None,
+    device_probe: DeviceProbe | None = None,
+    dongle_match: str | None = None,
+    note: str | None = None,
+    keep_samples: bool = True,
     sleep=time.sleep,
     log=print,
 ) -> dict:
+    temp_source = temp_source or TempSource()
     status = wait_for_ready(client)
     build_label = status.get("build_label", "unlabelled")
     qualified = list(client.fruits().get("qualified_fruits", []))
@@ -175,10 +398,12 @@ def run_session(
         "schema_version": SCHEMA_VERSION,
         "session": f"fruit-soak-{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H%M%SZ')}",
         "build_label": build_label,
+        "note": note,
         "qualified_fruits": qualified,
         "target_runs": runs,
         "seed": seed,
         "fruit_sequence": sequence,
+        "temperature_source": temp_source.url or temp_source.command,
         "runs": [],
         "aborted": None,
     }
@@ -193,10 +418,26 @@ def run_session(
             if number > 1:
                 sleep(cooldown_s)
             wait_for_ready(client)
+            preflight: dict = {}
+            if device_probe is not None:
+                preflight["dongle"] = dongle_check(
+                    device_probe.audio_devices(), dongle_match
+                )
+                preflight["wifi_before"] = device_probe.wifi_status()
             log(f"run {number}/{runs}: activating {fruit}")
             run_id = client.activate(fruit)["run"]["run_id"]
-            run, harness_note = wait_for_terminal(client, run_id)
+            run, samples, harness_note = wait_for_terminal(
+                client, run_id, target_fruit=fruit, temp_source=temp_source
+            )
             record = summarize_run(run, fruit, number)
+            record["stage_telemetry"] = aggregate_stage_telemetry(samples)
+            record["network"] = summarize_network(samples)
+            if keep_samples:
+                record["samples"] = samples
+            if preflight:
+                record["preflight_probes"] = preflight
+            if device_probe is not None:
+                record["wifi_after"] = device_probe.wifi_status()
             if harness_note:
                 record["harness_note"] = harness_note
             session["runs"].append(record)
@@ -204,6 +445,8 @@ def run_session(
             log(
                 f"run {number}/{runs}: {record['outcome']} / {record['reason']}"
                 f" | home {record['home_distance_m']}"
+                f" | polls {record['network']['poll_count']}"
+                f" (errors {record['network']['error_count']})"
             )
     except HarnessAbort as abort:
         session["aborted"] = str(abort)
@@ -225,16 +468,27 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default="192.168.0.107")
     parser.add_argument("--port", type=int, default=8110)
+    parser.add_argument("--sidecar-port", type=int, default=8111)
+    parser.add_argument("--agent", default=None, help="wendy agent host:port for device probes")
     parser.add_argument("--runs", type=int, default=10)
     parser.add_argument("--seed", type=int, default=None, help="default: current epoch seconds")
     parser.add_argument("--cooldown", type=float, default=COOLDOWN_S)
+    parser.add_argument("--note", default=None, help="session context, e.g. fruit placements")
+    parser.add_argument("--temp-url", default=None, help="HTTP JSON endpoint of temperatures")
+    parser.add_argument("--temp-cmd", default=None, help="shell command printing temperature JSON")
+    parser.add_argument("--device-probes", action="store_true", help="enable wendy CLI probes")
+    parser.add_argument("--dongle-match", default=None, help="substring marking the voice dongle")
+    parser.add_argument("--no-samples", action="store_true", help="omit raw sample series")
     parser.add_argument("--output", type=Path, default=None)
     args = parser.parse_args(argv)
 
     seed = args.seed if args.seed is not None else int(time.time())
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%SZ")
     output = args.output or Path("benchmarks/results") / f"fruit-soak-{stamp}.json"
-    client = ApiClient(f"http://{args.host}:{args.port}")
+    client = ApiClient(
+        f"http://{args.host}:{args.port}", f"http://{args.host}:{args.sidecar_port}"
+    )
+    agent = args.agent or f"{args.host}:50052"
     try:
         session = run_session(
             client,
@@ -242,6 +496,11 @@ def main(argv: list[str] | None = None) -> int:
             seed=seed,
             output_path=output,
             cooldown_s=args.cooldown,
+            temp_source=TempSource(url=args.temp_url, command=args.temp_cmd),
+            device_probe=DeviceProbe(agent, args.device_probes),
+            dongle_match=args.dongle_match,
+            note=args.note,
+            keep_samples=not args.no_samples,
         )
     except urllib.error.URLError as exc:
         print(f"cannot reach the demo app: {exc}", file=sys.stderr)

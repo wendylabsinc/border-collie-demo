@@ -5,8 +5,12 @@ import pytest
 
 from scripts.fruit_soak import (
     HarnessAbort,
+    TempSource,
+    aggregate_stage_telemetry,
+    dongle_check,
     draw_fruit_sequence,
     run_session,
+    summarize_network,
     summarize_run,
     wait_for_ready,
     wait_for_terminal,
@@ -16,15 +20,33 @@ from scripts.fruit_soak import (
 class FakeClient:
     """Scripted API double: statuses, run results, and activations."""
 
-    def __init__(self, statuses, results_by_id=None, qualified=("apple", "pear")):
+    def __init__(
+        self,
+        statuses,
+        results_by_id=None,
+        qualified=("apple", "banana", "pear"),
+        sidecar=None,
+    ):
         self._statuses = list(statuses)
         self._results = dict(results_by_id or {})
         self._qualified = list(qualified)
+        self._sidecar = sidecar
         self.activated: list[str] = []
         self.stop_calls = 0
 
     def status(self):
         return self._statuses.pop(0) if len(self._statuses) > 1 else self._statuses[0]
+
+    def timed_status(self):
+        try:
+            return self.status(), 12.0, None
+        except Exception as exc:  # noqa: BLE001
+            return None, 12.0, str(exc)
+
+    def sidecar_status(self):
+        if self._sidecar is None:
+            return None, "sidecar down"
+        return self._sidecar, None
 
     def fruits(self):
         return {"qualified_fruits": self._qualified}
@@ -45,7 +67,7 @@ class FakeClient:
 
 READY = {
     "build_label": "base (demo/base)",
-    "mission": {"restart_required": False},
+    "mission": {"restart_required": False, "phase": "idle"},
     "activation": {"ready": True, "blockers": []},
     "active_run_id": None,
 }
@@ -54,6 +76,15 @@ LATCHED = {
     "mission": {"restart_required": True, "reason": "REMOTE_TAKEOVER"},
     "activation": {"ready": False, "blockers": []},
     "active_run_id": None,
+}
+SIDECAR = {
+    "source": {"width": 1280, "height": 720},
+    "detection": {
+        "label": "pear",
+        "confidence": 0.81,
+        "bbox_xyxy": [500.0, 300.0, 700.0, 648.0],
+        "inference_s": 0.06,
+    },
 }
 
 
@@ -65,6 +96,7 @@ def terminal(run_id, outcome="COMPLETED", home=0.05):
             "reason": "SUCCESS" if outcome == "COMPLETED" else outcome,
             "message": "done",
             "terminal_measurements": {"home_distance_m": home, "heading_error_rad": 0.01},
+            "stage_results": {"approach_fruit": {"forward_pulse_count": 12}},
         }
     }
 
@@ -108,12 +140,112 @@ def test_wait_for_ready_times_out_with_blockers():
 def test_wait_for_terminal_stops_robot_on_overrun():
     pending = {"run": {"run_id": "run-1", "outcome": None}}
     client = FakeClient([READY], results_by_id={"run-1": [pending]})
-    clock_values = iter([0.0, 500.0])
-    run, note = wait_for_terminal(
-        client, "run-1", sleep=lambda _: None, clock=lambda: next(clock_values)
+    clock_values = iter([0.0] * 4 + [500.0] * 4)
+    run, samples, note = wait_for_terminal(
+        client,
+        "run-1",
+        target_fruit="pear",
+        sleep=lambda _: None,
+        clock=lambda: next(clock_values),
     )
     assert client.stop_calls == 1
     assert "harness stop" in note
+    assert samples
+
+
+def test_wait_for_terminal_samples_confidence_and_proximity():
+    running = {"run": {"run_id": "run-1", "outcome": None}}
+    approach = dict(READY, mission={"restart_required": False, "phase": "approach_fruit"})
+    client = FakeClient(
+        [approach, approach, approach],
+        results_by_id={"run-1": [running, running, terminal("run-1")]},
+        sidecar=SIDECAR,
+    )
+    run, samples, note = wait_for_terminal(
+        client, "run-1", target_fruit="pear", sleep=lambda _: None
+    )
+    assert note is None
+    assert samples[0]["phase"] == "approach_fruit"
+    assert samples[0]["confidence"] == 0.81
+    assert samples[0]["target_matches"] is True
+    assert samples[0]["bbox_bottom_ratio"] == 0.9  # 648 / 720
+
+
+def test_aggregate_stage_telemetry_groups_by_phase():
+    samples = [
+        {
+            "phase": "approach_fruit",
+            "app_latency_ms": 10.0,
+            "target_matches": True,
+            "confidence": 0.8,
+            "bbox_bottom_ratio": 0.5,
+            "temps": {"gpu": 50.0},
+        },
+        {
+            "phase": "approach_fruit",
+            "app_latency_ms": 30.0,
+            "target_matches": True,
+            "confidence": 0.6,
+            "bbox_bottom_ratio": 0.7,
+            "temps": {"gpu": 54.0},
+        },
+        {
+            "phase": "return_home",
+            "app_latency_ms": 20.0,
+            "target_matches": False,
+            "confidence": 0.9,
+            "app_error": "timed out",
+        },
+    ]
+    stages = aggregate_stage_telemetry(samples)
+    approach = stages["approach_fruit"]
+    assert approach["target_confidence"] == {
+        "min": 0.6,
+        "mean": 0.7,
+        "max": 0.8,
+        "samples": 2,
+    }
+    assert approach["bbox_bottom_ratio"]["max"] == 0.7
+    assert approach["temps_c"]["gpu"]["max"] == 54.0
+    home = stages["return_home"]
+    assert home["target_confidence"] is None  # wrong-label confidence is excluded
+    assert home["app_errors"] == 1
+
+
+def test_summarize_network_flags_cutouts_and_latency():
+    samples = [
+        {"t_monotonic_s": 1.0, "app_latency_ms": 10.0},
+        {"t_monotonic_s": 2.0, "app_latency_ms": 900.0},
+        {"t_monotonic_s": 3.0, "app_latency_ms": 8000.0, "app_error": "timed out"},
+    ]
+    network = summarize_network(samples)
+    assert network["cut_out"] is True
+    assert network["error_count"] == 1
+    assert network["errors"][0]["t_monotonic_s"] == 3.0
+    assert network["latency_ms"]["samples"] == 2  # errored polls excluded from latency
+
+
+def test_dongle_check_matches_substring():
+    devices = [{"name": "USB Audio Device", "id": "hw:2"}]
+    found = dongle_check(devices, "usb audio")
+    assert found == {
+        "checked": True,
+        "audio_devices": devices,
+        "match": "usb audio",
+        "visible": True,
+    }
+    missing = dongle_check([{"name": "HDMI"}], "usb audio")
+    assert missing["visible"] is False
+    disabled = dongle_check(None, "usb audio")
+    assert disabled["checked"] is False
+    errored = dongle_check({"error": "agent unreachable"}, "usb audio")
+    assert errored == {"checked": False, "visible": None, "detail": "agent unreachable"}
+
+
+def test_temp_source_disabled_by_default():
+    source = TempSource()
+    assert source.enabled is False
+    assert source.read() == (None, None)
 
 
 def test_session_records_every_run_and_build_label(tmp_path: Path):
@@ -123,6 +255,7 @@ def test_session_records_every_run_and_build_label(tmp_path: Path):
             "run-1": [terminal("run-1")],
             "run-2": [terminal("run-2", outcome="FAILED", home=0.3)],
         },
+        sidecar=SIDECAR,
     )
     output = tmp_path / "soak.json"
     session = run_session(
@@ -134,6 +267,9 @@ def test_session_records_every_run_and_build_label(tmp_path: Path):
     assert saved["fruit_sequence"] == client.activated
     assert [r["outcome"] for r in saved["runs"]] == ["COMPLETED", "FAILED"]
     assert saved["runs"][1]["home_distance_m"] == 0.3
+    assert saved["runs"][0]["stage_results"] == {"approach_fruit": {"forward_pulse_count": 12}}
+    assert saved["runs"][0]["network"]["poll_count"] >= 1
+    assert "stage_telemetry" in saved["runs"][0]
     assert session["aborted"] is None
 
 
@@ -141,6 +277,7 @@ def test_session_aborts_and_persists_partial_on_latch(tmp_path: Path):
     client = FakeClient(
         [READY, READY, LATCHED],
         results_by_id={"run-1": [terminal("run-1")]},
+        sidecar=SIDECAR,
     )
     output = tmp_path / "soak.json"
     session = run_session(
@@ -157,3 +294,4 @@ def test_summarize_run_flattens_terminal_measurements():
     assert record["number"] == 9
     assert record["home_distance_m"] == 0.05
     assert record["run_id"] == "run-9"
+    assert record["stage_results"]["approach_fruit"]["forward_pulse_count"] == 12
