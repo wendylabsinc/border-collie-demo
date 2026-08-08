@@ -70,10 +70,13 @@ consistent so Woof does not finish too close or too far away.
 
 ### Test another fruit without motion
 
-The provisioned TensorRT engine contains `apple`, `banana`, and `pear`. Pear and
-red apple are **Qualified Fruits** available in the audience UI. Banana remains
-a camera-only **Supported Fruit** and cannot be submitted to an autonomous Demo
-Run. The apple qualification is explicitly limited to a red apple in the
+The provisioned TensorRT engine contains `apple`, `banana`, and `pear`. Pear,
+red apple, and banana are **Qualified Fruits** available in the audience UI.
+Banana's qualification is conditional on the resident banana specialist: the
+media router publishes a banana detection only when the banana-only model
+confirms the general proposal at 0.55 confidence with box agreement, so every
+motion decision for banana already sits behind that specialist gate. The apple
+qualification is explicitly limited to a red apple in the
 tested placement and lighting: the green apple trial was misclassified as pear
 and is not an interchangeable substitute.
 
@@ -88,9 +91,9 @@ apple passed `RED-APPLE-001` at the unchanged 0.70 threshold and reached 15
 consecutive qualifying detections.
 
 The acquisition thresholds are 0.70 for apple, 0.20 for banana, and 0.65 for
-pear. Banana's value remains a camera-only hypothesis, not permission for
-motion. Fruit-specific thresholds may change only after fresh evidence; the
-qualified pear and red-apple thresholds remain unchanged.
+pear. Banana's low app-side value rides on top of the specialist's 0.55 floor
+rather than standing alone. Fruit-specific thresholds may change only after
+fresh evidence; the qualified pear and red-apple thresholds remain unchanged.
 
 Any physical remote-control input must eventually cause a latched
 `REMOTE_TAKEOVER`. Autonomous control must stop and cannot resume until the
@@ -259,7 +262,8 @@ runtime-neutral camera/perception contract; see
 Banana recognition uses a resident specialist router: the general model must
 first propose banana, then a banana-only model must confirm the same object.
 Both models load at media startup, so the frame loop routes inference without a
-cold model swap. This does not qualify banana for autonomous motion.
+cold model swap. This specialist gate is what qualifies banana for autonomous
+motion; a banana run's supervised evidence is still its own validation work.
 
 To make a real run eligible after the DLO comparison and deployment, set:
 
