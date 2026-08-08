@@ -16,10 +16,14 @@ FRUIT_POLICIES: dict[str, FruitPolicy] = {
         close_range_tracking_confidence=0.10,
         motion_qualified=True,
     ),
+    # Banana is motion-qualified only because every published banana detection
+    # is already gated by the resident banana specialist (0.55 confidence with
+    # IoU agreement against the general proposal) in the media router. The low
+    # acquisition threshold here rides on top of that specialist floor.
     "banana": FruitPolicy(
         acquisition_confidence=0.20,
         close_range_tracking_confidence=0.20,
-        motion_qualified=False,
+        motion_qualified=True,
     ),
     "pear": FruitPolicy(
         acquisition_confidence=0.65,

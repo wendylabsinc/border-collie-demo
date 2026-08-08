@@ -35,7 +35,7 @@ class ForwardPulseRequest(BaseModel):
 
 
 class RunRequest(BaseModel):
-    target_fruit: Literal["apple", "pear"] = "pear"
+    target_fruit: Literal["apple", "banana", "pear"] = "pear"
     activation_source: Literal["audience_ui", "voice"] = "audience_ui"
 
 
