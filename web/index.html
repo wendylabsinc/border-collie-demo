@@ -77,6 +77,7 @@
     <main>
       <h1>Border Collie Demo</h1>
       <p>Choose a qualified Target Fruit, then activate the demo.</p>
+      <p id="build-label" hidden></p>
       <p id="runtime-mode" hidden></p>
       <section class="camera-panel" aria-labelledby="camera-title">
         <h2 id="camera-title">Woof's camera</h2>
@@ -106,6 +107,7 @@
       const status = document.querySelector('#status');
       const runId = document.querySelector('#run-id');
       const runtimeMode = document.querySelector('#runtime-mode');
+      const buildLabel = document.querySelector('#build-label');
       const cameraFeed = document.querySelector('#camera-feed');
       const cameraState = document.querySelector('#camera-state');
       const cameraFrameUrl = '/api/camera/frame.jpg';
@@ -161,6 +163,10 @@
       async function refreshStatus() {
         try {
           const current = await readJson(await fetch('/api/status'));
+          buildLabel.hidden = !current.build_label;
+          buildLabel.textContent = current.build_label
+            ? `Build: ${current.build_label}`
+            : '';
           runtimeMode.hidden = current.runtime_mode !== 'simulation';
           runtimeMode.textContent = current.runtime_mode === 'simulation'
             ? 'SIMULATION — no hardware motion commands are sent.'
