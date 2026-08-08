@@ -64,6 +64,9 @@ class FakeClient:
         self.stop_calls += 1
         return {}
 
+    def camera_frame(self):
+        return b"\xff\xd8fake-jpeg-bytes\xff\xd9"
+
 
 READY = {
     "build_label": "base (demo/base)",
@@ -97,6 +100,11 @@ def terminal(run_id, outcome="COMPLETED", home=0.05):
             "message": "done",
             "terminal_measurements": {"home_distance_m": home, "heading_error_rad": 0.01},
             "stage_results": {"approach_fruit": {"forward_pulse_count": 12}},
+            "events": [
+                {"phase": "turn_to_fruit", "seconds_since_start": 1.0},
+                {"phase": "approach_fruit", "seconds_since_start": 5.5},
+                {"phase": "complete", "seconds_since_start": 40.0},
+            ],
         }
     }
 
@@ -270,6 +278,11 @@ def test_session_records_every_run_and_build_label(tmp_path: Path):
     assert saved["runs"][0]["stage_results"] == {"approach_fruit": {"forward_pulse_count": 12}}
     assert saved["runs"][0]["network"]["poll_count"] >= 1
     assert "stage_telemetry" in saved["runs"][0]
+    assert saved["runs"][0]["stage_durations"]["turn_to_fruit"] == 4.5
+    assert saved["runs"][0]["lighting_frame"]["bytes"] > 0
+    assert Path(saved["runs"][0]["lighting_frame"]["path"]).exists()
+    assert saved["scorecard"]["criteria"]["completion"]["passed"] is False  # run 2 FAILED
+    assert saved["scorecard"]["recorded_only"] is True
     assert session["aborted"] is None
 
 
