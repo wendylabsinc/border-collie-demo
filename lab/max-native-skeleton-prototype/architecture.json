@@ -1,0 +1,29 @@
+{
+  "blocks": [
+    [16, 16, 16, 1],
+    [16, 24, 64, 2],
+    [24, 24, 72, 1],
+    [24, 40, 72, 2],
+    [40, 40, 120, 1],
+    [40, 40, 120, 1],
+    [40, 80, 240, 2],
+    [80, 80, 200, 1],
+    [80, 80, 184, 1],
+    [80, 80, 184, 1],
+    [80, 112, 480, 1],
+    [112, 112, 672, 1],
+    [112, 160, 672, 2],
+    [160, 160, 960, 1],
+    [160, 160, 960, 1]
+  ],
+  "classes": ["pear", "apple", "banana"],
+  "dtype": "float16",
+  "feature_pyramid_channels": 64,
+  "head_channels": 8,
+  "head_strides": [8, 16, 32],
+  "layout": "NHWC",
+  "postprocessing_in_graph": false,
+  "stem_channels": 16,
+  "box_encoding": "ltrb_exp_grid_center",
+  "version": 4
+}

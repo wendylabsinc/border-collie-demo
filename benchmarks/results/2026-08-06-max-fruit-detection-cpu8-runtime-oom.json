@@ -1,0 +1,70 @@
+{
+  "captured_at": "2026-08-06T19:08:00Z",
+  "status": "detection_graph_compiled_but_runtime_initialization_oom",
+  "source_repository": "border-collie-demo",
+  "target": {
+    "name": "woof.local",
+    "cpu_architecture": "arm64",
+    "cpu_count": 8,
+    "power_mode": "25W",
+    "gpu_architecture": "sm_87",
+    "memory_total_bytes": 16416137216
+  },
+  "runtime": {
+    "max_version": "26.4.0",
+    "cuda_ptxas_version": "12.6",
+    "ptx_jit_disabled": true
+  },
+  "model": {
+    "kind": "fruit-detection-pruned-from-segmentation",
+    "input_shape": [1, 3, 640, 640],
+    "output_shape": [1, 7, 8400],
+    "node_count": 439,
+    "contains_conv_transpose": false,
+    "sha256": "ecfb3c7bfa88661338cf08cb1d639c4cb570f7a308f3173eee2351571cf3dfea",
+    "mef_sha256": "62e18f4361155541d78b8aaab811ff7c71825792bebbe5942b87c39be16e4cf0",
+    "weights_sha256": "1b193b277fe928f84dd547701c23b6651bd89096d02af33b5b296ca0bbf61f58",
+    "mef_bytes": 16058607,
+    "weights_archive_bytes": 80356766
+  },
+  "compile": {
+    "completed": true,
+    "seconds": 665.2525458249997,
+    "cpu_affinity": [0, 1, 2, 3, 4, 5, 6, 7],
+    "peak_observed_rss_gib": 13.115726470947266,
+    "minimum_observed_available_memory_gib": 0.3805656433105469,
+    "maximum_observed_swap_used_gib": 0.5234375,
+    "maximum_observed_load_1m": 8.82,
+    "start_battery_percent": 84,
+    "compile_end_battery_percent": 77,
+    "highest_observed_jetson_c": 51.625,
+    "highest_observed_go2_imu_c": 80.0
+  },
+  "initialization": {
+    "completed": false,
+    "minimum_observed_available_memory_gib": 0.2091522216796875,
+    "maximum_observed_swap_used_gib": 6.824512481689453,
+    "termination": "Linux host OOM killer terminated MAX python3 and several system services",
+    "conv_transpose_error_observed": false
+  },
+  "recovery": {
+    "probe_restart_disabled": true,
+    "artifact_preserved": true,
+    "post_failure_available_memory_bytes": 12706516992,
+    "post_failure_swap_used_bytes": 76328960,
+    "critical_services_verified_active": [
+      "nvfancontrol.service",
+      "nvphs.service",
+      "nvs-service.service",
+      "systemd-journald.service",
+      "networkd-dispatcher.service"
+    ]
+  },
+  "safety_change": {
+    "minimum_runtime_available_memory_gib": 0.5,
+    "maximum_runtime_swap_used_gib": 2.0,
+    "scope": ["loading_cached_artifact", "initializing_model"]
+  },
+  "conclusion": "Removing the unused segmentation branch eliminates ConvTranspose but MAX 26.4's FP32 detection runtime still cannot initialize safely within Woof's 15.29 GiB unified memory.",
+  "next_safe_action": "Test a lower-precision and/or smaller-input detection graph; require at least 2 GiB steady-state host headroom before production parity work."
+}

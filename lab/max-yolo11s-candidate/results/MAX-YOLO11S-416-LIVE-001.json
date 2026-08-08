@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "result_id": "MAX-YOLO11S-416-LIVE-001",
+  "captured_at": "2026-08-06T23:18:00Z",
+  "motion_enabled": false,
+  "camera_source": "Go2 WebRTC read-only camera source probe",
+  "snapshot": {
+    "path": "MAX-YOLO11S-416-LIVE-001.jpg",
+    "sha256": "87a3e84280a26d78f80ed87026f7885b8af257a9abb19f75252a84d1e1a5fc6b",
+    "bytes": 99157,
+    "width": 1280,
+    "height": 720
+  },
+  "max": {
+    "backend": "MAX 26.4 native sm_87",
+    "input_size": 416,
+    "precision": "fp16",
+    "layout": "NHWC",
+    "confidence_thresholds": [
+      0.25,
+      0.1
+    ],
+    "detections": 0,
+    "latency_ms": 2833.6870250000175
+  },
+  "onnx_runtime_comparison": {
+    "confidence_threshold": 0.01,
+    "detections": 0
+  },
+  "conclusion": "inconclusive live fruit test: neither MAX nor ONNX recognized fruit in the captured scene, and visual inspection did not show a clearly presented pear",
+  "next_action": "repeat with a clearly visible pear centered in the camera before judging MAX output parity"
+}

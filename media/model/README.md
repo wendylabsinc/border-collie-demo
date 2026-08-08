@@ -36,9 +36,23 @@ The specialist checkpoint is an ignored experimental artifact. Banana remains
 camera-only until on-device timing, negative-frame behavior, and a guarded
 physical run are independently qualified.
 
-## Planned adapter: Modular MAX and Mojo
+## Candidate adapter: Modular MAX and Mojo
 
-TensorRT is temporary. The intended model runtime is Modular MAX, using the
-MAX/Mojo stack rather than a TensorRT engine. Keep the camera/perception status
-contract runtime-neutral so this migration can replace the media-side model
-adapter without changing mission safety, freshness, or detection evidence.
+TensorRT remains the production default, but the MAX migration now has a
+concrete candidate. `MAX-NATIVE-006` trained a 416px YOLO11n fruit detector
+with 2.58 million parameters. On the same 107-image held-out split it reached
+mAP50 0.775 and mAP50-95 0.620, compared with 0.843 and 0.657 for the 9.41
+million-parameter YOLO11s reference. Its exported ONNX graph has no operators
+unsupported by the checked-in MAX importer and matches the PyTorch output to a
+mean absolute difference of 2.8e-5.
+
+Those local results authorize only a guarded MAX compile and camera-only
+benchmark on Woof. They do not authorize autonomous motion. Before this model
+can replace TensorRT, the native `sm_87` artifact must pass PTX-JIT-disabled
+execution, fixed-corpus output parity, live-camera latency, memory, thermal,
+freshness, and false-positive gates. The full record is
+[`training/results/MAX-NATIVE-006.json`](../../training/results/MAX-NATIVE-006.json).
+
+Keep the camera/perception status contract runtime-neutral so the MAX/Mojo
+adapter can replace the media-side inference implementation without changing
+mission safety, freshness, or detection evidence.

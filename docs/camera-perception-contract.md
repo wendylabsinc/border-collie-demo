@@ -119,12 +119,15 @@ may be relaxed only after new acceptance evidence is recorded.
   promoted only when it reaches 0.55, improves the proposal, and overlaps it by
   at least 0.10 IoU. The combined time for both passes is the reported detector
   execution time; crop confirmation does not relax any freshness deadline.
-- During bounded search, a crop-confirmed full-frame proposal at or above 0.50
-  slows rotation with alternating reliable-rate yaw and zero-yaw heartbeats.
-  The controller does not substitute a weaker yaw signal because smaller turn
-  commands have not moved Woof reliably. If the enlarged result does not reach
-  the unchanged 0.65 acquisition threshold for five frames, bounded rotation
-  continues. Only qualified acquisition stops the search.
+- During bounded search, two consecutive selected-fruit candidates trigger one
+  five-heartbeat zero-yaw confirmation hold. The candidate threshold is 0.50
+  for pear and apple and 0.55 for banana. The requested target filter prevents
+  a different visible fruit from driving this control decision. If the target
+  does not reach its unchanged five-frame acquisition gate during the hold,
+  bounded rotation resumes at the reliable yaw rate. The same persistent weak
+  candidate cannot trigger another hold until it has cleared for three frames;
+  this prevents an indefinite hold/turn twitch cycle. Only qualified
+  acquisition stops the search.
 - After acquisition is complete, approach tracking uses hysteresis: **3
   consecutive pear detections at or above 0.55** may extend tracking. This
   lower threshold cannot acquire a pear, start a search result, or bypass any
@@ -177,7 +180,9 @@ reacquisition is allowed or the run terminates as target loss.
 
 The provisioned engine also represents apple and banana. `RED-APPLE-001`
 qualifies red apple at 0.70 confidence by five fresh detections; pear remains
-qualified at 0.65 by five. Banana stays a camera-only **Supported Fruit**. The
+qualified at 0.65 by five. Banana is motion-qualified through the resident
+specialist route: the general model must propose banana and the banana-only
+model must confirm the same object before the existing evidence gates apply. The
 green apple trial produced no apple proposal and was classified as pear when
 class filtering was removed, so green apple is outside the qualified operating
 envelope. The `/fruit-test` surface remains motion-free. Selecting a different

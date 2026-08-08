@@ -11,5 +11,8 @@ build/
 artifacts/runs/
 artifacts/fruit-model/
 lab/*/model/
+lab/*/artifacts/
 media/model/*.engine
 media/model/*.pt
+runs/
+.DS_Store

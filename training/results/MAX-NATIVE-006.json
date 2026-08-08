@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "experiment": "MAX-NATIVE-006",
+  "date": "2026-08-07",
+  "objective": "Find a detector small enough for a practical MAX deployment while retaining the validated YOLO11s fruit accuracy.",
+  "classes": [
+    "pear",
+    "apple",
+    "banana"
+  ],
+  "input_size": 416,
+  "dataset": {
+    "train_images": 661,
+    "validation_images": 107,
+    "validation_boxes": 168
+  },
+  "candidate": {
+    "architecture": "YOLO11n",
+    "parameters": 2582737,
+    "gflops": 6.3,
+    "epochs": 12,
+    "training_seconds": 505.552,
+    "checkpoint_sha256": "6b07f703106463ea1acaefe7616e31cd3bffe689bc1296f5734e91e72974fc8c",
+    "ultralytics_validation": {
+      "precision": 0.7691,
+      "recall": 0.68749,
+      "map50": 0.77524,
+      "map50_95": 0.61976
+    },
+    "fixed_threshold_validation": {
+      "confidence_threshold": 0.4,
+      "precision": 0.7046979865771812,
+      "recall": 0.625,
+      "f1": 0.6624605678233438,
+      "class_f1": {
+        "pear": 0.847457627118644,
+        "apple": 0.6,
+        "banana": 0.7083333333333334
+      }
+    }
+  },
+  "reference": {
+    "architecture": "YOLO11s",
+    "parameters": 9413961,
+    "gflops": 21.3,
+    "ultralytics_validation": {
+      "precision": 0.7983717964140636,
+      "recall": 0.7308652627903413,
+      "map50": 0.8426933270206108,
+      "map50_95": 0.6570115547492391
+    },
+    "fixed_threshold_validation": {
+      "confidence_threshold": 0.35,
+      "precision": 0.7021276595744681,
+      "recall": 0.5892857142857143,
+      "f1": 0.6407766990291263
+    }
+  },
+  "max_import_gate": {
+    "onnx_input_shape": [
+      1,
+      3,
+      416,
+      416
+    ],
+    "onnx_output_shape": [
+      1,
+      7,
+      3549
+    ],
+    "onnx_nodes": 318,
+    "unsupported_operator_types": [],
+    "pytorch_onnx_parity": {
+      "mean_absolute_difference": 0.00002810094883898273,
+      "p99_absolute_difference": 0.000244140625,
+      "maximum_absolute_difference": 0.00146484375
+    }
+  },
+  "rejected_continuations": [
+    {
+      "name": "yolo11n-640",
+      "reason": "MPS source-training throughput was too slow for the iteration loop; stopped after epoch 2 with mAP50 0.614."
+    },
+    {
+      "name": "unfrozen-default-warmup",
+      "reason": "The default 0.1 bias warmup destabilized the validated checkpoint."
+    },
+    {
+      "name": "unfrozen-low-rate",
+      "reason": "Full-backbone gradients were slow and reduced validation accuracy rather than improving it."
+    }
+  ],
+  "verdict": {
+    "deploy_to_motion": false,
+    "compile_with_max_on_woof": true,
+    "reason": "YOLO11n retains 92% of YOLO11s mAP50 and 94% of mAP50-95 with 73% fewer parameters, passes the existing MAX importer operator gate, and matches the exported ONNX numerically. It still requires a Woof-native MAX latency, thermal, live-camera, and fixed-corpus parity gate before it may control motion."
+  },
+  "notes": [
+    "Local MPS inference timing is not a Woof MAX runtime benchmark.",
+    "The fixed-threshold evaluator uses source-image labels and path-preserving directory inference; earlier list-source calculations were discarded because Ultralytics replaced source paths with synthetic names.",
+    "No candidate from this experiment was deployed or connected to autonomous motion."
+  ]
+}

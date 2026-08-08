@@ -1,0 +1,46 @@
+{
+  "appId": "border-collie-max-yolo11n-candidate",
+  "version": "0.1.0",
+  "services": {
+    "max-candidate": {
+      "context": ".",
+      "resources": {
+        "cpus": "8.0",
+        "memory": "14Gi",
+        "pids": 512
+      },
+      "env": {
+        "MAX_PROBE_PORT": "8126",
+        "MAX_PROBE_MODEL_PATH": "/models/fruit-yolo11n-go2-640.onnx",
+        "MAX_PROBE_ARTIFACT_STEM": "fruit-yolo11n-go2-v2-640-fp16-native-nhwc",
+        "MAX_PROBE_INPUT_SIZE": "640",
+        "MAX_PROBE_SNAPSHOT_URL": "http://127.0.0.1:8122/snapshot.jpg",
+        "MAX_PROBE_PRECISION": "fp16",
+        "MAX_PROBE_LAYOUT": "native_nhwc",
+        "MAX_PROBE_CPU_AFFINITY_COUNT": "8",
+        "MAX_PROBE_MEMORY_LIMIT_GIB": "13.75",
+        "MAX_PROBE_MIN_RUNTIME_AVAILABLE_GIB": "0.5",
+        "MAX_PROBE_MAX_RUNTIME_SWAP_USED_GIB": "2",
+        "MAX_PROBE_OOM_SCORE_ADJ": "500",
+        "MAX_PROBE_COMPILE_TIMEOUT_S": "4500",
+        "MAX_PROBE_RUNTIME_INIT_TIMEOUT_S": "300",
+        "MAX_PROBE_THERMAL_LIMIT_C": "82",
+        "MAX_PROBE_MIN_START_BATTERY_PERCENT": "0",
+        "MAX_PROBE_BATTERY_ABORT_PERCENT": "25",
+        "MAX_PROBE_REQUIRE_BATTERY_STATUS": "0",
+        "MAX_PROFILE_WARMUPS": "5",
+        "MAX_PROFILE_MIN_BATTERY_PERCENT": "0",
+        "CUDA_DISABLE_PTX_JIT": "1"
+      },
+      "entitlements": [
+        {"type": "network", "mode": "host"},
+        {"type": "gpu"},
+        {
+          "type": "persist",
+          "name": "border-collie-max-yolo11n-artifacts",
+          "path": "/artifacts"
+        }
+      ]
+    }
+  }
+}

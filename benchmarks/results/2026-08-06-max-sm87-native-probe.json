@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-08-06T15:00:42Z",
+  "repository": "wendylabsinc/border-collie-demo",
+  "probe": "lab/max-sm87-probe",
+  "status": "passed",
+  "scope": "isolated deterministic MAX vector-add; fruit model not loaded",
+  "device": {
+    "name": "woof.local",
+    "cpu_architecture": "arm64",
+    "gpu_vendor": "nvidia",
+    "gpu_arch": "sm_87",
+    "jetpack_version": "6.2.1",
+    "os": "ubuntu 22.04"
+  },
+  "toolchain": {
+    "max": "26.4.0",
+    "mojo": "1.0.0b2 (2cf4d08a)",
+    "ptxas": "CUDA 12.6 V12.6.85",
+    "cuobjdump": "CUDA 12.6 V12.6.77",
+    "nvptx_compiler": "/usr/local/cuda/bin/ptxas"
+  },
+  "positive": {
+    "requested_device": "accelerator",
+    "resolved_device": "gpu",
+    "target_arch": "sm_87",
+    "cuda_disable_ptx_jit": true,
+    "result_correct": true,
+    "maximum_absolute_error": 0.0,
+    "first_execution_ms": 1231.077145999734,
+    "compile_seconds": 25.81133605900004,
+    "mef_bytes": 86492,
+    "mef_sha256": "d7943a762565d246d6f8c7c829105d925972572aa1c1e7c3b22c152c220ed3a0",
+    "native_cubin_bytes": 5416,
+    "native_cubin_sha256": "32e73e54b3e2de0620342af07783d0603ffe132871affce61d68621f1c8eb890",
+    "cuobjdump_architectures": [
+      "sm_87"
+    ],
+    "cuda_module_load_code": 0,
+    "cuda_module_load_error": "CUDA_SUCCESS"
+  },
+  "cpu_limited_probe": {
+    "manifest_cpu_limit_cores": 1.0,
+    "host_logical_cpu_count": 4,
+    "proof_wall_seconds": 144.06386533600016,
+    "proof_cpu_seconds": 142.17327899999998,
+    "average_cpu_cores_used": 0.9868767485060131,
+    "sm87_compile_wall_seconds": 34.91743439799984,
+    "sm87_compile_cpu_seconds": 34.14891888,
+    "sm87_compile_peak_rss_bytes": 914067456,
+    "sm80_compile_wall_seconds": 34.71153875500022,
+    "sm80_compile_cpu_seconds": 34.261939424,
+    "sm80_compile_peak_rss_bytes": 917458944,
+    "uncapped_sm87_compile_wall_seconds": 25.81133605900004,
+    "one_core_compile_slowdown_ratio": 1.3527945364077594,
+    "thermal_before_c": 48.75,
+    "thermal_after_c": 49.656,
+    "thermal_delta_c": 0.906,
+    "result_correct": true,
+    "note": "The full proof includes two compiles, tool-version startup, native-image inspection, positive execution, and the negative control. Average usage of 0.987 cores confirms the one-core quota was effective."
+  },
+  "negative_control": {
+    "target_arch": "sm_80",
+    "cuda_disable_ptx_jit": true,
+    "cuobjdump_architectures": [
+      "sm_80"
+    ],
+    "contains_sm_87": false,
+    "native_cubin_bytes": 5160,
+    "native_cubin_sha256": "74b3193020eb7a5d1c380934bfd043f20c5c733b4de6489b196740b03342b513",
+    "cuda_module_load_code": 300,
+    "cuda_module_load_error": "CUDA_ERROR_INVALID_SOURCE",
+    "native_module_rejected": true,
+    "max_execution_rejected": true,
+    "expected_error_name_observed": false,
+    "note": "Woof's Tegra driver returned CUDA_ERROR_INVALID_SOURCE rather than CUDA_ERROR_NO_BINARY_FOR_GPU. CUDA 12.6 does not promise desktop minor-version CUBIN compatibility on Tegra; the exact error is recorded without weakening the native sm_87 positive gate."
+  },
+  "thermal": {
+    "limit_c": 82.0,
+    "before_c": 49.625,
+    "after_c": 50.375,
+    "delta_c": 0.75
+  },
+  "docker": {
+    "dlo_schema_version": 3,
+    "dockerfile_sha256": "ccf6d5c58b633961cd88dffef1bd127fc9ab93c91903b02536a686b6b3ef175e",
+    "context_bytes": 23512,
+    "warm_build_seconds": 1.031,
+    "wrapper_seconds": 1.050328,
+    "observer_overhead_seconds": 0.018827,
+    "cached_steps": 3,
+    "rebuilt_steps": 1,
+    "image_layers": 5,
+    "image_size_bytes": 550093906,
+    "incremental_deploy_seconds": 4.844,
+    "deployment_phase_uncertainty": "DLO classified 1.356 seconds as readiness and 3.488 seconds as unclassified; no optimization claim is made."
+  },
+  "full_model_planning_estimate": {
+    "prior_full_compile_observed_seconds": 1623,
+    "prior_full_compile_completed": false,
+    "prior_full_compile_peak_rss_bytes": 13958643712,
+    "one_core_scaled_lower_bound_seconds": 2195.5855325897933,
+    "one_core_scaled_lower_bound_minutes": 36.59309220982989,
+    "detection_only_prior_lower_bound_seconds": 480,
+    "detection_only_one_core_scaled_lower_bound_seconds": 649.3413774757245,
+    "planning_guess": "At least 37 minutes for the full graph at one core; reserve 60-90 minutes for a guarded experiment, but do not expect completion on Woof without first reducing compiler memory.",
+    "memory_risk": "critical",
+    "reason": "The previous full compile was still running after 27 minutes at 13.96 GB RSS, and an AGX Orin attempt later crossed 58 GiB. CPU quota limits compute pressure but does not cap compiler memory or thread count."
+  },
+  "remaining_work": [
+    "Compile and execute the complete fruit model on MAX with CUDA_DISABLE_PTX_JIT=1.",
+    "Compare fixed-image boxes, classes, and confidences against TensorRT.",
+    "Record steady-state latency, frame rate, GPU utilization, memory, and temperature."
+  ]
+}

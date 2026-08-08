@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "experiment": "MAX-NATIVE-003",
+  "date": "2026-08-06",
+  "objective": "Train a MAX-native fruit detector locally using the validated YOLO11s detector as a dense teacher.",
+  "classes": [
+    "pear",
+    "apple",
+    "banana"
+  ],
+  "input_size": 416,
+  "training": {
+    "train_images": 661,
+    "validation_images": 107,
+    "validation_boxes": 168,
+    "epochs": 30,
+    "seconds": 651.4974286670331,
+    "device": "mps",
+    "best_epoch": 17,
+    "teacher_checkpoint_sha256": "3b025ba3a866fa6545bc0ff80adea484fab0ac62398b00a786ee3accd55ce4fc"
+  },
+  "distilled_student": {
+    "checkpoint_sha256": "9ec71e6f82b0dbdf8385d1824ccb33c086fd26238c766a2f43973e8ceac97cf7",
+    "threshold_0_20": {
+      "precision": 0.17120622568093385,
+      "recall": 0.2619047619047619,
+      "f1": 0.20705882352941177
+    },
+    "threshold_0_25": {
+      "precision": 0.23333333333333334,
+      "recall": 0.16666666666666666,
+      "f1": 0.19444444444444445
+    }
+  },
+  "giou_finetuned_student": {
+    "checkpoint_sha256": "e3803c7c2fa157059019fa05975c3540f3c40c0af34e5f698a51b2c594b5ec3f",
+    "threshold_0_20": {
+      "precision": 0.16387959866220736,
+      "recall": 0.2916666666666667,
+      "f1": 0.20985010706638116
+    },
+    "threshold_0_25": {
+      "precision": 0.2275449101796407,
+      "recall": 0.2261904761904762,
+      "f1": 0.22686567164179103
+    },
+    "local_pytorch_images_per_second": 199.37265884626495,
+    "exported_weights_sha256": "9df738b1399b5a2d97b96d6cf558071307975fc4f35c394b7b63d212f60f8a5e"
+  },
+  "verdict": {
+    "deploy_to_woof": false,
+    "reason": "The student remains substantially below the validated detector accuracy and is not safe to connect to autonomous motion.",
+    "next_change": "Add a lightweight MAX-native feature pyramid and deeper detection heads, then repeat teacher distillation and held-out evaluation."
+  },
+  "notes": [
+    "The local PyTorch throughput is not a Woof MAX runtime benchmark.",
+    "The exported FP16 weights are an experimental artifact, not a production model.",
+    "No validation images were used for gradient updates."
+  ]
+}

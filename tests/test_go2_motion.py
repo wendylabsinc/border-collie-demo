@@ -8,6 +8,7 @@ from border_collie_demo.go2_motion import (
     Go2Motion,
     LeaseMismatch,
     MotionConfig,
+    MotionNotReady,
 )
 from border_collie_demo.models import VelocityCommand
 
@@ -20,6 +21,7 @@ class FakeSport:
         self.stand_down_calls = 0
         self.stand_up_calls = 0
         self.balance_stand_calls = 0
+        self.moves: list[tuple[float, float, float]] = []
 
     def SetTimeout(self, value: float) -> None:
         self.timeout_s = value
@@ -41,6 +43,10 @@ class FakeSport:
 
     def BalanceStand(self) -> int:
         self.balance_stand_calls += 1
+        return 0
+
+    def Move(self, vx: float, vy: float, vyaw: float) -> int:
+        self.moves.append((vx, vy, vyaw))
         return 0
 
 
@@ -100,6 +106,34 @@ def test_factory_avoidance_motion_is_exclusive_and_stops_on_release() -> None:
     asyncio.run(scenario())
 
 
+def test_direct_yaw_disables_avoidance_and_hard_locks_translation() -> None:
+    async def scenario() -> None:
+        sport, avoidance = FakeSport(), FakeAvoidance()
+        motion = Go2Motion(
+            sport,
+            avoidance,
+            MotionConfig(remote_api_settle_s=0.0),
+        )
+        await motion.initialize()
+        lease = await motion.arm_direct_yaw()
+
+        sent = await motion.command_direct_yaw(lease, 0.50, "measured_turn")
+
+        assert sent == VelocityCommand(0.0, 0.50, "measured_turn")
+        assert sport.moves == [(0.0, 0.0, 0.50)]
+        assert avoidance.moves == []
+        assert avoidance.remote is False
+        assert avoidance.enabled is False
+        assert motion.status()["mode"] == "direct_yaw"
+        with pytest.raises(MotionNotReady, match="factory-avoidance"):
+            await motion.command(lease, VelocityCommand(0.50, 0.0, "forbidden"))
+        await motion.release(lease)
+        assert motion.armed is False
+        await motion.close()
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize(
     "command,error",
     [
@@ -150,6 +184,32 @@ def test_stale_command_watchdog_brakes_and_revokes_lease() -> None:
 
         assert motion.armed is False
         assert sport.stop_calls >= 1
+        assert avoidance.moves[-1] == (0.0, 0.0, 0.0)
+        await motion.close()
+
+    asyncio.run(scenario())
+
+
+def test_stale_direct_yaw_watchdog_brakes_and_revokes_lease() -> None:
+    async def scenario() -> None:
+        sport, avoidance = FakeSport(), FakeAvoidance()
+        motion = Go2Motion(
+            sport,
+            avoidance,
+            MotionConfig(
+                command_watchdog_s=0.03,
+                remote_api_settle_s=0.0,
+            ),
+        )
+        await motion.initialize()
+        lease = await motion.arm_direct_yaw()
+        await motion.command_direct_yaw(lease, 0.50, "test")
+
+        await asyncio.sleep(0.08)
+
+        assert motion.armed is False
+        assert sport.stop_calls >= 1
+        assert sport.moves == [(0.0, 0.0, 0.50)]
         assert avoidance.moves[-1] == (0.0, 0.0, 0.0)
         await motion.close()
 

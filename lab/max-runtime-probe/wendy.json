@@ -1,0 +1,39 @@
+{
+  "appId": "border-collie-max-probe",
+  "version": "0.1.7",
+  "services": {
+    "max-probe": {
+      "resources": {
+        "cpus": "8.0",
+        "memory": "14Gi",
+        "pids": 512
+      },
+      "env": {
+        "MAX_PROBE_MODEL_PATH": "/models/fruit-detection.onnx",
+        "MAX_PROBE_ARTIFACT_STEM": "fruit-detection-fp16-native-nhwc",
+        "MAX_PROBE_PRECISION": "fp16",
+        "MAX_PROBE_LAYOUT": "native_nhwc",
+        "MAX_PROBE_CPU_AFFINITY_COUNT": "8",
+        "MAX_PROBE_MEMORY_LIMIT_GIB": "13.75",
+        "MAX_PROBE_MIN_RUNTIME_AVAILABLE_GIB": "0.5",
+        "MAX_PROBE_MAX_RUNTIME_SWAP_USED_GIB": "2",
+        "MAX_PROBE_OOM_SCORE_ADJ": "500",
+        "MAX_PROBE_COMPILE_TIMEOUT_S": "4500",
+        "MAX_PROBE_THERMAL_LIMIT_C": "82",
+        "MAX_PROBE_MIN_START_BATTERY_PERCENT": "60",
+        "MAX_PROBE_BATTERY_ABORT_PERCENT": "25",
+        "MAX_PROBE_REQUIRE_BATTERY_STATUS": "1",
+        "CUDA_DISABLE_PTX_JIT": "1"
+      },
+      "entitlements": [
+        {"type": "network", "mode": "host"},
+        {"type": "gpu"},
+        {
+          "type": "persist",
+          "name": "border-collie-max-full-artifacts",
+          "path": "/artifacts"
+        }
+      ]
+    }
+  }
+}

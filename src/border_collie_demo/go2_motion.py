@@ -1,9 +1,11 @@
 """Exclusive, watchdog-protected Unitree motion boundary.
 
 This is a deliberately reduced adaptation of the motion boundary physically
-tested in ``wendylabsinc/collie-demo``. The clean foundation exposes only the
-factory ``ObstaclesAvoidClient`` path. Direct SportClient translation remains
-out of scope until return-home owns a qualified collision-planning contract.
+tested in ``wendylabsinc/collie-demo``. Rotation-only leases use direct
+``SportClient`` yaw with translation structurally fixed at zero. Forward and
+forward-plus-yaw leases use the factory ``ObstaclesAvoidClient`` path. Direct
+SportClient translation remains out of scope until return-home owns a qualified
+collision-planning contract.
 """
 
 from __future__ import annotations
@@ -41,6 +43,8 @@ class SportClientProtocol(Protocol):
     def BalanceStand(self) -> int: ...
 
     def StandDown(self) -> int: ...
+
+    def Move(self, vx: float, vy: float, vyaw: float) -> int: ...
 
     def StopMove(self) -> int: ...
 
@@ -106,6 +110,7 @@ class Go2Motion:
         self._closed = False
         self._fault: str | None = None
         self._lease: str | None = None
+        self._mode: str | None = None
         self._avoidance_enabled = False
         self._remote_api_enabled = False
         self._last_verify_at: float | None = None
@@ -116,21 +121,23 @@ class Go2Motion:
 
     @property
     def armed(self) -> bool:
-        return bool(
-            self._initialized
-            and not self._closed
-            and self._fault is None
-            and self._lease
-            and self._avoidance_enabled
-            and self._remote_api_enabled
-        )
+        if (
+            not self._initialized
+            or self._closed
+            or self._fault is not None
+            or not self._lease
+        ):
+            return False
+        if self._mode == "factory_avoidance":
+            return self._avoidance_enabled and self._remote_api_enabled
+        return self._mode == "direct_yaw"
 
     def status(self) -> dict[str, object]:
         return {
             "initialized": self._initialized,
             "closed": self._closed,
             "armed": self.armed,
-            "mode": "factory_avoidance" if self._lease else None,
+            "mode": self._mode,
             "fault": self._fault,
             "avoidance_enabled": self._avoidance_enabled,
             "remote_api_enabled": self._remote_api_enabled,
@@ -183,14 +190,33 @@ class Go2Motion:
                 await self._release_locked(use_stop=True)
                 raise MotionNotReady(f"arm failed: {exc}") from exc
             self._lease = secrets.token_urlsafe(32)
+            self._mode = "factory_avoidance"
             self._last_command = VelocityCommand(reason="armed_zero")
+            return self._lease
+
+    async def arm_direct_yaw(self) -> str:
+        """Acquire an exclusive SportClient lease that cannot translate."""
+
+        async with self._lock:
+            self._require_ready()
+            if self._lease is not None:
+                raise MotionNotReady("motion lease already active")
+            try:
+                await self._disable_avoidance_locked()
+                await self._idle_stop()
+            except Exception as exc:
+                await self._release_locked(use_stop=True)
+                raise MotionNotReady(f"direct yaw arm failed: {exc}") from exc
+            self._lease = secrets.token_urlsafe(32)
+            self._mode = "direct_yaw"
+            self._last_command = VelocityCommand(reason="direct_yaw_armed_zero")
             return self._lease
 
     async def command(self, lease: str, command: VelocityCommand) -> VelocityCommand:
         forward = self._bounded_forward(command.forward_mps)
         yaw = self._bounded_yaw(command.yaw_rps)
         async with self._lock:
-            self._require_owner(lease)
+            self._require_owner(lease, required_mode="factory_avoidance")
             self._cancel_watchdog()
             try:
                 if forward != 0.0 or yaw != 0.0:
@@ -202,6 +228,29 @@ class Go2Motion:
                 raise MotionNotReady(self._fault) from exc
             self._last_command = VelocityCommand(forward, yaw, command.reason)
             if forward != 0.0 or yaw != 0.0:
+                self._arm_watchdog()
+            return self._last_command
+
+    async def command_direct_yaw(
+        self,
+        lease: str,
+        yaw_rps: float,
+        reason: str = "direct_yaw",
+    ) -> VelocityCommand:
+        """Send one watchdog-protected SportClient yaw with zero translation."""
+
+        yaw = self._bounded_yaw(yaw_rps)
+        async with self._lock:
+            self._require_owner(lease, required_mode="direct_yaw")
+            self._cancel_watchdog()
+            try:
+                await self._success(self.sport.Move, 0.0, 0.0, yaw)
+            except Exception as exc:
+                self._fault = f"direct yaw command failed: {exc}"
+                await self._release_locked(use_stop=True)
+                raise MotionNotReady(self._fault) from exc
+            self._last_command = VelocityCommand(0.0, yaw, reason)
+            if yaw != 0.0:
                 self._arm_watchdog()
             return self._last_command
 
@@ -350,6 +399,7 @@ class Go2Motion:
             except Exception as exc:  # noqa: BLE001 - best-effort safety release
                 errors.append(f"{label}: {exc}")
         self._lease = None
+        self._mode = None
         self._avoidance_enabled = False
         self._remote_api_enabled = False
         self._last_verify_at = None
@@ -364,7 +414,7 @@ class Go2Motion:
         if self._fault is not None:
             raise MotionNotReady(self._fault)
 
-    def _require_owner(self, lease: str) -> None:
+    def _require_owner(self, lease: str, *, required_mode: str | None = None) -> None:
         self._require_ready()
         if not self.armed:
             raise MotionNotReady("motion is disarmed")
@@ -374,6 +424,9 @@ class Go2Motion:
             or not secrets.compare_digest(lease, self._lease)
         ):
             raise LeaseMismatch("motion lease is stale or does not match")
+        if required_mode is not None and self._mode != required_mode:
+            label = required_mode.replace("_", "-")
+            raise MotionNotReady(f"{label} command requires a {label} lease")
 
     def _arm_watchdog(self) -> None:
         self._cancel_watchdog()

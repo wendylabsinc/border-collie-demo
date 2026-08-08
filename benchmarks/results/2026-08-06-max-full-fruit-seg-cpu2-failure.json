@@ -1,0 +1,51 @@
+{
+  "ready": false,
+  "backend": "max",
+  "phase": "failed",
+  "error": "ValueError: Mismatch in device type for weight 'onnx_weight_0000'. Expected cpu:0 but weight is max.driver.Buffer(DType.float32, (3, 3, 3, 64), cuda[0])",
+  "thermal_guard": {
+    "limit_c": 82.0,
+    "hottest_sensor": "go2.imu",
+    "hottest_c": 80.0,
+    "captured_at": "2026-08-06T16:23:04.620109+00:00",
+    "battery_percent": 84.0,
+    "battery_abort_percent": 25.0
+  },
+  "resource_guard": {
+    "rss_bytes": 12912283648,
+    "memory_limit_bytes": 13958643712,
+    "compile_elapsed_s": 1807.7249388694763,
+    "compile_timeout_s": 4500.0
+  },
+  "preflight": {
+    "thermal_sensor": "go2.imu",
+    "temperature_c": 80.0,
+    "thermal_limit_c": 82.0,
+    "battery_percent": 93.0,
+    "minimum_start_battery_percent": 70.0,
+    "battery_status_required": true
+  },
+  "compile_started_at": 1786031577.9354868,
+  "operator_types": [
+    "Add",
+    "Concat",
+    "Constant",
+    "Conv",
+    "ConvTranspose",
+    "Div",
+    "Gather",
+    "MatMul",
+    "MaxPool",
+    "Mul",
+    "Reshape",
+    "Resize",
+    "Shape",
+    "Sigmoid",
+    "Slice",
+    "Softmax",
+    "Split",
+    "Sub",
+    "Transpose"
+  ],
+  "compile_seconds": 1793.0325839220002
+}

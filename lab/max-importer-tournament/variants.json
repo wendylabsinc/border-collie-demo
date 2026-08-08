@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "reference_variant": "pytorch-yolo11n-source",
+  "protocol": {
+    "warmups": 3,
+    "timed_repetitions": 3
+  },
+  "gates": {
+    "minimum_class_recall": 0.8,
+    "minimum_box_recall_iou50": 0.7
+  },
+  "variants": [
+    {
+      "id": "pytorch-yolo11n-source",
+      "kind": "pytorch",
+      "precision": "fp32-local-reference",
+      "model": "artifacts/fruit-model/experiments/MAX-NATIVE-006/yolo11n-416/weights/best.pt"
+    },
+    {
+      "id": "onnx-yolo11n-max-source",
+      "kind": "onnxruntime",
+      "precision": "fp32-local-parity",
+      "parity_reference": "pytorch-yolo11n-source",
+      "model": "lab/max-yolo11s-candidate/model/fruit-yolo11n-416.onnx"
+    },
+    {
+      "id": "pytorch-yolo11n-unfrozen-batch32",
+      "kind": "pytorch",
+      "precision": "fp32-local-checkpoint-candidate",
+      "model": "artifacts/fruit-model/experiments/MAX-NATIVE-006/yolo11n-416-unfrozen-batch32/weights/best.pt"
+    },
+    {
+      "id": "pytorch-yolo11n-unfrozen",
+      "kind": "pytorch",
+      "precision": "fp32-local-checkpoint-candidate",
+      "model": "artifacts/fruit-model/experiments/MAX-NATIVE-006/yolo11n-416-unfrozen/weights/best.pt"
+    },
+    {
+      "id": "pytorch-yolo11n-trained-640",
+      "kind": "pytorch",
+      "precision": "fp32-local-checkpoint-candidate-at-416",
+      "model": "artifacts/fruit-model/experiments/MAX-NATIVE-006/yolo11n-640/weights/best.pt"
+    }
+  ],
+  "controls": [
+    {
+      "variant": "tensorrt-production-control",
+      "phase": "woof-control-pending-fixed-corpus",
+      "median_ms": 60.2158,
+      "p95_ms": 71.7005,
+      "class_recall": null,
+      "box_recall_iou50": null,
+      "raw_parity": null,
+      "verdict": "pending"
+    },
+    {
+      "variant": "max-26.4-current-importer",
+      "phase": "woof-profile-recorded",
+      "median_ms": 841.45,
+      "p95_ms": null,
+      "class_recall": null,
+      "box_recall_iou50": null,
+      "raw_parity": null,
+      "verdict": "rejected-speed-and-live-accuracy"
+    }
+  ]
+}

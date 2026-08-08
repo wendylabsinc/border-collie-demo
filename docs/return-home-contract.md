@@ -59,6 +59,11 @@ implementation must earn these values in a new acceptance run.
 - Translation must retain factory obstacle avoidance or use another
   independently qualified collision-aware planner. Direct unprotected body
   translation cannot implement production return-to-Home.
+- Rotation-only corrections use a separate direct SportClient yaw lease with
+  forward and lateral values structurally fixed at zero. Factory avoidance is
+  disabled for that lease, so the operator must keep the full rotational
+  footprint clear. A transition to or from translation must stop and release
+  the current motion owner before arming the other path.
 - Progress means a measured reduction in Home Distance over a bounded time
   window. Distance traveled in some other direction is not progress.
 - Minimum progress, progress-window duration, course gate, maximum Home
@@ -91,7 +96,8 @@ The return phase adds these fields or events to the Run Result:
 - every accepted return pose's age, Home Distance, bearing/course error, and
   Home-heading error;
 - qualified threshold-set identifier and the exact values used;
-- motion-owner, avoidance/planner, watchdog, command, and stop evidence;
+- motion-owner/path, direct-yaw versus avoidance handoffs, watchdog, command,
+  start/end rotation position, and stop evidence;
 - progress-window start and end measurements;
 - requested outbound forward-heartbeat count and the number actually replayed;
 - obstacle, replan, timeout, and failure decisions;

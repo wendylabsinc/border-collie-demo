@@ -47,10 +47,12 @@ must record the phase where freshness was lost and the reason
 allowed only after camera freshness passes preflight again.
 
 From activation through `TURN_TO_FRUIT` and `FIND_FRUIT`, every velocity command
-has zero forward input. During `APPROACH_FRUIT`, translation remains zero while
-a fixed 0.50 rad/s correction first turns toward the Target Fruit. Once its
+has zero forward input and uses the direct SportClient yaw-only lease. During
+`APPROACH_FRUIT`, translation remains zero on that same direct lease while a
+fixed 0.50 rad/s correction first turns toward the Target Fruit. Once its
 center enters 0.08 of the horizontal frame center, yaw becomes zero and must
-remain centered for three fresh samples. After that initial gate, approach may
+remain centered for three fresh samples. The controller then stops and releases
+direct yaw before arming factory avoidance. After that handoff, approach may
 combine forward input with bounded yaw to steer toward the fruit. Confirmed
 near-fruit geometry arms the lower-edge Arrival gate; it does not command a
 zero-motion hold. While the fresh Target Fruit remains visible, forward
@@ -65,8 +67,9 @@ Arrival releases motion before `SIT_AND_BARK`; Woof barks while down and holds
 that posture for 5 seconds before `STAND` may begin. After the measured turn
 toward Home,
 `RETURN_HOME` replays the recorded number of forward heartbeats at the same
-1.0 m/s signal. Heading-only corrections do not consume a forward heartbeat;
-bounded course correction may accompany forward replay after approach.
+1.0 m/s signal. Heading-only corrections use direct SportClient yaw and do not
+consume a forward heartbeat; forward or forward-plus-yaw replay uses factory
+avoidance. Every mode change stops and releases the current owner first.
 
 Return-to-Home must not use open-ended recovery. Loss of trustworthy pose or
 failure to make bounded progress must stop and disarm Woof, terminate the run

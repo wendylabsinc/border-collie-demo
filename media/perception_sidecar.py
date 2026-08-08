@@ -26,6 +26,12 @@ from uuid import uuid4
 from fastapi import FastAPI, HTTPException, Response
 from pydantic import BaseModel
 
+from media.inference_runtime import (
+    InferenceRuntimeConfig,
+    LoadedInferenceRuntime,
+    create_max_model,
+    load_general_model,
+)
 from media.model_router import FruitCandidate, FruitModelRouter, RoutedPrediction
 
 FRUIT_ACQUISITION_CONFIDENCE = {
@@ -463,6 +469,8 @@ class PerceptionRuntime:
             os.environ.get("EVIDENCE_FRAME_INTERVAL_S", "0.5")
         )
         self._crop_confirm = CropConfirmConfig.from_env()
+        self._inference_runtime_config = InferenceRuntimeConfig.from_env()
+        self._inference_runtime: LoadedInferenceRuntime | None = None
         self._last_evidence_capture_s: float | None = None
         self._connection: Any | None = None
         self._audiohub: Any | None = None
@@ -491,10 +499,16 @@ class PerceptionRuntime:
         from unitree_webrtc_connect.webrtc_audiohub import WebRTCAudioHub
 
         loop = asyncio.get_running_loop()
-        self._model = await loop.run_in_executor(
+        self._inference_runtime = await loop.run_in_executor(
             self._inference_executor,
-            partial(YOLO, self.model_path, task="segment"),
+            partial(
+                load_general_model,
+                self._inference_runtime_config,
+                tensorrt_factory=partial(YOLO, self.model_path, task="segment"),
+                max_factory=create_max_model,
+            ),
         )
+        self._model = self._inference_runtime.model
         names = getattr(self._model, "names", {})
         items = names.items() if isinstance(names, dict) else enumerate(names)
         available = {
@@ -575,6 +589,19 @@ class PerceptionRuntime:
             **self.evidence.status(),
             "bark_ready": self._audiohub is not None and bool(self.bark_uuid),
             "crop_confirm": asdict(self._crop_confirm),
+            "inference_runtime": (
+                self._inference_runtime.status()
+                if self._inference_runtime is not None
+                else {
+                    "requested_backend": (
+                        self._inference_runtime_config.requested_backend
+                    ),
+                    "active_backend": "loading",
+                    "fallback_used": False,
+                    "fallback_reason": None,
+                    "candidate_validated": False,
+                }
+            ),
             "model_router": (
                 self._model_router.status()
                 if self._model_router is not None

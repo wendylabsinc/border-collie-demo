@@ -1,0 +1,8 @@
+**
+!media/
+!media/max_onnx.py
+!lab/
+!lab/max-runtime-probe/
+!lab/max-runtime-probe/probe.py
+!lab/max-runtime-probe/model/
+!lab/max-runtime-probe/model/fruit-detection.onnx

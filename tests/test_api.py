@@ -1,4 +1,6 @@
+import asyncio
 import time
+from threading import Event
 from time import monotonic
 
 import pytest
@@ -46,6 +48,52 @@ class ReadyHardwareBoundary:
         }
 
 
+class TriggeredRemoteInput:
+    def __init__(self, *, ready: bool = True) -> None:
+        self._ready = ready
+        self._watching = Event()
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._trigger: asyncio.Event | None = None
+        self._emitted = False
+
+    def trigger(self) -> None:
+        assert self._watching.wait(timeout=0.5)
+        assert self._loop is not None and self._trigger is not None
+        self._loop.call_soon_threadsafe(self._trigger.set)
+
+    def status(self) -> dict[str, object]:
+        return {
+            "ready": self._ready,
+            "topic": "rt/lowstate",
+            "age_s": 0.01,
+            "error": None,
+            "takeover_emitted": self._emitted,
+        }
+
+    async def watch(self, handler) -> None:
+        self._loop = asyncio.get_running_loop()
+        self._trigger = asyncio.Event()
+        self._watching.set()
+        await self._trigger.wait()
+        self._emitted = True
+        await handler(RemoteInput("unitree_remote", "left_stick", monotonic()))
+        await asyncio.Event().wait()
+
+
+class FailingRemoteInput:
+    def status(self) -> dict[str, object]:
+        return {
+            "ready": True,
+            "topic": "rt/lowstate",
+            "age_s": 0.01,
+            "error": None,
+            "takeover_emitted": False,
+        }
+
+    async def watch(self, _handler) -> None:
+        raise RuntimeError("controller DDS stream stopped")
+
+
 def ready_camera_perception() -> dict[str, object]:
     return {
         "ready": True,
@@ -89,6 +137,7 @@ def test_audience_page_includes_the_annotated_camera_feed() -> None:
     assert "YOLO fruit model overlay" in response.text
     assert 'id="target-fruit"' in response.text
     assert '<option value="apple">Red apple</option>' in response.text
+    assert '<option value="banana">Banana</option>' in response.text
     assert "target_fruit: targetFruit.value" in response.text
 
 
@@ -139,13 +188,13 @@ def test_fruit_test_page_can_select_supported_fruit_without_motion() -> None:
     assert selected == ["apple"]
 
 
-def test_fruit_list_qualifies_only_red_apple_and_pear() -> None:
+def test_fruit_list_qualifies_apple_banana_and_pear() -> None:
     response = TestClient(create_app()).get("/api/fruits")
 
     assert response.status_code == 200
     assert response.json() == {
         "supported_fruits": ["apple", "banana", "pear"],
-        "qualified_fruits": ["apple", "pear"],
+        "qualified_fruits": ["apple", "banana", "pear"],
     }
 
 
@@ -749,9 +798,27 @@ def test_activate_records_voice_as_the_activation_source(tmp_path) -> None:
         assert response.json()["run"]["activation_source"] == "voice"
 
 
-def test_activate_rejects_an_unqualified_target_fruit(tmp_path) -> None:
-    with TestClient(create_app(runs_root=tmp_path)) as client:
+def test_activate_accepts_the_qualified_banana_target(tmp_path) -> None:
+    selected: list[str] = []
+    with TestClient(
+        create_app(
+            runs_root=tmp_path,
+            select_perception_target=lambda fruit: (
+                selected.append(fruit)
+                or {"target_fruit": fruit, "supported_fruits": [fruit]}
+            ),
+        )
+    ) as client:
         response = client.post("/api/run", json={"target_fruit": "banana"})
+
+        assert response.status_code == 201
+        assert response.json()["run"]["target_fruit"] == "banana"
+        assert selected == ["banana"]
+
+
+def test_activate_rejects_an_unknown_target_fruit(tmp_path) -> None:
+    with TestClient(create_app(runs_root=tmp_path)) as client:
+        response = client.post("/api/run", json={"target_fruit": "orange"})
 
         assert response.status_code == 422
         assert client.get("/api/results").json()["runs"] == []
@@ -778,3 +845,147 @@ def test_remote_takeover_latch_blocks_live_pulse_before_hardware() -> None:
 
     assert response.status_code == 423
     assert "restart required" in response.json()["detail"]
+
+
+def test_physical_remote_input_stops_and_seals_an_active_demo(tmp_path) -> None:
+    remote = TriggeredRemoteInput()
+    hardware = ReadyHardwareBoundary()
+    stages = SimulatedStageExecutor(
+        delay_at=MissionPhase.TURN_TO_FRUIT.value,
+        delay_s=1.0,
+    )
+    app = create_app(
+        runs_root=tmp_path,
+        hardware=hardware,
+        camera_perception_status=ready_camera_perception,
+        remote_input=remote,
+        stage_executor=stages,
+    )
+
+    with TestClient(app) as client:
+        started = client.post("/api/run", json={"target_fruit": "pear"})
+        assert started.status_code == 201
+        run_id = started.json()["run"]["run_id"]
+
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            if client.get("/api/status").json()["mission"]["phase"] == (
+                MissionPhase.TURN_TO_FRUIT.value
+            ):
+                break
+            time.sleep(0.01)
+        else:
+            pytest.fail("Demo Run did not enter turn_to_fruit")
+
+        remote.trigger()
+
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            status = client.get("/api/status").json()
+            if (
+                status["mission"]["phase"] == MissionPhase.REMOTE_TAKEOVER.value
+                and status["active_run_id"] is None
+            ):
+                break
+            time.sleep(0.01)
+        else:
+            pytest.fail("physical remote input did not latch takeover")
+
+        run = client.get(f"/api/results/{run_id}").json()["run"]
+        rejected = client.post("/api/run", json={"target_fruit": "pear"})
+
+    assert status["mission"]["restart_required"] is True
+    assert status["active_run_id"] is None
+    assert status["remote_input"]["takeover_emitted"] is True
+    assert run["outcome"] == "REMOTE_TAKEOVER"
+    assert run["reason"] == "REMOTE_TAKEOVER"
+    assert run["failed_phase"] == MissionPhase.TURN_TO_FRUIT.value
+    assert run["final_safety_state"] == "REMOTE_OWNED"
+    assert run["failure_details"]["remote_input"]["source"] == "unitree_remote"
+    assert run["failure_details"]["remote_input"]["control"] == "left_stick"
+    assert run["failure_details"]["interrupted_phase"] == (
+        MissionPhase.TURN_TO_FRUIT.value
+    )
+    assert hardware.stop_calls >= 1
+    assert rejected.status_code == 423
+
+
+def test_remote_monitor_must_be_ready_before_demo_motion(tmp_path) -> None:
+    remote = TriggeredRemoteInput(ready=False)
+    app = create_app(
+        runs_root=tmp_path,
+        hardware=ReadyHardwareBoundary(),
+        camera_perception_status=ready_camera_perception,
+        remote_input=remote,
+    )
+
+    with TestClient(app) as client:
+        response = client.post("/api/run", json={"target_fruit": "pear"})
+
+    assert response.status_code == 201
+    run = response.json()["run"]
+    assert run["outcome"] == "FAILED"
+    assert run["reason"] == "PREFLIGHT_FAILURE"
+    remote_check = next(
+        check
+        for check in run["preflight"]["checks"]
+        if check["name"] == "remote_takeover_monitor"
+    )
+    assert remote_check["ready"] is False
+
+
+def test_remote_input_while_idle_latches_restart_and_blocks_activation(tmp_path) -> None:
+    remote = TriggeredRemoteInput()
+    hardware = ReadyHardwareBoundary()
+    app = create_app(
+        runs_root=tmp_path,
+        hardware=hardware,
+        camera_perception_status=ready_camera_perception,
+        remote_input=remote,
+    )
+
+    with TestClient(app) as client:
+        remote.trigger()
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            status = client.get("/api/status").json()
+            if status["mission"]["phase"] == MissionPhase.REMOTE_TAKEOVER.value:
+                break
+            time.sleep(0.01)
+        else:
+            pytest.fail("idle controller input did not latch takeover")
+        rejected = client.post("/api/run", json={"target_fruit": "pear"})
+
+    assert status["mission"]["restart_required"] is True
+    assert status["activation"]["ready"] is False
+    assert status["activation"]["blockers"][0]["name"] == (
+        "remote_takeover_latched"
+    )
+    assert hardware.stop_calls >= 1
+    assert rejected.status_code == 423
+
+
+def test_remote_monitor_failure_latches_restart_and_stops_while_idle(tmp_path) -> None:
+    hardware = ReadyHardwareBoundary()
+    app = create_app(
+        runs_root=tmp_path,
+        hardware=hardware,
+        camera_perception_status=ready_camera_perception,
+        remote_input=FailingRemoteInput(),
+    )
+
+    with TestClient(app) as client:
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            status = client.get("/api/status").json()
+            if status["mission"]["phase"] == MissionPhase.REMOTE_TAKEOVER.value:
+                break
+            time.sleep(0.01)
+        else:
+            pytest.fail("controller monitor failure did not latch takeover")
+        rejected = client.post("/api/run", json={"target_fruit": "pear"})
+
+    assert status["mission"]["restart_required"] is True
+    assert status["activation"]["ready"] is False
+    assert hardware.stop_calls >= 1
+    assert rejected.status_code == 423

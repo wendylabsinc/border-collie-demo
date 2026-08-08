@@ -14,16 +14,18 @@ reference, but it is not a runtime dependency.
 2. Confirm that Woof is facing the person. This is initially an operator setup
    requirement rather than autonomous person detection.
 3. Capture a stable Home position and heading.
-4. Choose Pear or Red apple from the audience UI's qualified-fruit list, then
+4. Choose Pear, Red apple, or Banana from the audience UI's qualified-fruit
+   list, then
    use the single **Activate Demo** control.
 5. **Conditional search:** if fresh qualified evidence already shows the
    requested fruit, do not perform the initial rotation. Record the
    turn/search stages as conditionally skipped and proceed directly to approach
    centering. Otherwise, turn through the fruit-search area until it is
-   recognized, bounded by one measured revolution and a 30-second timeout. A 50%+
-   full-frame fruit proposal triggers crop confirmation and a 50% duty-cycled
-   turn using the same reliable yaw signal; an unqualified crop keeps rotating
-   rather than becoming a false stop.
+   recognized, bounded by one measured revolution and a 30-second timeout. Two
+   consecutive selected-fruit candidates trigger one five-heartbeat confirmation
+   hold at 0.50 confidence for pear/apple or 0.55 for banana. If the fruit does
+   not qualify, Woof resumes the same reliable yaw signal and cannot slow for the
+   same persistent weak candidate again until it clears for three frames.
 6. Confirm/reacquire and approach the requested fruit using fresh detections.
    No forward command is permitted before this stage. Once approach begins,
    forward and yaw inputs may be combined to steer toward the fruit.
@@ -70,10 +72,9 @@ consistent so Woof does not finish too close or too far away.
 
 ### Test another fruit without motion
 
-The provisioned TensorRT engine contains `apple`, `banana`, and `pear`. Pear and
-red apple are **Qualified Fruits** available in the audience UI. Banana remains
-a camera-only **Supported Fruit** and cannot be submitted to an autonomous Demo
-Run. The apple qualification is explicitly limited to a red apple in the
+The production TensorRT engine contains `apple`, `banana`, and `pear`. Pear,
+red apple, and banana are **Qualified Fruits** available in the audience UI and
+through the voice adapter. The apple qualification is explicitly limited to a red apple in the
 tested placement and lighting: the green apple trial was misclassified as pear
 and is not an interchangeable substitute.
 
@@ -92,11 +93,18 @@ pear. Banana's value remains a camera-only hypothesis, not permission for
 motion. Fruit-specific thresholds may change only after fresh evidence; the
 qualified pear and red-apple thresholds remain unchanged.
 
-Any physical remote-control input must eventually cause a latched
-`REMOTE_TAKEOVER`. Autonomous control must stop and cannot resume until the
-application process is restarted. Remote-input detection may be implemented
-after the core routine, but verified takeover behavior is a required final
-stage-qualification gate.
+Physical controller takeover is implemented from the Go2 `rt/lowstate`
+`wireless_remote` bytes. Two consecutive valid button or stick samples outside
+the 0.15 axis deadzone immediately cancel the active Demo Run, stop and release
+application motion, seal `REMOTE_TAKEOVER / REMOTE_OWNED`, and latch restart
+required for the process. Input while idle also latches takeover, so autonomous
+control cannot start after anyone has used the controller. The monitor must be
+fresh at preflight and loss of its DDS stream fails closed through the same
+restart-required off-ramp. The web UI and API cannot clear or resume it.
+
+This controller path is implementation- and replay-test validated. It still
+requires supervised physical qualification during every motion family before
+stage use.
 
 ## Qualified operating envelope
 
@@ -147,7 +155,8 @@ evidence before sealing success. Loss of pose freshness during capture also fail
 restart seals unfinished work as `PROCESS_INTERRUPTED`. The production executor
 uses measured pose turns, bounded camera-guided search, geometry-gated approach,
 one 0.3 m/s by 1.0 s off-screen final push, Unitree posture actions, bark, and
-closed-loop odometry return through factory obstacle avoidance.
+closed-loop odometry return using direct SportClient yaw-only corrections and
+factory-obstacle-avoidance translation.
 The initial turn/search is explicitly **conditional**, not an unconditional
 part of every run. Target Fruit qualification may already be present when
 `TURN_TO_FRUIT` begins. Fresh qualified evidence for the selected Target Fruit
@@ -157,6 +166,10 @@ of a fruit before activation is expected and does not block the button.
 The audience UI also shows the media sidecar's latest annotated camera frame so
 the operator can see the live image, pear box, confidence, and 5-frame model
 qualification progress without granting the UI any motion authority.
+
+The stage-by-stage failure, safety, evidence, and test cases are tracked in
+[`docs/demo-edge-cases.md`](docs/demo-edge-cases.md). That inventory explicitly
+separates implemented guards from partially qualified behavior and future gaps.
 
 After every run, `/debug` shows `COMPLETED`, `FAILED`, or `NOT_RUN` for each of
 the eight executable stages and the exact recorded evidence. The terminal Run
@@ -221,9 +234,13 @@ defined, but marked Operating Envelope and motion values remain provisional
 until WDY-2281 and WDY-2283 are qualified on hardware.
 
 The live foundation includes the tested Unitree DDS connection,
-`rt/sportmodestate` pose subscriber, factory `ObstaclesAvoidClient` motion
-boundary, and production stage executor. Deployment gates remain disabled in
-the checked-in manifest until the operator intentionally enables the real run.
+`rt/sportmodestate` pose subscriber, a hybrid direct-yaw/factory-avoidance
+motion boundary, and production stage executor. Rotation-only operations use an
+exclusive `SportClient.Move(0, 0, yaw)` lease with factory avoidance disabled.
+Forward and forward-plus-yaw operations use `ObstaclesAvoidClient`. Approach
+and return explicitly stop and release one owner before handing off to the
+other. Deployment gates remain disabled in the checked-in manifest until the
+operator intentionally enables the real run.
 
 ## Live hardware gates
 
@@ -251,14 +268,18 @@ the same connection. It also exposes the raw Fieldmark source at
 `/api/camera/raw.jpg` and the bounded archive at `/api/evidence/clip.zip`. It
 never imports or creates a motion client. The TensorRT
 engine is a temporary provisioned deployment artifact at `/media/model.engine`;
-it is not committed to Git. The planned model adapter uses Modular MAX and the
-MAX/Mojo stack while preserving the same runtime-neutral camera/perception
-contract; see [`media/model/README.md`](media/model/README.md).
+it is not committed to Git. A trained 416px YOLO11n is now the guarded Modular
+MAX candidate; it has passed local accuracy, ONNX parity, and importer-operator
+gates but has not passed Woof-native runtime or live-camera gates and therefore
+cannot authorize motion. The MAX/Mojo adapter preserves the same
+runtime-neutral camera/perception contract; see
+[`media/model/README.md`](media/model/README.md).
 
 Banana recognition uses a resident specialist router: the general model must
 first propose banana, then a banana-only model must confirm the same object.
 Both models load at media startup, so the frame loop routes inference without a
-cold model swap. This does not qualify banana for autonomous motion.
+cold model swap. Banana uses the same guarded Demo Run path and remains subject
+to camera freshness, acquisition, motion, Arrival, and return-home gates.
 
 To make a real run eligible after the DLO comparison and deployment, set:
 

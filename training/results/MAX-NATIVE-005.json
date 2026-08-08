@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "experiment": "MAX-NATIVE-005",
+  "date": "2026-08-07",
+  "objective": "Test an FCOS-style LTRB box contract with multi-cell box/class supervision while preserving the lightweight MAX-native graph.",
+  "classes": [
+    "pear",
+    "apple",
+    "banana"
+  ],
+  "architecture_version": 4,
+  "box_encoding": "ltrb_exp_grid_center",
+  "input_size": 416,
+  "validation": {
+    "images": 107,
+    "boxes": 168,
+    "match_iou_threshold": 0.5
+  },
+  "attempts": [
+    {
+      "run": "run-001-v4-ltrb-smoke-416",
+      "epochs": 5,
+      "best_f1": 0.045845272206303724
+    },
+    {
+      "run": "run-002-v4-ltrb-full-416",
+      "epochs": 25,
+      "best_checkpoint_epoch": 23,
+      "best_f1": 0.13559322033898305
+    },
+    {
+      "run": "run-003-v4-center-objectness-416",
+      "epochs": 12,
+      "change": "Keep box/class supervision on neighboring cells but reserve peak objectness for the Gaussian center.",
+      "best_f1": 0.131
+    }
+  ],
+  "verdict": {
+    "deploy_to_woof": false,
+    "reason": "The new box contract reduced duplicate objectness peaks but did not improve held-out detection F1. Further hand-designed target tuning is not justified."
+  },
+  "notes": [
+    "At a diagnostic 0.01 threshold, localization recall was 0.963 for pear, 0.750 for apple, and 0.828 for banana, confirming that confidence calibration and classification were larger problems than coarse localization.",
+    "No experimental checkpoint was connected to autonomous motion."
+  ]
+}

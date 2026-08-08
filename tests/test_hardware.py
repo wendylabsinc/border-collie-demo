@@ -6,6 +6,7 @@ import math
 import pytest
 
 from border_collie_demo.config import HardwareConfig
+from border_collie_demo.fruits import fruit_policy
 from border_collie_demo.go2_motion import MotionConfig
 from border_collie_demo.go2_pose import PoseStatus
 from border_collie_demo.hardware import (
@@ -23,6 +24,10 @@ class FakeMotion:
         self.armed = False
         self.initialized = False
         self.commands: list[VelocityCommand] = []
+        self.avoidance_commands: list[VelocityCommand] = []
+        self.direct_yaw_commands: list[VelocityCommand] = []
+        self.arm_modes: list[str] = []
+        self.active_mode: str | None = None
         self.stop_calls = 0
         self.postures: list[str] = []
 
@@ -43,25 +48,52 @@ class FakeMotion:
 
     async def arm(self) -> str:
         self.armed = True
-        return "lease"
+        self.active_mode = "factory_avoidance"
+        self.arm_modes.append(self.active_mode)
+        return f"lease-{len(self.arm_modes)}"
+
+    async def arm_direct_yaw(self) -> str:
+        self.armed = True
+        self.active_mode = "direct_yaw"
+        self.arm_modes.append(self.active_mode)
+        return f"lease-{len(self.arm_modes)}"
 
     async def command(self, lease: str, command: VelocityCommand) -> VelocityCommand:
-        assert lease == "lease"
+        assert lease == f"lease-{len(self.arm_modes)}"
         assert self.armed
+        assert self.active_mode == "factory_avoidance"
         self.commands.append(command)
+        self.avoidance_commands.append(command)
+        return command
+
+    async def command_direct_yaw(
+        self,
+        lease: str,
+        yaw_rps: float,
+        reason: str,
+    ) -> VelocityCommand:
+        assert lease == f"lease-{len(self.arm_modes)}"
+        assert self.armed
+        assert self.active_mode == "direct_yaw"
+        command = VelocityCommand(0.0, yaw_rps, reason)
+        self.commands.append(command)
+        self.direct_yaw_commands.append(command)
         return command
 
     async def release(self, lease: str) -> None:
-        assert lease == "lease"
+        assert lease == f"lease-{len(self.arm_modes)}"
         self.armed = False
+        self.active_mode = None
 
     async def emergency_stop(self) -> list[str]:
         self.stop_calls += 1
         self.armed = False
+        self.active_mode = None
         return []
 
     async def close(self) -> list[str]:
         self.armed = False
+        self.active_mode = None
         return []
 
     async def stand_down(self) -> None:
@@ -123,6 +155,31 @@ class ReturningPose(FakePose):
             )
         )
         self._last = Pose(1.0, 0.0, math.pi, 1.0)
+
+    def status(self) -> PoseStatus:
+        if self.started:
+            self._last = next(self._poses, self._last)
+        return PoseStatus(
+            self._last,
+            0.0,
+            self.started,
+            None if self.started else "pose unavailable",
+        )
+
+
+class CorrectingReturnPose(FakePose):
+    def __init__(self) -> None:
+        super().__init__()
+        self._poses = iter(
+            (
+                Pose(1.0, 0.0, 0.0, 1.0),
+                Pose(1.0, 0.0, 0.0, 1.1),
+                Pose(1.0, 0.0, math.pi, 1.2),
+                Pose(0.5, 0.0, math.pi, 1.3),
+                Pose(0.09, 0.0, math.pi, 1.4),
+            )
+        )
+        self._last = Pose(1.0, 0.0, 0.0, 1.0)
 
     def status(self) -> PoseStatus:
         if self.started:
@@ -250,12 +307,17 @@ def test_measured_turn_stops_from_fresh_pose_progress() -> None:
             timeout_s=0.25,
         )
 
-        assert result["motion_path"] == "factory_avoidance"
+        assert result["motion_path"] == "direct_sport"
         assert result["requested_angle_rad"] == pytest.approx(math.pi / 2.0)
         assert result["measured_yaw_change_rad"] == pytest.approx(1.52)
+        assert result["rotation_translation_m"] == 0.0
+        assert result["initial_position"] == {"x_m": 0.0, "y_m": 0.0}
+        assert result["final_position"] == {"x_m": 0.0, "y_m": 0.0}
         assert len(motion.commands) >= 3
         assert all(command.forward_mps == 0.0 for command in motion.commands)
         assert all(command.yaw_rps == 0.8 for command in motion.commands)
+        assert motion.arm_modes == ["direct_yaw"]
+        assert motion.avoidance_commands == []
         assert motion.armed is False
         assert manager.status()["active_operation"] is None
         await manager.close()
@@ -334,6 +396,10 @@ def test_find_target_turns_until_fresh_stable_perception_then_stops() -> None:
         assert result["label"] == "pear"
         assert result["stable_detections"] == 5
         assert result["motion_commands_sent"] is True
+        assert result["motion_path"] == "direct_sport"
+        assert result["rotation_translation_m"] == 0.0
+        assert motion.arm_modes == ["direct_yaw"]
+        assert motion.avoidance_commands == []
         assert all(command.forward_mps == 0.0 for command in motion.commands)
         assert all(
             command["phase"] == "turn_to_fruit"
@@ -346,7 +412,7 @@ def test_find_target_turns_until_fresh_stable_perception_then_stops() -> None:
     asyncio.run(scenario())
 
 
-def test_find_target_slows_but_keeps_rotating_during_crop_confirmation() -> None:
+def test_find_target_bounds_crop_confirmation_slowdown_for_a_persistent_candidate() -> None:
     async def scenario() -> None:
         motion = FakeMotion()
         manager = HardwareManager(
@@ -375,9 +441,7 @@ def test_find_target_slows_but_keeps_rotating_during_crop_confirmation() -> None
         statuses = iter(
             (
                 {"camera_healthy": True, "target_ready": False},
-                tentative,
-                tentative,
-                {"camera_healthy": True, "target_ready": False},
+                *([tentative] * 10),
                 {
                     "camera_healthy": True,
                     "target_ready": True,
@@ -412,24 +476,158 @@ def test_find_target_slows_but_keeps_rotating_during_crop_confirmation() -> None
         reasons = [command.reason for command in motion.commands]
         assert reasons == [
             "find_target",
-            "crop_confirm_hold",
-            "crop_confirm_slow_turn",
             "find_target",
+            *(["crop_confirm_hold"] * 5),
+            *(["find_target"] * 4),
         ]
         assert [command.yaw_rps for command in motion.commands] == [
             0.50,
-            0.0,
             0.50,
-            0.50,
+            *([0.0] * 5),
+            *([0.50] * 4),
         ]
-        assert result["recognition"]["crop_confirmation_samples"] == 2
-        assert result["recognition"]["crop_slowdown_hold_samples"] == 1
-        assert result["recognition"]["crop_slowdown_turn_samples"] == 1
+        assert result["recognition"]["crop_confirmation_samples"] == 10
+        assert result["recognition"]["search_slowdown_candidate_samples"] == 11
+        assert result["recognition"]["search_slowdown_episodes"] == 1
+        assert result["recognition"]["search_slowdown_hold_samples"] == 5
+        assert result["recognition"].get("crop_slowdown_turn_samples", 0) == 0
         assert result["recognition"]["crop_candidate_confidence_threshold"] == 0.50
+        assert result["recognition"]["search_slowdown_confidence_threshold"] == 0.50
         assert motion.armed is False
         await manager.close()
 
     asyncio.run(scenario())
+
+
+def test_search_slowdown_requires_candidate_clearance_before_rearming() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: TurningPose(),
+        )
+        await manager.start()
+
+        tentative = {
+            "camera_healthy": True,
+            "target_ready": False,
+            "detection": {
+                "label": "apple",
+                "confidence": 0.55,
+                "consecutive_detections": 0,
+            },
+        }
+        clear = {"camera_healthy": True, "target_ready": False}
+        ready = {
+            "camera_healthy": True,
+            "target_ready": True,
+            "detection": {
+                "label": "apple",
+                "confidence": 0.81,
+                "consecutive_detections": 5,
+            },
+        }
+        statuses = iter(
+            (
+                *([tentative] * 7),
+                *([clear] * 3),
+                *([tentative] * 6),
+                ready,
+            )
+        )
+
+        result = await manager.find_target(
+            lambda: next(statuses, ready),
+            "apple",
+            yaw_rps=0.50,
+            sweep_rad=2.0 * math.pi,
+            timeout_s=0.25,
+        )
+
+        assert [command.reason for command in motion.commands] == [
+            "find_target",
+            *(["crop_confirm_hold"] * 5),
+            *(["find_target"] * 5),
+            *(["crop_confirm_hold"] * 5),
+        ]
+        assert result["recognition"]["search_slowdown_episodes"] == 2
+        assert result["recognition"]["search_slowdown_hold_samples"] == 10
+        assert result["recognition"]["search_slowdown_candidate_samples"] == 14
+        assert "crop_confirmation_samples" not in result["recognition"]
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_search_slowdown_hold_survives_one_missed_detection() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: TurningPose(),
+        )
+        await manager.start()
+
+        tentative = {
+            "camera_healthy": True,
+            "target_ready": False,
+            "detection": {
+                "label": "banana",
+                "confidence": 0.56,
+                "consecutive_detections": 0,
+            },
+        }
+        ready = {
+            "camera_healthy": True,
+            "target_ready": True,
+            "detection": {
+                "label": "banana",
+                "confidence": 0.80,
+                "consecutive_detections": 5,
+            },
+        }
+        statuses = iter(
+            (
+                tentative,
+                tentative,
+                {"camera_healthy": True, "target_ready": False},
+                tentative,
+                tentative,
+                tentative,
+                ready,
+            )
+        )
+
+        result = await manager.find_target(
+            lambda: next(statuses, ready),
+            "banana",
+            yaw_rps=0.50,
+            sweep_rad=2.0 * math.pi,
+            timeout_s=0.25,
+        )
+
+        assert [command.reason for command in motion.commands] == [
+            "find_target",
+            *(["crop_confirm_hold"] * 5),
+        ]
+        assert result["recognition"]["search_slowdown_episodes"] == 1
+        assert result["recognition"]["search_slowdown_hold_samples"] == 5
+        assert result["recognition"]["search_slowdown_confidence_threshold"] == 0.55
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_search_slowdown_threshold_is_specific_to_each_fruit() -> None:
+    assert fruit_policy("pear").search_slowdown_confidence == 0.50
+    assert fruit_policy("apple").search_slowdown_confidence == 0.50
+    assert fruit_policy("banana").search_slowdown_confidence == 0.55
 
 
 def test_failed_search_reports_the_best_distant_pear_evidence() -> None:
@@ -505,6 +703,8 @@ def test_failed_search_reports_the_best_distant_pear_evidence() -> None:
                 "bbox_area_ratio": 0.04,
             },
             "search_progress_rad": pytest.approx(0.9),
+            "motion_path": "direct_sport",
+            "rotation_translation_m": 0.0,
         }
         assert motion.armed is False
         await manager.close()
@@ -567,6 +767,18 @@ def test_approach_requires_near_geometry_then_one_offscreen_final_push() -> None
         )
 
         assert result["arrival_confirmed"] is True
+        assert result["rotation_motion_path"] == "direct_sport"
+        assert result["translation_motion_path"] == "factory_avoidance"
+        assert motion.arm_modes == ["direct_yaw", "factory_avoidance"]
+        assert all(
+            command.forward_mps == 0.0
+            for command in motion.direct_yaw_commands
+        )
+        assert all(
+            command.forward_mps > 0.0
+            for command in motion.avoidance_commands
+            if command.reason.startswith("approach_target")
+        )
         assert result["near_confirmations"] == 3
         assert result["final_push_mps"] == 1.0
         assert result["final_push_count"] == 1
@@ -1104,6 +1316,44 @@ def test_return_home_replays_outbound_pulses_and_logs_measured_home_distance() -
         assert result["motion_path"] == "factory_avoidance"
         assert len(motion.commands) == 3
         assert all(command.forward_mps == 1.0 for command in motion.commands)
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_return_home_uses_direct_yaw_then_avoidance_for_forward_travel() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: CorrectingReturnPose(),
+        )
+        await manager.start()
+
+        result = await manager.return_home(
+            {"x_m": 0.0, "y_m": 0.0, "yaw_rad": 0.0},
+            forward_mps=1.0,
+            forward_pulse_count=2,
+            arrival_tolerance_m=0.10,
+            heading_gate_rad=math.radians(20.0),
+            maximum_yaw_rps=0.30,
+            minimum_progress_m=0.03,
+            stall_timeout_s=0.10,
+            timeout_s=0.50,
+        )
+
+        assert result["home_distance_m"] == pytest.approx(0.09)
+        assert motion.arm_modes == ["direct_yaw", "factory_avoidance"]
+        assert [command.forward_mps for command in motion.direct_yaw_commands] == [
+            0.0
+        ]
+        assert [command.yaw_rps for command in motion.direct_yaw_commands] == [0.30]
+        assert all(
+            command.forward_mps == 1.0 for command in motion.avoidance_commands
+        )
         assert motion.armed is False
         await manager.close()
 

@@ -303,6 +303,47 @@ physical runs below exercised this tracking path successfully.
   gate stops it. Automated motion tests lock the hold/turn sequence and its Run
   Result counters.
 
+The duty-cycle behavior above records the deployed hardware state at the time
+of those runs. The current corrective implementation supersedes it with a
+bounded five-heartbeat hold after two selected-fruit candidates, followed by a
+full-rate search resumption and a three-clear-frame rearm rule. That corrective
+behavior is automated-test validated but still requires a supervised Woof run.
+
+### Direct-yaw reassignment — implementation validated, hardware pending
+
+- Rotation-only search, centering, Home bearing correction, and Home-heading
+  restoration now use an exclusive direct `SportClient.Move(0, 0, yaw)` lease.
+- The direct lease disables factory avoidance and makes translation
+  structurally unavailable through its command interface. Forward and
+  forward-plus-yaw movement remain on `ObstaclesAvoidClient`.
+- Approach and Return Home tests prove the active owner is stopped and released
+  before switching between direct yaw and avoidance translation. Independent
+  watchdog and `StopMove` coverage remains active for direct yaw.
+- Completed measured turns now record start/end x/y and translation magnitude.
+  No claim of improved in-place rotation is made until a supervised Woof run
+  compares that evidence with physical observation.
+
+### Physical-controller takeover — implementation validated, hardware pending
+
+- The production app watches the pinned Unitree SDK's Go2 `LowState_` message on
+  `rt/lowstate` and decodes its 40-byte `wireless_remote` field.
+- A read-only Woof probe observed advancing `rt/lowstate` samples and a neutral
+  all-zero controller payload. The alternate standalone wireless-controller
+  topic names produced no samples on this robot.
+- Buttons or either stick outside the 0.15 deadzone must remain active for two
+  consecutive samples before the watcher emits its single process-lifetime
+  takeover event. Malformed, non-finite, impossible, or one-frame samples do
+  not create remote authority.
+- The first valid input cancels the active orchestration task, requests stop
+  and release from both application boundaries, seals the Run Result as
+  `REMOTE_TAKEOVER / REMOTE_OWNED`, records the interrupted phase and input,
+  and blocks all later activation until process restart. Input while idle uses
+  the same latch. A stale or failed watcher also fails closed.
+- Decoder, freshness, preflight, active-run cancellation, durable result,
+  idle-input, and restart-latch behavior are automated-test validated. No
+  physical controller button or stick was moved during implementation; latency
+  and takeover during each motion family remain supervised acceptance work.
+
 Three back-to-back supervised Demo Runs were recorded after deployment. Every
 run completed `return_home` inside the 0.10-meter Home gate, at approximately
 0.078, 0.065, and 0.063 meters. Runs

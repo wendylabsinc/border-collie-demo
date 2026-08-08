@@ -6,9 +6,11 @@ proof that this clean implementation works:
 - Direct SportClient movement produced physical steps at 0.25 and 0.50 m/s.
 - Factory obstacle-avoidance movement required approximately 0.50 m/s.
 - Corrective factory-avoidance yaw values around 0.24–0.30 rad/s can change
-  posture without producing a useful turn. The clean centering candidate uses
-  the separately observed working 0.50 rad/s turn signal outside its center
-  band and zero yaw inside the band.
+  posture without producing a useful turn. Rotation-only operations now use
+  the old implementation's direct SportClient yaw lease instead, with the
+  separately observed 0.50 rad/s turn signal outside the center band and zero
+  yaw inside it. This reassignment is automated-test validated but requires a
+  new supervised physical qualification.
 - The same factory-avoidance calibration produced visible physical movement
   at 1.0 m/s. Production fruit approach therefore uses 1.0 m/s rather than
   operating exactly at the observed 0.50 m/s deadband edge; camera steering,
@@ -35,9 +37,10 @@ is treated as qualified.
 
 ## First reuse decision
 
-The clean foundation reuses the factory-avoidance connection and motion
-boundary because `MOTION-DEADBAND-001` has explicit human observation and a
-verified disarmed final state. Direct SportClient translation is deliberately
-not exposed yet. Although 0.25 and 0.50 m/s produced direct-path steps, that
-path disables factory avoidance and belongs behind the future return-home
-collision-planning contract.
+The clean foundation reuses factory avoidance for every forward or
+forward-plus-yaw command because `MOTION-DEADBAND-001` has explicit human
+observation and a verified disarmed final state. Rotation-only work uses the
+old implementation's separately owned direct SportClient yaw path so obstacle
+avoidance cannot reshape a requested in-place turn. Direct SportClient
+translation remains deliberately unavailable; it disables factory avoidance
+and belongs behind the future return-home collision-planning contract.

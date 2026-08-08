@@ -1,0 +1,180 @@
+{
+  "schema_version": 1,
+  "experiment_id": "MAX-NATIVE-002",
+  "status": "max_native_runtime_passed_realtime_gate_failed",
+  "purpose": "train a three-class fruit detector whose detection-only graph can be compiled by MAX",
+  "classes": [
+    "pear",
+    "apple",
+    "banana"
+  ],
+  "dataset": {
+    "policy": "whole fruit only",
+    "minimum_automated_whole_fruit_score": 0.75,
+    "train_images": 661,
+    "train_boxes": 1048,
+    "validation_images": 107,
+    "validation_boxes": 168,
+    "split_seed": 20260806,
+    "manifest_sha256": "fec5fb7ac8f4690c103233b2871a12344df7fe4574da20565f09fb727c186233"
+  },
+  "rejected_native_skeleton": {
+    "architecture": "48-convolution MobileNetV3-like backbone with raw stride-8, stride-16, and stride-32 heads",
+    "training_seconds": 408.94037412502803,
+    "best_checkpoint_epoch": 19,
+    "best_observed_threshold": 0.25,
+    "precision": 0.21014492753623187,
+    "recall": 0.17261904761904762,
+    "decision": "rejected before export or deployment because localization quality failed"
+  },
+  "selected_candidate": {
+    "architecture": "YOLO11s detection-only",
+    "base_weights": "artifacts/fruit-model/base-models/yolo11s.pt",
+    "training": {
+      "image_size": 640,
+      "epochs": 12,
+      "batch_size": 8,
+      "device": "Apple M4 Max MPS",
+      "optimizer": "AdamW",
+      "initial_learning_rate": 0.0001,
+      "frozen_layers": 10,
+      "seconds": 272.763
+    },
+    "pytorch_checkpoint": {
+      "path": "artifacts/fruit-model/experiments/MAX-NATIVE-002/candidate/fruit-yolo11s-best.pt",
+      "sha256": "3b025ba3a866fa6545bc0ff80adea484fab0ac62398b00a786ee3accd55ce4fc"
+    },
+    "onnx_exchange_graph": {
+      "path": "artifacts/fruit-model/experiments/MAX-NATIVE-002/candidate/fruit-yolo11s-best.onnx",
+      "sha256": "b20ab6af76d9ae78d448bbe9a18c856d6223314e87ccc3e571e4885de24fedde",
+      "input": [
+        1,
+        3,
+        640,
+        640
+      ],
+      "output": [
+        1,
+        7,
+        8400
+      ],
+      "max_importer_operator_check": "passed"
+    },
+    "onnx_416_runtime_graph": {
+      "path": "artifacts/fruit-model/experiments/MAX-NATIVE-002/candidate/fruit-yolo11s-416.onnx",
+      "sha256": "430ddaf36b3f8b106aaa1440cfee4e03ffd68dafabf2841115c17ad96a5cf2aa",
+      "input": [
+        1,
+        3,
+        416,
+        416
+      ],
+      "output": [
+        1,
+        7,
+        3549
+      ],
+      "max_importer_operator_check": "passed"
+    }
+  },
+  "validation": {
+    "pytorch": {
+      "precision": 0.82,
+      "recall": 0.747,
+      "map50": 0.852,
+      "map50_95": 0.676,
+      "pear_recall": 0.889,
+      "banana_precision": 1.0
+    },
+    "onnx_runtime": {
+      "precision": 0.7950566891288484,
+      "recall": 0.7657448405671032,
+      "map50": 0.8510995861224989,
+      "map50_95": 0.6631920842839719
+    },
+    "onnx_runtime_416": {
+      "precision": 0.7214015945762213,
+      "recall": 0.7936583956698898,
+      "map50": 0.8478451718873451,
+      "map50_95": 0.6560479765281754
+    },
+    "tests_passed": 28
+  },
+  "packaging": {
+    "lab_app": "lab/max-yolo11s-candidate",
+    "motion_capability_included": false,
+    "dlo_initial_build_seconds": 153.412,
+    "dlo_warm_noop_build_seconds": 1.089,
+    "image_bytes": 2098812203,
+    "image_layers": 9
+  },
+  "deployment": {
+    "target": "woof.local",
+    "status": "native_max_execution_passed_realtime_failed",
+    "docker_deployments": {
+      "initial_640_seconds": 398.413,
+      "runtime_416_seconds": 49.772,
+      "snapshot_endpoint_seconds": 41.972,
+      "latest_phases_seconds": {
+        "build": 33.084,
+        "export": 4.965,
+        "transfer": 0.106,
+        "unpack": 0.636,
+        "replacement": 1.572,
+        "readiness": 1.154
+      }
+    },
+    "max_640": {
+      "compile_seconds": 330.0914005940001,
+      "result": "compiled, then safety guard aborted initialization at 0.14 GiB available",
+      "cached_restart_result": "stalled before first synchronized inference",
+      "cached_restart_nvmap_kib": 10913604
+    },
+    "max_416": {
+      "cuda_ptx_jit_disabled": true,
+      "compile_seconds": 332.5583463539999,
+      "total_first_startup_seconds": 433.77025007399993,
+      "cached_startup_seconds": 102.03483052299998,
+      "mef_sha256": "afade71af457f5795aae0e548952add5414cfd21b84f42e3788a6d4f56dd4bb5",
+      "weights_sha256": "24cbfaacf5c2ee895aaaa0b197678da3bd329a7aa06b690e70388889221fa6a6",
+      "mef_bytes": 6429049,
+      "weights_bytes": 18909616,
+      "warm_inference": {
+        "samples": 30,
+        "median_ms": 2822.1958789999917,
+        "p95_ms": 2824.592197999891,
+        "maximum_ms": 5633.803398000055,
+        "fps_from_median": 0.3543340160904554
+      },
+      "maximum_rss_bytes": 9128534016,
+      "minimum_available_bytes": 1538801664,
+      "maximum_swap_used_bytes": 232259584,
+      "thermal_guard_passed": true,
+      "result": "native sm_87 MAX execution passed; real-time latency gate failed"
+    },
+    "live_snapshot": {
+      "result_id": "MAX-YOLO11S-416-LIVE-001",
+      "max_confidence_thresholds": [
+        0.25,
+        0.1
+      ],
+      "max_detections": 0,
+      "max_latency_ms": 2833.6870250000175,
+      "onnx_comparison_confidence_threshold": 0.01,
+      "onnx_detections": 0,
+      "conclusion": "inconclusive scene: the captured frame did not contain a recognizable pear for either runtime"
+    },
+    "required_next_gates": [
+      "MAX-versus-ONNX output parity on fixed images",
+      "live camera validation with a clearly visible fruit and motion disabled",
+      "reduce median inference from 2822 ms to below the 100 ms demo deadline"
+    ]
+  },
+  "limitations": [
+    "Automated whole-fruit ranking is not a substitute for complete human review.",
+    "Independent source-image rights verification remains incomplete.",
+    "The selected Ultralytics training/runtime licensing path must be resolved before production use.",
+    "Native MAX execution is proven, but output parity on a fixed labeled corpus is not yet complete.",
+    "The 416 MAX runtime is approximately 28 times slower than the 100 ms demo deadline and must not control autonomous motion."
+  ]
+}

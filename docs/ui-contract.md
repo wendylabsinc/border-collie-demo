@@ -10,7 +10,7 @@ The audience route is intentionally minimal:
 
 - one primary **Activate Demo** control;
 - one always-available **Stop Woof** safety control;
-- a narrow qualified-fruit selector containing Pear and Red apple;
+- a narrow qualified-fruit selector containing Pear, Red apple, and Banana;
 - a read-only annotated camera preview showing model state and Target Fruit
   evidence;
 - readiness or the exact reason activation is unavailable;

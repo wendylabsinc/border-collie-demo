@@ -1,0 +1,24 @@
+{
+  "appId": "border-collie-tensorrt-corpus-control",
+  "version": "0.1.0",
+  "services": {
+    "control": {
+      "context": "../../media",
+      "resources": {
+        "cpus": "4.0",
+        "memory": "8Gi",
+        "pids": 512
+      },
+      "env": {
+        "CORPUS_MANIFEST_URL": "http://192.168.0.250:8765/lab/max-importer-tournament/corpus.json",
+        "CORPUS_ROOT_URL": "http://192.168.0.250:8765/",
+        "CONTROL_WARMUPS": "3",
+        "CONTROL_REPETITIONS": "3"
+      },
+      "entitlements": [
+        {"type": "network", "mode": "host"},
+        {"type": "gpu"}
+      ]
+    }
+  }
+}

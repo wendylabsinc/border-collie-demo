@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "reference_variant": "pytorch-yolo11n-go2-640",
+  "protocol": {
+    "input_size": 640,
+    "warmups": 3,
+    "timed_repetitions": 3
+  },
+  "gates": {
+    "minimum_class_recall": 0.8,
+    "minimum_box_recall_iou50": 0.7
+  },
+  "variants": [
+    {
+      "id": "pytorch-yolo11n-go2-640",
+      "kind": "pytorch",
+      "precision": "fp32-local-checkpoint-candidate",
+      "model": "runs/detect/artifacts/fruit-model/experiments/MAX-NATIVE-007/yolo11n-640-go2-head/weights/best.pt"
+    },
+    {
+      "id": "onnx-yolo11n-go2-640",
+      "kind": "onnxruntime",
+      "precision": "fp32-local-parity",
+      "parity_reference": "pytorch-yolo11n-go2-640",
+      "model": "runs/detect/artifacts/fruit-model/experiments/MAX-NATIVE-007/yolo11n-640-go2-head/weights/best.onnx"
+    },
+    {
+      "id": "pytorch-yolo11s-public-640",
+      "kind": "pytorch",
+      "precision": "fp32-local-accuracy-control",
+      "model": "artifacts/fruit-model/experiments/MAX-NATIVE-002/candidate/fruit-yolo11s-best.pt"
+    }
+  ],
+  "controls": [
+    {
+      "variant": "tensorrt-production-control",
+      "phase": "woof-control-pending-fixed-corpus",
+      "median_ms": 60.2158,
+      "p95_ms": 71.7005,
+      "class_recall": null,
+      "box_recall_iou50": null,
+      "raw_parity": null,
+      "verdict": "pending"
+    }
+  ]
+}

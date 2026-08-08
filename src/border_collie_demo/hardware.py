@@ -29,7 +29,9 @@ FORWARD_PULSE_CONFIRMATION = "PATH CLEAR - MOVE WOOF FORWARD"
 INITIAL_CENTER_TOLERANCE_RATIO = 0.08
 INITIAL_CENTER_CONFIRMATIONS = 3
 INITIAL_CENTER_YAW_RPS = 0.50
-SEARCH_CROP_CANDIDATE_CONFIDENCE = 0.50
+SEARCH_SLOWDOWN_MINIMUM_CANDIDATE_FRAMES = 2
+SEARCH_SLOWDOWN_HOLD_SAMPLES = 5
+SEARCH_SLOWDOWN_REARM_CLEAR_FRAMES = 3
 APPROACH_CENTER_TOLERANCE_RATIO = 0.08
 CLOSE_RANGE_MINIMUM_BOTTOM_RATIO = 0.70
 CLOSE_RANGE_MAXIMUM_CENTER_DELTA_RATIO = 0.20
@@ -87,8 +89,17 @@ class MotionAdapterProtocol(Protocol):
 
     async def arm(self) -> str: ...
 
+    async def arm_direct_yaw(self) -> str: ...
+
     async def command(
         self, lease: str, command: VelocityCommand
+    ) -> VelocityCommand: ...
+
+    async def command_direct_yaw(
+        self,
+        lease: str,
+        yaw_rps: float,
+        reason: str,
     ) -> VelocityCommand: ...
 
     async def release(self, lease: str) -> None: ...
@@ -322,7 +333,10 @@ class HardwareManager:
                         initial.error or "fresh Go2 pose is required before motion"
                     )
                 previous_yaw = initial.pose.yaw_rad
-                lease = await self._motion.arm()
+                initial_x = initial.pose.x_m
+                initial_y = initial.pose.y_m
+                final_pose = initial.pose
+                lease = await self._motion.arm_direct_yaw()
                 command_started = time.monotonic()
                 deadline = started + timeout
                 while time.monotonic() < deadline:
@@ -331,6 +345,7 @@ class HardwareManager:
                         raise HardwareUnavailable(
                             sample.error or "Go2 pose became stale during turn"
                         )
+                    final_pose = sample.pose
                     yaw_step = math.atan2(
                         math.sin(sample.pose.yaw_rad - previous_yaw),
                         math.cos(sample.pose.yaw_rad - previous_yaw),
@@ -349,9 +364,10 @@ class HardwareManager:
                             f"{math.degrees(progress):.1f} degrees in "
                             f"{response_elapsed:.2f} seconds"
                         )
-                    await self._send_motion_command(
+                    await self._send_direct_yaw_command(
                         lease,
-                        VelocityCommand(0.0, direction * rate, "measured_turn"),
+                        direction * rate,
+                        "measured_turn",
                     )
                     await asyncio.sleep(self.config.command_heartbeat_s)
                 else:
@@ -382,9 +398,18 @@ class HardwareManager:
             if release_error is not None:
                 raise HardwareUnavailable(f"measured turn stop failed: {release_error}")
             return {
-                "motion_path": "factory_avoidance",
+                "motion_path": "direct_sport",
                 "requested_angle_rad": requested,
                 "measured_yaw_change_rad": progress,
+                "rotation_translation_m": math.hypot(
+                    final_pose.x_m - initial_x,
+                    final_pose.y_m - initial_y,
+                ),
+                "initial_position": {"x_m": initial_x, "y_m": initial_y},
+                "final_position": {
+                    "x_m": final_pose.x_m,
+                    "y_m": final_pose.y_m,
+                },
                 "yaw_rps": direction * rate,
                 "elapsed_s": round(time.monotonic() - started, 3),
                 "stopped": True,
@@ -425,7 +450,11 @@ class HardwareManager:
             progress = 0.0
             started = time.monotonic()
             evidence: dict[str, object] | None = None
-            crop_slow_turn_next = False
+            target_policy = fruit_policy(target_fruit)
+            slowdown_candidate_streak = 0
+            slowdown_hold_remaining = 0
+            slowdown_rearm_required = False
+            slowdown_clear_streak = 0
             recognition: dict[str, object] = {
                 "samples": 0,
                 "pear_candidate_samples": 0,
@@ -442,11 +471,14 @@ class HardwareManager:
                         initial.error or "fresh Go2 pose is required before search"
                     )
                 previous_yaw = initial.pose.yaw_rad
-                lease = await self._motion.arm()
+                initial_x = initial.pose.x_m
+                initial_y = initial.pose.y_m
+                last_pose = initial.pose
+                lease = await self._motion.arm_direct_yaw()
                 deadline = started + timeout
                 while time.monotonic() < deadline:
                     status = status_reader()
-                    slow_for_crop_confirmation = False
+                    slowdown_candidate = False
                     recognition["samples"] = int(recognition["samples"]) + 1
                     if not status.get("camera_healthy"):
                         raise CameraFailure(
@@ -469,6 +501,24 @@ class HardwareManager:
                                 if current_maximum is None
                                 else max(current_maximum, confidence)
                             )
+                            slowdown_candidate = bool(
+                                label == target_fruit.casefold()
+                                and confidence
+                                >= target_policy.search_slowdown_confidence
+                            )
+                            if slowdown_candidate:
+                                recognition["search_slowdown_candidate_samples"] = (
+                                    int(
+                                        recognition.get(
+                                            "search_slowdown_candidate_samples",
+                                            0,
+                                        )
+                                    )
+                                    + 1
+                                )
+                                recognition[
+                                    "search_slowdown_confidence_threshold"
+                                ] = target_policy.search_slowdown_confidence
                         consecutive = detection.get("consecutive_detections")
                         if isinstance(consecutive, int) and not isinstance(
                             consecutive, bool
@@ -503,14 +553,14 @@ class HardwareManager:
                             full_frame_confidence = _finite_float(
                                 crop_confirmation.get("full_frame_confidence")
                             )
-                            slow_for_crop_confirmation = bool(
+                            crop_candidate = bool(
                                 label == target_fruit.casefold()
                                 and crop_confirmation.get("attempted") is True
                                 and full_frame_confidence is not None
                                 and full_frame_confidence
-                                >= SEARCH_CROP_CANDIDATE_CONFIDENCE
+                                >= target_policy.search_slowdown_confidence
                             )
-                            if slow_for_crop_confirmation:
+                            if crop_candidate:
                                 recognition["crop_confirmation_samples"] = (
                                     int(
                                         recognition.get(
@@ -522,7 +572,40 @@ class HardwareManager:
                                 )
                                 recognition[
                                     "crop_candidate_confidence_threshold"
-                                ] = SEARCH_CROP_CANDIDATE_CONFIDENCE
+                                ] = target_policy.search_slowdown_confidence
+                    if slowdown_candidate:
+                        slowdown_clear_streak = 0
+                        if (
+                            not slowdown_rearm_required
+                            and slowdown_hold_remaining == 0
+                        ):
+                            slowdown_candidate_streak += 1
+                            if (
+                                slowdown_candidate_streak
+                                >= SEARCH_SLOWDOWN_MINIMUM_CANDIDATE_FRAMES
+                            ):
+                                slowdown_hold_remaining = SEARCH_SLOWDOWN_HOLD_SAMPLES
+                                slowdown_rearm_required = True
+                                slowdown_candidate_streak = 0
+                                recognition["search_slowdown_episodes"] = (
+                                    int(
+                                        recognition.get(
+                                            "search_slowdown_episodes",
+                                            0,
+                                        )
+                                    )
+                                    + 1
+                                )
+                    else:
+                        slowdown_candidate_streak = 0
+                        if slowdown_rearm_required:
+                            slowdown_clear_streak += 1
+                            if (
+                                slowdown_clear_streak
+                                >= SEARCH_SLOWDOWN_REARM_CLEAR_FRAMES
+                            ):
+                                slowdown_rearm_required = False
+                                slowdown_clear_streak = 0
                     if status.get("target_ready") and isinstance(detection, dict):
                         label = str(detection.get("label") or "").casefold()
                         if label == target_fruit.casefold():
@@ -538,6 +621,11 @@ class HardwareManager:
                                     "search_progress_rad": progress,
                                 },
                                 "motion_commands_sent": commands_sent,
+                                "motion_path": "direct_sport",
+                                "rotation_translation_m": math.hypot(
+                                    last_pose.x_m - initial_x,
+                                    last_pose.y_m - initial_y,
+                                ),
                             }
                             break
                     sample = self._pose.status()
@@ -553,46 +641,39 @@ class HardwareManager:
                         ),
                     )
                     previous_yaw = sample.pose.yaw_rad
+                    last_pose = sample.pose
                     if progress >= sweep:
                         raise TargetLost(
                             f"{target_fruit} was not found in the bounded search sweep",
                             evidence={
                                 **recognition,
                                 "search_progress_rad": progress,
+                                "motion_path": "direct_sport",
+                                "rotation_translation_m": math.hypot(
+                                    last_pose.x_m - initial_x,
+                                    last_pose.y_m - initial_y,
+                                ),
                             },
                         )
                     command_rate = rate
                     command_reason = "find_target"
-                    if slow_for_crop_confirmation:
-                        crop_slow_turn_next = not crop_slow_turn_next
-                        if crop_slow_turn_next:
-                            command_rate = 0.0
-                            command_reason = "crop_confirm_hold"
-                            recognition["crop_slowdown_hold_samples"] = (
-                                int(
-                                    recognition.get(
-                                        "crop_slowdown_hold_samples",
-                                        0,
-                                    )
+                    if slowdown_hold_remaining > 0:
+                        command_rate = 0.0
+                        command_reason = "crop_confirm_hold"
+                        slowdown_hold_remaining -= 1
+                        recognition["search_slowdown_hold_samples"] = (
+                            int(
+                                recognition.get(
+                                    "search_slowdown_hold_samples",
+                                    0,
                                 )
-                                + 1
                             )
-                        else:
-                            command_reason = "crop_confirm_slow_turn"
-                            recognition["crop_slowdown_turn_samples"] = (
-                                int(
-                                    recognition.get(
-                                        "crop_slowdown_turn_samples",
-                                        0,
-                                    )
-                                )
-                                + 1
-                            )
-                    else:
-                        crop_slow_turn_next = False
-                    await self._send_motion_command(
+                            + 1
+                        )
+                    await self._send_direct_yaw_command(
                         lease,
-                        VelocityCommand(0.0, command_rate, command_reason),
+                        command_rate,
+                        command_reason,
                     )
                     commands_sent = commands_sent or command_rate != 0.0
                     await asyncio.sleep(self.config.command_heartbeat_s)
@@ -602,6 +683,11 @@ class HardwareManager:
                         evidence={
                             **recognition,
                             "search_progress_rad": progress,
+                            "motion_path": "direct_sport",
+                            "rotation_translation_m": math.hypot(
+                                last_pose.x_m - initial_x,
+                                last_pose.y_m - initial_y,
+                            ),
                         },
                     )
             except Exception as exc:  # noqa: BLE001 - always disarm below
@@ -687,7 +773,7 @@ class HardwareManager:
             started = time.monotonic()
             try:
                 assert self._motion is not None
-                lease = await self._motion.arm()
+                lease = await self._motion.arm_direct_yaw()
                 deadline = started + timeout_s
                 while time.monotonic() < deadline:
                     now = time.monotonic()
@@ -797,10 +883,17 @@ class HardwareManager:
                             or near_at is None
                             or now - near_at > near_loss_grace_s
                         ):
-                            await self._send_motion_command(
-                                lease,
-                                VelocityCommand(reason="target_not_visible"),
-                            )
+                            if initial_centered:
+                                await self._send_motion_command(
+                                    lease,
+                                    VelocityCommand(reason="target_not_visible"),
+                                )
+                            else:
+                                await self._send_direct_yaw_command(
+                                    lease,
+                                    0.0,
+                                    "target_not_visible",
+                                )
                             await asyncio.sleep(self.config.command_heartbeat_s)
                             continue
                         push_deadline = now + final_push_duration_s
@@ -857,6 +950,8 @@ class HardwareManager:
                             "close_range_continuation_samples": (
                                 close_range_continuation_samples
                             ),
+                            "rotation_motion_path": "direct_sport",
+                            "translation_motion_path": "factory_avoidance",
                         }
                         break
 
@@ -902,18 +997,18 @@ class HardwareManager:
                                     center_x - 0.5,
                                 )
                             )
-                            await self._send_motion_command(
+                            await self._send_direct_yaw_command(
                                 lease,
-                                VelocityCommand(
-                                    0.0,
-                                    yaw,
-                                    "center_target_before_approach",
-                                ),
+                                yaw,
+                                "center_target_before_approach",
                             )
                             commands_sent = commands_sent or yaw != 0.0
                             await asyncio.sleep(self.config.command_heartbeat_s)
                             continue
                         initial_centered = True
+                        await self._motion.release(lease)
+                        lease = None
+                        lease = await self._motion.arm()
                     near = bottom >= near_bottom_ratio and center_y >= near_center_ratio
                     confirmations = confirmations + 1 if near else 0
                     near_confirmed = confirmations >= near_confirmations
@@ -1016,9 +1111,10 @@ class HardwareManager:
             samples = 0
             replayed_forward_pulses = 0
             commands_sent = False
+            motion_mode: str | None = None
+            motion_paths_used: list[str] = []
             try:
                 assert self._motion is not None and self._pose is not None
-                lease = await self._motion.arm()
                 deadline = started + timeout_s
                 while time.monotonic() < deadline:
                     sample = self._pose.status()
@@ -1043,7 +1139,14 @@ class HardwareManager:
                                 replayed_forward_pulses < forward_pulse_count
                             ),
                             "pose_samples": samples,
-                            "motion_path": "factory_avoidance",
+                            "motion_path": (
+                                "none"
+                                if not motion_paths_used
+                                else motion_paths_used[0]
+                                if len(motion_paths_used) == 1
+                                else "direct_sport_and_factory_avoidance"
+                            ),
+                            "motion_paths": list(motion_paths_used),
                             "motion_commands_sent": commands_sent,
                         }
                         break
@@ -1069,7 +1172,32 @@ class HardwareManager:
                             "return_home",
                         )
                     )
-                    await self._send_motion_command(lease, command)
+                    required_mode = (
+                        "direct_sport"
+                        if command.forward_mps == 0.0
+                        else "factory_avoidance"
+                    )
+                    if motion_mode != required_mode:
+                        if lease is not None and self._motion.armed:
+                            await self._motion.release(lease)
+                            lease = None
+                        lease = (
+                            await self._motion.arm_direct_yaw()
+                            if required_mode == "direct_sport"
+                            else await self._motion.arm()
+                        )
+                        motion_mode = required_mode
+                        if required_mode not in motion_paths_used:
+                            motion_paths_used.append(required_mode)
+                    assert lease is not None
+                    if required_mode == "direct_sport":
+                        await self._send_direct_yaw_command(
+                            lease,
+                            command.yaw_rps,
+                            command.reason,
+                        )
+                    else:
+                        await self._send_motion_command(lease, command)
                     commands_sent = True
                     if command.forward_mps > 0.0:
                         replayed_forward_pulses += 1
@@ -1319,6 +1447,25 @@ class HardwareManager:
                 "forward command blocked before approach or return motion"
             )
         sent = await self._motion.command(lease, command)
+        self._motion_trace.append(
+            {
+                "sequence": len(self._motion_trace) + 1,
+                "phase": self._motion_trace_phase,
+                "recorded_monotonic_s": time.monotonic(),
+                **sent.to_dict(),
+            }
+        )
+        return sent
+
+    async def _send_direct_yaw_command(
+        self,
+        lease: str,
+        yaw_rps: float,
+        reason: str,
+    ) -> VelocityCommand:
+        if self._motion is None:
+            raise HardwareUnavailable("Go2 motion adapter is not connected")
+        sent = await self._motion.command_direct_yaw(lease, yaw_rps, reason)
         self._motion_trace.append(
             {
                 "sequence": len(self._motion_trace) + 1,

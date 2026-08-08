@@ -5,6 +5,7 @@ import os
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
+from time import monotonic
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Response
@@ -15,7 +16,9 @@ from .evidence import EvidenceArtifact
 from .fruits import QUALIFIED_FRUITS, SUPPORTED_FRUITS
 from .hardware import HardwareManager, HardwareUnavailable
 from .mission import MissionMachine, RestartRequired
+from .models import RemoteInput
 from .orchestrator import EXECUTED_STAGES, DemoOrchestrator, StageExecutor
+from .ports import RemoteInputPort
 from .preflight import evaluate_preflight, preflight_check_ready
 from .run_results import ActiveRunError, RunResultNotFound, RunResultStore
 
@@ -25,7 +28,7 @@ class ForwardPulseRequest(BaseModel):
 
 
 class RunRequest(BaseModel):
-    target_fruit: Literal["apple", "pear"] = "pear"
+    target_fruit: Literal["apple", "banana", "pear"] = "pear"
     activation_source: Literal["audience_ui", "voice"] = "audience_ui"
 
 
@@ -44,6 +47,7 @@ def create_app(
     media_status: Callable[[], dict[str, object]] | None = None,
     stage_executor: StageExecutor | None = None,
     terminal_evidence: Callable[[], list[EvidenceArtifact]] | None = None,
+    remote_input: RemoteInputPort | None = None,
     runtime_mode: Literal["production", "simulation"] = "production",
 ) -> FastAPI:
     machine = mission or MissionMachine()
@@ -72,6 +76,7 @@ def create_app(
             }
 
     active_tasks: set[asyncio.Task[dict[str, object]]] = set()
+    takeover_lock = asyncio.Lock()
     orchestrator = (
         None
         if stage_executor is None
@@ -83,13 +88,107 @@ def create_app(
         )
     )
 
+    def current_remote_input_status() -> dict[str, object] | None:
+        if remote_input is None:
+            return None
+        try:
+            return remote_input.status()
+        except Exception as exc:  # noqa: BLE001 - external adapter boundary
+            return {
+                "ready": False,
+                "error": f"physical controller monitor status failed: {exc}",
+            }
+
+    async def handle_remote_takeover(
+        received: RemoteInput,
+        *,
+        monitor_error: str | None = None,
+    ) -> None:
+        async with takeover_lock:
+            if machine.takeover_latched:
+                return
+            interrupted_phase = machine.phase.value
+            active_run_id = results.active_run_id
+            machine.remote_takeover(received)
+
+            tasks = list(active_tasks)
+            for task in tasks:
+                task.cancel()
+
+            stop_errors = await robot.emergency_stop()
+            if stage_executor is not None:
+                stop_errors.extend(await stage_executor.stop())
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+            active_tasks.difference_update(tasks)
+
+            if active_run_id is not None:
+                hardware_after_release = robot.status()
+                motion_after_release = hardware_after_release.get("motion")
+                results.seal(
+                    active_run_id,
+                    phase=machine.phase.value,
+                    outcome="REMOTE_TAKEOVER",
+                    reason="REMOTE_TAKEOVER",
+                    message=(
+                        "physical controller took authority; application restart required"
+                    ),
+                    final_safety_state="REMOTE_OWNED",
+                    failed_phase=interrupted_phase,
+                    failure_details={
+                        "interrupted_phase": interrupted_phase,
+                        "remote_input": {
+                            "source": received.source,
+                            "control": received.control,
+                            "received_monotonic_s": received.received_monotonic_s,
+                        },
+                        "monitor_error": monitor_error,
+                        "application_stop_errors": stop_errors,
+                        "application_motion_after_release": (
+                            {
+                                "armed": motion_after_release.get("armed"),
+                                "mode": motion_after_release.get("mode"),
+                                "last_command": motion_after_release.get("last_command"),
+                            }
+                            if isinstance(motion_after_release, dict)
+                            else None
+                        ),
+                    },
+                )
+
+    async def watch_remote_input() -> None:
+        assert remote_input is not None
+        try:
+            await remote_input.watch(handle_remote_takeover)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - monitor loss fails closed
+            await handle_remote_takeover(
+                RemoteInput(
+                    source="unitree_remote_monitor",
+                    control="monitor_failure",
+                    received_monotonic_s=monotonic(),
+                ),
+                monitor_error=str(exc),
+            )
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         results.seal_interrupted_runs()
         await robot.start()
+        remote_watch_task = (
+            asyncio.create_task(watch_remote_input())
+            if remote_input is not None
+            else None
+        )
+        if remote_watch_task is not None:
+            await asyncio.sleep(0)
         try:
             yield
         finally:
+            if remote_watch_task is not None:
+                remote_watch_task.cancel()
+                await asyncio.gather(remote_watch_task, return_exceptions=True)
             tasks = list(active_tasks)
             for task in tasks:
                 task.cancel()
@@ -178,15 +277,29 @@ def create_app(
                 "detail": f"camera/perception readiness error: {exc}",
             }
         media = current_media_status()
-        preflight = evaluate_preflight(robot.status(), camera_perception, media)
+        remote_status = current_remote_input_status()
+        preflight = evaluate_preflight(
+            robot.status(), camera_perception, media, remote_status
+        )
+        takeover_blocker = (
+            [
+                {
+                    "name": "remote_takeover_latched",
+                    "detail": "physical controller owns authority; restart required",
+                }
+            ]
+            if machine.takeover_latched
+            else []
+        )
         return {
             "runtime_mode": runtime_mode,
             "mission": machine.status(),
             "hardware": robot.status(),
             "active_run_id": results.active_run_id,
+            "remote_input": remote_status,
             "activation": {
-                "ready": preflight["ready"],
-                "blockers": [
+                "ready": preflight["ready"] and not machine.takeover_latched,
+                "blockers": takeover_blocker + [
                     {
                         "name": check["name"],
                         "detail": check["detail"],
@@ -228,7 +341,12 @@ def create_app(
                 "detail": f"camera/perception readiness error: {exc}",
             }
         media = current_media_status()
-        report = evaluate_preflight(robot.status(), camera_perception, media)
+        report = evaluate_preflight(
+            robot.status(),
+            camera_perception,
+            media,
+            current_remote_input_status(),
+        )
         run = results.record_preflight(run["run_id"], report)
         if not report["ready"]:
             stop_errors = await robot.emergency_stop()
@@ -243,7 +361,12 @@ def create_app(
                     "DISARMED_CONFIRMED"
                     if not stop_errors
                     and preflight_check_ready(
-                        evaluate_preflight(robot.status(), camera_perception, media),
+                        evaluate_preflight(
+                            robot.status(),
+                            camera_perception,
+                            media,
+                            current_remote_input_status(),
+                        ),
                         "motion_disarmed",
                     )
                     else "STOP_REQUESTED_UNCONFIRMED"

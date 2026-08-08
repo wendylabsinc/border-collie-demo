@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "experiment": "MAX-NATIVE-004",
+  "date": "2026-08-07",
+  "objective": "Improve the compact MAX-native detector with a feature pyramid, spatial heads, corrected batch-normalization behavior, and sigmoid class training.",
+  "classes": [
+    "pear",
+    "apple",
+    "banana"
+  ],
+  "input_size": 416,
+  "validation": {
+    "images": 107,
+    "boxes": 168,
+    "match_iou_threshold": 0.5
+  },
+  "attempts": [
+    {
+      "run": "run-005-v3-frozen-bn-full-416",
+      "change": "Freeze batch-normalization statistics after calibration.",
+      "best_f1": 0.2094240837696335
+    },
+    {
+      "run": "run-006-v3-sigmoid-class-finetune-416",
+      "change": "Replace mutually exclusive softmax class training with deployment-matching sigmoid scores.",
+      "best_f1": 0.15671641791044777
+    },
+    {
+      "run": "run-007-v3-clean-sigmoid-416",
+      "change": "Train the sigmoid contract cleanly rather than converting a softmax checkpoint.",
+      "best_f1": 0.1496062992125984
+    }
+  ],
+  "verdict": {
+    "deploy_to_woof": false,
+    "reason": "None of the v3 runs exceeded the previous compact-detector F1 of 0.22686567164179103. The model learned useful boxes but did not calibrate object and class confidence reliably."
+  },
+  "notes": [
+    "All comparisons use the same deterministic 107-image held-out split.",
+    "The clean sigmoid result ruled out checkpoint conversion as the main cause.",
+    "No experimental checkpoint was connected to autonomous motion."
+  ]
+}

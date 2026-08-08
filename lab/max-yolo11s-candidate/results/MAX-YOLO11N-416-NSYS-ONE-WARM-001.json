@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-08-07T20:12:53.027507+00:00",
+  "device": "woof.local",
+  "profile_scope": "one warm inference after five warmups",
+  "input_shape": [1, 416, 416, 3],
+  "output_shape": [1, 7, 3549],
+  "inference_ms": 854.126503,
+  "prior_unprofiled_median_ms": 841.45,
+  "gpu_trace_span_ms": 853.11056,
+  "gpu_active_union_ms": 851.419328,
+  "gpu_active_percent_of_trace_span": 99.801757,
+  "gpu_idle_gap_ms": 1.691232,
+  "largest_idle_gap_ms": 1.117888,
+  "gpu_operations": 184,
+  "unique_gpu_operations": 125,
+  "nvtx_ranges_present": false,
+  "categories": {
+    "naive_convolution": {
+      "ms": 846.511808,
+      "percent": 99.423607
+    },
+    "tensor_core_or_cutlass": {
+      "ms": 1.173152,
+      "percent": 0.137788
+    },
+    "matmul_or_gemv": {
+      "ms": 0.434464,
+      "percent": 0.051028
+    },
+    "layout_transpose": {
+      "ms": 0.353408,
+      "percent": 0.041508
+    },
+    "softmax": {
+      "ms": 0.252768,
+      "percent": 0.029688
+    },
+    "host_device_copy": {
+      "ms": 0.133728,
+      "percent": 0.015706
+    }
+  },
+  "largest_naive_convolutions_ms": [133.992512, 97.635776],
+  "top_12_gpu_time_percent": 84.475466,
+  "process_max_rss_kib": 649408,
+  "preflight_hottest_c": 43.843,
+  "postflight_hottest_c": 44.375,
+  "output_digest_sha256": "4879402556609918afedd74f123f0f1381c9725128faf4e7e3fe95ea0fa4b844",
+  "conclusion": "Naive MAX GPU convolution lowering is the dominant bottleneck; transfers, transposes, softmax, and launch gaps are negligible.",
+  "production_decision": "Keep TensorRT as the production fruit detector until optimized MAX convolution lowering is proven."
+}

@@ -1,0 +1,159 @@
+{
+  "schema_version": 1,
+  "name": "fruit-importer-fixed-416-v1",
+  "input_size": 416,
+  "classes": ["pear", "apple", "banana"],
+  "thresholds": {
+    "acceptance_confidence": 0.25,
+    "diagnostic_confidence": 0.01,
+    "match_iou": 0.5
+  },
+  "fixtures": [
+    {
+      "id": "heldout-pear-001",
+      "path": "artifacts/fruit-model/experiments/MAX-NATIVE-002/dataset/images/val/10d411540130a7d7.jpg",
+      "sha256": "db4a9bd6b96d90fa0cdd0e3945f112352ee061cffc1f51adac50c8bc646b4bbe",
+      "tags": ["heldout", "pear"],
+      "expected": [{"class_name": "pear", "box_xyxy": [375.04, 133.073204, 622.08, 545.0885]}]
+    },
+    {
+      "id": "heldout-pear-002",
+      "path": "artifacts/fruit-model/experiments/MAX-NATIVE-002/dataset/images/val/155c2f1c72e66ea3.jpg",
+      "sha256": "81cef2de0e9b492b5a2e33d8f228e1ab7015e4b79d32bfbc0fcaa85107b447e2",
+      "tags": ["heldout", "pear"],
+      "expected": [{"class_name": "pear", "box_xyxy": [517.12, 255.003514, 837.76, 670.826208]}]
+    },
+    {
+      "id": "heldout-pear-003",
+      "path": "artifacts/fruit-model/experiments/MAX-NATIVE-002/dataset/images/val/214d270da56de56e.jpg",
+      "sha256": "26ba37d6661b517fbedab9b2489b610322578341eb75b3330b8bfacef76b847f",
+      "tags": ["heldout", "pear"],
+      "expected": [{"class_name": "pear", "box_xyxy": [55.101025, 87.68, 631.742899, 829.44]}]
+    },
+    {
+      "id": "heldout-apple-001",
+      "path": "artifacts/fruit-model/experiments/MAX-NATIVE-002/dataset/images/val/007ec56b6529e036.jpg",
+      "sha256": "918601ea76c393aaaa44fbbe0b98656521432b057bfd8efc13bedd9fa8463ffc",
+      "tags": ["heldout", "apple"],
+      "expected": [{"class_name": "apple", "box_xyxy": [338.624512, 206.908416, 758.518784, 620.72448]}]
+    },
+    {
+      "id": "heldout-apple-002",
+      "path": "artifacts/fruit-model/experiments/MAX-NATIVE-002/dataset/images/val/00881627629888f6.jpg",
+      "sha256": "04282753799f7ead0e9965125a1677df02f8ac53b2e1492076154ceb3f465eac",
+      "tags": ["heldout", "apple"],
+      "expected": [{"class_name": "apple", "box_xyxy": [378.24, 437.606979, 594.56, 679.155393]}]
+    },
+    {
+      "id": "heldout-apple-003",
+      "path": "artifacts/fruit-model/experiments/MAX-NATIVE-002/dataset/images/val/01a5f4c8693e3b8e.jpg",
+      "sha256": "dd27cc295f616e85cc554670456ffa672340e137fb9a703cbed7be60bd221d1d",
+      "tags": ["heldout", "apple"],
+      "expected": [{"class_name": "apple", "box_xyxy": [723.2, 502.03487, 858.88, 605.77225]}]
+    },
+    {
+      "id": "heldout-banana-001",
+      "path": "artifacts/fruit-model/experiments/MAX-NATIVE-002/dataset/images/val/0f9cafdadc45d73e.jpg",
+      "sha256": "b3f94d865a5b6c352501541b0d600d612c77a9fe63fb7731c908f6fe12ef9e2c",
+      "tags": ["heldout", "banana"],
+      "expected": [{"class_name": "banana", "box_xyxy": [660.48, 7.68, 823.04, 453.12]}]
+    },
+    {
+      "id": "heldout-banana-002",
+      "path": "artifacts/fruit-model/experiments/MAX-NATIVE-002/dataset/images/val/100353af50716614.jpg",
+      "sha256": "2d119a5ed276773f734b8ffd819ace402fa2bf5abdd23718d99d33b92389ad8a",
+      "tags": ["heldout", "banana"],
+      "expected": [
+        {"class_name": "banana", "box_xyxy": [178.506752, 182.213472, 777.950208, 425.970025]},
+        {"class_name": "banana", "box_xyxy": [395.609088, 161.699567, 917.861376, 628.698085]}
+      ]
+    },
+    {
+      "id": "heldout-banana-003",
+      "path": "artifacts/fruit-model/experiments/MAX-NATIVE-002/dataset/images/val/106d302a8cf13228.jpg",
+      "sha256": "a9c1e1c365daad4fe4be87b39ddff6c4e4765fe6c65e97455059c7b3429555f1",
+      "tags": ["heldout", "banana"],
+      "expected": [{"class_name": "banana", "box_xyxy": [489.472, 331.76052, 589.824, 489.449196]}]
+    },
+    {
+      "id": "go2-pear-raw-holdout-005",
+      "path": "artifacts/fruit-model/experiments/MAX-NATIVE-007/dataset-v2/images/val/go2-pear-distill-000005.jpg",
+      "sha256": "e2249aa930bd58be4968ca9305ff2dcd54405df830813e899356212965385c84",
+      "tags": ["go2", "stage_critical", "raw_camera", "pear"],
+      "expected_classes": ["pear"],
+      "expected": [{"class_name": "pear", "box_xyxy": [621, 479, 651, 519]}]
+    },
+    {
+      "id": "go2-pear-raw-holdout-020",
+      "path": "artifacts/fruit-model/experiments/MAX-NATIVE-007/dataset-v2/images/val/go2-pear-distill-000020.jpg",
+      "sha256": "82cf5cc610d4abddeb2bcbcf50d9a35051d5ed1f08124113dae267718746f0d9",
+      "tags": ["go2", "stage_critical", "raw_camera", "pear"],
+      "expected_classes": ["pear"],
+      "expected": [{"class_name": "pear", "box_xyxy": [610, 478, 640, 518]}]
+    },
+    {
+      "id": "go2-pear-raw-holdout-040",
+      "path": "artifacts/fruit-model/experiments/MAX-NATIVE-007/dataset-v2/images/val/go2-pear-distill-000040.jpg",
+      "sha256": "c93a58da8d02584f871c64ceea67d40b462ac895146324ad35fa8f2b1e139ee0",
+      "tags": ["go2", "stage_critical", "raw_camera", "pear"],
+      "expected_classes": ["pear"],
+      "expected": [{"class_name": "pear", "box_xyxy": [610, 478, 640, 518]}]
+    },
+    {
+      "id": "go2-green-apple-raw-holdout-005",
+      "path": "artifacts/fruit-model/experiments/MAX-NATIVE-007/dataset-v2/images/val/go2-green-apple-000005.jpg",
+      "sha256": "0921089fe550415c07b8ed9f43e2a7fe4ed3b70083f5f5709b57f5991e931938",
+      "tags": ["go2", "stage_critical", "raw_camera", "apple"],
+      "expected_classes": ["apple"],
+      "expected": [{"class_name": "apple", "box_xyxy": [560, 471, 592, 512]}]
+    },
+    {
+      "id": "go2-green-apple-raw-holdout-020",
+      "path": "artifacts/fruit-model/experiments/MAX-NATIVE-007/dataset-v2/images/val/go2-green-apple-000020.jpg",
+      "sha256": "1f2e83669c8f3a24c793fbfa87f59dfad9f5ae48561578cdd2a3e60a9317435b",
+      "tags": ["go2", "stage_critical", "raw_camera", "apple"],
+      "expected_classes": ["apple"],
+      "expected": [{"class_name": "apple", "box_xyxy": [560, 471, 592, 510]}]
+    },
+    {
+      "id": "go2-green-apple-raw-holdout-040",
+      "path": "artifacts/fruit-model/experiments/MAX-NATIVE-007/dataset-v2/images/val/go2-green-apple-000040.jpg",
+      "sha256": "0cb599ae6f41576fe84930a83bdfb5458460d1a55aa6519b29dad610ea81460b",
+      "tags": ["go2", "stage_critical", "raw_camera", "apple"],
+      "expected_classes": ["apple"],
+      "expected": [{"class_name": "apple", "box_xyxy": [559, 472, 592, 497]}]
+    },
+    {
+      "id": "go2-pear-stage",
+      "path": "lab/pear-evidence/results/PEAR-EVIDENCE-001.jpg",
+      "sha256": "6333caec010a33fda20c28ba81cecee6356dcb2b79777c3776abc242d77653ec",
+      "tags": ["go2", "annotated_preview", "diagnostic_only", "pear"],
+      "expected_classes": ["pear"],
+      "expected": []
+    },
+    {
+      "id": "go2-red-apple-stage",
+      "path": "lab/fruit-recognition/results/RED-APPLE-001.jpg",
+      "sha256": "9a73ba0fa90ccce5090c4ee2b7d7936d85296b5d66bf42739452b8e1a04e7107",
+      "tags": ["go2", "annotated_preview", "diagnostic_only", "apple"],
+      "expected_classes": ["apple"],
+      "expected": [{"class_name": "apple", "box_xyxy": [576, 470, 600, 496]}]
+    },
+    {
+      "id": "go2-banana-stage",
+      "path": "artifacts/fruit-model/evaluation/BANANA-EVAL-001/frames/000001.jpg",
+      "sha256": "f44f665beefd1e83e39f4db7b8cdac6a32b573d1c3ef40faac2d4f63ac05b089",
+      "tags": ["go2", "stage_critical", "banana", "distant"],
+      "expected_classes": ["banana"],
+      "expected": [{"class_name": "banana", "box_xyxy": [636, 562, 696, 606]}]
+    },
+    {
+      "id": "go2-empty-office",
+      "path": "lab/max-yolo11s-candidate/results/MAX-YOLO11S-416-LIVE-001.jpg",
+      "sha256": "87a3e84280a26d78f80ed87026f7885b8af257a9abb19f75252a84d1e1a5fc6b",
+      "tags": ["go2", "negative"],
+      "expected_classes": [],
+      "expected": []
+    }
+  ]
+}

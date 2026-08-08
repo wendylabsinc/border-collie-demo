@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from .api import create_app
 from .config import HardwareConfig, PerceptionConfig
 from .evidence import TerminalEvidenceClient
+from .go2_remote import Go2RemoteInput, RemoteInputConfig
 from .hardware import HardwareManager
 from .media import BarkClient, BarkConfig
 from .orchestrator import SimulatedStageExecutor
@@ -30,7 +31,13 @@ def build_app_from_env() -> FastAPI:
         )
     if runtime_mode != "production":
         raise ValueError("BORDER_COLLIE_RUNTIME_MODE must be production or simulation")
-    hardware = HardwareManager(HardwareConfig.from_env())
+    hardware_config = HardwareConfig.from_env()
+    hardware = HardwareManager(hardware_config)
+    remote_input = (
+        Go2RemoteInput(RemoteInputConfig.from_env())
+        if hardware_config.enabled
+        else None
+    )
     perception = PerceptionStatusClient(PerceptionConfig.from_env())
     bark = BarkClient(BarkConfig.from_env())
     terminal_evidence = TerminalEvidenceClient.from_env()
@@ -42,6 +49,7 @@ def build_app_from_env() -> FastAPI:
         media_status=bark.status,
         stage_executor=ProductionStageExecutor(hardware, perception.status, bark),
         terminal_evidence=terminal_evidence.capture,
+        remote_input=remote_input,
         runtime_mode="production",
     )
 

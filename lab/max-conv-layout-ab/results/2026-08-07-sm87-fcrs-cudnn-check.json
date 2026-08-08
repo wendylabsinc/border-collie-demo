@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-08-07T21:15:05-07:00",
+  "device": {
+    "hostname": "woof.local",
+    "gpu_arch": "sm_87",
+    "jetpack": "6.2.1"
+  },
+  "software": {
+    "max": "26.4.0",
+    "cuda": "12.6",
+    "cudnn": "9.3.0.75"
+  },
+  "experiment": {
+    "dtype": "float16",
+    "input_layout": "NHWC",
+    "kernel": "3x3",
+    "input_channels": 16,
+    "output_channels": 32,
+    "groups": 1,
+    "stride": 1,
+    "padding": 1,
+    "warmups": 5,
+    "samples": 20
+  },
+  "rscf_control": {
+    "input_shape": [1, 104, 104, 16],
+    "status": "success",
+    "compile_ms": 3156.2565960000484,
+    "median_ms": 6.505072999971162,
+    "p95_ms": 8.155949999945733,
+    "minimum_ms": 6.291948999887609,
+    "maximum_ms": 8.19051100006618
+  },
+  "fcrs_trials": [
+    {
+      "input_shape": [1, 208, 208, 16],
+      "process_isolation": "combined_with_rscf",
+      "status": "failure",
+      "error": "CUDNN_STATUS_ALLOC_FAILED"
+    },
+    {
+      "input_shape": [1, 104, 104, 16],
+      "process_isolation": "fcrs_only",
+      "status": "failure",
+      "error": "CUDNN_STATUS_ALLOC_FAILED"
+    },
+    {
+      "input_shape": [1, 8, 8, 16],
+      "process_isolation": "fcrs_only",
+      "status": "failure",
+      "error": "CUDNN_STATUS_ALLOC_FAILED"
+    }
+  ],
+  "dispatch_evidence": {
+    "confirmed": true,
+    "detail": "Every FCRS failure is reported inside the mo.conv fusion as a cuDNN call. The RSCF control executes successfully through MAX's non-cuDNN path."
+  },
+  "speedup_evidence": {
+    "confirmed": false,
+    "detail": "The FCRS/cuDNN branch did not complete one inference, so no FCRS latency or output-parity result exists."
+  },
+  "conclusion": "FilterLayout.FCRS does switch MAX 26.4 on sm_87 from the naive RSCF implementation to cuDNN, confirming the source-dispatch analysis. However, the cuDNN branch is operationally unusable in this environment because even an isolated 8x8 convolution fails allocation. Do not convert the whole YOLO importer until the MAX cuDNN failure is fixed or bypassed."
+}

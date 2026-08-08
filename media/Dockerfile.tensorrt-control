@@ -1,0 +1,33 @@
+# syntax=docker/dockerfile:1.6
+
+FROM dustynv/pytorch:2.7-r36.4.0-cu128-24.04
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+ENV PIP_INDEX_URL=https://pypi.org/simple \
+    PIP_EXTRA_INDEX_URL="" \
+    PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential ca-certificates libffi8 libgl1 libglib2.0-0 \
+      libportaudio2 libsrtp2-1 libssl3 portaudio19-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt /tmp/requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python3 -m pip install -r /tmp/requirements.txt
+
+WORKDIR /app
+COPY model/model.engine /media/model.engine
+COPY model/banana-specialist.pt /media/banana-specialist.pt
+COPY __init__.py inference_runtime.py max_onnx.py model_router.py \
+    perception_sidecar.py tensorrt_control.py ./media/
+
+ENV PEAR_MODEL_PATH=/media/model.engine \
+    BANANA_SPECIALIST_MODEL_PATH=/media/banana-specialist.pt \
+    BANANA_SPECIALIST_MIN_CONFIDENCE=0.55 \
+    BANANA_SPECIALIST_MIN_IOU=0.10 \
+    CONTROL_WARMUPS=3 \
+    CONTROL_REPETITIONS=3
+
+CMD ["python3", "-m", "media.tensorrt_control"]

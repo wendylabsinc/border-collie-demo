@@ -1,0 +1,30 @@
+{
+  "appId": "border-collie-max-conv-layout-ab",
+  "version": "0.1.0",
+  "services": {
+    "probe": {
+      "context": ".",
+      "resources": {
+        "cpus": "4.0",
+        "memory": "10Gi",
+        "pids": 256
+      },
+      "env": {
+        "MAX_CONV_AB_PORT": "8128",
+        "MAX_CONV_AB_WARMUPS": "5",
+        "MAX_CONV_AB_SAMPLES": "20",
+        "MAX_CONV_AB_THERMAL_LIMIT_C": "82",
+        "CUDA_DISABLE_PTX_JIT": "1"
+      },
+      "entitlements": [
+        {"type": "network", "mode": "host"},
+        {"type": "gpu"},
+        {
+          "type": "persist",
+          "name": "border-collie-max-conv-layout-ab-results",
+          "path": "/artifacts"
+        }
+      ]
+    }
+  }
+}

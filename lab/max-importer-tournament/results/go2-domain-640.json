@@ -1,0 +1,651 @@
+{
+  "corpus": {
+    "fixture_count": 13,
+    "fixture_ids": [
+      "heldout-pear-001",
+      "heldout-pear-002",
+      "heldout-pear-003",
+      "heldout-apple-001",
+      "heldout-apple-002",
+      "heldout-apple-003",
+      "heldout-banana-001",
+      "heldout-banana-002",
+      "heldout-banana-003",
+      "go2-pear-stage",
+      "go2-red-apple-stage",
+      "go2-banana-stage",
+      "go2-empty-office"
+    ],
+    "manifest": "lab/max-importer-tournament/corpus.json"
+  },
+  "leaderboard": [
+    {
+      "box_recall_iou50": 0.75,
+      "class_recall": 0.75,
+      "median_ms": 68.53445898741484,
+      "p95_ms": 71.02141698123887,
+      "phase": "local_accuracy",
+      "raw_parity": true,
+      "variant": "pytorch-yolo11n-go2-640",
+      "verdict": "rejected"
+    },
+    {
+      "box_recall_iou50": null,
+      "class_recall": null,
+      "median_ms": 60.2158,
+      "p95_ms": 71.7005,
+      "phase": "woof-control-pending-fixed-corpus",
+      "raw_parity": null,
+      "variant": "tensorrt-production-control",
+      "verdict": "pending"
+    }
+  ],
+  "next_gate": "Capture production TensorRT raw and decoded outputs for this exact corpus, then require each MAX importer variant to match them before Woof latency tests.",
+  "protocol": {
+    "classes": [
+      "pear",
+      "apple",
+      "banana"
+    ],
+    "input_size": 640,
+    "local_precision": "fp32",
+    "note": "Local CPU latency is advisory. Woof candidates must repeat with FP16, native sm_87 execution, TensorRT corpus outputs, and safety telemetry.",
+    "timed_repetitions": 3,
+    "warmups": 3
+  },
+  "reference_variant": "pytorch-yolo11n-go2-640",
+  "schema_version": 1,
+  "variants": [
+    {
+      "accuracy": {
+        "box_recall_iou50": 0.75,
+        "expected_class_recall": 0.75,
+        "fixture_count": 13,
+        "fixture_passes": 9,
+        "negative_false_positives": 0,
+        "stage_critical_count": 3,
+        "stage_critical_passes": 1
+      },
+      "device": "cpu",
+      "fixtures": [
+        {
+          "accepted_classes": [
+            "apple",
+            "pear"
+          ],
+          "accepted_detections": [
+            {
+              "box_xyxy": [
+                375.6828979492187,
+                130.171533203125,
+                620.7590942382812,
+                542.454833984375
+              ],
+              "class_id": 0,
+              "class_name": "pear",
+              "confidence": 0.9831501841545105
+            },
+            {
+              "box_xyxy": [
+                100.95419921875,
+                208.0192626953125,
+                364.137841796875,
+                463.3774169921875
+              ],
+              "class_id": 1,
+              "class_name": "apple",
+              "confidence": 0.8690407872200012
+            },
+            {
+              "box_xyxy": [
+                614.6080078125,
+                305.92939453125,
+                914.05703125,
+                637.12294921875
+              ],
+              "class_id": 1,
+              "class_name": "apple",
+              "confidence": 0.8054366111755371
+            }
+          ],
+          "box_hits_iou50": 1,
+          "diagnostic_top_class": "pear",
+          "diagnostic_top_confidence": 0.9831501841545105,
+          "expected_box_count": 1,
+          "expected_class_count": 1,
+          "expected_class_hits": 1,
+          "expected_classes": [
+            "pear"
+          ],
+          "false_positive": false,
+          "fixture_id": "heldout-pear-001",
+          "latency_ms": {
+            "maximum": 69.58049995591864,
+            "median": 69.50779200997204,
+            "p95": 69.58049995591864
+          },
+          "passed": true,
+          "raw_output_sha256": "77a925273196b2e19b86a5f58e5e97f80dda8c576ab656da77c93d718df35539"
+        },
+        {
+          "accepted_classes": [
+            "apple",
+            "banana",
+            "pear"
+          ],
+          "accepted_detections": [
+            {
+              "box_xyxy": [
+                205.475830078125,
+                265.1669189453125,
+                527.771826171875,
+                638.1471435546875
+              ],
+              "class_id": 1,
+              "class_name": "apple",
+              "confidence": 0.45877915620803833
+            },
+            {
+              "box_xyxy": [
+                513.7240234375,
+                248.08017578125,
+                835.35302734375,
+                679.4181640625
+              ],
+              "class_id": 0,
+              "class_name": "pear",
+              "confidence": 0.3941616714000702
+            },
+            {
+              "box_xyxy": [
+                80.58330078125,
+                19.9287109375,
+                512.08828125,
+                219.757666015625
+              ],
+              "class_id": 2,
+              "class_name": "banana",
+              "confidence": 0.3035113215446472
+            }
+          ],
+          "box_hits_iou50": 1,
+          "diagnostic_top_class": "apple",
+          "diagnostic_top_confidence": 0.45877915620803833,
+          "expected_box_count": 1,
+          "expected_class_count": 1,
+          "expected_class_hits": 1,
+          "expected_classes": [
+            "pear"
+          ],
+          "false_positive": false,
+          "fixture_id": "heldout-pear-002",
+          "latency_ms": {
+            "maximum": 93.2077500037849,
+            "median": 71.34354201843962,
+            "p95": 93.2077500037849
+          },
+          "passed": true,
+          "raw_output_sha256": "ccae4f021855d3f4e9895a30e3ed801268aea2b03c5480c7e215cfea005bafb9"
+        },
+        {
+          "accepted_classes": [
+            "pear"
+          ],
+          "accepted_detections": [
+            {
+              "box_xyxy": [
+                51.3875,
+                92.7175537109375,
+                629.78310546875,
+                830.8611572265625
+              ],
+              "class_id": 0,
+              "class_name": "pear",
+              "confidence": 0.9790309071540833
+            }
+          ],
+          "box_hits_iou50": 1,
+          "diagnostic_top_class": "pear",
+          "diagnostic_top_confidence": 0.9790309071540833,
+          "expected_box_count": 1,
+          "expected_class_count": 1,
+          "expected_class_hits": 1,
+          "expected_classes": [
+            "pear"
+          ],
+          "false_positive": false,
+          "fixture_id": "heldout-pear-003",
+          "latency_ms": {
+            "maximum": 68.76379199093208,
+            "median": 68.06429196149111,
+            "p95": 68.76379199093208
+          },
+          "passed": true,
+          "raw_output_sha256": "a96ab1ff544e28d6a4f7156fa3113fd1d31c5035ae6162e9e8a23bdda1a08542"
+        },
+        {
+          "accepted_classes": [
+            "apple"
+          ],
+          "accepted_detections": [
+            {
+              "box_xyxy": [
+                342.7380859375,
+                207.3785400390625,
+                760.60244140625,
+                628.2759521484375
+              ],
+              "class_id": 1,
+              "class_name": "apple",
+              "confidence": 0.7324054837226868
+            }
+          ],
+          "box_hits_iou50": 1,
+          "diagnostic_top_class": "apple",
+          "diagnostic_top_confidence": 0.7324054837226868,
+          "expected_box_count": 1,
+          "expected_class_count": 1,
+          "expected_class_hits": 1,
+          "expected_classes": [
+            "apple"
+          ],
+          "false_positive": false,
+          "fixture_id": "heldout-apple-001",
+          "latency_ms": {
+            "maximum": 71.02141698123887,
+            "median": 68.01941600861028,
+            "p95": 71.02141698123887
+          },
+          "passed": true,
+          "raw_output_sha256": "07d711cead8fe1b7cd480323e1d6f808c87807b7de11524b60bc3ca0711cfb16"
+        },
+        {
+          "accepted_classes": [
+            "apple"
+          ],
+          "accepted_detections": [
+            {
+              "box_xyxy": [
+                380.4604736328125,
+                438.7826171875,
+                597.3598388671875,
+                680.39296875
+              ],
+              "class_id": 1,
+              "class_name": "apple",
+              "confidence": 0.6874260902404785
+            }
+          ],
+          "box_hits_iou50": 1,
+          "diagnostic_top_class": "apple",
+          "diagnostic_top_confidence": 0.6874260902404785,
+          "expected_box_count": 1,
+          "expected_class_count": 1,
+          "expected_class_hits": 1,
+          "expected_classes": [
+            "apple"
+          ],
+          "false_positive": false,
+          "fixture_id": "heldout-apple-002",
+          "latency_ms": {
+            "maximum": 68.53445898741484,
+            "median": 68.50049999775365,
+            "p95": 68.53445898741484
+          },
+          "passed": true,
+          "raw_output_sha256": "2c5f5ddf8c7e4b0a11cef08bf80ce500a786a89cc1dc5edf364bdc8d2a7791d9"
+        },
+        {
+          "accepted_classes": [
+            "apple"
+          ],
+          "accepted_detections": [
+            {
+              "box_xyxy": [
+                716.3826904296875,
+                506.5028564453125,
+                839.3442626953125,
+                640.1016357421875
+              ],
+              "class_id": 1,
+              "class_name": "apple",
+              "confidence": 0.7681670188903809
+            },
+            {
+              "box_xyxy": [
+                543.975,
+                512.43447265625,
+                663.09345703125,
+                614.77568359375
+              ],
+              "class_id": 1,
+              "class_name": "apple",
+              "confidence": 0.41324302554130554
+            }
+          ],
+          "box_hits_iou50": 1,
+          "diagnostic_top_class": "apple",
+          "diagnostic_top_confidence": 0.7681670188903809,
+          "expected_box_count": 1,
+          "expected_class_count": 1,
+          "expected_class_hits": 1,
+          "expected_classes": [
+            "apple"
+          ],
+          "false_positive": false,
+          "fixture_id": "heldout-apple-003",
+          "latency_ms": {
+            "maximum": 68.90800001565367,
+            "median": 67.88862496614456,
+            "p95": 68.90800001565367
+          },
+          "passed": true,
+          "raw_output_sha256": "4377514cd0fd4d0702f72da52e4f919db59b86d5efdb2be85356a66124a66e25"
+        },
+        {
+          "accepted_classes": [
+            "banana"
+          ],
+          "accepted_detections": [
+            {
+              "box_xyxy": [
+                331.9333984375,
+                51.2897705078125,
+                518.58759765625,
+                563.6528076171875
+              ],
+              "class_id": 2,
+              "class_name": "banana",
+              "confidence": 0.3967525064945221
+            }
+          ],
+          "box_hits_iou50": 0,
+          "diagnostic_top_class": "banana",
+          "diagnostic_top_confidence": 0.3967525064945221,
+          "expected_box_count": 1,
+          "expected_class_count": 1,
+          "expected_class_hits": 1,
+          "expected_classes": [
+            "banana"
+          ],
+          "false_positive": false,
+          "fixture_id": "heldout-banana-001",
+          "latency_ms": {
+            "maximum": 69.67358401743695,
+            "median": 68.71962500736117,
+            "p95": 69.67358401743695
+          },
+          "passed": false,
+          "raw_output_sha256": "ee3b9aea5703799eccabfc482819c6c5f5591eafc0a290b9e1b8e0d22020918e"
+        },
+        {
+          "accepted_classes": [
+            "banana"
+          ],
+          "accepted_detections": [
+            {
+              "box_xyxy": [
+                398.27392578125,
+                98.12470703125,
+                920.79150390625,
+                632.62275390625
+              ],
+              "class_id": 2,
+              "class_name": "banana",
+              "confidence": 0.44124600291252136
+            },
+            {
+              "box_xyxy": [
+                197.20419921875,
+                114.1218505859375,
+                765.8150390625,
+                420.3215087890625
+              ],
+              "class_id": 2,
+              "class_name": "banana",
+              "confidence": 0.38823452591896057
+            }
+          ],
+          "box_hits_iou50": 2,
+          "diagnostic_top_class": "banana",
+          "diagnostic_top_confidence": 0.44124600291252136,
+          "expected_box_count": 2,
+          "expected_class_count": 1,
+          "expected_class_hits": 1,
+          "expected_classes": [
+            "banana"
+          ],
+          "false_positive": false,
+          "fixture_id": "heldout-banana-002",
+          "latency_ms": {
+            "maximum": 68.3668339625001,
+            "median": 68.15504195401445,
+            "p95": 68.3668339625001
+          },
+          "passed": true,
+          "raw_output_sha256": "cead0131da3d932f2593dbeaf744f656709bbfbabc6bff9dadcccf6b1c6ab8c8"
+        },
+        {
+          "accepted_classes": [],
+          "accepted_detections": [],
+          "box_hits_iou50": 0,
+          "diagnostic_top_class": "banana",
+          "diagnostic_top_confidence": 0.11906927078962326,
+          "expected_box_count": 1,
+          "expected_class_count": 1,
+          "expected_class_hits": 0,
+          "expected_classes": [
+            "banana"
+          ],
+          "false_positive": false,
+          "fixture_id": "heldout-banana-003",
+          "latency_ms": {
+            "maximum": 69.67204198008403,
+            "median": 68.6932920361869,
+            "p95": 69.67204198008403
+          },
+          "passed": false,
+          "raw_output_sha256": "a6db35a0825eb55d13dde02b25117c44a30827480f1fa8323263b6f143249de8"
+        },
+        {
+          "accepted_classes": [],
+          "accepted_detections": [],
+          "box_hits_iou50": 0,
+          "diagnostic_top_class": "banana",
+          "diagnostic_top_confidence": 0.046943046152591705,
+          "expected_box_count": 0,
+          "expected_class_count": 1,
+          "expected_class_hits": 0,
+          "expected_classes": [
+            "pear"
+          ],
+          "false_positive": false,
+          "fixture_id": "go2-pear-stage",
+          "latency_ms": {
+            "maximum": 68.91508295666426,
+            "median": 68.40133300283924,
+            "p95": 68.91508295666426
+          },
+          "passed": false,
+          "raw_output_sha256": "c0f2ba375e828f9eaa4f6259908c988df8b7250fa0eebaf21350bc33d2eb30c8"
+        },
+        {
+          "accepted_classes": [],
+          "accepted_detections": [],
+          "box_hits_iou50": 0,
+          "diagnostic_top_class": "pear",
+          "diagnostic_top_confidence": 0.03436686843633652,
+          "expected_box_count": 1,
+          "expected_class_count": 1,
+          "expected_class_hits": 0,
+          "expected_classes": [
+            "apple"
+          ],
+          "false_positive": false,
+          "fixture_id": "go2-red-apple-stage",
+          "latency_ms": {
+            "maximum": 68.31845897249877,
+            "median": 68.08445899514481,
+            "p95": 68.31845897249877
+          },
+          "passed": false,
+          "raw_output_sha256": "775d1fd232ee1d0ea0abb72d6d80fab416a9f99fa59768301d87af8e60c37a8b"
+        },
+        {
+          "accepted_classes": [
+            "banana"
+          ],
+          "accepted_detections": [
+            {
+              "box_xyxy": [
+                635.3403015136719,
+                566.6158752441406,
+                691.4780578613281,
+                602.5669860839844
+              ],
+              "class_id": 2,
+              "class_name": "banana",
+              "confidence": 0.9942492246627808
+            }
+          ],
+          "box_hits_iou50": 1,
+          "diagnostic_top_class": "banana",
+          "diagnostic_top_confidence": 0.9942492246627808,
+          "expected_box_count": 1,
+          "expected_class_count": 1,
+          "expected_class_hits": 1,
+          "expected_classes": [
+            "banana"
+          ],
+          "false_positive": false,
+          "fixture_id": "go2-banana-stage",
+          "latency_ms": {
+            "maximum": 69.52791596995667,
+            "median": 68.94299999112263,
+            "p95": 69.52791596995667
+          },
+          "passed": true,
+          "raw_output_sha256": "d0b94637aaac56c1f41c0af703cca0cd2a788cf2d2b5bb75c8bda6be94aada99"
+        },
+        {
+          "accepted_classes": [],
+          "accepted_detections": [],
+          "box_hits_iou50": 0,
+          "diagnostic_top_class": "apple",
+          "diagnostic_top_confidence": 0.03702817112207413,
+          "expected_box_count": 0,
+          "expected_class_count": 0,
+          "expected_class_hits": 0,
+          "expected_classes": [],
+          "false_positive": false,
+          "fixture_id": "go2-empty-office",
+          "latency_ms": {
+            "maximum": 69.15362499421462,
+            "median": 69.02820797404274,
+            "p95": 69.15362499421462
+          },
+          "passed": true,
+          "raw_output_sha256": "18e1b6cc90a834ca1ce8afa1c654121bb9b54a31089e0d945aebb5d9de031e74"
+        }
+      ],
+      "kind": "pytorch",
+      "latency_ms_advisory_only": {
+        "maximum": 93.2077500037849,
+        "median": 68.53445898741484,
+        "p95": 71.02141698123887
+      },
+      "phase": "local_accuracy",
+      "precision": "fp32-local-checkpoint-candidate",
+      "raw_parity_to_reference": {
+        "fixtures": {
+          "go2-banana-stage": {
+            "maximum_absolute_difference": 0.0,
+            "mean_absolute_difference": 0.0,
+            "p99_absolute_difference": 0.0,
+            "passed": true
+          },
+          "go2-empty-office": {
+            "maximum_absolute_difference": 0.0,
+            "mean_absolute_difference": 0.0,
+            "p99_absolute_difference": 0.0,
+            "passed": true
+          },
+          "go2-pear-stage": {
+            "maximum_absolute_difference": 0.0,
+            "mean_absolute_difference": 0.0,
+            "p99_absolute_difference": 0.0,
+            "passed": true
+          },
+          "go2-red-apple-stage": {
+            "maximum_absolute_difference": 0.0,
+            "mean_absolute_difference": 0.0,
+            "p99_absolute_difference": 0.0,
+            "passed": true
+          },
+          "heldout-apple-001": {
+            "maximum_absolute_difference": 0.0,
+            "mean_absolute_difference": 0.0,
+            "p99_absolute_difference": 0.0,
+            "passed": true
+          },
+          "heldout-apple-002": {
+            "maximum_absolute_difference": 0.0,
+            "mean_absolute_difference": 0.0,
+            "p99_absolute_difference": 0.0,
+            "passed": true
+          },
+          "heldout-apple-003": {
+            "maximum_absolute_difference": 0.0,
+            "mean_absolute_difference": 0.0,
+            "p99_absolute_difference": 0.0,
+            "passed": true
+          },
+          "heldout-banana-001": {
+            "maximum_absolute_difference": 0.0,
+            "mean_absolute_difference": 0.0,
+            "p99_absolute_difference": 0.0,
+            "passed": true
+          },
+          "heldout-banana-002": {
+            "maximum_absolute_difference": 0.0,
+            "mean_absolute_difference": 0.0,
+            "p99_absolute_difference": 0.0,
+            "passed": true
+          },
+          "heldout-banana-003": {
+            "maximum_absolute_difference": 0.0,
+            "mean_absolute_difference": 0.0,
+            "p99_absolute_difference": 0.0,
+            "passed": true
+          },
+          "heldout-pear-001": {
+            "maximum_absolute_difference": 0.0,
+            "mean_absolute_difference": 0.0,
+            "p99_absolute_difference": 0.0,
+            "passed": true
+          },
+          "heldout-pear-002": {
+            "maximum_absolute_difference": 0.0,
+            "mean_absolute_difference": 0.0,
+            "p99_absolute_difference": 0.0,
+            "passed": true
+          },
+          "heldout-pear-003": {
+            "maximum_absolute_difference": 0.0,
+            "mean_absolute_difference": 0.0,
+            "p99_absolute_difference": 0.0,
+            "passed": true
+          }
+        },
+        "passed": true,
+        "reference_variant": "pytorch-yolo11n-go2-640"
+      },
+      "rejection_reasons": [
+        "ground-truth class recall is below the local gate",
+        "one or more stage-critical Go2 fixtures failed"
+      ],
+      "variant": "pytorch-yolo11n-go2-640",
+      "verdict": "rejected"
+    }
+  ]
+}

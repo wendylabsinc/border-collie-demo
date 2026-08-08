@@ -1,0 +1,148 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "tensorrt-perception-baseline-2026-08-05",
+  "source_repository": "border-collie-demo",
+  "device": {
+    "alias": "woof.local",
+    "architecture": "arm64",
+    "cpu_count_reported": 4,
+    "memory_total_bytes": 16416141312,
+    "gpu": "NVIDIA Orin sm_87",
+    "jetpack_version": "6.2.1",
+    "nvidia_driver": "540.4.0"
+  },
+  "runtime": {
+    "active_backend": "tensorrt",
+    "ultralytics_version": "8.4.115",
+    "tensorrt_version": "10.7.0",
+    "torch_version": "2.7.0",
+    "cuda_version": "12.8",
+    "python_version": "3.12.3",
+    "router_mode": "general_with_banana_specialist",
+    "general_model": {
+      "format": "tensorrt_engine",
+      "size_bytes": 48507848,
+      "sha256": "c4650ecbece6f75f66b21648f63237377afc572ebb212a80b2eba924336318be"
+    },
+    "banana_specialist": {
+      "resident": true,
+      "format": "pytorch_checkpoint",
+      "size_bytes": 19172826,
+      "sha256": "aace39065905db077ee6361430875c44074a3762cea96ea95532d1c3d052eed8"
+    }
+  },
+  "scene": {
+    "target_fruit": "pear",
+    "camera_resolution": [1280, 720],
+    "controlled_ground_truth": false,
+    "motion_commands_sent": false
+  },
+  "high_rate_status_probe": {
+    "duration_s": 20.0,
+    "request_count": 263,
+    "request_errors": 0,
+    "observer_rate_note": "approximately 25 Hz polling; this intentionally stresses status serving and has material observer overhead",
+    "status_latency_ms": {
+      "median": 16.6925,
+      "p95": 133.1684,
+      "max": 281.6631
+    },
+    "unique_source_frames_observed": 235,
+    "source_interval_ms": {
+      "median": 71.1786,
+      "p95": 150.0837,
+      "max": 354.3750
+    },
+    "source_fps_from_median_interval": 14.0492,
+    "unique_inference_results_observed": 168,
+    "inference_latency_ms": {
+      "median": 61.5744,
+      "p95": 78.0348,
+      "max": 98.3731
+    },
+    "inference_passes": {
+      "one_pass_results": 168,
+      "multi_pass_results": 0,
+      "median": 1.0,
+      "p95": 1.0,
+      "max": 1
+    },
+    "crop_behavior": {
+      "crop_attempts_observed": 0,
+      "reason": "observed proposal confidence stayed below the 0.35 crop trigger"
+    },
+    "detection_observation": {
+      "confidence_median": 0.0117769,
+      "confidence_p95": 0.0139554,
+      "confidence_max": 0.0149559,
+      "bbox_area_ratio_median": 0.0072070,
+      "bbox_area_ratio_p95": 0.0072070,
+      "bbox_area_ratio_max": 0.0073828,
+      "accuracy_interpretation": "none; the live scene was not labeled ground truth"
+    }
+  },
+  "lower_overhead_status_probe": {
+    "duration_s": 15.0,
+    "request_count": 69,
+    "request_errors": 0,
+    "observer_rate_note": "approximately 5 Hz polling; preferred status responsiveness baseline",
+    "status_latency_ms": {
+      "median": 15.9370,
+      "p95": 20.6395,
+      "max": 27.3551
+    },
+    "unique_inference_results_observed": 56,
+    "inference_latency_ms": {
+      "median": 60.2158,
+      "p95": 71.7005,
+      "max": 75.9584
+    }
+  },
+  "resource_samples": {
+    "media_process": {
+      "sample_window_s": 10.0,
+      "cpu_percent_of_one_core": 54.1,
+      "rss_kib": 1428248,
+      "thread_count": 18
+    },
+    "wendy_app_group": {
+      "sample_count": 10,
+      "cpu_percent_cli_normalization": {
+        "median": 17.8732,
+        "p95": 21.0865,
+        "max": 21.2137
+      },
+      "memory_bytes": {
+        "median": 1934768128,
+        "p95": 1934854144,
+        "max": 1934872576
+      }
+    },
+    "host": {
+      "sample_count": 10,
+      "cpu_percent": {
+        "median": 69.1610,
+        "p95": 81.8228,
+        "max": 89.7959
+      },
+      "memory_used_bytes": {
+        "median": 4751323136,
+        "p95": 4763822899,
+        "max": 4765249536
+      }
+    },
+    "gpu": {
+      "tegrastats_gr3d_percent_samples": [99, 99, 41],
+      "wendy_top_percent_samples": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      "interpretation": "the Wendy snapshot metric missed short GPU work; tegrastats observed active GR3D, but three samples are too few for a stable percentile"
+    }
+  },
+  "remaining_uncertainty": [
+    "The scene was live and uncontrolled, so confidence and boxes are behavior observations rather than accuracy evidence.",
+    "The high-rate status probe materially increased status tail latency.",
+    "GPU utilization has only three direct tegrastats samples and no stable percentile.",
+    "App-group CPU includes both app and media services; process CPU is reported separately.",
+    "No conditional crop or banana-specialist pass occurred in this baseline window.",
+    "A MAX comparison requires the same frozen frames and identical routing conditions."
+  ]
+}

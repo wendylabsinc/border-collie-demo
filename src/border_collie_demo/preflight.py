@@ -7,6 +7,7 @@ def evaluate_preflight(
     hardware: dict[str, Any],
     camera_perception: dict[str, Any] | None = None,
     media: dict[str, Any] | None = None,
+    remote_input: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     pose = hardware.get("pose")
     motion = hardware.get("motion")
@@ -75,11 +76,27 @@ def evaluate_preflight(
                 "detail": str(media.get("detail") or "bark readiness unavailable"),
             }
         )
+    if remote_input is not None:
+        checks.append(
+            {
+                "name": "remote_takeover_monitor",
+                "ready": bool(remote_input.get("ready")),
+                "detail": (
+                    "physical controller takeover monitor is fresh"
+                    if remote_input.get("ready")
+                    else str(
+                        remote_input.get("error")
+                        or "physical controller takeover monitor is unavailable"
+                    )
+                ),
+            }
+        )
     return {
         "ready": all(check["ready"] for check in checks),
         "checks": checks,
         "camera_perception": camera,
         "media": media,
+        "remote_input": remote_input,
     }
 
 

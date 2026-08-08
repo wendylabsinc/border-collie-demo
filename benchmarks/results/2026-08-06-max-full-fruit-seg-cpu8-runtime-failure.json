@@ -1,0 +1,48 @@
+{
+  "captured_at": "2026-08-06T18:45:30Z",
+  "status": "compiled_but_runtime_workspace_allocation_failed",
+  "source_repository": "border-collie-demo",
+  "target": {
+    "name": "woof.local",
+    "cpu_architecture": "arm64",
+    "cpu_count": 8,
+    "power_mode": "25W",
+    "gpu_architecture": "sm_87",
+    "memory_total_bytes": 16416137216
+  },
+  "runtime": {
+    "max_version": "26.4.0",
+    "cuda_ptxas_version": "12.6",
+    "ptx_jit_disabled": true
+  },
+  "model": {
+    "kind": "fruit-segmentation",
+    "input_shape": [1, 3, 640, 640],
+    "sha256": "f5b24d8ea80dc25189f01eb83b0e58c0cdd29292a5e944c730c6955ad1718056",
+    "mef_sha256": "21d81e1b67825823acdf80565855abb8ad713281cab65740cbdc2138f15da925",
+    "weights_sha256": "87e1636015dccecdcc29580e174c20f6f9dd2fb1face91031efadfc0a3eb065c",
+    "mef_bytes": 16739805,
+    "weights_archive_bytes": 89584750
+  },
+  "compile": {
+    "completed": true,
+    "seconds": 730.944532739,
+    "cpu_affinity": [0, 1, 2, 3, 4, 5, 6, 7],
+    "peak_rss_bytes": 14368190464,
+    "minimum_available_memory_bytes": 122081280,
+    "maximum_swap_used_bytes": 2654994432,
+    "maximum_load_1m": 7.92,
+    "start_battery_percent": 95,
+    "end_battery_percent": 89,
+    "highest_observed_jetson_c": 57.718,
+    "highest_observed_go2_imu_c": 80.0
+  },
+  "clean_cached_load": {
+    "artifact_reused": true,
+    "process_peak_rss_bytes": 571707392,
+    "minimum_available_memory_bytes": 1264402432,
+    "error": "CUDNN_STATUS_ALLOC_FAILED at the segmentation ConvTranspose workspace allocation"
+  },
+  "conclusion": "The corrected sm_87 artifact compiles on Woof, but MAX 26.4's full FP32 segmentation runtime memory plan leaves insufficient unified memory for the ConvTranspose cuDNN workspace and cannot coexist safely with the demo stack.",
+  "next_safe_action": "Compile and validate the existing detection-only pruned graph, which preserves the demo's class/confidence/box contract while removing the unused segmentation ConvTranspose path."
+}

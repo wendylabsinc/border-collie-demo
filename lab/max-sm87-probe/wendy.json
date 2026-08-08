@@ -1,0 +1,20 @@
+{
+  "appId": "border-collie-sm87-probe",
+  "version": "0.1.0",
+  "resources": {
+    "cpus": "1.0"
+  },
+  "entitlements": [
+    {"type": "network", "mode": "host"},
+    {"type": "gpu"},
+    {
+      "type": "persist",
+      "name": "border-collie-sm87-probe-artifacts",
+      "path": "/artifacts"
+    }
+  ],
+  "readiness": {
+    "tcpSocket": {"port": 8124},
+    "timeoutSeconds": 45
+  }
+}
