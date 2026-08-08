@@ -20,6 +20,16 @@ from .preflight import evaluate_preflight, preflight_check_ready
 from .run_results import ActiveRunError, RunResultNotFound, RunResultStore
 
 
+def build_label() -> str:
+    """Identify which demo branch is deployed.
+
+    Display only. Three branches are deployed to the same robot one at a time,
+    so an operator needs to confirm from the UI which build produced a run
+    before recording its result against a branch.
+    """
+    return os.environ.get("BORDER_COLLIE_BUILD_LABEL", "unlabelled").strip() or "unlabelled"
+
+
 class ForwardPulseRequest(BaseModel):
     confirmation: str
 
@@ -99,7 +109,7 @@ def create_app(
 
     app = FastAPI(
         title="Border Collie Demo",
-        version="0.1.0",
+        version=build_label(),
         lifespan=lifespan,
     )
 
@@ -180,6 +190,7 @@ def create_app(
         media = current_media_status()
         preflight = evaluate_preflight(robot.status(), camera_perception, media)
         return {
+            "build_label": build_label(),
             "runtime_mode": runtime_mode,
             "mission": machine.status(),
             "hardware": robot.status(),
