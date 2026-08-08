@@ -1139,9 +1139,180 @@ def test_final_push_fires_despite_a_static_low_confidence_phantom() -> None:
             command.reason == "fruit_offscreen_final_push"
             for command in motion.commands
         )
-        assert result["arrival_visibility_confidence_floor"] == 0.55
+        assert result["arrival_visibility_confidence_floor"] == 0.20
         assert result["subthreshold_visibility_samples"] >= 1
         assert result["near_gate_confirmed"] is True
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_push_fires_despite_a_mid_confidence_spatially_inconsistent_phantom() -> None:
+    """The lowered pear close-range floor must not re-open the phantom hole.
+
+    A phantom above the 0.20 floor but spatially discontinuous with the last
+    accepted track (static box far above the arrival region) cannot hold the
+    arrival gate open: visibility also requires continuity with the fruit we
+    were actually approaching.
+    """
+
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+
+        def near() -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": True,
+                "detection": {
+                    "label": "pear",
+                    "confidence": 0.81,
+                    "consecutive_detections": 5,
+                    "center_x_ratio": 0.50,
+                    "center_y_ratio": 0.76,
+                    "bottom_ratio": 0.91,
+                },
+            }
+
+        mid_phantom = {
+            "camera_healthy": True,
+            "target_ready": False,
+            "detection": {
+                "label": "pear",
+                "confidence": 0.30,
+                "center_x_ratio": 0.42,
+                "center_y_ratio": 0.35,
+                "bottom_ratio": 0.3861,
+            },
+        }
+        statuses = iter((near(), near(), near(), near(), near(), mid_phantom))
+
+        result = await manager.approach_target(
+            lambda: next(statuses, mid_phantom),
+            "pear",
+            forward_mps=1.0,
+            maximum_yaw_rps=0.30,
+            near_bottom_ratio=0.86,
+            near_center_ratio=0.72,
+            near_confirmations=3,
+            near_loss_grace_s=0.75,
+            final_push_mps=0.30,
+            final_push_duration_s=0.001,
+            timeout_s=0.5,
+        )
+
+        assert result["arrival_confirmed"] is True
+        assert result["final_push_count"] == 1
+        assert any(
+            command.reason == "fruit_offscreen_final_push"
+            for command in motion.commands
+        )
+        assert result["subthreshold_visibility_samples"] >= 1
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_continuation_bridges_the_pear_confidence_collapse_at_arrival() -> None:
+    """Regression for supervised run d740a5f2 (2026-08-08).
+
+    A real pear filling the frame at arrival distance collapsed from 0.89 to
+    0.2658 confidence at bbox bottom 0.9972. The old 0.55 pear close-range
+    value (identical to the normal tracking floor) rejected every collapsed
+    frame, so the near gate starved at zero confirmations and Arrival timed
+    out. Geometrically continuous sub-floor frames at or above 0.20 must now
+    keep the track alive and count toward near confirmation.
+    """
+
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+
+        def qualified(*, center_y: float, bottom: float) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": True,
+                "detection": {
+                    "label": "pear",
+                    "confidence": 0.81,
+                    "consecutive_detections": 5,
+                    "center_x_ratio": 0.50,
+                    "center_y_ratio": center_y,
+                    "bottom_ratio": bottom,
+                },
+            }
+
+        def collapsed(
+            confidence: float, *, center_y: float, bottom: float
+        ) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": False,
+                "detection": {
+                    "label": "pear",
+                    "confidence": confidence,
+                    "center_x_ratio": 0.50,
+                    "center_y_ratio": center_y,
+                    "bottom_ratio": bottom,
+                },
+            }
+
+        statuses = iter(
+            (
+                qualified(center_y=0.50, bottom=0.65),
+                qualified(center_y=0.50, bottom=0.65),
+                qualified(center_y=0.50, bottom=0.65),
+                qualified(center_y=0.60, bottom=0.78),
+                qualified(center_y=0.68, bottom=0.825),
+                collapsed(0.27, center_y=0.78, bottom=0.86),
+                collapsed(0.24, center_y=0.82, bottom=0.92),
+                collapsed(0.22, center_y=0.85, bottom=0.99),
+                {"camera_healthy": True, "target_ready": False},
+            )
+        )
+
+        result = await manager.approach_target(
+            lambda: next(
+                statuses,
+                {"camera_healthy": True, "target_ready": False},
+            ),
+            "pear",
+            forward_mps=1.0,
+            maximum_yaw_rps=0.30,
+            near_bottom_ratio=0.86,
+            near_center_ratio=0.72,
+            near_confirmations=3,
+            near_loss_grace_s=0.75,
+            final_push_mps=0.30,
+            final_push_duration_s=0.001,
+            timeout_s=0.5,
+        )
+
+        assert result["arrival_confirmed"] is True
+        assert result["near_gate_confirmed"] is True
+        assert result["near_confirmations"] == 3
+        assert result["close_range_continuation_samples"] == 3
+        assert result["close_range_tracking_confidence"] == 0.20
+        assert result["minimum_observed_tracking_confidence"] == pytest.approx(0.22)
+        assert result["final_push_count"] == 1
+        assert any(
+            command.reason == "fruit_offscreen_final_push"
+            for command in motion.commands
+        )
         assert motion.armed is False
         await manager.close()
 
@@ -1207,7 +1378,7 @@ def test_arrival_timeout_carries_the_full_approach_evidence() -> None:
         assert evidence["final_push_count"] == 0
         assert evidence["forward_pulse_count"] >= 1
         assert evidence["subthreshold_visibility_samples"] >= 1
-        assert evidence["arrival_visibility_confidence_floor"] == 0.55
+        assert evidence["arrival_visibility_confidence_floor"] == 0.20
         assert evidence["motion_commands_sent"] is True
         assert evidence["last_track_geometry"] == {
             "center_x_ratio": 0.50,

@@ -64,11 +64,14 @@ forward-heartbeat count is unaffected by the tighter band. Confirmed
 near-fruit geometry arms the lower-edge Arrival gate; it does not command a
 zero-motion hold. While the fresh Target Fruit remains visible, forward
 approach continues. For arrival purposes "visible" requires the detection to
-meet the fruit's close-range tracking confidence: a matching label below
-that floor counts as disappearance. (Supervised run `45a1e796` on 2026-08-08
-showed a static 0.010-0.016-confidence phantom holding the arrival gate open
-for ~12 seconds after the pear had genuinely dropped below the camera at
-arrival distance, which suppressed the final push until the deadline.)
+meet the fruit's close-range tracking confidence and to remain spatially
+continuous with the last accepted track box: a matching label below that
+floor, or one discontinuous with the fruit being approached, counts as
+disappearance. (Supervised run `45a1e796` on 2026-08-08 showed a static
+0.010-0.016-confidence phantom holding the arrival gate open for ~12 seconds
+after the pear had genuinely dropped below the camera at arrival distance,
+which suppressed the final push until the deadline. The continuity condition
+keeps that scenario closed even with the lowered pear close-range floor.)
 Every forward heartbeat is counted, including the single
 bounded 0.3 m/s by 0.6-second push after qualified lower-edge disappearance.
 The push trigger is unchanged; only its window was shortened from 1.0 s after
@@ -78,10 +81,15 @@ same approach evidence dict (near gate state, pulse counts, centering
 counters, and sub-floor visibility samples) so a failed approach is never
 blind in the Run Result.
 
-An acquired red-apple track may survive its observed close-range confidence
-collapse only while its box remains low and spatially continuous with the last
-accepted box. This continuation cannot acquire a fruit, and discontinuous or
-missing evidence commands zero motion.
+An acquired track may survive its observed close-range confidence collapse
+only while its box remains low and spatially continuous with the last
+accepted box; the per-fruit floors live in `fruits.py` (apple 0.10, banana
+0.20, pear 0.20 — the pear value was lowered from 0.55 after supervised run
+`d740a5f2` proved a real pear collapses to ~0.27 confidence when it fills
+the frame at arrival distance). Close-range-continued frames count toward
+near-fruit Arrival confirmation exactly like fully qualified frames. This
+continuation cannot acquire a fruit, and discontinuous or missing evidence
+commands zero motion.
 Arrival releases motion before `SIT_AND_BARK`; Woof barks while down and holds
 that posture for 5 seconds before `STAND` may begin.
 

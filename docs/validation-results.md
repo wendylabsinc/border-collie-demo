@@ -504,3 +504,52 @@ Evidence: `benchmarks/results/supervised-three-run-2026-08-08.json`.
   and that the avoidance client never receives a negative forward input
 - Limitation: corrected in code with the actuation path pinned by tests;
   the supervised r3 retest on Woof is pending
+
+## PEAR-CLOSE-RANGE-COLLAPSE-001 — failed on hardware, corrected, hardware pending
+
+- Observed: 2026-08-08 on Woof, r3 supervised retest, Demo Run
+  `d740a5f2-d0f4-49fa-9718-ec1865f77260`: `FAILED / ARRIVAL_FAILURE`
+  ("qualified pear Arrival timed out") before the step-back stage could be
+  exercised; `DISARMED_CONFIRMED`, no motion hazard
+- The r2 evidence sealing worked as designed and disambiguated the failure:
+  `failure_details.approach` recorded `near_confirmations` 0,
+  `near_gate_confirmed` false, `subthreshold_visibility_samples` 18,
+  `minimum_observed_tracking_confidence` 0.5718,
+  `close_range_continuation_samples` 0, and last accepted geometry at
+  bottom 0.825 / center (0.512, 0.781) after 18 forward pulses
+- Physical story from the harness samples: a strong qualified track
+  (0.57-0.89 confidence, bottom 0.667 -> 0.778) collapsed to 0.2658 at
+  bbox bottom 0.9972 — a real pear filling and clipping the frame at
+  arrival distance — then detection died for ~12 s until the deadline. No
+  phantom involved: this was the second suppression path (near-gate
+  starvation), which is physical variance latent in `demo/base` as well;
+  the morning's 3/3 baseline passed by confidence happening to hold
+- Root cause: pear's `close_range_tracking_confidence` was 0.55 —
+  identical to the normal tracking floor — so the close-range continuation
+  path designed for exactly this collapse (and already run at 0.10 for the
+  red apple) gave the pear zero relief. All 18 sub-floor bridging frames
+  were rejected and the near gate never confirmed
+- Fix: pear close-range floor lowered 0.55 -> 0.20 in `fruits.py`. 0.20
+  accepts the observed 0.2658 collapse with margin and stays an order of
+  magnitude above every recorded phantom detection (0.010-0.024). The
+  spatial-continuity guards (0.20 maximum center jump, 0.08 maximum
+  vertical retreat, low-box requirement, acquisition still required first)
+  remain the real close-range gate; banana's specialist-gated 0.20 and
+  apple's 0.10 are unchanged. Close-range-continued frames already count
+  toward near confirmation, so bridged frames feed the Arrival gate
+  directly
+- Phantom interaction: the arrival visibility check shares this floor, so
+  visibility now additionally requires spatial continuity with the last
+  accepted track box. The r1 phantom stays dead twice over at the new
+  floor: 0.010-0.016 confidence is still 12x below 0.20, and its static
+  box (bottom 0.3861 against a 0.86+ track) fails the continuity check.
+  Both prongs are pinned by regression tests, including a synthetic
+  mid-confidence (0.30) spatially-discontinuous phantom that must not
+  suppress the push
+- Scope: 158 automated tests pass (new: the collapse-bridging regression
+  reproducing this run's geometry, and the mid-confidence phantom); Ruff
+  clean on touched files. The r3 direct-sport step-back rides along
+  unchanged and remains hardware-pending
+- Limitation: the lowered pear threshold is recorded on this run's
+  evidence per the repository threshold rule, but the supervised r4 retest
+  has not yet run

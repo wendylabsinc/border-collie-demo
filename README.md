@@ -200,12 +200,18 @@ separately configurable with
 acquisition rule.
 
 Red apple acquisition remains fixed at 0.70 confidence for five fresh frames.
-After acquisition, a close red-apple track may continue down to 0.10 confidence
-only when the box is already low in the image and remains spatially continuous:
-its horizontal center cannot jump by more than 0.20 of the frame and its lower
-edge or vertical center cannot retreat by more than 0.08. This close-range rule
-cannot acquire an apple and must be requalified if the fruit, model, camera, or
-stage setup changes.
+After acquisition, a close track may continue below the normal tracking floor
+only when the box is already low in the image and remains spatially
+continuous: its horizontal center cannot jump by more than 0.20 of the frame
+and its lower edge or vertical center cannot retreat by more than 0.08. The
+per-fruit close-range floors are 0.10 for the red apple, 0.20 for the banana
+(riding the resident specialist gate), and 0.20 for the pear. The pear value
+was lowered from 0.55 on 2026-08-08 evidence (supervised run `d740a5f2`): a
+real pear filling the frame at arrival distance collapsed to 0.2658
+confidence at bbox bottom 0.9972, and the old value — identical to the pear's
+normal tracking floor — provided zero close-range relief, starving the
+near-fruit Arrival gate. This close-range rule cannot acquire a fruit and
+must be requalified if the fruit, model, camera, or stage setup changes.
 
 For a complete zero-motion base Demo Run, explicitly start with
 `BORDER_COLLIE_RUNTIME_MODE=simulation`. The audience UI shows a persistent

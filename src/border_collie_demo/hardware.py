@@ -1007,16 +1007,38 @@ class HardwareManager:
                         # on screen for ~12 s, which suppressed the final push
                         # until the arrival deadline. A detection that cannot
                         # qualify for close-range tracking cannot hold the
-                        # arrival gate open either.
+                        # arrival gate open either. And because the pear
+                        # close-range floor was later lowered to bridge the
+                        # observed arrival-distance confidence collapse (run
+                        # d740a5f2), visibility additionally requires spatial
+                        # continuity with the last accepted track: only a
+                        # detection that could plausibly be the fruit we were
+                        # approaching may hold the gate. The r1 phantom fails
+                        # both checks (0.015 confidence, box bottom 0.3861
+                        # against a 0.86+ track).
                         same_label_detection = (
                             isinstance(detection, dict)
                             and detection_label == target_fruit.casefold()
+                        )
+                        spatially_consistent = last_track_geometry is None or (
+                            center_x is not None
+                            and center_y is not None
+                            and bottom is not None
+                            and abs(center_x - last_track_geometry[0])
+                            <= CLOSE_RANGE_MAXIMUM_CENTER_DELTA_RATIO
+                            and center_y
+                            >= last_track_geometry[1]
+                            - CLOSE_RANGE_MAXIMUM_VERTICAL_RETREAT_RATIO
+                            and bottom
+                            >= last_track_geometry[2]
+                            - CLOSE_RANGE_MAXIMUM_VERTICAL_RETREAT_RATIO
                         )
                         target_still_visible = (
                             same_label_detection
                             and detection_confidence is not None
                             and detection_confidence
                             >= policy.close_range_tracking_confidence
+                            and spatially_consistent
                         )
                         if same_label_detection and not target_still_visible:
                             subthreshold_visibility_samples += 1

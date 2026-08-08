@@ -25,9 +25,19 @@ FRUIT_POLICIES: dict[str, FruitPolicy] = {
         close_range_tracking_confidence=0.20,
         motion_qualified=True,
     ),
+    # Pear confidence collapses when the fruit fills the frame at arrival
+    # distance. Supervised run d740a5f2 (2026-08-08) qualified a pear at
+    # 0.57-0.89 confidence, then measured 0.2658 at bbox bottom 0.9972 —
+    # a real pear clipping the frame — while the old 0.55 close-range value
+    # (identical to the normal tracking floor, so zero relief) rejected all
+    # 18 bridgeable sub-floor frames; the near gate starved at zero
+    # confirmations and Arrival timed out. 0.20 accepts the observed
+    # collapse with margin while staying an order of magnitude above every
+    # recorded phantom detection (0.010-0.024). The spatial-continuity
+    # guards, not this floor, remain the real close-range gate.
     "pear": FruitPolicy(
         acquisition_confidence=0.65,
-        close_range_tracking_confidence=0.55,
+        close_range_tracking_confidence=0.20,
         motion_qualified=True,
     ),
 }
