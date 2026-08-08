@@ -139,13 +139,13 @@ def test_fruit_test_page_can_select_supported_fruit_without_motion() -> None:
     assert selected == ["apple"]
 
 
-def test_fruit_list_qualifies_only_red_apple_and_pear() -> None:
+def test_fruit_list_qualifies_red_apple_pear_and_specialist_banana() -> None:
     response = TestClient(create_app()).get("/api/fruits")
 
     assert response.status_code == 200
     assert response.json() == {
         "supported_fruits": ["apple", "banana", "pear"],
-        "qualified_fruits": ["apple", "pear"],
+        "qualified_fruits": ["apple", "banana", "pear"],
     }
 
 
@@ -749,9 +749,17 @@ def test_activate_records_voice_as_the_activation_source(tmp_path) -> None:
         assert response.json()["run"]["activation_source"] == "voice"
 
 
-def test_activate_rejects_an_unqualified_target_fruit(tmp_path) -> None:
+def test_activate_accepts_specialist_gated_banana(tmp_path) -> None:
     with TestClient(create_app(runs_root=tmp_path)) as client:
         response = client.post("/api/run", json={"target_fruit": "banana"})
+
+        assert response.status_code == 201
+        assert response.json()["run"]["target_fruit"] == "banana"
+
+
+def test_activate_rejects_an_unsupported_target_fruit(tmp_path) -> None:
+    with TestClient(create_app(runs_root=tmp_path)) as client:
+        response = client.post("/api/run", json={"target_fruit": "grape"})
 
         assert response.status_code == 422
         assert client.get("/api/results").json()["runs"] == []
