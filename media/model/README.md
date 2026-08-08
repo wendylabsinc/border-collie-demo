@@ -2,13 +2,9 @@
 
 ## Current adapter: TensorRT
 
-Provision the validated `collie-fruit-yoloe11m.engine` as
-`/media/model.engine` in the media container. The engine is a hardware-specific
-deployment artifact and is intentionally not committed to Git.
-
-The current local validated copy is under
-`lab/pear-evidence/model/collie-fruit-yoloe11m.engine`. Container assembly must
-copy that exact file only after DLO captures the pre-change build baseline.
+The validated hardware-specific TensorRT engine is versioned as `model.engine`
+and copied to `/media/model.engine` in the media container. Model binaries are
+part of the reproducible demo checkpoint; do not exclude them from Git.
 
 Long-distance detection currently uses crop-and-confirm before changing this
 engine: one conditional second pass through the same engine enlarges a small or
@@ -32,9 +28,9 @@ the frame loop never unloads or cold-swaps model files. Route, confidence,
 agreement, inference-pass count, and combined latency are included in detection
 evidence.
 
-The specialist checkpoint is an ignored experimental artifact. Banana remains
-camera-only until on-device timing, negative-frame behavior, and a guarded
-physical run are independently qualified.
+The specialist checkpoint is versioned as `banana-specialist.pt`. Banana
+remains camera-only until on-device timing, negative-frame behavior, and a
+guarded physical run are independently qualified.
 
 ## Planned adapter: Modular MAX and Mojo
 

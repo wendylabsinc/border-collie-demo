@@ -11,5 +11,12 @@ build/
 artifacts/runs/
 artifacts/fruit-model/
 lab/*/model/
-media/model/*.engine
-media/model/*.pt
+lab/*/artifacts/
+runs/
+.DS_Store
+
+# The two demo model binaries are deliberately versioned: they are part of the
+# reproducible demo checkpoint and the branch must stay deployable as-is.
+# Everything else under artifacts/, lab/*/model/, and runs/ stays ignored.
+!media/model/model.engine
+!media/model/banana-specialist.pt

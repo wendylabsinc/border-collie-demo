@@ -249,11 +249,12 @@ It owns one Go2 WebRTC connection, advances PTS/time-base evidence, binds every
 pear box to its exact generation and source marker, and exposes `/api/bark` on
 the same connection. It also exposes the raw Fieldmark source at
 `/api/camera/raw.jpg` and the bounded archive at `/api/evidence/clip.zip`. It
-never imports or creates a motion client. The TensorRT
-engine is a temporary provisioned deployment artifact at `/media/model.engine`;
-it is not committed to Git. The planned model adapter uses Modular MAX and the
-MAX/Mojo stack while preserving the same runtime-neutral camera/perception
-contract; see [`media/model/README.md`](media/model/README.md).
+never imports or creates a motion client. The checkpointed TensorRT engine is
+versioned at `media/model/model.engine` and deployed as `/media/model.engine`;
+model binaries are part of each reproducible demo checkpoint. The planned
+model adapter uses Modular MAX and the MAX/Mojo stack while preserving the same
+runtime-neutral camera/perception contract; see
+[`media/model/README.md`](media/model/README.md).
 
 Banana recognition uses a resident specialist router: the general model must
 first propose banana, then a banana-only model must confirm the same object.
