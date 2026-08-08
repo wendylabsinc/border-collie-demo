@@ -1,11 +1,12 @@
 {
   "appId": "border-collie-demo",
-  "version": "0.1.0",
+  "version": "1.0.0-max",
   "services": {
     "app": {
       "context": ".",
       "env": {
         "BORDER_COLLIE_PORT": "8110",
+        "BORDER_COLLIE_BUILD_LABEL": "MAX — perception only, autonomy OFF (demo/max)",
         "BORDER_COLLIE_RUNTIME_MODE": "production",
         "BORDER_COLLIE_HARDWARE_ENABLED": "1",
         "BORDER_COLLIE_AUTONOMY_ENABLED": "0",
