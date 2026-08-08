@@ -18,6 +18,14 @@ The executable, hardware-free design probe lives in
   after turning toward Home, the return controller replays at most that many
   forward heartbeats at the same 1.0 m/s signal. Heading-only corrections do
   not consume the count.
+- The bounded `STEP_BACK` clearance stage that precedes the Home turn never
+  reduces or credits this count. Its backward movement is verified by fresh
+  odometry and simply leaves the robot nearer Home; the return controller
+  continues to work from the measured pose, and the unchanged replay count
+  remains an upper bound, not a distance claim. Crediting commanded (rather
+  than measured) step-back motion against the replay is what desynchronized
+  the 2026-08-07 return-home attempt (0.187-0.375 m misses) and is
+  prohibited.
 - Fresh measured local pose remains the authority for course, progress, early
   stop, the 0.10 m Home gate, and the reported Home Distance. Pulse count and
   requested velocity never substitute for measured Home Distance or prove

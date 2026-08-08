@@ -389,3 +389,39 @@ Known motion-quality follow-ups:
   revalidate against `benchmarks/results/supervised-three-run-2026-08-08.json`
 
 Evidence: `benchmarks/results/supervised-three-run-2026-08-08.json`.
+
+## APPROACH-CONSISTENCY-001 — implementation validated, hardware pending
+
+- Recorded: 2026-08-08 on branch `demo/approach-consistency` (off the
+  confirmed `demo/base`), addressing the operator-reported lateral drift at
+  the fruit, the occasional overshoot, and the Home turn brushing the fruit
+- Late-approach centering: once the track's lower edge crosses the 0.70
+  close-range boundary, the horizontal center band tightens from 0.08 to
+  0.04 of the frame while keeping the already-qualified fixed 0.30 rad/s
+  correction and continuous forward translation. Forward-heartbeat counting
+  is byte-for-byte unchanged: every visible-track iteration still records
+  exactly one forward pulse
+- Softer final push: the single blind off-screen movement keeps its 0.3 m/s
+  signal and its unchanged trigger, but its window is shortened from 1.0 s to
+  0.6 s so Woof stops slightly farther from the fruit with less variance
+- New `STEP_BACK` stage between `stand` and `turn_toward_home`: one bounded
+  1.0 m/s by 0.4 s reverse window through factory avoidance, sent through a
+  dedicated reverse-only motion entry point (general velocity commands remain
+  forward-only). The window timer starts only after the motion arm and its
+  remote-API settle complete — the regression that silently sent zero reverse
+  commands on 2026-08-07 run 2 — and fresh odometry must confirm at least
+  0.05 m of backward movement or the run fails closed with `ACTION_FAILURE`
+- Return-pulse accounting is untouched: `STEP_BACK` takes no credit against
+  the outbound forward-heartbeat count, unlike the quarantined 2026-08-07
+  attempt (0.187-0.375 m Home misses). `return_home` receives the same count
+  it always did and keeps measuring the real pose from wherever Woof stands,
+  so the step back only adds return-budget margin
+- Scope: 152 automated tests pass (142 baseline plus 10 new covering the
+  reverse motion boundary, the settle-then-window regression, the odometry
+  fail-closed gate, the tighter late centering with unchanged pulse
+  accounting, and the stage wiring); Ruff is clean on every touched file
+- Limitation: no physical run has exercised these changes. The next
+  supervised run must confirm arrival-distance consistency, a fruit-clear
+  Home turn after the step back, and `return_home` still inside the 0.10 m
+  gate against the BASE-BRANCH-CONFIRMATION-2026-08-08 baseline
+  (0.0274-0.0756 m)

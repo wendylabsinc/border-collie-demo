@@ -5,8 +5,8 @@ The production sequence is:
 ```text
 IDLE -> PREFLIGHT -> CAPTURE_HOME -> WAIT_FOR_COMMAND
      -> [TURN_TO_FRUIT -> FIND_FRUIT] -> APPROACH_FRUIT -> ARRIVED
-     -> SIT_AND_BARK -> STAND -> TURN_TOWARD_HOME -> RETURN_HOME
-     -> RESTORE_HEADING -> COMPLETE
+     -> SIT_AND_BARK -> STAND -> STEP_BACK -> TURN_TOWARD_HOME
+     -> RETURN_HOME -> RESTORE_HEADING -> COMPLETE
 ```
 
 Square brackets mark the **conditional initial search**. `TURN_TO_FRUIT` and
@@ -51,18 +51,41 @@ has zero forward input. During `APPROACH_FRUIT`, translation remains zero while
 a fixed 0.50 rad/s correction first turns toward the Target Fruit. Once its
 center enters 0.08 of the horizontal frame center, yaw becomes zero and must
 remain centered for three fresh samples. After that initial gate, approach may
-combine forward input with bounded yaw to steer toward the fruit. Confirmed
+combine forward input with bounded yaw to steer toward the fruit. While the
+track's lower edge remains above the 0.70 close-range boundary the center
+band stays at 0.08; once the lower edge crosses that boundary the band
+tightens to 0.04 so the same fixed 0.30 rad/s correction engages earlier and
+the heading is close to the fruit axis before the fruit leaves the frame.
+Forward translation continues through every steering sample, so the
+forward-heartbeat count is unaffected by the tighter band. Confirmed
 near-fruit geometry arms the lower-edge Arrival gate; it does not command a
 zero-motion hold. While the fresh Target Fruit remains visible, forward
 approach continues. Every forward heartbeat is counted, including the single
-bounded 0.3 m/s by 1.0-second push after qualified lower-edge disappearance.
+bounded 0.3 m/s by 0.6-second push after qualified lower-edge disappearance.
+The push trigger is unchanged; only its window was shortened from 1.0 s after
+the 2026-08-08 supervised baseline finished too close to the fruit.
 
 An acquired red-apple track may survive its observed close-range confidence
 collapse only while its box remains low and spatially continuous with the last
 accepted box. This continuation cannot acquire a fruit, and discontinuous or
 missing evidence commands zero motion.
 Arrival releases motion before `SIT_AND_BARK`; Woof barks while down and holds
-that posture for 5 seconds before `STAND` may begin. After the measured turn
+that posture for 5 seconds before `STAND` may begin.
+
+`STEP_BACK` then reverses for one bounded window (1.0 m/s for 0.4 seconds
+through factory avoidance) so the following Home turn rotates with clearance
+from the fruit. The reverse window timer starts only after the motion arm,
+including its remote-API settle, is confirmed complete. The stage reads a
+fresh pose before and after the window and fails closed with `ACTION_FAILURE`
+if odometry does not confirm at least 0.05 meters of backward movement.
+`STEP_BACK` takes no credit against the return replay: the outbound
+forward-heartbeat count recorded during approach is passed to `RETURN_HOME`
+unchanged, and the return controller keeps measuring the real pose from
+wherever Woof actually stands. (The 2026-08-07 attempt that credited
+step-back pulses against the replay desynchronized return-home and is
+quarantined on its own branch.)
+
+After the measured turn
 toward Home,
 `RETURN_HOME` replays the recorded number of forward heartbeats at the same
 1.0 m/s signal. Heading-only corrections do not consume a forward heartbeat;
