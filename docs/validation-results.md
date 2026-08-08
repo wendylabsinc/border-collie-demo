@@ -367,3 +367,25 @@ Known motion-quality follow-ups:
 - These are calibration and closed-loop-control priorities for the next
   checkpoint. Existing camera, timeout, disarm, and bounded-motion failures
   remain fail-closed while that work is underway.
+
+## BASE-BRANCH-CONFIRMATION-2026-08-08 — passed
+
+- Observed: 2026-08-08, three consecutive supervised pear Demo Runs on Woof
+- Build: `demo/base` at `648469f`, deployed with build label `base (demo/base)`
+- Results: 3/3 `COMPLETED / SUCCESS`; terminal Home distances 0.0756, 0.0274,
+  and 0.0578 m against the 0.10 m gate; heading errors 3.1, -4.3, and -1.7
+  degrees against the 5-degree gate; durations 41.4, 40.4, and 40.2 s
+- Coverage: run one skipped search (fruit already visible); runs two and three
+  exercised `turn_to_fruit` before approach. All runs ended
+  `DISARMED_CONFIRMED`
+- Meaning: this configuration reproduces its 2026-08-05 record
+  (0.063–0.078 m) on a different day, so `demo/base` is selected as the robust
+  base branch. It also exonerates the environment for the 2026-08-07
+  supervised failures (0.187–0.375 m): those ran the arrival-rework commits,
+  which remain quarantined off this branch pending their own supervised pass
+- Operator observation: the approach sometimes finishes too close to the
+  fruit. This remains the "Fruit approach precision" follow-up above — a
+  refinement item, not a gate failure. Any approach-distance tuning must
+  revalidate against `benchmarks/results/supervised-three-run-2026-08-08.json`
+
+Evidence: `benchmarks/results/supervised-three-run-2026-08-08.json`.
