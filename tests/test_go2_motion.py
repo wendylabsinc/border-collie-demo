@@ -20,6 +20,7 @@ class FakeSport:
         self.stand_down_calls = 0
         self.stand_up_calls = 0
         self.balance_stand_calls = 0
+        self.moves: list[tuple[float, float, float]] = []
 
     def SetTimeout(self, value: float) -> None:
         self.timeout_s = value
@@ -30,6 +31,10 @@ class FakeSport:
     def StopMove(self) -> int:
         self.stop_calls += 1
         return self.stop_result
+
+    def Move(self, vx: float, vy: float, vyaw: float) -> int:
+        self.moves.append((vx, vy, vyaw))
+        return 0
 
     def StandDown(self) -> int:
         self.stand_down_calls += 1
@@ -131,7 +136,15 @@ def test_unsafe_velocity_is_rejected_before_hardware(
     asyncio.run(scenario())
 
 
-def test_step_back_sends_bounded_reverse_through_avoidance() -> None:
+def test_step_back_reverses_through_direct_sport_never_avoidance() -> None:
+    """The avoidance controller silently refuses reverse translation.
+
+    Supervised run on 2026-08-08 measured -0.001 m over five accepted
+    avoidance reverse commands, so the bounded clearance step must travel
+    through the direct SportClient and must never send a negative vx to the
+    avoidance client.
+    """
+
     async def scenario() -> None:
         sport, avoidance = FakeSport(), FakeAvoidance()
         motion = Go2Motion(
@@ -145,10 +158,13 @@ def test_step_back_sends_bounded_reverse_through_avoidance() -> None:
         sent = await motion.command_step_back(lease, 1.0)
 
         assert sent == VelocityCommand(-1.0, 0.0, "step_back_clearance")
-        assert avoidance.moves[-1] == (-1.0, 0.0, 0.0)
+        assert sport.moves[-1] == (-1.0, 0.0, 0.0)
+        assert all(move[0] >= 0.0 for move in avoidance.moves)
         assert motion.armed is True
         await motion.release(lease)
+        assert sport.stop_calls >= 1
         assert avoidance.moves[-1] == (0.0, 0.0, 0.0)
+        assert all(move[0] >= 0.0 for move in avoidance.moves)
         assert motion.armed is False
         await motion.close()
 
@@ -165,7 +181,8 @@ def test_step_back_rejects_unsafe_speeds_and_stale_leases() -> None:
         )
         await motion.initialize()
         lease = await motion.arm()
-        moves_before = list(avoidance.moves)
+        avoidance_before = list(avoidance.moves)
+        sport_before = list(sport.moves)
 
         with pytest.raises(ValueError, match="finite and positive"):
             await motion.command_step_back(lease, 0.0)
@@ -176,7 +193,8 @@ def test_step_back_rejects_unsafe_speeds_and_stale_leases() -> None:
         with pytest.raises(LeaseMismatch):
             await motion.command_step_back("not-the-lease", 0.5)
 
-        assert avoidance.moves == moves_before
+        assert avoidance.moves == avoidance_before
+        assert sport.moves == sport_before
         await motion.close()
 
     asyncio.run(scenario())

@@ -462,5 +462,45 @@ Evidence: `benchmarks/results/supervised-three-run-2026-08-08.json`.
 - Scope: 156 automated tests pass (four new: the phantom-push regression,
   the sealed timeout evidence, the jitter hysteresis, and the
   `failure_details.approach` mapping); Ruff clean on every touched file
-- Limitation: corrected in code and pinned by regression tests against the
-  recorded telemetry; the supervised retest on Woof is pending
+- Hardware confirmation (r2 retest, 2026-08-08): `approach_fruit` completed
+  in 5.3 s with `arrival_confirmed`, `near_gate_confirmed`,
+  `near_confirmations` 4, and the final push firing the moment the pear
+  left view. `subthreshold_visibility_samples` 1 is direct in-run proof of
+  the floor working: one phantom was rejected during near-loss and the push
+  fired on the next tick. The motion-command trail also showed the 0.04
+  late band correcting in two clean bursts (never alternating
+  frame-to-frame, `late_center_corrections` 8), validating the band with
+  its two-sample engage as deployed
+
+## STEP-BACK-ACTUATION-001 — failed on hardware, corrected, hardware pending
+
+- Observed: 2026-08-08 on Woof, r2 supervised retest
+  (`approach-fix-r2-validation-2026-08-08.json`): the Demo Run sealed
+  `FAILED / ACTION_FAILURE` in `step_back` — "step back sent 5 reverse
+  commands but odometry measured only -0.001 m backward movement (gate
+  0.050 m)" — with `DISARMED_CONFIRMED` and no motion hazard
+- The fail-closed odometry gate worked exactly as designed: the reverse
+  commands were accepted by the SDK and produced no physical motion
+- Root cause: the reverse pulse was routed through the factory
+  `ObstaclesAvoidClient`, whose forward-facing perception cannot validate
+  space behind the robot; it silently refuses reverse translation. The
+  2026-08-07 branch step-back used this same avoidance path with no
+  odometry verification, so its "executed" step-backs were counted
+  commands, not measured motion — this robot has plausibly never physically
+  stepped back before
+- Fix: `command_step_back` now sends the bounded reverse pulse through the
+  direct `SportClient.Move(-speed, 0, 0)`. Everything else is unchanged:
+  reverse-only with no yaw or lateral mixing, the configured forward-speed
+  bound, the command watchdog, StopMove on release, and the 0.05 m
+  fail-closed odometry displacement gate
+- Safety rationale for bypassing avoidance on this one bounded step: the
+  robot reverses into space it traversed seconds earlier during its own
+  approach (known-clear modulo dynamic changes), the pulse is short and
+  speed-bounded, displacement is odometry-verified, and the demo is
+  operator-supervised. Return translation itself remains forward-only
+  through factory avoidance (see `return-home-contract.md`)
+- Scope: the full automated suite passes; the motion-boundary test now pins
+  that the step-back reverse travels through `sport.Move` with negative vx
+  and that the avoidance client never receives a negative forward input
+- Limitation: corrected in code with the actuation path pinned by tests;
+  the supervised r3 retest on Woof is pending

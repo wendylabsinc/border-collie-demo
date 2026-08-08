@@ -44,6 +44,8 @@ class SportClientProtocol(Protocol):
 
     def StopMove(self) -> int: ...
 
+    def Move(self, vx: float, vy: float, vyaw: float) -> int: ...
+
 
 class AvoidanceClientProtocol(Protocol):
     def SetTimeout(self, timeout_s: float) -> Any: ...
@@ -212,13 +214,24 @@ class Go2Motion:
         reverse_mps: float,
         reason: str = "step_back_clearance",
     ) -> VelocityCommand:
-        """Send one bounded reverse-only pulse through factory avoidance.
+        """Send one bounded reverse-only pulse through the direct SportClient.
 
-        The general ``command`` path stays forward-only. This dedicated entry
-        point exists solely for the bounded post-stand clearance step: it
-        never combines reverse translation with yaw or lateral input, it is
-        limited by the same configured forward-speed bound, and it renews the
-        same command watchdog as every other velocity command.
+        The general ``command`` path stays forward-only and avoidance-owned.
+        This dedicated entry point exists solely for the bounded post-stand
+        clearance step: it never combines reverse translation with yaw or
+        lateral input, it is limited by the same configured forward-speed
+        bound, and it renews the same command watchdog as every other
+        velocity command.
+
+        Why direct sport and not factory avoidance: the Go2 obstacle-avoidance
+        controller has forward-facing perception and cannot validate space
+        behind the robot, so it silently refuses reverse translation — the
+        RPC succeeds and nothing moves. Supervised run on 2026-08-08 measured
+        -0.001 m over five accepted avoidance reverse commands. The bypass is
+        acceptable only for this step because the robot reverses into space
+        it traversed seconds earlier during its own approach, the pulse is
+        short and speed-bounded, the caller verifies real displacement by
+        odometry, and the demo is operator-supervised.
         """
         speed = float(reverse_mps)
         if not math.isfinite(speed) or speed <= 0.0:
@@ -229,8 +242,7 @@ class Go2Motion:
             self._require_owner(lease)
             self._cancel_watchdog()
             try:
-                await self._verify_avoidance_if_due()
-                await self._success(self.avoidance.Move, -speed, 0.0, 0.0)
+                await self._success(self.sport.Move, -speed, 0.0, 0.0)
             except Exception as exc:
                 self._fault = f"step-back command failed: {exc}"
                 await self._release_locked(use_stop=True)

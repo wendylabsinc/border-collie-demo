@@ -343,7 +343,7 @@ def test_step_back_reverses_measures_displacement_then_disarms() -> None:
             minimum_backward_m=0.02,
         )
 
-        assert result["motion_path"] == "factory_avoidance"
+        assert result["motion_path"] == "direct_sport_reverse"
         assert result["commanded_reverse_mps"] == 1.0
         assert result["commanded_duration_s"] == 0.03
         assert result["command_count"] >= 1

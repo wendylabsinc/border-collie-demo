@@ -295,6 +295,12 @@ class HardwareManager:
         that credited step-back pulses against the return replay desynchronized
         return-home (0.187-0.375 m misses); this implementation verifies the
         actual movement instead of assuming the commanded motion happened.
+
+        The reverse pulse itself travels through the direct SportClient (see
+        Go2Motion.command_step_back): factory avoidance cannot validate space
+        behind the robot and silently refuses reverse translation, which the
+        odometry gate here exposed on hardware (2026-08-08, -0.001 m over
+        five accepted commands).
         """
         reverse = float(reverse_mps)
         duration = float(duration_s)
@@ -391,7 +397,7 @@ class HardwareManager:
                     f"(gate {minimum:.3f} m)"
                 )
             return {
-                "motion_path": "factory_avoidance",
+                "motion_path": "direct_sport_reverse",
                 "commanded_reverse_mps": reverse,
                 "commanded_duration_s": duration,
                 "command_count": command_count,

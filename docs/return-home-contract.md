@@ -26,6 +26,17 @@ The executable, hardware-free design probe lives in
   than measured) step-back motion against the replay is what desynchronized
   the 2026-08-07 return-home attempt (0.187-0.375 m misses) and is
   prohibited.
+- `STEP_BACK` is the single sanctioned exception to the avoidance-owned
+  translation rule, and it does not weaken this contract's return rules:
+  return translation itself remains forward-only through factory avoidance.
+  The step's reverse pulse uses the direct SportClient because the
+  forward-facing avoidance controller silently refuses reverse translation
+  (2026-08-08: five accepted avoidance reverse commands measured -0.001 m).
+  The bypass is bounded and evidenced — reverse-only with no yaw or lateral
+  mixing, the same forward-speed limit and command watchdog, StopMove on
+  release, fresh-pose displacement verification with a fail-closed gate, a
+  path the robot itself cleared seconds earlier during approach, and an
+  operator supervising the run.
 - Fresh measured local pose remains the authority for course, progress, early
   stop, the 0.10 m Home gate, and the reported Home Distance. Pulse count and
   requested velocity never substitute for measured Home Distance or prove

@@ -85,12 +85,21 @@ missing evidence commands zero motion.
 Arrival releases motion before `SIT_AND_BARK`; Woof barks while down and holds
 that posture for 5 seconds before `STAND` may begin.
 
-`STEP_BACK` then reverses for one bounded window (1.0 m/s for 0.4 seconds
-through factory avoidance) so the following Home turn rotates with clearance
-from the fruit. The reverse window timer starts only after the motion arm,
-including its remote-API settle, is confirmed complete. The stage reads a
-fresh pose before and after the window and fails closed with `ACTION_FAILURE`
-if odometry does not confirm at least 0.05 meters of backward movement.
+`STEP_BACK` then reverses for one bounded window (1.0 m/s for 0.4 seconds)
+so the following Home turn rotates with clearance from the fruit. The
+reverse pulse travels through the direct SportClient, not factory avoidance:
+the avoidance controller's perception is forward-facing, cannot validate
+space behind the robot, and silently refuses reverse translation (supervised
+run on 2026-08-08 measured -0.001 m over five accepted avoidance reverse
+commands). Bypassing avoidance is acceptable only for this bounded step
+because Woof reverses into space it traversed seconds earlier during its own
+approach, the pulse is short and speed-bounded under the same command
+watchdog and StopMove release, displacement is verified by fresh odometry,
+and the demo is operator-supervised. The reverse window timer starts only
+after the motion arm, including its remote-API settle, is confirmed
+complete. The stage reads a fresh pose before and after the window and fails
+closed with `ACTION_FAILURE` if odometry does not confirm at least
+0.05 meters of backward movement.
 `STEP_BACK` takes no credit against the return replay: the outbound
 forward-heartbeat count recorded during approach is passed to `RETURN_HOME`
 unchanged, and the return controller keeps measuring the real pose from
