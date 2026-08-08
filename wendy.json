@@ -1,12 +1,12 @@
 {
   "appId": "border-collie-demo",
-  "version": "1.0.0-base",
+  "version": "1.1.0-approach-fix",
   "services": {
     "app": {
       "context": ".",
       "env": {
         "BORDER_COLLIE_PORT": "8110",
-        "BORDER_COLLIE_BUILD_LABEL": "base (demo/base)",
+        "BORDER_COLLIE_BUILD_LABEL": "base+approach-fix (demo/approach-consistency)",
         "BORDER_COLLIE_RUNTIME_MODE": "production",
         "BORDER_COLLIE_HARDWARE_ENABLED": "1",
         "BORDER_COLLIE_AUTONOMY_ENABLED": "1",
