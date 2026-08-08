@@ -825,6 +825,10 @@ class PerceptionRuntime:
                 detection={},
             )
             return
+        # Published raw by contract: consumers own their confidence floors.
+        # See docs/camera-perception-contract.md, "Published detection
+        # confidence is raw by design" - a floor here would starve the
+        # close-range continuation path (floors as low as 0.10).
         confidence = candidate.confidence
         bbox = candidate.bbox_xyxy
         detection = self.evidence.note_detection(
