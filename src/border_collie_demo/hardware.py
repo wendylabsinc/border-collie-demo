@@ -64,7 +64,14 @@ def _home_pose(home: dict[str, object]) -> Pose2D:
 
 
 class HardwareUnavailable(RuntimeError):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        evidence: dict[str, object] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.evidence = dict(evidence or {})
 
 
 class CameraFailure(HardwareUnavailable):
@@ -107,6 +114,14 @@ class MotionAdapterProtocol(Protocol):
     async def command_step_back(
         self, lease: str, reverse_mps: float
     ) -> VelocityCommand: ...
+
+    async def suspend_avoidance_for_step_back(
+        self, lease: str
+    ) -> dict[str, object]: ...
+
+    async def resume_avoidance_after_step_back(
+        self, lease: str
+    ) -> dict[str, object]: ...
 
     async def release(self, lease: str) -> None: ...
 
@@ -296,11 +311,14 @@ class HardwareManager:
         return-home (0.187-0.375 m misses); this implementation verifies the
         actual movement instead of assuming the commanded motion happened.
 
-        The reverse pulse itself travels through the direct SportClient (see
-        Go2Motion.command_step_back): factory avoidance cannot validate space
-        behind the robot and silently refuses reverse translation, which the
-        odometry gate here exposed on hardware (2026-08-08, -0.001 m over
-        five accepted commands).
+        The reverse pulse itself travels through the direct SportClient with
+        the robot-global avoidance module suspended for the bounded window
+        (see Go2Motion.suspend_avoidance_for_step_back): while engaged, the
+        module owns velocity control and vetoes reverse translation from any
+        client — both the avoidance-path attempt (r2) and the direct-sport
+        attempt with the module still engaged (r4) measured -0.001 m over
+        five accepted commands. Restoring the module afterwards is mandatory;
+        a failed restore is a hard fault.
         """
         reverse = float(reverse_mps)
         duration = float(duration_s)
@@ -326,9 +344,31 @@ class HardwareManager:
             lease: str | None = None
             release_error: str | None = None
             operation_error: Exception | None = None
+            resume_error: str | None = None
+            suspended = False
             command_count = 0
             elapsed_s = 0.0
             origin = None
+            # Progressive evidence: sealed on success AND on every failure
+            # path (the r4 failure surfaced only the raw motion trace, which
+            # hid the switch state).
+            step_evidence: dict[str, object] = {
+                "motion_path": "direct_sport_reverse",
+                "commanded_reverse_mps": reverse,
+                "commanded_duration_s": duration,
+                "command_period_s": self.config.command_heartbeat_s,
+                "minimum_backward_m": minimum,
+                "avoidance_prior_enabled": None,
+                "avoidance_restored": False,
+                "avoidance_switched_off_s": None,
+                "command_count": 0,
+                "elapsed_s": None,
+                "motion_commands_sent": False,
+                "pose_before": None,
+                "pose_after": None,
+                "measured_backward_m": None,
+                "measured_lateral_m": None,
+            }
             try:
                 assert self._motion is not None and self._pose is not None
                 before = self._pose.status()
@@ -337,8 +377,21 @@ class HardwareManager:
                         before.error or "fresh Go2 pose is required before step back"
                     )
                 origin = before.pose
+                step_evidence["pose_before"] = {
+                    "x_m": origin.x_m,
+                    "y_m": origin.y_m,
+                    "yaw_rad": origin.yaw_rad,
+                }
                 lease = await self._motion.arm()
-                # The arm sequence, including its remote-API settle, has
+                # The robot-global avoidance module vetoes reverse from any
+                # client while engaged, so it is switched off for exactly
+                # this bounded window and restored in the finally block.
+                suspend_evidence = await self._motion.suspend_avoidance_for_step_back(
+                    lease
+                )
+                suspended = True
+                step_evidence.update(suspend_evidence)
+                # The arm sequence and the avoidance-switch settle have both
                 # completed before this timestamp, so the reverse window
                 # always gets its full duration. (Run 2 of the 2026-08-07
                 # attempt started this timer before the 0.5-second settle
@@ -348,6 +401,8 @@ class HardwareManager:
                 while True:
                     await self._send_step_back_command(lease, reverse)
                     command_count += 1
+                    step_evidence["command_count"] = command_count
+                    step_evidence["motion_commands_sent"] = True
                     now = time.monotonic()
                     if now >= deadline:
                         break
@@ -355,9 +410,23 @@ class HardwareManager:
                         min(self.config.command_heartbeat_s, deadline - now)
                     )
                 elapsed_s = time.monotonic() - pulse_started
+                step_evidence["elapsed_s"] = round(elapsed_s, 3)
             except Exception as exc:  # noqa: BLE001 - always disarm below
                 operation_error = exc
             finally:
+                # Mandatory avoidance restore: the rest of the demo depends
+                # on the module, so it is re-engaged before the lease is
+                # released, and a failed restore becomes a hard fault below.
+                if suspended and self._motion is not None:
+                    try:
+                        resume_evidence = (
+                            await self._motion.resume_avoidance_after_step_back(
+                                lease
+                            )
+                        )
+                        step_evidence.update(resume_evidence)
+                    except Exception as exc:  # noqa: BLE001 - reported below
+                        resume_error = str(exc)
                 if lease is not None and self._motion is not None and self._motion.armed:
                     try:
                         await self._motion.release(lease)
@@ -374,40 +443,48 @@ class HardwareManager:
 
             if operation_error is not None:
                 raise HardwareUnavailable(
-                    f"step back failed: {operation_error}"
+                    f"step back failed: {operation_error}",
+                    evidence=step_evidence,
                 ) from operation_error
+            if resume_error is not None:
+                raise HardwareUnavailable(
+                    "avoidance restore failed after step back: "
+                    f"{resume_error}",
+                    evidence=step_evidence,
+                )
             if release_error is not None:
-                raise HardwareUnavailable(f"step back stop failed: {release_error}")
+                raise HardwareUnavailable(
+                    f"step back stop failed: {release_error}",
+                    evidence=step_evidence,
+                )
 
             assert self._pose is not None and origin is not None
             after = self._pose.status()
             if not after.healthy or after.pose is None:
                 raise HardwareUnavailable(
-                    after.error or "Go2 pose became stale after step back"
+                    after.error or "Go2 pose became stale after step back",
+                    evidence=step_evidence,
                 )
+            step_evidence["pose_after"] = {
+                "x_m": after.pose.x_m,
+                "y_m": after.pose.y_m,
+                "yaw_rad": after.pose.yaw_rad,
+            }
             dx = after.pose.x_m - origin.x_m
             dy = after.pose.y_m - origin.y_m
             heading = origin.yaw_rad
             backward_m = -(dx * math.cos(heading) + dy * math.sin(heading))
             lateral_m = abs(-dx * math.sin(heading) + dy * math.cos(heading))
+            step_evidence["measured_backward_m"] = backward_m
+            step_evidence["measured_lateral_m"] = lateral_m
             if backward_m < minimum:
                 raise StepBackNoResponse(
                     f"step back sent {command_count} reverse commands but odometry "
                     f"measured only {backward_m:.3f} m backward movement "
-                    f"(gate {minimum:.3f} m)"
+                    f"(gate {minimum:.3f} m)",
+                    evidence=step_evidence,
                 )
-            return {
-                "motion_path": "direct_sport_reverse",
-                "commanded_reverse_mps": reverse,
-                "commanded_duration_s": duration,
-                "command_count": command_count,
-                "command_period_s": self.config.command_heartbeat_s,
-                "elapsed_s": round(elapsed_s, 3),
-                "measured_backward_m": backward_m,
-                "measured_lateral_m": lateral_m,
-                "minimum_backward_m": minimum,
-                "motion_commands_sent": command_count > 0,
-            }
+            return step_evidence
 
     async def turn_relative(
         self,

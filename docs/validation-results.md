@@ -553,3 +553,53 @@ Evidence: `benchmarks/results/supervised-three-run-2026-08-08.json`.
 - Limitation: the lowered pear threshold is recorded on this run's
   evidence per the repository threshold rule, but the supervised r4 retest
   has not yet run
+- Hardware confirmation (r4 retest, 2026-08-08, run `a9214ed8`): the fix
+  works on Woof. `arrival_confirmed` true, `near_confirmations` 5,
+  `close_range_continuation_samples` 2 with
+  `minimum_observed_tracking_confidence` 0.4746 — the continuation path
+  engaged and bridged a real collapse — approach completed in 6.1 s and
+  sit/bark/stand ran clean. The run then failed in `step_back`
+  (STEP-BACK-ACTUATION-002 below), not in approach
+
+## STEP-BACK-ACTUATION-002 — failed on hardware, corrected, hardware pending
+
+- Observed: 2026-08-08 on Woof, r4 supervised run `a9214ed8`: `step_back`
+  sealed `FAILED / ACTION_FAILURE` with the identical signature to r2 —
+  "step back sent 5 reverse commands but odometry measured only -0.001 m
+  backward movement (gate 0.050 m)" — DESPITE the r3 reroute through the
+  direct SportClient. The motion trace shows five -1.0 m/s direct-sport
+  commands over ~0.4 s with zero physical motion; `DISARMED_CONFIRMED`
+- Root cause (verified against the pinned SDK source in
+  `unitree-sdk2-python-inspect`): the Go2 obstacle-avoidance module is a
+  robot-global switch (`SwitchSet`/`SwitchGet`), not a per-client path.
+  While engaged — and the demo's forward motion keeps it engaged — it owns
+  velocity control and vetoes reverse translation from ANY client,
+  including direct `sport.Move`. The r3 reroute changed the messenger, not
+  the veto. Corollary: the 2026-08-07 branch's step-back used the
+  avoidance path with no odometry verification, so its apparent
+  0.375 -> 0.187 m improvement was likely pure pulse-credit arithmetic;
+  this robot had plausibly never physically stepped back
+- Fix: the step back now suspends the module for one bounded window:
+  `SwitchGet` records the prior state, `SwitchSet(False)` with a short
+  vendor-style settle (0.2 s, configurable), the bounded direct-sport
+  reverse pulses, `StopMove`, then a mandatory `SwitchSet(True)` confirmed
+  by `SwitchGet`. A failed restore latches a hard motion fault, disarms,
+  and seals the run `FAILED` — the demo never continues with avoidance
+  silently off. General velocity commands are rejected while the module is
+  suspended, and the reverse entry point refuses to fire outside the
+  suspended window
+- Speed revisited for real actuation: the direct path produced physical
+  steps at 0.25 and 0.50 m/s in the recorded hardware facts, so the
+  default is now a conservative 0.5 m/s x 0.5 s (~0.25 m commanded)
+  against the unchanged 0.05 m odometry gate
+- Evidence sealing extended: the r4 failure surfaced only the raw motion
+  trace, so the step-back evidence dict (motion path, prior switch state,
+  off-window duration, restore result, poses before/after, measured
+  displacement) is now sealed on success and on every failure path under
+  `failure_details.step_back`
+- Scope: 163 automated tests pass (new: the suspend/reverse/restore
+  choreography, the suspension-required and commands-blocked-while-
+  suspended guards, the restore-failure hard fault at both the adapter and
+  manager levels, and the failure-details mapping); Ruff clean
+- Limitation: the avoidance-window reverse has not yet moved the physical
+  robot; the supervised r5 retest is pending

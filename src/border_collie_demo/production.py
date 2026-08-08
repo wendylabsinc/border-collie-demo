@@ -24,13 +24,16 @@ class BarkPort(Protocol):
 DOWN_HOLD_S = 5.0
 ARRIVAL_STOP_SETTLE_S = 1.0
 STAND_UP_SETTLE_S = 1.0
-# The step back uses the separately qualified 1.0 m/s factory-avoidance
-# signal (0.50 m/s is the observed deadband edge) for one bounded window, so
-# the following Home turn rotates with clearance from the fruit. Displacement
-# is verified by odometry; no return-pulse credit is taken (see
-# HardwareManager.step_back).
-STEP_BACK_REVERSE_MPS = 1.0
-STEP_BACK_DURATION_S = 0.4
+# The step back reverses through the direct SportClient with the
+# robot-global avoidance module suspended for the bounded window, so the
+# following Home turn rotates with clearance from the fruit. The direct
+# path produced physical steps at 0.25 and 0.50 m/s in the recorded
+# hardware facts, so 0.50 m/s x 0.5 s (~0.25 m commanded) is a conservative
+# default now that the reverse actually actuates; displacement is verified
+# by odometry against the 0.05 m gate and no return-pulse credit is taken
+# (see HardwareManager.step_back).
+STEP_BACK_REVERSE_MPS = 0.5
+STEP_BACK_DURATION_S = 0.5
 STEP_BACK_MINIMUM_BACKWARD_M = 0.05
 
 
@@ -84,10 +87,13 @@ class ProductionStageExecutor:
                 ),
             ) from exc
         except HardwareUnavailable as exc:
+            evidence = getattr(exc, "evidence", None)
             raise StageFailure(
                 DEFAULT_STAGE_FAILURE_REASONS[phase],
                 str(exc),
-                details=self._failure_details(),
+                details=self._failure_details(
+                    {phase.value: dict(evidence)} if evidence else None
+                ),
             ) from exc
         except BarkFailure as exc:
             raise StageFailure(

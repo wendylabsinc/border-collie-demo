@@ -93,21 +93,30 @@ commands zero motion.
 Arrival releases motion before `SIT_AND_BARK`; Woof barks while down and holds
 that posture for 5 seconds before `STAND` may begin.
 
-`STEP_BACK` then reverses for one bounded window (1.0 m/s for 0.4 seconds)
-so the following Home turn rotates with clearance from the fruit. The
-reverse pulse travels through the direct SportClient, not factory avoidance:
-the avoidance controller's perception is forward-facing, cannot validate
-space behind the robot, and silently refuses reverse translation (supervised
-run on 2026-08-08 measured -0.001 m over five accepted avoidance reverse
-commands). Bypassing avoidance is acceptable only for this bounded step
-because Woof reverses into space it traversed seconds earlier during its own
-approach, the pulse is short and speed-bounded under the same command
-watchdog and StopMove release, displacement is verified by fresh odometry,
-and the demo is operator-supervised. The reverse window timer starts only
-after the motion arm, including its remote-API settle, is confirmed
-complete. The stage reads a fresh pose before and after the window and fails
-closed with `ACTION_FAILURE` if odometry does not confirm at least
-0.05 meters of backward movement.
+`STEP_BACK` then reverses for one bounded window (0.5 m/s for 0.5 seconds,
+about 0.25 m commanded) so the following Home turn rotates with clearance
+from the fruit. The Go2 obstacle-avoidance module is a robot-global switch,
+not a per-client path: while engaged it owns velocity control and vetoes
+reverse translation from every client — two supervised runs on 2026-08-08
+measured -0.001 m over five accepted reverse commands, first through the
+avoidance client (r2) and then through the direct SportClient with the
+module still engaged (r4). The stage therefore records the module's prior
+state, switches it off with a short vendor-style settle, reverses through
+the direct SportClient only, and always re-engages and confirms the module
+afterwards. A failed restore is a hard fault: the motion adapter latches the
+fault, stops, disarms, and the run seals `FAILED` — the demo never continues
+with avoidance silently off. This under-a-second avoidance-off window is
+acceptable only for this bounded step because Woof reverses into space it
+traversed seconds earlier during its own approach, the pulse is short and
+speed-bounded under the same command watchdog with StopMove before the
+module restore, displacement is verified by fresh odometry, and the demo is
+operator-supervised. The reverse window timer starts only after the motion
+arm and the avoidance-switch settle are confirmed complete. The stage reads
+a fresh pose before and after the window and fails closed with
+`ACTION_FAILURE` if odometry does not confirm at least 0.05 meters of
+backward movement; the switch states, off-window duration, poses, and
+measured displacement are sealed in the Run Result on success and on every
+failure path.
 `STEP_BACK` takes no credit against the return replay: the outbound
 forward-heartbeat count recorded during approach is passed to `RETURN_HOME`
 unchanged, and the return controller keeps measuring the real pose from

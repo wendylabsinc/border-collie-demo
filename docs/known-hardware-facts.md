@@ -16,14 +16,17 @@ proof that this clean implementation works:
   remain mandatory.
 - Short travel should use a reliable velocity with bounded pulse duration,
   rather than reducing velocity below the movement deadband.
-- The factory obstacle-avoidance client silently refuses reverse
-  translation: its perception is forward-facing and it cannot validate space
-  behind the robot, so reverse `Move` RPCs are accepted with no physical
-  motion (2026-08-08 on Woof: five accepted avoidance reverse commands
-  measured -0.001 m by odometry). Any reverse pulse must use the direct
-  SportClient with its own displacement verification. This also means the
-  2026-08-07 avoidance-path step-back, which had no odometry check, most
-  likely never physically executed.
+- The factory obstacle-avoidance MODULE is a robot-global switch
+  (`SwitchSet`/`SwitchGet`), not a per-client path. While engaged it owns
+  velocity control and silently vetoes reverse translation from every
+  client: reverse `Move` RPCs are accepted with no physical motion both
+  through the avoidance client (2026-08-08 r2: five commands, -0.001 m by
+  odometry) and through the direct SportClient with the module still
+  engaged (2026-08-08 r4: identical signature). Any reverse pulse must
+  switch the module off for the bounded window, verify displacement by
+  odometry, and re-engage and confirm the module afterwards. This also
+  means the 2026-08-07 avoidance-path step-back, which had no odometry
+  check, most likely never physically executed.
 - The previous final approach used one direct 1.0 m/s, 0.4-second push only
   after confirmed near-fruit evidence and lower-camera disappearance.
 - The first clean combined Arrival used that 0.4-second value but stopped too

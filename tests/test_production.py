@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from border_collie_demo.hardware import CameraFailure, TargetLost
+from border_collie_demo.hardware import CameraFailure, StepBackNoResponse, TargetLost
 from border_collie_demo.models import MissionPhase
 from border_collie_demo.orchestrator import StageContext, StageFailure
 from border_collie_demo.production import ProductionStageExecutor
@@ -307,10 +307,12 @@ def test_step_back_runs_between_stand_and_home_turn_with_locked_values() -> None
             (
                 "step_back",
                 {
-                    # 1.0 m/s is the separately qualified factory-avoidance
-                    # signal; 0.50 m/s is the observed deadband edge.
-                    "reverse_mps": 1.0,
-                    "duration_s": 0.4,
+                    # The direct SportClient produced physical steps at 0.25
+                    # and 0.50 m/s in the recorded hardware facts, so the
+                    # avoidance-suspended reverse uses a conservative
+                    # 0.5 m/s x 0.5 s (~0.25 m commanded) window.
+                    "reverse_mps": 0.5,
+                    "duration_s": 0.5,
                     "minimum_backward_m": 0.05,
                 },
             )
@@ -383,6 +385,45 @@ def test_camera_failure_is_preserved_as_the_terminal_stage_reason() -> None:
 
         assert failure.value.reason == "CAMERA_FAILURE"
         assert failure.value.message == "source progress is stale"
+
+    asyncio.run(scenario())
+
+
+def test_step_back_failure_preserves_the_step_back_evidence_in_details() -> None:
+    class NoMotionStepBackHardware(FakeProductionHardware):
+        async def step_back(self, **_options):
+            raise StepBackNoResponse(
+                "step back sent 5 reverse commands but odometry measured "
+                "only -0.001 m backward movement (gate 0.050 m)",
+                evidence={
+                    "motion_path": "direct_sport_reverse",
+                    "avoidance_prior_enabled": True,
+                    "avoidance_restored": True,
+                    "avoidance_switched_off_s": 0.91,
+                    "command_count": 5,
+                    "measured_backward_m": -0.001,
+                },
+            )
+
+    async def scenario() -> None:
+        stages = ProductionStageExecutor(
+            NoMotionStepBackHardware(), dict, FakeBark()
+        )
+
+        with pytest.raises(StageFailure) as failure:
+            await stages.execute(MissionPhase.STEP_BACK, context())
+
+        assert failure.value.reason == "ACTION_FAILURE"
+        assert failure.value.details == {
+            "step_back": {
+                "motion_path": "direct_sport_reverse",
+                "avoidance_prior_enabled": True,
+                "avoidance_restored": True,
+                "avoidance_switched_off_s": 0.91,
+                "command_count": 5,
+                "measured_backward_m": -0.001,
+            }
+        }
 
     asyncio.run(scenario())
 

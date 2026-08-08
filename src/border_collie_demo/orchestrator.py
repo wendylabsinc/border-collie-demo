@@ -220,9 +220,12 @@ class SimulatedStageExecutor:
             "motion_commands_sent": False,
         },
         MissionPhase.STEP_BACK: {
-            "commanded_reverse_mps": 1.0,
-            "commanded_duration_s": 0.4,
+            "commanded_reverse_mps": 0.5,
+            "commanded_duration_s": 0.5,
             "measured_backward_m": 0.24,
+            "avoidance_prior_enabled": True,
+            "avoidance_restored": True,
+            "avoidance_switched_off_s": 0.9,
             "motion_commands_sent": False,
         },
         MissionPhase.TURN_TOWARD_HOME: {

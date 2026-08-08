@@ -27,6 +27,9 @@ class FakeMotion:
         self.step_back_commands: list[VelocityCommand] = []
         self.stop_calls = 0
         self.postures: list[str] = []
+        self.avoidance_suspended = False
+        self.suspend_calls = 0
+        self.resume_calls = 0
 
     def status(self) -> dict[str, object]:
         return {
@@ -58,10 +61,35 @@ class FakeMotion:
     ) -> VelocityCommand:
         assert lease == "lease"
         assert self.armed
+        assert self.avoidance_suspended, (
+            "reverse must only be commanded inside the avoidance-off window"
+        )
         command = VelocityCommand(-reverse_mps, 0.0, "step_back_clearance")
         self.commands.append(command)
         self.step_back_commands.append(command)
         return command
+
+    async def suspend_avoidance_for_step_back(self, lease: str) -> dict[str, object]:
+        assert lease == "lease"
+        assert self.armed
+        assert not self.avoidance_suspended
+        self.avoidance_suspended = True
+        self.suspend_calls += 1
+        return {
+            "avoidance_prior_enabled": True,
+            "avoidance_switch_settle_s": 0.0,
+        }
+
+    async def resume_avoidance_after_step_back(self, lease: str) -> dict[str, object]:
+        assert lease == "lease"
+        assert self.armed
+        assert self.avoidance_suspended
+        self.avoidance_suspended = False
+        self.resume_calls += 1
+        return {
+            "avoidance_restored": True,
+            "avoidance_switched_off_s": 0.123,
+        }
 
     async def release(self, lease: str) -> None:
         assert lease == "lease"
@@ -351,6 +379,13 @@ def test_step_back_reverses_measures_displacement_then_disarms() -> None:
         assert result["measured_lateral_m"] == pytest.approx(0.05)
         assert result["minimum_backward_m"] == 0.02
         assert result["motion_commands_sent"] is True
+        assert result["avoidance_prior_enabled"] is True
+        assert result["avoidance_restored"] is True
+        assert result["avoidance_switched_off_s"] == 0.123
+        assert result["pose_before"] == {"x_m": 1.0, "y_m": 0.0, "yaw_rad": 0.0}
+        assert result["pose_after"] == {"x_m": 0.72, "y_m": 0.05, "yaw_rad": 0.0}
+        assert motion.suspend_calls == 1
+        assert motion.resume_calls == 1
         assert len(motion.step_back_commands) == result["command_count"]
         assert all(
             command.forward_mps == -1.0 and command.yaw_rps == 0.0
@@ -378,7 +413,7 @@ def test_step_back_fails_closed_when_odometry_measures_no_movement() -> None:
         )
         await manager.start()
 
-        with pytest.raises(StepBackNoResponse, match="measured only"):
+        with pytest.raises(StepBackNoResponse, match="measured only") as failure:
             await manager.step_back(
                 reverse_mps=1.0,
                 duration_s=0.03,
@@ -386,6 +421,54 @@ def test_step_back_fails_closed_when_odometry_measures_no_movement() -> None:
             )
 
         assert len(motion.step_back_commands) >= 1
+        # Avoidance was restored before the fail-closed gate fired, and the
+        # sealed evidence carries the full window record.
+        assert motion.resume_calls == 1
+        evidence = failure.value.evidence
+        assert evidence["motion_path"] == "direct_sport_reverse"
+        assert evidence["avoidance_restored"] is True
+        assert evidence["measured_backward_m"] == pytest.approx(0.0)
+        assert evidence["command_count"] >= 1
+        assert motion.armed is False
+        assert manager.status()["active_operation"] is None
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_step_back_hard_faults_when_avoidance_restore_fails() -> None:
+    """The demo must never continue with avoidance silently off."""
+
+    class RestoreFailingMotion(FakeMotion):
+        async def resume_avoidance_after_step_back(
+            self, lease: str
+        ) -> dict[str, object]:
+            raise RuntimeError("SwitchSet(True) returned 3203")
+
+    async def scenario() -> None:
+        motion = RestoreFailingMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: SteppingBackPose(),
+        )
+        await manager.start()
+
+        with pytest.raises(
+            HardwareUnavailable, match="avoidance restore failed"
+        ) as failure:
+            await manager.step_back(
+                reverse_mps=1.0,
+                duration_s=0.03,
+                minimum_backward_m=0.02,
+            )
+
+        # The reverse window itself succeeded; only the restore failed, and
+        # that alone must fail the stage with the evidence sealed.
+        assert len(motion.step_back_commands) >= 1
+        assert failure.value.evidence["avoidance_restored"] is False
+        assert failure.value.evidence["motion_commands_sent"] is True
         assert motion.armed is False
         assert manager.status()["active_operation"] is None
         await manager.close()

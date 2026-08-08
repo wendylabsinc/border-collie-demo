@@ -29,14 +29,20 @@ The executable, hardware-free design probe lives in
 - `STEP_BACK` is the single sanctioned exception to the avoidance-owned
   translation rule, and it does not weaken this contract's return rules:
   return translation itself remains forward-only through factory avoidance.
-  The step's reverse pulse uses the direct SportClient because the
-  forward-facing avoidance controller silently refuses reverse translation
-  (2026-08-08: five accepted avoidance reverse commands measured -0.001 m).
-  The bypass is bounded and evidenced — reverse-only with no yaw or lateral
-  mixing, the same forward-speed limit and command watchdog, StopMove on
-  release, fresh-pose displacement verification with a fail-closed gate, a
-  path the robot itself cleared seconds earlier during approach, and an
-  operator supervising the run.
+  The obstacle-avoidance module is robot-global and vetoes reverse from any
+  client while engaged (2026-08-08, twice: five accepted reverse commands
+  measured -0.001 m through the avoidance client, then again through the
+  direct SportClient with the module engaged), so the step suspends the
+  module for one bounded under-a-second window: prior state recorded,
+  SwitchSet off with a short settle, direct-sport reverse, StopMove, then a
+  mandatory SwitchSet-on with confirmation. A failed restore latches a hard
+  motion fault and seals the run `FAILED` — autonomous work never continues
+  with avoidance silently off. The window is bounded and evidenced —
+  reverse-only with no yaw or lateral mixing, the same forward-speed limit
+  and command watchdog, fresh-pose displacement verification with a
+  fail-closed gate, switch states and off-window duration sealed in the Run
+  Result, a path the robot itself cleared seconds earlier during approach,
+  and an operator supervising the run.
 - Fresh measured local pose remains the authority for course, progress, early
   stop, the 0.10 m Home gate, and the reported Home Distance. Pulse count and
   requested velocity never substitute for measured Home Distance or prove

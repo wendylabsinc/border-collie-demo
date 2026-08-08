@@ -8,6 +8,7 @@ from border_collie_demo.go2_motion import (
     Go2Motion,
     LeaseMismatch,
     MotionConfig,
+    MotionNotReady,
 )
 from border_collie_demo.models import VelocityCommand
 
@@ -136,13 +137,15 @@ def test_unsafe_velocity_is_rejected_before_hardware(
     asyncio.run(scenario())
 
 
-def test_step_back_reverses_through_direct_sport_never_avoidance() -> None:
-    """The avoidance controller silently refuses reverse translation.
+def test_step_back_suspends_avoidance_reverses_through_sport_then_restores() -> None:
+    """The avoidance MODULE is robot-global and vetoes reverse from any client.
 
-    Supervised run on 2026-08-08 measured -0.001 m over five accepted
-    avoidance reverse commands, so the bounded clearance step must travel
-    through the direct SportClient and must never send a negative vx to the
-    avoidance client.
+    Two supervised runs on 2026-08-08 measured -0.001 m over five accepted
+    reverse commands — first through the avoidance client, then through the
+    direct SportClient with the module still engaged. The bounded clearance
+    step must therefore record the prior module state, switch the module
+    off, reverse through the direct SportClient only, and always re-engage
+    and confirm the module afterwards.
     """
 
     async def scenario() -> None:
@@ -150,22 +153,112 @@ def test_step_back_reverses_through_direct_sport_never_avoidance() -> None:
         motion = Go2Motion(
             sport,
             avoidance,
-            MotionConfig(remote_api_settle_s=0.0),
+            MotionConfig(remote_api_settle_s=0.0, avoidance_switch_settle_s=0.0),
+        )
+        await motion.initialize()
+        lease = await motion.arm()
+        assert avoidance.enabled is True
+
+        suspend = await motion.suspend_avoidance_for_step_back(lease)
+        assert suspend["avoidance_prior_enabled"] is True
+        assert avoidance.enabled is False
+        assert motion.status()["avoidance_suspended"] is True
+
+        sent = await motion.command_step_back(lease, 1.0)
+        assert sent == VelocityCommand(-1.0, 0.0, "step_back_clearance")
+        assert sport.moves[-1] == (-1.0, 0.0, 0.0)
+        assert all(move[0] >= 0.0 for move in avoidance.moves)
+
+        resume = await motion.resume_avoidance_after_step_back(lease)
+        assert resume["avoidance_restored"] is True
+        assert resume["avoidance_switched_off_s"] >= 0.0
+        assert avoidance.enabled is True
+        assert sport.stop_calls >= 1
+        assert motion.status()["avoidance_suspended"] is False
+        assert motion.armed is True
+
+        await motion.release(lease)
+        assert avoidance.moves[-1] == (0.0, 0.0, 0.0)
+        assert all(move[0] >= 0.0 for move in avoidance.moves)
+        assert motion.armed is False
+        await motion.close()
+
+    asyncio.run(scenario())
+
+
+def test_step_back_reverse_requires_the_avoidance_off_window() -> None:
+    async def scenario() -> None:
+        sport, avoidance = FakeSport(), FakeAvoidance()
+        motion = Go2Motion(
+            sport,
+            avoidance,
+            MotionConfig(remote_api_settle_s=0.0, avoidance_switch_settle_s=0.0),
         )
         await motion.initialize()
         lease = await motion.arm()
 
-        sent = await motion.command_step_back(lease, 1.0)
+        with pytest.raises(MotionNotReady, match="suspended first"):
+            await motion.command_step_back(lease, 0.5)
 
-        assert sent == VelocityCommand(-1.0, 0.0, "step_back_clearance")
-        assert sport.moves[-1] == (-1.0, 0.0, 0.0)
-        assert all(move[0] >= 0.0 for move in avoidance.moves)
-        assert motion.armed is True
-        await motion.release(lease)
-        assert sport.stop_calls >= 1
-        assert avoidance.moves[-1] == (0.0, 0.0, 0.0)
-        assert all(move[0] >= 0.0 for move in avoidance.moves)
+        assert sport.moves == []
+        await motion.close()
+
+    asyncio.run(scenario())
+
+
+def test_general_velocity_commands_are_blocked_while_avoidance_is_suspended() -> None:
+    async def scenario() -> None:
+        sport, avoidance = FakeSport(), FakeAvoidance()
+        motion = Go2Motion(
+            sport,
+            avoidance,
+            MotionConfig(remote_api_settle_s=0.0, avoidance_switch_settle_s=0.0),
+        )
+        await motion.initialize()
+        lease = await motion.arm()
+        await motion.suspend_avoidance_for_step_back(lease)
+        moves_before = list(avoidance.moves)
+
+        with pytest.raises(MotionNotReady, match="blocked while avoidance"):
+            await motion.command(lease, VelocityCommand(0.5, 0.0, "test"))
+
+        assert avoidance.moves == moves_before
+        await motion.close()
+
+    asyncio.run(scenario())
+
+
+def test_failed_avoidance_restore_is_a_hard_fault() -> None:
+    class WedgedAvoidance(FakeAvoidance):
+        wedged = False
+
+        def SwitchSet(self, enabled: bool) -> int:
+            if enabled and self.wedged:
+                return 3203
+            return super().SwitchSet(enabled)
+
+    async def scenario() -> None:
+        sport = FakeSport()
+        avoidance = WedgedAvoidance()
+        motion = Go2Motion(
+            sport,
+            avoidance,
+            MotionConfig(remote_api_settle_s=0.0, avoidance_switch_settle_s=0.0),
+        )
+        await motion.initialize()
+        lease = await motion.arm()
+        await motion.suspend_avoidance_for_step_back(lease)
+        await motion.command_step_back(lease, 0.5)
+        avoidance.wedged = True
+
+        with pytest.raises(MotionNotReady, match="avoidance restore failed"):
+            await motion.resume_avoidance_after_step_back(lease)
+
+        # The fault is latched: the adapter is disarmed and cannot be
+        # re-armed without recovering from the fault.
         assert motion.armed is False
+        with pytest.raises(MotionNotReady, match="avoidance restore failed"):
+            await motion.arm()
         await motion.close()
 
     asyncio.run(scenario())
@@ -209,10 +302,12 @@ def test_step_back_command_is_covered_by_the_watchdog() -> None:
             MotionConfig(
                 command_watchdog_s=0.03,
                 remote_api_settle_s=0.0,
+                avoidance_switch_settle_s=0.0,
             ),
         )
         await motion.initialize()
         lease = await motion.arm()
+        await motion.suspend_avoidance_for_step_back(lease)
         await motion.command_step_back(lease, 1.0)
 
         await asyncio.sleep(0.08)

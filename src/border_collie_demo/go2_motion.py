@@ -70,6 +70,10 @@ class MotionConfig:
     client_timeout_s: float = 12.0
     avoidance_verify_interval_s: float = 0.30
     remote_api_settle_s: float = 0.50
+    # Settle after toggling the robot-global avoidance module, mirroring the
+    # vendor example cadence (0.1 s between SwitchSet retries, 0.5 s after
+    # remote-command mode changes) — short but nonzero.
+    avoidance_switch_settle_s: float = 0.20
 
     def __post_init__(self) -> None:
         for name in (
@@ -85,6 +89,8 @@ class MotionConfig:
                 raise ValueError(f"{name} must be finite and positive")
         if self.remote_api_settle_s < 0.0:
             raise ValueError("remote_api_settle_s must be non-negative")
+        if self.avoidance_switch_settle_s < 0.0:
+            raise ValueError("avoidance_switch_settle_s must be non-negative")
 
 
 class Go2Motion:
@@ -110,6 +116,8 @@ class Go2Motion:
         self._lease: str | None = None
         self._avoidance_enabled = False
         self._remote_api_enabled = False
+        self._avoidance_suspended = False
+        self._avoidance_suspended_at: float | None = None
         self._last_verify_at: float | None = None
         self._last_command = VelocityCommand(reason="disarmed")
         self._watchdog: asyncio.Task[None] | None = None
@@ -135,6 +143,7 @@ class Go2Motion:
             "mode": "factory_avoidance" if self._lease else None,
             "fault": self._fault,
             "avoidance_enabled": self._avoidance_enabled,
+            "avoidance_suspended": self._avoidance_suspended,
             "remote_api_enabled": self._remote_api_enabled,
             "watchdog_s": self.config.command_watchdog_s,
             "limits": {
@@ -194,6 +203,11 @@ class Go2Motion:
         yaw = self._bounded_yaw(command.yaw_rps)
         async with self._lock:
             self._require_owner(lease)
+            if self._avoidance_suspended:
+                raise MotionNotReady(
+                    "velocity commands are blocked while avoidance is "
+                    "suspended for step back"
+                )
             self._cancel_watchdog()
             try:
                 if forward != 0.0 or yaw != 0.0:
@@ -208,6 +222,82 @@ class Go2Motion:
                 self._arm_watchdog()
             return self._last_command
 
+    async def suspend_avoidance_for_step_back(self, lease: str) -> dict[str, object]:
+        """Disengage the robot-global avoidance module for one reverse window.
+
+        The Go2 obstacle-avoidance module is a robot-global switch, not a
+        per-client path: while engaged it owns velocity control and vetoes
+        reverse translation from every client, including the direct
+        SportClient (r4 supervised run a9214ed8, 2026-08-08: five direct
+        sport reverse commands at -1.0 m/s, -0.001 m measured). The bounded
+        step back therefore switches the module off, reverses, and must
+        restore it via ``resume_avoidance_after_step_back``.
+        """
+        async with self._lock:
+            self._require_owner(lease)
+            if self._avoidance_suspended:
+                raise MotionNotReady("avoidance is already suspended")
+            self._cancel_watchdog()
+            try:
+                code, prior_enabled = await self._call(self.avoidance.SwitchGet)
+                if code != 0:
+                    raise MotionError(f"SwitchGet returned {code!r}")
+                await self._success(self.avoidance.SwitchSet, False)
+                if self.config.avoidance_switch_settle_s:
+                    await self._sleep(self.config.avoidance_switch_settle_s)
+            except Exception as exc:
+                self._fault = f"avoidance suspend failed: {exc}"
+                await self._release_locked(use_stop=True)
+                raise MotionNotReady(self._fault) from exc
+            self._avoidance_suspended = True
+            self._avoidance_suspended_at = time.monotonic()
+            return {
+                "avoidance_prior_enabled": bool(prior_enabled),
+                "avoidance_switch_settle_s": self.config.avoidance_switch_settle_s,
+            }
+
+    async def resume_avoidance_after_step_back(self, lease: str) -> dict[str, object]:
+        """Stop reverse motion and re-engage the avoidance module.
+
+        The rest of the demo depends on factory avoidance, so a failed
+        restore is a hard fault: the adapter latches the fault, stops and
+        releases, and every subsequent operation fails closed until the
+        application is restarted or re-armed successfully.
+        """
+        async with self._lock:
+            self._require_owner(lease)
+            if not self._avoidance_suspended:
+                raise MotionNotReady("avoidance is not suspended")
+            self._cancel_watchdog()
+            suspended_at = self._avoidance_suspended_at
+            try:
+                stop_result = await self._call_stop(self.sport.StopMove)
+                if stop_result not in (0, -1):
+                    raise MotionError(f"StopMove returned {stop_result!r}")
+                await self._success(self.avoidance.SwitchSet, True)
+                if self.config.avoidance_switch_settle_s:
+                    await self._sleep(self.config.avoidance_switch_settle_s)
+                response = await self._call(self.avoidance.SwitchGet)
+                if response != (0, True):
+                    raise MotionError(
+                        f"avoidance re-enable not confirmed: {response!r}"
+                    )
+            except Exception as exc:
+                self._fault = f"avoidance restore failed after step back: {exc}"
+                await self._release_locked(use_stop=True)
+                raise MotionNotReady(self._fault) from exc
+            self._last_verify_at = time.monotonic()
+            self._avoidance_suspended = False
+            switched_off_s = time.monotonic() - (
+                suspended_at if suspended_at is not None else time.monotonic()
+            )
+            self._avoidance_suspended_at = None
+            self._last_command = VelocityCommand(reason="step_back_stopped")
+            return {
+                "avoidance_restored": True,
+                "avoidance_switched_off_s": round(switched_off_s, 3),
+            }
+
     async def command_step_back(
         self,
         lease: str,
@@ -221,17 +311,17 @@ class Go2Motion:
         clearance step: it never combines reverse translation with yaw or
         lateral input, it is limited by the same configured forward-speed
         bound, and it renews the same command watchdog as every other
-        velocity command.
+        velocity command. It requires the avoidance module to be suspended
+        first (``suspend_avoidance_for_step_back``): the module is a
+        robot-global velocity owner and vetoes reverse from any client while
+        engaged, which two supervised runs (45a1e796's r2 sibling and r4
+        a9214ed8) measured as accepted commands with -0.001 m of motion.
 
-        Why direct sport and not factory avoidance: the Go2 obstacle-avoidance
-        controller has forward-facing perception and cannot validate space
-        behind the robot, so it silently refuses reverse translation — the
-        RPC succeeds and nothing moves. Supervised run on 2026-08-08 measured
-        -0.001 m over five accepted avoidance reverse commands. The bypass is
-        acceptable only for this step because the robot reverses into space
-        it traversed seconds earlier during its own approach, the pulse is
-        short and speed-bounded, the caller verifies real displacement by
-        odometry, and the demo is operator-supervised.
+        The bypass is acceptable only for this step because the robot
+        reverses into space it traversed seconds earlier during its own
+        approach, the pulse is short and speed-bounded, the caller verifies
+        real displacement by odometry, restore is mandatory-or-fault, and
+        the demo is operator-supervised.
         """
         speed = float(reverse_mps)
         if not math.isfinite(speed) or speed <= 0.0:
@@ -240,6 +330,11 @@ class Go2Motion:
             raise ValueError("step-back speed exceeds the configured limit")
         async with self._lock:
             self._require_owner(lease)
+            if not self._avoidance_suspended:
+                raise MotionNotReady(
+                    "step-back reverse requires the avoidance module to be "
+                    "suspended first"
+                )
             self._cancel_watchdog()
             try:
                 await self._success(self.sport.Move, -speed, 0.0, 0.0)
@@ -398,6 +493,8 @@ class Go2Motion:
         self._lease = None
         self._avoidance_enabled = False
         self._remote_api_enabled = False
+        self._avoidance_suspended = False
+        self._avoidance_suspended_at = None
         self._last_verify_at = None
         self._last_command = VelocityCommand(reason="released")
         return errors
