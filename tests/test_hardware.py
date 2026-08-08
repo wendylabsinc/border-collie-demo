@@ -847,21 +847,21 @@ def test_approach_declares_arrival_when_close_range_sight_is_lost() -> None:
         assert result["arrival_bottom_ratio"] == 0.70
         assert result["arrival_center_tolerance_ratio"] == 0.15
         assert result["last_track_geometry"]["bottom_ratio"] == 0.92
-        # Forward pulses: one far drive plus the close-range engagement
-        # drive. The zero-forward close-range holds consume no pulse and
-        # there is no blind push.
-        assert result["forward_pulse_count"] == 2
-        assert result["close_range_slowdown_engaged"] is True
-        assert result["close_range_slowdown_engaged_bottom_ratio"] == 0.90
-        assert result["close_range_drive_pulses"] == 1
-        assert result["close_range_hold_frames"] == 2
-        assert any(
-            command.reason == "close_range_approach_hold"
-            and command.forward_mps == 0.0
+        # Every visible-track frame after initial centering drives at the
+        # qualified constant speed - the r7 close-range duty cycle is
+        # retired - and there is no blind push after the loss.
+        assert result["forward_pulse_count"] == 4
+        assert result["approach_forward_mps"] == 0.50
+        track_commands = [
+            command
             for command in motion.commands
-        )
+            if command.reason == "approach_target"
+        ]
+        assert len(track_commands) == 4
+        assert all(command.forward_mps == 0.50 for command in track_commands)
         assert not any(
-            command.reason == "fruit_offscreen_final_push"
+            command.reason
+            in {"fruit_offscreen_final_push", "close_range_approach_hold"}
             for command in motion.commands
         )
         assert result["forward_pulse_count"] == len(
@@ -930,25 +930,24 @@ def test_approach_keeps_moving_while_near_pear_remains_visible() -> None:
             if command.reason == "approach_target"
             and command.forward_mps == 1.0
         ]
-        # One far drive plus two duty-cycle drives; the close-range holds
-        # between them keep the robot advancing slowly while the fruit
-        # stays in sight - approach never stops early on a visible track.
-        assert len(visible_forward) == 3
-        assert len(
-            [
-                command
-                for command in motion.commands
-                if command.reason == "close_range_approach_hold"
-            ]
-        ) == 3
+        # Every visible-track frame after initial centering drives at the
+        # qualified constant 1.0 m/s right up until sight loss - approach
+        # never stops or stutters on a visible track (the r7 duty cycle
+        # stalled the gait and is retired).
+        assert len(visible_forward) == 6
+        assert all(
+            command.forward_mps == 1.0
+            for command in motion.commands
+            if command.reason == "approach_target"
+        )
         assert result["arrival_confirmed"] is True
         assert result["arrival_mode"] == "sight_lost_close"
-        assert result["forward_pulse_count"] == 3
-        assert result["close_range_drive_pulses"] == 2
-        assert result["close_range_hold_frames"] == 3
+        assert result["forward_pulse_count"] == 6
+        assert result["approach_forward_mps"] == 1.0
         assert result["last_track_geometry"]["bottom_ratio"] == 0.94
         assert not any(
-            command.reason == "fruit_offscreen_final_push"
+            command.reason
+            in {"fruit_offscreen_final_push", "close_range_approach_hold"}
             for command in motion.commands
         )
         assert motion.armed is False
@@ -1089,23 +1088,17 @@ def test_late_approach_tightens_centering_before_the_blind_push() -> None:
             for command in motion.commands
             if command.reason == "approach_target"
         ]
+        early = [command for command in forward_commands if command.yaw_rps == 0.0]
+        late = [command for command in forward_commands if command.yaw_rps == -0.30]
         # Far approach: the 0.06 offset stays inside the 0.08 band, no yaw.
         # The first late sample is the hysteresis confirmation and also
-        # sends zero yaw; it is the close-range engagement drive.
-        assert len(forward_commands) == 3
-        assert all(command.yaw_rps == 0.0 for command in forward_commands)
-        assert all(command.forward_mps == 1.0 for command in forward_commands)
+        # sends zero yaw.
+        assert len(early) == 3
         # Late approach: after two consecutive off-band samples the same
-        # offset draws the fixed correction; those samples fall on the
-        # zero-forward duty-cycle holds, which keep full yaw steering.
-        late_corrections = [
-            command
-            for command in motion.commands
-            if command.reason == "close_range_approach_hold"
-            and command.yaw_rps == -0.30
-        ]
-        assert len(late_corrections) == 2
-        assert all(command.forward_mps == 0.0 for command in late_corrections)
+        # offset draws the fixed correction while forward translation
+        # continues at the constant qualified speed.
+        assert len(late) == 2
+        assert all(command.forward_mps == 1.0 for command in forward_commands)
         assert result["approach_center_tolerance_ratio"] == 0.08
         assert result["late_center_tolerance_ratio"] == 0.04
         assert result["late_center_confirmations"] == 2

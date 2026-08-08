@@ -16,6 +16,16 @@ proof that this clean implementation works:
   remain mandatory.
 - Short travel should use a reliable velocity with bounded pulse duration,
   rather than reducing velocity below the movement deadband.
+- Stop-start forward translation is ineffective at sub-gait-cycle windows,
+  and the search stage's hardware-validated hold pattern does NOT transfer
+  from yaw to translation: rotation resumes instantly from rest, but a
+  single 0.1 s forward burst at 1.0 m/s through the avoidance module plants
+  no step before a following zero-hold stops it. 2026-08-08 r7 on Woof: a
+  drive-one-in-three duty cycle produced ~10 cm of twitching advance over
+  15.5 s (52 drive frames, 103 holds) against a rock-solid pear track.
+  Effective approach speed reduction on this platform requires either a
+  continuous velocity above the ~0.50 m/s avoidance deadband or no
+  reduction at all.
 - The factory obstacle-avoidance MODULE is a robot-global switch
   (`SwitchSet`/`SwitchGet`), not a per-client path. While engaged it owns
   velocity control and silently vetoes reverse translation from every

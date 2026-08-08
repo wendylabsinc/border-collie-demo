@@ -17,12 +17,12 @@ The executable, hardware-free design probe lives in
 - The recorded outbound forward-heartbeat count bounds the return translation:
   after turning toward Home, the return controller replays at most that many
   forward heartbeats at the same 1.0 m/s signal. Heading-only corrections do
-  not consume the count, and neither do the zero-forward close-range hold
-  frames of the approach duty cycle — every counted outbound heartbeat
-  commanded the same 1.0 m/s for one heartbeat period, so the replayed
-  budget maps one-to-one onto outbound distance exactly as it always has.
-  (With the blind final push retired, the outbound count no longer contains
-  any reduced-speed pulses at all.)
+  not consume the count. Every counted outbound heartbeat commanded the
+  same 1.0 m/s for one heartbeat period — approach runs at that constant
+  speed on every visible-track frame, and with the blind final push retired
+  the outbound count contains no reduced-speed pulses at all — so the
+  replayed budget maps one-to-one onto outbound distance exactly as it
+  always has.
 - The bounded `STEP_BACK` clearance stage that precedes the Home turn never
   reduces or credits this count. Its backward movement is verified by fresh
   odometry and simply leaves the robot nearer Home; the return controller

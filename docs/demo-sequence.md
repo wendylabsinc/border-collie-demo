@@ -59,19 +59,22 @@ the heading is close to the fruit axis before the fruit leaves the frame.
 An offset beyond the wide 0.08 band corrects immediately as it always has;
 the tighter band engages only after two consecutive off-band samples so
 single-frame detection jitter near 0.04 cannot toggle the correction.
-Once the track's lower edge crosses the 0.70 close-range boundary, approach
-also slows: every forward command keeps the qualified 1.0 m/s signal, but
-only one frame in three drives — the other two are zero-forward holds that
-retain full yaw steering. This is the same reliable-signal duty cycle the
-search stage already validated on hardware; commanding a genuinely slower
-velocity is not an option because the factory-avoidance deadband sits at
-about 0.50 m/s. The slowdown latches once engaged, gives roughly 0.33 m/s
-effective close-range speed, and exists so the last accepted track geometry
-— the sole input to the Arrival decision — is sampled finely instead of
-jumping from mid-frame to gone between frames. Only driving frames consume
-a forward heartbeat; holds consume none, so every counted outbound
-heartbeat still commanded 1.0 m/s for one heartbeat period and the
-return-home replay budget maps one-to-one exactly as before.
+Approach translation runs at the qualified constant 1.0 m/s on every
+visible-track frame, right up until sight loss. A close-range duty-cycle
+slowdown (drive one frame in three) was tried on 2026-08-08 (r7) and
+retired the same day: the hold pattern validated by the search stage is a
+YAW pattern — rotation resumes instantly from rest, but forward gait does
+not, and a single 0.1-second 1.0 m/s burst through the avoidance module
+plants no step before the next zero-hold stops it. r7 measured roughly
+10 cm of twitching advance in 15.5 seconds with the pear rock-solid in
+view, a guaranteed stall under the sight-lost contract. The slowdown's
+original purpose (winning the retired near gate's frame race) no longer
+exists, and its secondary purpose (a gentler stop) is served by the
+contract's immediate zero velocity on sight loss. If arrival distance
+proves too close in practice, the tunable is the arrival geometry (the
+0.70 bottom threshold), not stop-start speed control. Every visible-track
+frame consumes one forward heartbeat at the same 1.0 m/s signal, so the
+return-home replay budget maps one-to-one exactly as it always has.
 
 Arrival is the operator-ruled sight-lost contract (2026-08-08): while the
 fresh Target Fruit remains visible, forward approach continues; when the

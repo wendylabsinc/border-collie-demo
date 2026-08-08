@@ -707,3 +707,44 @@ Evidence: `benchmarks/results/supervised-three-run-2026-08-08.json`.
   unchanged and still awaits its hardware debut
 - Limitation: no physical run has exercised the sight-lost Arrival or the
   close-range slowdown; deployments are paused pending the operator's go
+
+## APPROACH-SLOWDOWN-RETIRED-001 — failed on hardware, removed
+
+- Observed: 2026-08-08 on Woof, r7 supervised run: `ARRIVAL_FAILURE`
+  caused by the round-7 close-range duty-cycle slowdown itself. Evidence:
+  slowdown engaged at bottom 0.70, 52 drive frames and 103 hold frames
+  (~15.5 s in close range) while the harness tracked a rock-solid pear
+  (0.77-0.94 confidence) with the box bottom crawling 0.67 -> 0.77 —
+  roughly 10 cm of twitching advance in 15 seconds, with the pear still in
+  view at 0.90 confidence when the deadline expired. Under the sight-lost
+  contract a barely-moving robot never loses sight: the two round-7
+  changes interlocked into a guaranteed stall
+- Root cause: an invalid extrapolation. The hold pattern validated on this
+  robot by the search stage is a YAW pattern — rotation resumes instantly
+  from rest — but forward gait does not: a single 0.1 s burst at 1.0 m/s
+  through the avoidance module plants no step before the next zero-hold
+  stops it. Recorded as a new hardware fact in known-hardware-facts.md
+- Fix: deletion. Approach now runs at the qualified constant 1.0 m/s on
+  every visible-track frame right up until sight loss, exactly as the
+  pre-r7 approach did — that speed demonstrably closed the last half meter
+  in 1-2 s in every recorded run. The slowdown's original purpose (the
+  near gate's frame race) was eliminated by the sight-lost contract; its
+  secondary purpose (gentler stop) is served by the contract's immediate
+  zero velocity on sight loss. If arrival distance proves too close, the
+  tunable is the arrival geometry (the 0.70 bottom threshold), not
+  stop-start speed control
+- Sight-lost parameters sanity-checked against constant 1.0 m/s: the
+  arrival decision reads the last accepted track geometry, which r2-r6
+  recorded at bottom 0.825-0.965 and center 0.464-0.512 under exactly this
+  speed — inside both arrival gates every time. On loss the very next
+  frame commands zero velocity, so post-loss travel is the same one-to-two
+  frames of momentum every recorded run already had (the sight-lost
+  contract itself remains unexercised on hardware and is not implicated in
+  r7 — it never got the chance to fire)
+- Scope: 165 automated tests pass — the duty-cycle pins were replaced with
+  constant-speed pins (every visible-track command at the qualified speed,
+  no hold or push reasons ever emitted, pulse count equal to forward
+  commands); Ruff clean. The r6 single-setpoint step-back still awaits its
+  hardware debut
+- Limitation: deployments remain paused; the r8 build is pushed and ready
+  for the operator-scheduled supervised run

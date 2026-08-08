@@ -41,21 +41,19 @@ APPROACH_CENTER_TOLERANCE_RATIO = 0.08
 LATE_APPROACH_CENTER_TOLERANCE_RATIO = 0.04
 LATE_CENTER_CONFIRMATIONS = 2
 CLOSE_RANGE_MINIMUM_BOTTOM_RATIO = 0.70
-# Close-range approach slowdown. At a continuous 1.0 m/s the track can jump
-# from mid-frame to gone between camera frames, which makes the last accepted
-# track geometry — the sole input to the sight-lost Arrival decision — a
-# per-run coin flip (r6 recorded bottom 0.699 -> 0.842 -> 0.965 across three
-# harness samples). Commanding a slower velocity is not an option: the
-# factory-avoidance deadband sits at about 0.50 m/s and continuous 0.50
-# measurably failed to translate. The slowdown therefore reuses the
-# hardware-validated search-slowdown shape: keep every forward command at the
-# qualified 1.0 m/s signal and interleave zero-forward hold frames. Driving
-# one frame in three gives ~0.33 m/s effective speed and roughly triples the
-# close-range frame count. Once engaged (first accepted track frame at or
-# above the close-range boundary) the duty cycle latches for the remainder of
-# the approach so bottom-ratio jitter cannot toggle the speed. Hold frames
-# keep full yaw steering and consume no forward pulse.
-CLOSE_RANGE_DRIVE_PERIOD = 3
+# Approach runs at one qualified constant speed right up until sight loss.
+# A close-range duty-cycle slowdown (drive one frame in three at 1.0 m/s)
+# was tried on 2026-08-08 (r7) and retired the same day: the
+# hardware-validated hold pattern from the search stage is a YAW pattern,
+# and rotation resumes instantly from rest, but forward gait does not — a
+# single 0.1 s burst at 1.0 m/s through the avoidance module plants no step
+# before the next zero-hold stops it. r7 measured ~10 cm of twitching
+# advance in 15.5 s (52 drive frames, 103 holds) with the pear rock-solid in
+# view, which under the sight-lost contract is a guaranteed stall. The
+# slowdown's original purpose (winning the retired near gate's frame race)
+# no longer exists, and its secondary purpose (a gentler stop) is served by
+# the contract's immediate zero velocity on sight loss. If arrival distance
+# later proves too close, tune the arrival geometry below, not speed.
 # Sight-lost Arrival (operator ruling, 2026-08-08): when the qualified track
 # is lost and stays lost through the grace window, Woof sits where it stands
 # if the LAST qualified track was already close (lower edge at or below the
@@ -942,11 +940,6 @@ class HardwareManager:
             late_center_corrections = 0
             late_center_off_band_streak = 0
             subthreshold_visibility_samples = 0
-            slow_approach_engaged = False
-            slow_cycle_index = 0
-            slowdown_engaged_bottom: float | None = None
-            close_range_drive_pulses = 0
-            close_range_hold_frames = 0
             tracking_confirmations = 0
             minimum_observed_tracking_confidence: float | None = None
             close_range_continuation_samples = 0
@@ -986,13 +979,7 @@ class HardwareManager:
                     ),
                     "late_center_confirmations": LATE_CENTER_CONFIRMATIONS,
                     "late_center_corrections": late_center_corrections,
-                    "close_range_slowdown_engaged": slow_approach_engaged,
-                    "close_range_slowdown_engaged_bottom_ratio": (
-                        slowdown_engaged_bottom
-                    ),
-                    "close_range_drive_period": CLOSE_RANGE_DRIVE_PERIOD,
-                    "close_range_drive_pulses": close_range_drive_pulses,
-                    "close_range_hold_frames": close_range_hold_frames,
+                    "approach_forward_mps": forward_mps,
                     "arrival_visibility_confidence_floor": (
                         policy.close_range_tracking_confidence
                     ),
@@ -1296,38 +1283,19 @@ class HardwareManager:
                     )
                     if late_approach and correct:
                         late_center_corrections += 1
-                    if not slow_approach_engaged and late_approach:
-                        slow_approach_engaged = True
-                        slowdown_engaged_bottom = bottom
-                    if slow_approach_engaged:
-                        drive_frame = (
-                            slow_cycle_index % CLOSE_RANGE_DRIVE_PERIOD == 0
-                        )
-                        slow_cycle_index += 1
-                    else:
-                        drive_frame = True
-                    command_forward = forward_mps if drive_frame else 0.0
-                    command_reason = (
-                        "approach_target"
-                        if drive_frame
-                        else "close_range_approach_hold"
-                    )
+                    # Constant qualified speed on every visible-track frame,
+                    # right up until sight loss (see the retired-slowdown
+                    # note above the module constants).
                     await self._send_motion_command(
                         lease,
                         VelocityCommand(
-                            command_forward,
+                            forward_mps,
                             yaw,
-                            command_reason,
+                            "approach_target",
                         ),
                     )
-                    if command_forward > 0.0:
-                        forward_pulse_count += 1
-                        commands_sent = True
-                        if slow_approach_engaged:
-                            close_range_drive_pulses += 1
-                    else:
-                        close_range_hold_frames += 1
-                        commands_sent = commands_sent or yaw != 0.0
+                    forward_pulse_count += 1
+                    commands_sent = True
                     await asyncio.sleep(self.config.command_heartbeat_s)
                 else:
                     raise TargetLost(

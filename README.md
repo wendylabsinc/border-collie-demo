@@ -28,9 +28,9 @@ reference, but it is not a runtime dependency.
    No forward command is permitted before this stage. Once approach begins,
    forward and yaw inputs may be combined to steer toward the fruit.
 7. While the requested fruit remains freshly visible, continue the bounded
-   forward approach; once the track's lower edge crosses the 0.70
-   close-range boundary the approach duty-cycles the same 1.0 m/s signal
-   (one driving frame in three) to roughly 0.33 m/s effective speed.
+   forward approach at the qualified constant 1.0 m/s. (A close-range
+   stop-start slowdown was tried and retired on 2026-08-08: sub-gait-cycle
+   forward bursts plant no step and stall the approach.)
 8. First turn at a fixed 0.50 rad/s until the Target Fruit is within the
    middle 16% of the camera, then hold zero yaw for three fresh centered
    samples. Arrival is the sight-lost contract: when the qualified track
@@ -153,10 +153,10 @@ approach, Arrival, sit/bark, stand, turn-home, return, and heading-restoration
 evidence before sealing success. Loss of pose freshness during capture also fails closed.
 **Stop Woof** seals an active run and permits another activation, while process
 restart seals unfinished work as `PROCESS_INTERRUPTED`. The production executor
-uses measured pose turns, bounded camera-guided search, a duty-cycled
-close-range approach with sight-lost Arrival (no blind push), Unitree posture
-actions, bark, an odometry-verified step back, and closed-loop odometry
-return through factory obstacle avoidance.
+uses measured pose turns, bounded camera-guided search, a constant-speed
+camera-guided approach with sight-lost Arrival (no blind push), Unitree
+posture actions, bark, an odometry-verified step back, and closed-loop
+odometry return through factory obstacle avoidance.
 The initial turn/search is explicitly **conditional**, not an unconditional
 part of every run. Target Fruit qualification may already be present when
 `TURN_TO_FRUIT` begins. Fresh qualified evidence for the selected Target Fruit
