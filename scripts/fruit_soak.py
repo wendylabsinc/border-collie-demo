@@ -41,7 +41,12 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+try:  # package import (tests) or direct script execution
+    from scripts.stage_scorecard import score_session
+except ImportError:  # pragma: no cover - script-invocation path
+    from stage_scorecard import score_session
+
+SCHEMA_VERSION = 3
 POLL_INTERVAL_S = 1.5
 READY_TIMEOUT_S = 90.0
 RUN_TIMEOUT_S = 180.0
@@ -94,6 +99,11 @@ class ApiClient:
 
     def result(self, run_id: str) -> dict:
         return self._request(f"{self.base_url}/api/results/{run_id}")
+
+    def camera_frame(self) -> bytes:
+        request = urllib.request.Request(f"{self.base_url}/api/camera/frame.jpg")
+        with urllib.request.urlopen(request, timeout=self.timeout_s) as response:
+            return response.read()
 
     def stop(self) -> dict:
         return self._request(f"{self.base_url}/api/stop", "POST")
@@ -290,6 +300,40 @@ def summarize_network(samples: list[dict]) -> dict:
     }
 
 
+def compute_stage_durations(events: list[dict] | None) -> dict[str, float]:
+    """Per-stage wall time from the run's phase-transition events.
+
+    Acquisition time (turn/search stages) is the most lighting-sensitive
+    number in a run, so it gets its own record instead of hiding inside the
+    total duration.
+    """
+    if not events:
+        return {}
+    transitions = [
+        (e.get("phase"), e.get("seconds_since_start"))
+        for e in events
+        if e.get("phase") is not None and e.get("seconds_since_start") is not None
+    ]
+    durations: dict[str, float] = {}
+    for (phase, started), (_, ended) in zip(transitions, transitions[1:]):
+        durations[phase] = round(durations.get(phase, 0.0) + (ended - started), 3)
+    return durations
+
+
+def capture_lighting_frame(
+    client: ApiClient, frames_dir: Path, number: int
+) -> dict:
+    """Save one camera frame at run start as the run's lighting evidence."""
+    try:
+        payload = client.camera_frame()
+    except Exception as exc:  # noqa: BLE001 - evidence failures are data
+        return {"error": str(exc)}
+    frames_dir.mkdir(parents=True, exist_ok=True)
+    path = frames_dir / f"run-{number:02d}-start.jpg"
+    path.write_bytes(payload)
+    return {"path": str(path), "bytes": len(payload)}
+
+
 def summarize_run(run: dict, fruit: str, number: int) -> dict:
     terminal = run.get("terminal_measurements") or {}
     return {
@@ -307,6 +351,7 @@ def summarize_run(run: dict, fruit: str, number: int) -> dict:
         "home_distance_m": terminal.get("home_distance_m"),
         "heading_error_rad": terminal.get("heading_error_rad"),
         "stage_results": run.get("stage_results"),
+        "stage_durations": compute_stage_durations(run.get("events")),
     }
 
 
@@ -408,7 +453,10 @@ def run_session(
         "aborted": None,
     }
 
+    frames_dir = output_path.with_name(output_path.stem + "-frames")
+
     def persist() -> None:
+        session["scorecard"] = score_session(session)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(json.dumps(session, indent=2) + "\n")
 
@@ -424,12 +472,14 @@ def run_session(
                     device_probe.audio_devices(), dongle_match
                 )
                 preflight["wifi_before"] = device_probe.wifi_status()
+            lighting_frame = capture_lighting_frame(client, frames_dir, number)
             log(f"run {number}/{runs}: activating {fruit}")
             run_id = client.activate(fruit)["run"]["run_id"]
             run, samples, harness_note = wait_for_terminal(
                 client, run_id, target_fruit=fruit, temp_source=temp_source
             )
             record = summarize_run(run, fruit, number)
+            record["lighting_frame"] = lighting_frame
             record["stage_telemetry"] = aggregate_stage_telemetry(samples)
             record["network"] = summarize_network(samples)
             if keep_samples:
