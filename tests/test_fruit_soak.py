@@ -6,6 +6,7 @@ import pytest
 from scripts.fruit_soak import (
     HarnessAbort,
     TempSource,
+    ThreadedTempSampler,
     aggregate_stage_telemetry,
     dongle_check,
     draw_fruit_sequence,
@@ -233,21 +234,48 @@ def test_summarize_network_flags_cutouts_and_latency():
     assert network["latency_ms"]["samples"] == 2  # errored polls excluded from latency
 
 
-def test_dongle_check_matches_substring():
-    devices = [{"name": "USB Audio Device", "id": "hw:2"}]
-    found = dongle_check(devices, "usb audio")
-    assert found == {
-        "checked": True,
-        "audio_devices": devices,
-        "match": "usb audio",
-        "visible": True,
+def test_dongle_check_matches_across_usb_and_audio_sources():
+    sources = {
+        "usb_devices": ["DJI MIC MINI (2ca3:4011)", "802.11ac WLAN Adapter (0bda:0811)"],
+        "audio_devices": [{"name": "hw:1,0", "description": "APE"}],
     }
-    missing = dongle_check([{"name": "HDMI"}], "usb audio")
+    found = dongle_check(sources, "dji mic mini")
+    assert found["checked"] is True
+    assert found["visible"] is True
+    assert found["usb_devices"] == sources["usb_devices"]
+    missing = dongle_check({"usb_devices": ["xHCI Host Controller"]}, "dji mic mini")
     assert missing["visible"] is False
-    disabled = dongle_check(None, "usb audio")
+    disabled = dongle_check(None, "dji mic mini")
     assert disabled["checked"] is False
-    errored = dongle_check({"error": "agent unreachable"}, "usb audio")
-    assert errored == {"checked": False, "visible": None, "detail": "agent unreachable"}
+    all_errored = dongle_check({"usb_devices": {"error": "agent unreachable"}}, "dji")
+    assert all_errored == {
+        "checked": False,
+        "visible": None,
+        "detail": "agent unreachable",
+    }
+    partial = dongle_check(
+        {
+            "usb_devices": {"error": "agent flake"},
+            "audio_devices": [{"description": "DJI MIC MINI"}],
+        },
+        "dji mic mini",
+    )
+    assert partial["visible"] is True  # matched via the source that worked
+    assert partial["probe_errors"] == {"usb_devices": "agent flake"}
+
+
+def test_threaded_sampler_sync_fallback_and_disabled():
+    class FakeSource:
+        enabled = True
+        def read(self):
+            return {"gpu-thermal": 51.5}, None
+    sampler = ThreadedTempSampler(FakeSource())
+    temps, error, age_s = sampler.latest()
+    assert temps == {"gpu-thermal": 51.5}
+    assert error is None
+    assert age_s is not None
+    disabled = ThreadedTempSampler(TempSource())
+    assert disabled.enabled is False
 
 
 def test_temp_source_disabled_by_default():
