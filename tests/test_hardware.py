@@ -785,7 +785,15 @@ def test_failed_search_reports_the_best_distant_pear_evidence() -> None:
     asyncio.run(scenario())
 
 
-def test_approach_requires_near_geometry_then_one_offscreen_final_push() -> None:
+def test_approach_declares_arrival_when_close_range_sight_is_lost() -> None:
+    """Operator-ruled arrival contract: lost sight at close range = sit.
+
+    No blind final push and no near-confirmation counting: once the
+    qualified track stays lost through the grace window with its last
+    geometry close and centered, arrival is declared where the robot
+    stands.
+    """
+
     async def scenario() -> None:
         motion = FakeMotion()
         manager = HardwareManager(
@@ -830,27 +838,35 @@ def test_approach_requires_near_geometry_then_one_offscreen_final_push() -> None
             "pear",
             forward_mps=0.50,
             maximum_yaw_rps=0.30,
-            near_bottom_ratio=0.86,
-            near_center_ratio=0.72,
-            near_confirmations=3,
-            near_loss_grace_s=0.75,
-            final_push_mps=1.0,
-            final_push_duration_s=0.001,
+            sight_loss_grace_s=0.005,
             timeout_s=0.5,
         )
 
         assert result["arrival_confirmed"] is True
-        assert result["near_confirmations"] == 3
-        assert result["final_push_mps"] == 1.0
-        assert result["final_push_count"] == 1
-        assert result["forward_pulse_count"] == 5
+        assert result["arrival_mode"] == "sight_lost_close"
+        assert result["arrival_bottom_ratio"] == 0.70
+        assert result["arrival_center_tolerance_ratio"] == 0.15
+        assert result["last_track_geometry"]["bottom_ratio"] == 0.92
+        # Forward pulses: one far drive plus the close-range engagement
+        # drive. The zero-forward close-range holds consume no pulse and
+        # there is no blind push.
+        assert result["forward_pulse_count"] == 2
+        assert result["close_range_slowdown_engaged"] is True
+        assert result["close_range_slowdown_engaged_bottom_ratio"] == 0.90
+        assert result["close_range_drive_pulses"] == 1
+        assert result["close_range_hold_frames"] == 2
         assert any(
-            command.reason == "approach_target_near_visible"
-            and command.forward_mps == 0.50
+            command.reason == "close_range_approach_hold"
+            and command.forward_mps == 0.0
             for command in motion.commands
         )
-        assert any(command.forward_mps == 0.50 for command in motion.commands)
-        assert any(command.forward_mps == 1.0 for command in motion.commands)
+        assert not any(
+            command.reason == "fruit_offscreen_final_push"
+            for command in motion.commands
+        )
+        assert result["forward_pulse_count"] == len(
+            [command for command in motion.commands if command.forward_mps > 0.0]
+        )
         assert motion.armed is False
         await manager.close()
 
@@ -904,38 +920,37 @@ def test_approach_keeps_moving_while_near_pear_remains_visible() -> None:
             "pear",
             forward_mps=1.0,
             maximum_yaw_rps=0.30,
-            near_bottom_ratio=0.86,
-            near_center_ratio=0.72,
-            near_confirmations=3,
-            near_loss_grace_s=0.75,
-            final_push_mps=0.30,
-            final_push_duration_s=0.001,
+            sight_loss_grace_s=0.005,
             timeout_s=0.5,
         )
 
         visible_forward = [
             command
             for command in motion.commands
-            if command.reason
-            in {"approach_target", "approach_target_near_visible"}
+            if command.reason == "approach_target"
             and command.forward_mps == 1.0
         ]
-        assert len(visible_forward) == 6
+        # One far drive plus two duty-cycle drives; the close-range holds
+        # between them keep the robot advancing slowly while the fruit
+        # stays in sight - approach never stops early on a visible track.
+        assert len(visible_forward) == 3
         assert len(
             [
                 command
                 for command in motion.commands
-                if command.reason == "approach_target_near_visible"
-                and command.forward_mps == 1.0
+                if command.reason == "close_range_approach_hold"
             ]
         ) == 3
+        assert result["arrival_confirmed"] is True
+        assert result["arrival_mode"] == "sight_lost_close"
+        assert result["forward_pulse_count"] == 3
+        assert result["close_range_drive_pulses"] == 2
+        assert result["close_range_hold_frames"] == 3
+        assert result["last_track_geometry"]["bottom_ratio"] == 0.94
         assert not any(
-            command.reason == "near_target_confirmed"
+            command.reason == "fruit_offscreen_final_push"
             for command in motion.commands
         )
-        assert result["near_confirmations"] == 5
-        assert result["forward_pulse_count"] == 7
-        assert result["final_push_count"] == 1
         assert motion.armed is False
         await manager.close()
 
@@ -987,12 +1002,7 @@ def test_approach_centers_pear_before_first_forward_command() -> None:
             "pear",
             forward_mps=1.0,
             maximum_yaw_rps=0.30,
-            near_bottom_ratio=0.86,
-            near_center_ratio=0.72,
-            near_confirmations=3,
-            near_loss_grace_s=0.75,
-            final_push_mps=1.0,
-            final_push_duration_s=0.001,
+            sight_loss_grace_s=0.005,
             timeout_s=0.5,
         )
 
@@ -1070,38 +1080,39 @@ def test_late_approach_tightens_centering_before_the_blind_push() -> None:
             "pear",
             forward_mps=1.0,
             maximum_yaw_rps=0.30,
-            near_bottom_ratio=0.86,
-            near_center_ratio=0.72,
-            near_confirmations=3,
-            near_loss_grace_s=0.75,
-            final_push_mps=0.30,
-            final_push_duration_s=0.001,
+            sight_loss_grace_s=0.005,
             timeout_s=0.5,
         )
 
         forward_commands = [
             command
             for command in motion.commands
-            if command.reason in {"approach_target", "approach_target_near_visible"}
+            if command.reason == "approach_target"
         ]
-        early = [command for command in forward_commands if command.yaw_rps == 0.0]
-        late = [command for command in forward_commands if command.yaw_rps == -0.30]
         # Far approach: the 0.06 offset stays inside the 0.08 band, no yaw.
-        # The first late sample is the hysteresis confirmation and also sends
-        # zero yaw.
-        assert len(early) == 3
-        # Late approach: after two consecutive off-band samples the same
-        # offset draws the fixed correction while forward translation
-        # continues, so every iteration still records exactly one forward
-        # pulse.
-        assert len(late) == 2
+        # The first late sample is the hysteresis confirmation and also
+        # sends zero yaw; it is the close-range engagement drive.
+        assert len(forward_commands) == 3
+        assert all(command.yaw_rps == 0.0 for command in forward_commands)
         assert all(command.forward_mps == 1.0 for command in forward_commands)
+        # Late approach: after two consecutive off-band samples the same
+        # offset draws the fixed correction; those samples fall on the
+        # zero-forward duty-cycle holds, which keep full yaw steering.
+        late_corrections = [
+            command
+            for command in motion.commands
+            if command.reason == "close_range_approach_hold"
+            and command.yaw_rps == -0.30
+        ]
+        assert len(late_corrections) == 2
+        assert all(command.forward_mps == 0.0 for command in late_corrections)
         assert result["approach_center_tolerance_ratio"] == 0.08
         assert result["late_center_tolerance_ratio"] == 0.04
         assert result["late_center_confirmations"] == 2
         assert result["late_center_corrections"] == 2
-        assert result["forward_pulse_count"] == len(forward_commands) + 1
-        assert result["final_push_count"] == 1
+        assert result["forward_pulse_count"] == len(forward_commands)
+        assert result["arrival_confirmed"] is True
+        assert result["arrival_mode"] == "sight_lost_close"
         assert motion.armed is False
         await manager.close()
 
@@ -1155,12 +1166,7 @@ def test_late_centering_ignores_single_frame_jitter_across_the_tight_band() -> N
             "pear",
             forward_mps=1.0,
             maximum_yaw_rps=0.30,
-            near_bottom_ratio=0.86,
-            near_center_ratio=0.72,
-            near_confirmations=3,
-            near_loss_grace_s=0.75,
-            final_push_mps=0.30,
-            final_push_duration_s=0.001,
+            sight_loss_grace_s=0.005,
             timeout_s=0.5,
         )
 
@@ -1173,14 +1179,14 @@ def test_late_centering_ignores_single_frame_jitter_across_the_tight_band() -> N
     asyncio.run(scenario())
 
 
-def test_final_push_fires_despite_a_static_low_confidence_phantom() -> None:
+def test_static_low_confidence_phantom_cannot_block_sight_lost_arrival() -> None:
     """Regression for supervised run 45a1e796 (2026-08-08).
 
-    After a confirmed near track, a static 0.010-0.016 confidence detection
-    with a matching label held the arrival gate open for ~12 seconds and
-    suppressed the final push until the approach deadline. A detection below
-    the fruit's close-range tracking confidence must count as NOT visible
-    for arrival purposes.
+    After a close-range track, a static 0.010-0.016 confidence detection
+    with a matching label kept the fruit counted as visible for ~12 seconds
+    and suppressed arrival until the approach deadline. A detection below
+    the fruit's close-range tracking confidence must count as NOT visible,
+    so the sight-lost arrival declares on schedule.
     """
 
     async def scenario() -> None:
@@ -1227,37 +1233,28 @@ def test_final_push_fires_despite_a_static_low_confidence_phantom() -> None:
             "pear",
             forward_mps=1.0,
             maximum_yaw_rps=0.30,
-            near_bottom_ratio=0.86,
-            near_center_ratio=0.72,
-            near_confirmations=3,
-            near_loss_grace_s=0.75,
-            final_push_mps=0.30,
-            final_push_duration_s=0.001,
+            sight_loss_grace_s=0.005,
             timeout_s=0.5,
         )
 
         assert result["arrival_confirmed"] is True
-        assert result["final_push_count"] == 1
-        assert any(
-            command.reason == "fruit_offscreen_final_push"
-            for command in motion.commands
-        )
+        assert result["arrival_mode"] == "sight_lost_close"
         assert result["arrival_visibility_confidence_floor"] == 0.20
         assert result["subthreshold_visibility_samples"] >= 1
-        assert result["near_gate_confirmed"] is True
+        assert result["last_track_geometry"]["bottom_ratio"] == 0.91
         assert motion.armed is False
         await manager.close()
 
     asyncio.run(scenario())
 
 
-def test_push_fires_despite_a_mid_confidence_spatially_inconsistent_phantom() -> None:
+def test_mid_confidence_inconsistent_phantom_cannot_block_arrival() -> None:
     """The lowered pear close-range floor must not re-open the phantom hole.
 
     A phantom above the 0.20 floor but spatially discontinuous with the last
-    accepted track (static box far above the arrival region) cannot hold the
-    arrival gate open: visibility also requires continuity with the fruit we
-    were actually approaching.
+    accepted track (static box far above the arrival region) cannot keep the
+    fruit counted as visible: visibility also requires continuity with the
+    fruit we were actually approaching, so sight-lost arrival still declares.
     """
 
     async def scenario() -> None:
@@ -1302,22 +1299,15 @@ def test_push_fires_despite_a_mid_confidence_spatially_inconsistent_phantom() ->
             "pear",
             forward_mps=1.0,
             maximum_yaw_rps=0.30,
-            near_bottom_ratio=0.86,
-            near_center_ratio=0.72,
-            near_confirmations=3,
-            near_loss_grace_s=0.75,
-            final_push_mps=0.30,
-            final_push_duration_s=0.001,
+            sight_loss_grace_s=0.005,
             timeout_s=0.5,
         )
 
         assert result["arrival_confirmed"] is True
-        assert result["final_push_count"] == 1
-        assert any(
-            command.reason == "fruit_offscreen_final_push"
-            for command in motion.commands
-        )
+        assert result["arrival_mode"] == "sight_lost_close"
         assert result["subthreshold_visibility_samples"] >= 1
+        # The phantom's geometry never became the accepted track.
+        assert result["last_track_geometry"]["bottom_ratio"] == 0.91
         assert motion.armed is False
         await manager.close()
 
@@ -1330,9 +1320,10 @@ def test_continuation_bridges_the_pear_confidence_collapse_at_arrival() -> None:
     A real pear filling the frame at arrival distance collapsed from 0.89 to
     0.2658 confidence at bbox bottom 0.9972. The old 0.55 pear close-range
     value (identical to the normal tracking floor) rejected every collapsed
-    frame, so the near gate starved at zero confirmations and Arrival timed
-    out. Geometrically continuous sub-floor frames at or above 0.20 must now
-    keep the track alive and count toward near confirmation.
+    frame, so the last accepted geometry froze mid-frame and Arrival timed
+    out. Geometrically continuous sub-floor frames at or above 0.20 must
+    keep the track alive so the last accepted geometry reflects the true
+    close-range loss point.
     """
 
     async def scenario() -> None:
@@ -1396,26 +1387,18 @@ def test_continuation_bridges_the_pear_confidence_collapse_at_arrival() -> None:
             "pear",
             forward_mps=1.0,
             maximum_yaw_rps=0.30,
-            near_bottom_ratio=0.86,
-            near_center_ratio=0.72,
-            near_confirmations=3,
-            near_loss_grace_s=0.75,
-            final_push_mps=0.30,
-            final_push_duration_s=0.001,
+            sight_loss_grace_s=0.005,
             timeout_s=0.5,
         )
 
         assert result["arrival_confirmed"] is True
-        assert result["near_gate_confirmed"] is True
-        assert result["near_confirmations"] == 3
+        assert result["arrival_mode"] == "sight_lost_close"
         assert result["close_range_continuation_samples"] == 3
         assert result["close_range_tracking_confidence"] == 0.20
         assert result["minimum_observed_tracking_confidence"] == pytest.approx(0.22)
-        assert result["final_push_count"] == 1
-        assert any(
-            command.reason == "fruit_offscreen_final_push"
-            for command in motion.commands
-        )
+        # The continuation frames carried the accepted geometry all the way
+        # to the true loss point at the frame edge.
+        assert result["last_track_geometry"]["bottom_ratio"] == 0.99
         assert motion.armed is False
         await manager.close()
 
@@ -1466,23 +1449,20 @@ def test_arrival_timeout_carries_the_full_approach_evidence() -> None:
                 "pear",
                 forward_mps=1.0,
                 maximum_yaw_rps=0.30,
-                near_bottom_ratio=0.86,
-                near_center_ratio=0.72,
-                near_confirmations=3,
-                near_loss_grace_s=0.75,
-                final_push_mps=0.30,
-                final_push_duration_s=0.001,
+                sight_loss_grace_s=0.75,
                 timeout_s=0.08,
             )
 
         evidence = failure.value.evidence
         assert evidence["arrival_confirmed"] is False
-        assert evidence["near_gate_confirmed"] is False
-        assert evidence["final_push_count"] == 0
+        assert evidence["arrival_mode"] is None
         assert evidence["forward_pulse_count"] >= 1
         assert evidence["subthreshold_visibility_samples"] >= 1
         assert evidence["arrival_visibility_confidence_floor"] == 0.20
         assert evidence["motion_commands_sent"] is True
+        # The distant last track (bottom 0.65, below the 0.70 arrival
+        # boundary) is exactly why no sight-lost arrival was declared, and
+        # the phantom's frozen geometry never replaced it.
         assert evidence["last_track_geometry"] == {
             "center_x_ratio": 0.50,
             "center_y_ratio": 0.50,
@@ -1540,12 +1520,7 @@ def test_approach_tracks_an_acquired_pear_at_sixty_percent_confidence() -> None:
             "pear",
             forward_mps=0.50,
             maximum_yaw_rps=0.30,
-            near_bottom_ratio=0.86,
-            near_center_ratio=0.72,
-            near_confirmations=3,
-            near_loss_grace_s=0.75,
-            final_push_mps=0.30,
-            final_push_duration_s=0.001,
+            sight_loss_grace_s=0.005,
             timeout_s=0.5,
         )
 
@@ -1608,12 +1583,7 @@ def test_approach_may_combine_forward_and_yaw_after_initial_centering() -> None:
             "pear",
             forward_mps=1.0,
             maximum_yaw_rps=0.30,
-            near_bottom_ratio=0.86,
-            near_center_ratio=0.72,
-            near_confirmations=3,
-            near_loss_grace_s=0.75,
-            final_push_mps=0.30,
-            final_push_duration_s=0.001,
+            sight_loss_grace_s=0.005,
             timeout_s=0.5,
         )
 
@@ -1675,10 +1645,10 @@ def test_approach_uses_close_range_continuity_after_red_apple_confidence_drops()
                 apple(0.83, center_x=0.52, center_y=0.66, bottom=0.68, target_ready=True),
                 apple(0.81, center_x=0.51, center_y=0.66, bottom=0.68, target_ready=True),
                 apple(0.76, center_x=0.56, center_y=0.73, bottom=0.76, target_ready=True),
-                apple(0.30, center_x=0.61, center_y=0.79, bottom=0.83, target_ready=False),
-                apple(0.17, center_x=0.65, center_y=0.83, bottom=0.87, target_ready=False),
-                apple(0.15, center_x=0.65, center_y=0.89, bottom=0.93, target_ready=False),
-                apple(0.30, center_x=0.67, center_y=0.87, bottom=0.91, target_ready=False),
+                apple(0.30, center_x=0.59, center_y=0.79, bottom=0.83, target_ready=False),
+                apple(0.17, center_x=0.61, center_y=0.83, bottom=0.87, target_ready=False),
+                apple(0.15, center_x=0.62, center_y=0.89, bottom=0.93, target_ready=False),
+                apple(0.30, center_x=0.62, center_y=0.87, bottom=0.91, target_ready=False),
                 {"camera_healthy": True, "target_ready": False},
             )
         )
@@ -1691,12 +1661,7 @@ def test_approach_uses_close_range_continuity_after_red_apple_confidence_drops()
             "apple",
             forward_mps=1.0,
             maximum_yaw_rps=0.30,
-            near_bottom_ratio=0.86,
-            near_center_ratio=0.72,
-            near_confirmations=3,
-            near_loss_grace_s=0.75,
-            final_push_mps=0.30,
-            final_push_duration_s=0.001,
+            sight_loss_grace_s=0.005,
             timeout_s=0.5,
         )
 
@@ -1749,12 +1714,7 @@ def test_close_range_continuity_rejects_a_discontinuous_low_confidence_apple() -
                 "apple",
                 forward_mps=1.0,
                 maximum_yaw_rps=0.30,
-                near_bottom_ratio=0.86,
-                near_center_ratio=0.72,
-                near_confirmations=3,
-                near_loss_grace_s=0.75,
-                final_push_mps=0.30,
-                final_push_duration_s=0.001,
+                sight_loss_grace_s=0.75,
                 timeout_s=0.08,
             )
 
@@ -1765,7 +1725,7 @@ def test_close_range_continuity_rejects_a_discontinuous_low_confidence_apple() -
     asyncio.run(scenario())
 
 
-def test_final_push_stops_if_camera_source_fails_during_the_bounded_push() -> None:
+def test_camera_failure_during_the_sight_loss_wait_stops_the_approach() -> None:
     async def scenario() -> None:
         motion = FakeMotion()
         manager = HardwareManager(
@@ -1804,15 +1764,154 @@ def test_final_push_stops_if_camera_source_fails_during_the_bounded_push() -> No
                 "pear",
                 forward_mps=0.50,
                 maximum_yaw_rps=0.30,
-                near_bottom_ratio=0.86,
-                near_center_ratio=0.72,
-                near_confirmations=3,
-                near_loss_grace_s=0.75,
-                final_push_mps=1.0,
-                final_push_duration_s=0.05,
+                sight_loss_grace_s=0.75,
                 timeout_s=0.5,
             )
 
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_distant_sight_loss_never_declares_arrival() -> None:
+    """Woof must never sit down after a distant tracking dropout.
+
+    The last qualified track ended at bottom 0.65 - below the 0.70
+    close-range boundary - so the confirmed sight loss waits out the
+    deadline and fails closed instead of declaring arrival, even though a
+    distant phantom keeps advertising a deep bbox.
+    """
+
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+
+        def far() -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": True,
+                "detection": {
+                    "label": "pear",
+                    "confidence": 0.81,
+                    "consecutive_detections": 5,
+                    "center_x_ratio": 0.50,
+                    "center_y_ratio": 0.50,
+                    "bottom_ratio": 0.65,
+                },
+            }
+
+        # A sub-floor phantom whose bbox sits deep in the arrival zone: its
+        # geometry must never be accepted as the track, so it cannot fake a
+        # close-range loss.
+        deep_phantom = {
+            "camera_healthy": True,
+            "target_ready": False,
+            "detection": {
+                "label": "pear",
+                "confidence": 0.012,
+                "center_x_ratio": 0.50,
+                "center_y_ratio": 0.95,
+                "bottom_ratio": 0.99,
+            },
+        }
+        statuses = iter((far(), far(), far(), far()))
+
+        with pytest.raises(TargetLost, match="Arrival timed out") as failure:
+            await manager.approach_target(
+                lambda: next(statuses, deep_phantom),
+                "pear",
+                forward_mps=1.0,
+                maximum_yaw_rps=0.30,
+                sight_loss_grace_s=0.005,
+                timeout_s=0.08,
+            )
+
+        evidence = failure.value.evidence
+        assert evidence["arrival_confirmed"] is False
+        assert evidence["arrival_mode"] is None
+        assert evidence["last_track_geometry"]["bottom_ratio"] == 0.65
+        # After the loss confirmed, only zero-motion holds were sent.
+        assert all(
+            command.forward_mps == 0.0
+            for command in motion.commands
+            if command.reason == "target_not_visible"
+        )
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_sideways_frame_exit_does_not_count_as_arrival() -> None:
+    """A close but far-off-center last track must not declare arrival.
+
+    A fruit sliding out the side of the frame can drop its track at a
+    bottom ratio above 0.70; the 0.15 center guard keeps that from being
+    treated as a nose-at-fruit stop.
+    """
+
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+
+        def seen(center_x: float, *, bottom: float) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": True,
+                "detection": {
+                    "label": "pear",
+                    "confidence": 0.81,
+                    "consecutive_detections": 5,
+                    "center_x_ratio": center_x,
+                    "center_y_ratio": 0.74,
+                    "bottom_ratio": bottom,
+                },
+            }
+
+        statuses = iter(
+            (
+                seen(0.50, bottom=0.60),
+                seen(0.50, bottom=0.60),
+                seen(0.50, bottom=0.60),
+                seen(0.58, bottom=0.68),
+                seen(0.68, bottom=0.74),
+                {"camera_healthy": True, "target_ready": False},
+            )
+        )
+
+        with pytest.raises(TargetLost, match="Arrival timed out") as failure:
+            await manager.approach_target(
+                lambda: next(
+                    statuses,
+                    {"camera_healthy": True, "target_ready": False},
+                ),
+                "pear",
+                forward_mps=1.0,
+                maximum_yaw_rps=0.30,
+                sight_loss_grace_s=0.005,
+                timeout_s=0.08,
+            )
+
+        evidence = failure.value.evidence
+        assert evidence["arrival_confirmed"] is False
+        assert evidence["last_track_geometry"] == {
+            "center_x_ratio": 0.68,
+            "center_y_ratio": 0.74,
+            "bottom_ratio": 0.74,
+        }
         assert motion.armed is False
         await manager.close()
 

@@ -41,6 +41,34 @@ APPROACH_CENTER_TOLERANCE_RATIO = 0.08
 LATE_APPROACH_CENTER_TOLERANCE_RATIO = 0.04
 LATE_CENTER_CONFIRMATIONS = 2
 CLOSE_RANGE_MINIMUM_BOTTOM_RATIO = 0.70
+# Close-range approach slowdown. At a continuous 1.0 m/s the track can jump
+# from mid-frame to gone between camera frames, which makes the last accepted
+# track geometry — the sole input to the sight-lost Arrival decision — a
+# per-run coin flip (r6 recorded bottom 0.699 -> 0.842 -> 0.965 across three
+# harness samples). Commanding a slower velocity is not an option: the
+# factory-avoidance deadband sits at about 0.50 m/s and continuous 0.50
+# measurably failed to translate. The slowdown therefore reuses the
+# hardware-validated search-slowdown shape: keep every forward command at the
+# qualified 1.0 m/s signal and interleave zero-forward hold frames. Driving
+# one frame in three gives ~0.33 m/s effective speed and roughly triples the
+# close-range frame count. Once engaged (first accepted track frame at or
+# above the close-range boundary) the duty cycle latches for the remainder of
+# the approach so bottom-ratio jitter cannot toggle the speed. Hold frames
+# keep full yaw steering and consume no forward pulse.
+CLOSE_RANGE_DRIVE_PERIOD = 3
+# Sight-lost Arrival (operator ruling, 2026-08-08): when the qualified track
+# is lost and stays lost through the grace window, Woof sits where it stands
+# if the LAST qualified track was already close (lower edge at or below the
+# close-range boundary in the frame) and roughly centered. There is no blind
+# final push and no consecutive near-confirmation counting: the push existed
+# to end nose-at-fruit, the operator explicitly prefers stopping farther, and
+# the push's protective near gate caused three of the four recorded arrival
+# failures. The center guard rejects a sideways frame exit: late-approach
+# steering holds the fruit within 0.04-0.08 of center, and every recorded
+# genuine forward loss had last center_x between 0.464 and 0.512, while a
+# fruit sliding out the side of the frame is far off-center by the time its
+# track drops. 0.15 splits those populations with margin on both sides.
+ARRIVAL_CENTER_TOLERANCE_RATIO = 0.15
 CLOSE_RANGE_MAXIMUM_CENTER_DELTA_RATIO = 0.20
 CLOSE_RANGE_MAXIMUM_VERTICAL_RETREAT_RATIO = 0.08
 FORWARD_CAPABLE_OPERATIONS = frozenset(
@@ -868,37 +896,33 @@ class HardwareManager:
         *,
         forward_mps: float,
         maximum_yaw_rps: float,
-        near_bottom_ratio: float,
-        near_center_ratio: float,
-        near_confirmations: int,
-        near_loss_grace_s: float,
-        final_push_mps: float,
-        final_push_duration_s: float,
+        sight_loss_grace_s: float,
         timeout_s: float,
     ) -> dict[str, object]:
-        """Approach a fresh Target Fruit track and confirm lower-edge Arrival."""
+        """Approach a fresh Target Fruit track until close-range sight loss.
+
+        Arrival is declared when the qualified track stays lost through the
+        grace window AND the last accepted track geometry was already close
+        (lower edge at or above ``CLOSE_RANGE_MINIMUM_BOTTOM_RATIO``) and
+        roughly centered (``ARRIVAL_CENTER_TOLERANCE_RATIO``). A distant
+        sight loss never declares Arrival: the loop waits out the deadline
+        and fails closed, because Woof must never sit down in the middle of
+        the room after a tracking dropout.
+        """
         numeric = (
             forward_mps,
             maximum_yaw_rps,
-            near_bottom_ratio,
-            near_center_ratio,
-            near_loss_grace_s,
-            final_push_mps,
-            final_push_duration_s,
+            sight_loss_grace_s,
             timeout_s,
         )
         if not all(math.isfinite(float(value)) for value in numeric):
             raise ValueError("approach values must be finite")
         if not 0.0 < forward_mps <= self.config.maximum_forward_mps:
             raise ValueError("approach speed is outside the configured limit")
-        if not 0.0 < final_push_mps <= self.config.maximum_forward_mps:
-            raise ValueError("final push is outside the configured limit")
         if not 0.0 < maximum_yaw_rps <= self.config.maximum_yaw_rps:
             raise ValueError("approach yaw is outside the configured limit")
-        if not 0.0 < near_bottom_ratio <= 1.0 or not 0.0 < near_center_ratio <= 1.0:
-            raise ValueError("near-fruit geometry thresholds are invalid")
-        if near_confirmations < 1 or min(near_loss_grace_s, final_push_duration_s, timeout_s) <= 0.0:
-            raise ValueError("approach timing or confirmation count is invalid")
+        if min(sight_loss_grace_s, timeout_s) <= 0.0:
+            raise ValueError("approach timing values must be positive")
         self._require_autonomy_ready()
 
         async with self._operation_lock:
@@ -911,8 +935,6 @@ class HardwareManager:
             release_error: str | None = None
             operation_error: Exception | None = None
             evidence: dict[str, object] | None = None
-            confirmations = 0
-            near_at: float | None = None
             commands_sent = False
             forward_pulse_count = 0
             initial_centered = False
@@ -920,30 +942,37 @@ class HardwareManager:
             late_center_corrections = 0
             late_center_off_band_streak = 0
             subthreshold_visibility_samples = 0
+            slow_approach_engaged = False
+            slow_cycle_index = 0
+            slowdown_engaged_bottom: float | None = None
+            close_range_drive_pulses = 0
+            close_range_hold_frames = 0
             tracking_confirmations = 0
             minimum_observed_tracking_confidence: float | None = None
             close_range_continuation_samples = 0
             track_acquired = False
             last_track_geometry: tuple[float, float, float] | None = None
             policy = fruit_policy(target_fruit)
-            final_push_executed = False
+            arrival_mode: str | None = None
             started = time.monotonic()
+            last_visible_at = started
 
             def approach_evidence(*, arrival_confirmed: bool) -> dict[str, object]:
                 """One evidence shape for success and failure.
 
                 The 2026-08-08 supervised failure (run 45a1e796) sealed with
-                no approach evidence at all, which made the suppressed final
-                push impossible to see from the Run Result. Every terminal
-                approach path now reports the same dict.
+                no approach evidence at all, which made the arrival
+                suppression impossible to see from the Run Result. Every
+                terminal approach path now reports the same dict.
                 """
                 return {
                     "arrival_confirmed": arrival_confirmed,
-                    "near_confirmations": confirmations,
-                    "near_gate_confirmed": near_at is not None,
-                    "final_push_mps": final_push_mps,
-                    "final_push_duration_s": final_push_duration_s,
-                    "final_push_count": 1 if final_push_executed else 0,
+                    "arrival_mode": arrival_mode,
+                    "arrival_bottom_ratio": CLOSE_RANGE_MINIMUM_BOTTOM_RATIO,
+                    "arrival_center_tolerance_ratio": (
+                        ARRIVAL_CENTER_TOLERANCE_RATIO
+                    ),
+                    "sight_loss_grace_s": sight_loss_grace_s,
                     "initial_center_confirmations": initial_center_confirmations,
                     "initial_center_tolerance_ratio": (
                         INITIAL_CENTER_TOLERANCE_RATIO
@@ -957,6 +986,13 @@ class HardwareManager:
                     ),
                     "late_center_confirmations": LATE_CENTER_CONFIRMATIONS,
                     "late_center_corrections": late_center_corrections,
+                    "close_range_slowdown_engaged": slow_approach_engaged,
+                    "close_range_slowdown_engaged_bottom_ratio": (
+                        slowdown_engaged_bottom
+                    ),
+                    "close_range_drive_period": CLOSE_RANGE_DRIVE_PERIOD,
+                    "close_range_drive_pulses": close_range_drive_pulses,
+                    "close_range_hold_frames": close_range_hold_frames,
                     "arrival_visibility_confidence_floor": (
                         policy.close_range_tracking_confidence
                     ),
@@ -1092,21 +1128,21 @@ class HardwareManager:
                     if not track_ready:
                         if not initial_centered:
                             initial_center_confirmations = 0
-                        # Arrival visibility needs a confidence floor. The
-                        # 2026-08-08 supervised run failed because a static
-                        # 0.010-0.016 confidence phantom kept a matching label
-                        # on screen for ~12 s, which suppressed the final push
-                        # until the arrival deadline. A detection that cannot
-                        # qualify for close-range tracking cannot hold the
-                        # arrival gate open either. And because the pear
-                        # close-range floor was later lowered to bridge the
-                        # observed arrival-distance confidence collapse (run
-                        # d740a5f2), visibility additionally requires spatial
-                        # continuity with the last accepted track: only a
-                        # detection that could plausibly be the fruit we were
-                        # approaching may hold the gate. The r1 phantom fails
-                        # both checks (0.015 confidence, box bottom 0.3861
-                        # against a 0.86+ track).
+                        # Visibility needs a confidence floor. Run 45a1e796
+                        # (2026-08-08) failed because a static 0.010-0.016
+                        # confidence phantom kept a matching label on screen
+                        # for ~12 s and held the arrival decision hostage
+                        # until the deadline. A detection that cannot qualify
+                        # for close-range tracking cannot count as the fruit.
+                        # And because the pear close-range floor was later
+                        # lowered to bridge the observed arrival-distance
+                        # confidence collapse (run d740a5f2), visibility
+                        # additionally requires spatial continuity with the
+                        # last accepted track: only a detection that could
+                        # plausibly be the fruit we were approaching keeps
+                        # the track "in sight". The r1 phantom fails both
+                        # checks (0.015 confidence, box bottom 0.3861 against
+                        # a 0.86+ track).
                         same_label_detection = (
                             isinstance(detection, dict)
                             and detection_label == target_fruit.casefold()
@@ -1133,46 +1169,41 @@ class HardwareManager:
                         )
                         if same_label_detection and not target_still_visible:
                             subthreshold_visibility_samples += 1
+                        if target_still_visible:
+                            last_visible_at = now
                         if (
                             target_still_visible
-                            or near_at is None
-                            or now - near_at > near_loss_grace_s
+                            or now - last_visible_at <= sight_loss_grace_s
                         ):
+                            # Fruit still (or very recently) in sight: hold
+                            # position and let the track requalify or the
+                            # loss confirm through the grace window.
                             await self._send_motion_command(
                                 lease,
                                 VelocityCommand(reason="target_not_visible"),
                             )
                             await asyncio.sleep(self.config.command_heartbeat_s)
                             continue
-                        push_deadline = now + final_push_duration_s
-                        while time.monotonic() < push_deadline:
-                            push_status = status_reader()
-                            if not push_status.get("camera_healthy"):
-                                raise CameraFailure(
-                                    str(
-                                        push_status.get("detail")
-                                        or "camera evidence failed during final push"
-                                    )
-                                )
-                            await self._send_motion_command(
-                                lease,
-                                VelocityCommand(
-                                    final_push_mps,
-                                    0.0,
-                                    "fruit_offscreen_final_push",
-                                ),
-                            )
-                            commands_sent = True
-                            forward_pulse_count += 1
-                            await asyncio.sleep(
-                                min(
-                                    self.config.command_heartbeat_s,
-                                    max(0.0, push_deadline - time.monotonic()),
-                                )
-                            )
-                        final_push_executed = True
-                        evidence = approach_evidence(arrival_confirmed=True)
-                        break
+                        # Sight loss confirmed. Operator ruling: once Woof
+                        # has lost sight of the fruit at close range, sit
+                        # down where it stands - no blind final push. A
+                        # distant or off-center loss never declares Arrival.
+                        if (
+                            last_track_geometry is not None
+                            and last_track_geometry[2]
+                            >= CLOSE_RANGE_MINIMUM_BOTTOM_RATIO
+                            and abs(last_track_geometry[0] - 0.5)
+                            <= ARRIVAL_CENTER_TOLERANCE_RATIO
+                        ):
+                            arrival_mode = "sight_lost_close"
+                            evidence = approach_evidence(arrival_confirmed=True)
+                            break
+                        await self._send_motion_command(
+                            lease,
+                            VelocityCommand(reason="target_not_visible"),
+                        )
+                        await asyncio.sleep(self.config.command_heartbeat_s)
+                        continue
 
                     assert isinstance(detection, dict)
                     label = detection_label
@@ -1195,6 +1226,7 @@ class HardwareManager:
                             f"{target_fruit} geometry is missing from fresh evidence"
                         )
                     track_acquired = True
+                    last_visible_at = now
                     if close_range_continuation and not (
                         requested_target_ready or tracking_candidate
                     ):
@@ -1229,11 +1261,6 @@ class HardwareManager:
                             await asyncio.sleep(self.config.command_heartbeat_s)
                             continue
                         initial_centered = True
-                    near = bottom >= near_bottom_ratio and center_y >= near_center_ratio
-                    confirmations = confirmations + 1 if near else 0
-                    near_confirmed = confirmations >= near_confirmations
-                    if near_confirmed:
-                        near_at = now
                     horizontal_error = center_x - 0.5
                     late_approach = bottom >= CLOSE_RANGE_MINIMUM_BOTTOM_RATIO
                     wide_off_band = (
@@ -1269,20 +1296,38 @@ class HardwareManager:
                     )
                     if late_approach and correct:
                         late_center_corrections += 1
+                    if not slow_approach_engaged and late_approach:
+                        slow_approach_engaged = True
+                        slowdown_engaged_bottom = bottom
+                    if slow_approach_engaged:
+                        drive_frame = (
+                            slow_cycle_index % CLOSE_RANGE_DRIVE_PERIOD == 0
+                        )
+                        slow_cycle_index += 1
+                    else:
+                        drive_frame = True
+                    command_forward = forward_mps if drive_frame else 0.0
+                    command_reason = (
+                        "approach_target"
+                        if drive_frame
+                        else "close_range_approach_hold"
+                    )
                     await self._send_motion_command(
                         lease,
                         VelocityCommand(
-                            forward_mps,
+                            command_forward,
                             yaw,
-                            (
-                                "approach_target_near_visible"
-                                if near_confirmed
-                                else "approach_target"
-                            ),
+                            command_reason,
                         ),
                     )
-                    forward_pulse_count += 1
-                    commands_sent = True
+                    if command_forward > 0.0:
+                        forward_pulse_count += 1
+                        commands_sent = True
+                        if slow_approach_engaged:
+                            close_range_drive_pulses += 1
+                    else:
+                        close_range_hold_frames += 1
+                        commands_sent = commands_sent or yaw != 0.0
                     await asyncio.sleep(self.config.command_heartbeat_s)
                 else:
                     raise TargetLost(

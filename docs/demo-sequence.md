@@ -59,37 +59,56 @@ the heading is close to the fruit axis before the fruit leaves the frame.
 An offset beyond the wide 0.08 band corrects immediately as it always has;
 the tighter band engages only after two consecutive off-band samples so
 single-frame detection jitter near 0.04 cannot toggle the correction.
-Forward translation continues through every steering sample, so the
-forward-heartbeat count is unaffected by the tighter band. Confirmed
-near-fruit geometry arms the lower-edge Arrival gate; it does not command a
-zero-motion hold. While the fresh Target Fruit remains visible, forward
-approach continues. For arrival purposes "visible" requires the detection to
-meet the fruit's close-range tracking confidence and to remain spatially
-continuous with the last accepted track box: a matching label below that
-floor, or one discontinuous with the fruit being approached, counts as
-disappearance. (Supervised run `45a1e796` on 2026-08-08 showed a static
-0.010-0.016-confidence phantom holding the arrival gate open for ~12 seconds
-after the pear had genuinely dropped below the camera at arrival distance,
-which suppressed the final push until the deadline. The continuity condition
-keeps that scenario closed even with the lowered pear close-range floor.)
-Every forward heartbeat is counted, including the single
-bounded 0.3 m/s by 0.6-second push after qualified lower-edge disappearance.
-The push trigger is unchanged; only its window was shortened from 1.0 s after
-the 2026-08-08 supervised baseline finished too close to the fruit. Every
-terminal approach path — Arrival, identity change, and timeout — seals the
-same approach evidence dict (near gate state, pulse counts, centering
-counters, and sub-floor visibility samples) so a failed approach is never
-blind in the Run Result.
+Once the track's lower edge crosses the 0.70 close-range boundary, approach
+also slows: every forward command keeps the qualified 1.0 m/s signal, but
+only one frame in three drives — the other two are zero-forward holds that
+retain full yaw steering. This is the same reliable-signal duty cycle the
+search stage already validated on hardware; commanding a genuinely slower
+velocity is not an option because the factory-avoidance deadband sits at
+about 0.50 m/s. The slowdown latches once engaged, gives roughly 0.33 m/s
+effective close-range speed, and exists so the last accepted track geometry
+— the sole input to the Arrival decision — is sampled finely instead of
+jumping from mid-frame to gone between frames. Only driving frames consume
+a forward heartbeat; holds consume none, so every counted outbound
+heartbeat still commanded 1.0 m/s for one heartbeat period and the
+return-home replay budget maps one-to-one exactly as before.
+
+Arrival is the operator-ruled sight-lost contract (2026-08-08): while the
+fresh Target Fruit remains visible, forward approach continues; when the
+qualified track is lost and stays lost through the 0.75-second grace
+window, Woof declares Arrival and stops where it stands **only if** the
+last accepted track geometry was already close (lower edge at or above the
+0.70 boundary) and roughly centered (horizontal center within 0.15 of frame
+center — a guard against a sideways frame exit). There is no blind final
+push and no near-confirmation counting: the push existed to end
+nose-at-fruit, the operator explicitly prefers stopping farther, and the
+push's protective near gate caused three of the four recorded arrival
+failures. A distant or off-center sight loss never declares Arrival — the
+stage holds zero motion, waits out the deadline, and fails closed, because
+Woof must never sit down in the middle of the room after a tracking
+dropout. For loss purposes "visible" requires the detection to meet the
+fruit's close-range tracking confidence and to remain spatially continuous
+with the last accepted track box: a matching label below that floor, or one
+discontinuous with the fruit being approached, counts as disappearance.
+(Supervised run `45a1e796` showed a static 0.010-0.016-confidence phantom
+keeping the fruit counted as visible for ~12 seconds; the floor and the
+continuity condition keep that scenario closed, and a phantom can never
+supply the arrival geometry because it is never accepted as the track.)
+Every terminal approach path — Arrival, identity change, and timeout —
+seals the same approach evidence dict (arrival mode, last track geometry,
+slowdown engagement, pulse counts, centering counters, and sub-floor
+visibility samples) so a failed approach is never blind in the Run Result.
 
 An acquired track may survive its observed close-range confidence collapse
 only while its box remains low and spatially continuous with the last
 accepted box; the per-fruit floors live in `fruits.py` (apple 0.10, banana
 0.20, pear 0.20 — the pear value was lowered from 0.55 after supervised run
 `d740a5f2` proved a real pear collapses to ~0.27 confidence when it fills
-the frame at arrival distance). Close-range-continued frames count toward
-near-fruit Arrival confirmation exactly like fully qualified frames. This
-continuation cannot acquire a fruit, and discontinuous or missing evidence
-commands zero motion.
+the frame at arrival distance). Close-range-continued frames update the
+accepted track geometry exactly like fully qualified frames, which is what
+lets the sight-lost Arrival read the true loss point. This continuation
+cannot acquire a fruit, and discontinuous or missing evidence commands zero
+motion.
 Arrival releases motion before `SIT_AND_BARK`; Woof barks while down and holds
 that posture for 5 seconds before `STAND` may begin.
 

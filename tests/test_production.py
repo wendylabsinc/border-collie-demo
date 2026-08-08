@@ -225,7 +225,7 @@ def test_stage_result_records_the_exact_velocity_commands() -> None:
     asyncio.run(scenario())
 
 
-def test_approach_uses_measured_factory_motion_and_one_final_push() -> None:
+def test_approach_uses_measured_factory_motion_with_sight_lost_arrival() -> None:
     async def scenario() -> None:
         hardware = FakeProductionHardware()
         status_reader = lambda: {"ready": True}
@@ -239,19 +239,11 @@ def test_approach_uses_measured_factory_motion_and_one_final_push() -> None:
             # The factory-avoidance calibration established 0.50 m/s as the
             # deadband edge, not a production value with usable margin. The
             # camera-guided approach uses the separately verified 1.0 m/s
-            # signal, while the final off-screen movement is softened to
-            # 0.3 m/s before the explicit stop-and-lie-down sequence.
+            # signal (duty-cycled at close range), and arrival is the
+            # operator-ruled sight-lost contract: no blind final push.
             "forward_mps": 1.0,
             "maximum_yaw_rps": 0.30,
-            "near_bottom_ratio": 0.86,
-            "near_center_ratio": 0.72,
-            "near_confirmations": 3,
-            "near_loss_grace_s": 0.75,
-            # Shortened from 1.0 s after the 2026-08-08 supervised baseline
-            # arrived too close to the fruit; the 0.3 m/s signal and the push
-            # trigger are unchanged.
-            "final_push_mps": 0.3,
-            "final_push_duration_s": 0.6,
+            "sight_loss_grace_s": 0.75,
             "timeout_s": 20.0,
         }
         assert evidence["arrival_confirmed"] is True
@@ -435,12 +427,15 @@ def test_arrival_failure_preserves_the_approach_evidence_in_details() -> None:
                 "qualified pear Arrival timed out",
                 evidence={
                     "arrival_confirmed": False,
-                    "near_gate_confirmed": False,
-                    "near_confirmations": 0,
-                    "final_push_count": 0,
+                    "arrival_mode": None,
+                    "last_track_geometry": {
+                        "center_x_ratio": 0.5,
+                        "center_y_ratio": 0.5,
+                        "bottom_ratio": 0.65,
+                    },
                     "forward_pulse_count": 12,
                     "subthreshold_visibility_samples": 9,
-                    "arrival_visibility_confidence_floor": 0.55,
+                    "arrival_visibility_confidence_floor": 0.20,
                 },
             )
 
@@ -457,12 +452,15 @@ def test_arrival_failure_preserves_the_approach_evidence_in_details() -> None:
         assert failure.value.details == {
             "approach": {
                 "arrival_confirmed": False,
-                "near_gate_confirmed": False,
-                "near_confirmations": 0,
-                "final_push_count": 0,
+                "arrival_mode": None,
+                "last_track_geometry": {
+                    "center_x_ratio": 0.5,
+                    "center_y_ratio": 0.5,
+                    "bottom_ratio": 0.65,
+                },
                 "forward_pulse_count": 12,
                 "subthreshold_visibility_samples": 9,
-                "arrival_visibility_confidence_floor": 0.55,
+                "arrival_visibility_confidence_floor": 0.20,
             }
         }
 

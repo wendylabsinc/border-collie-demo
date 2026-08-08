@@ -1,12 +1,12 @@
 {
   "appId": "border-collie-demo",
-  "version": "1.1.5-single-setpoint-reverse",
+  "version": "1.2.0-sight-lost-arrival",
   "services": {
     "app": {
       "context": ".",
       "env": {
         "BORDER_COLLIE_PORT": "8110",
-        "BORDER_COLLIE_BUILD_LABEL": "base+approach-fix r6 (demo/approach-consistency)",
+        "BORDER_COLLIE_BUILD_LABEL": "base+approach-fix r7 (demo/approach-consistency)",
         "BORDER_COLLIE_RUNTIME_MODE": "production",
         "BORDER_COLLIE_HARDWARE_ENABLED": "1",
         "BORDER_COLLIE_AUTONOMY_ENABLED": "1",

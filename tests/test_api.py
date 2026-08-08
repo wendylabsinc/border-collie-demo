@@ -320,8 +320,10 @@ def test_activate_demo_completes_every_stage_with_simulated_adapters(tmp_path) -
         ]
         assert run["stage_results"]["return_home"]["home_distance_m"] == 0.08
         assert run["stage_results"]["approach_fruit"]["forward_pulse_count"] == 7
-        assert run["stage_results"]["approach_fruit"]["final_push_mps"] == 0.3
-        assert run["stage_results"]["approach_fruit"]["final_push_duration_s"] == 0.6
+        assert (
+            run["stage_results"]["approach_fruit"]["arrival_mode"]
+            == "sight_lost_close"
+        )
         assert run["stage_results"]["step_back"]["commanded_reverse_mps"] == 0.5
         assert run["stage_results"]["step_back"]["measured_backward_m"] == 0.24
         assert run["stage_results"]["step_back"]["avoidance_restored"] is True

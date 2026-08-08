@@ -155,21 +155,16 @@ class ProductionStageExecutor:
                 context.target_fruit,
                 # The legacy factory-avoidance calibration found 0.50 m/s to
                 # be the deadband edge and 1.0 m/s to produce a reliable
-                # physical step during camera-guided approach. Once qualified
-                # lower-edge disappearance proves arrival, soften the one
-                # bounded final movement before the stop-and-lie-down stage.
-                # The 2026-08-08 supervised baseline arrived too close to the
-                # fruit, so the blind push window is shortened from 1.0 s to
-                # 0.6 s at the same 0.3 m/s signal; the push trigger and the
-                # forward-pulse accounting are unchanged.
+                # physical step during camera-guided approach; close range
+                # slows to a ~0.33 m/s effective duty cycle of the same
+                # 1.0 m/s signal. Arrival is the operator-ruled sight-lost
+                # contract (2026-08-08): once the qualified track stays lost
+                # through the grace window with its last geometry close and
+                # centered, Woof stops where it stands - there is no blind
+                # final push.
                 forward_mps=1.0,
                 maximum_yaw_rps=0.30,
-                near_bottom_ratio=0.86,
-                near_center_ratio=0.72,
-                near_confirmations=3,
-                near_loss_grace_s=0.75,
-                final_push_mps=0.3,
-                final_push_duration_s=0.6,
+                sight_loss_grace_s=0.75,
                 timeout_s=20.0,
             )
         if phase is MissionPhase.SIT_AND_BARK:

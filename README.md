@@ -27,17 +27,22 @@ reference, but it is not a runtime dependency.
 6. Confirm/reacquire and approach the requested fruit using fresh detections.
    No forward command is permitted before this stage. Once approach begins,
    forward and yaw inputs may be combined to steer toward the fruit.
-7. Near-fruit geometry arms the lower-edge Arrival gate but does not stop the
-   approach. While the requested fruit remains freshly visible, continue the
-   bounded forward approach. Only after it disappears through the lower camera
-   edge may Woof send the single bounded final movement.
-8. First turn at a fixed 0.50 rad/s until the Target Fruit is within the middle
-   16% of the camera, then hold zero yaw for three fresh centered samples. After
-   qualified lower-edge disappearance, send one 0.3 m/s by
-   1.0-second final push, stop, lie down, bark, and remain down for 5 seconds.
-9. Stand, turn toward Home, replay the recorded number of outbound forward
-   heartbeats at 1.0 m/s, and restore the original heading. Fresh pose remains
-   the authority for the 10 cm Home success gate and recorded Home Distance.
+7. While the requested fruit remains freshly visible, continue the bounded
+   forward approach; once the track's lower edge crosses the 0.70
+   close-range boundary the approach duty-cycles the same 1.0 m/s signal
+   (one driving frame in three) to roughly 0.33 m/s effective speed.
+8. First turn at a fixed 0.50 rad/s until the Target Fruit is within the
+   middle 16% of the camera, then hold zero yaw for three fresh centered
+   samples. Arrival is the sight-lost contract: when the qualified track
+   stays lost through the 0.75 s grace window and its last geometry was
+   close (lower edge at or above 0.70) and roughly centered (within 0.15 of
+   frame center), Woof stops where it stands, lies down, barks, and remains
+   down for 5 seconds. There is no blind final push; a distant or
+   off-center loss fails closed instead of sitting.
+9. Stand, step back clear of the fruit, turn toward Home, replay the
+   recorded number of outbound forward heartbeats at 1.0 m/s, and restore
+   the original heading. Fresh pose remains the authority for the 10 cm
+   Home success gate and recorded Home Distance.
 10. Stop all motion, record the result, and report completion.
 
 Arbitrary typed commands remain on the separate debug surface. The supervised
@@ -148,9 +153,10 @@ approach, Arrival, sit/bark, stand, turn-home, return, and heading-restoration
 evidence before sealing success. Loss of pose freshness during capture also fails closed.
 **Stop Woof** seals an active run and permits another activation, while process
 restart seals unfinished work as `PROCESS_INTERRUPTED`. The production executor
-uses measured pose turns, bounded camera-guided search, geometry-gated approach,
-one 0.3 m/s by 1.0 s off-screen final push, Unitree posture actions, bark, and
-closed-loop odometry return through factory obstacle avoidance.
+uses measured pose turns, bounded camera-guided search, a duty-cycled
+close-range approach with sight-lost Arrival (no blind push), Unitree posture
+actions, bark, an odometry-verified step back, and closed-loop odometry
+return through factory obstacle avoidance.
 The initial turn/search is explicitly **conditional**, not an unconditional
 part of every run. Target Fruit qualification may already be present when
 `TURN_TO_FRUIT` begins. Fresh qualified evidence for the selected Target Fruit

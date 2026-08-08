@@ -651,3 +651,59 @@ Evidence: `benchmarks/results/supervised-three-run-2026-08-08.json`.
   restore-or-fault choreography are all pinned); Ruff clean
 - Limitation: the held-setpoint reverse has not yet moved the physical
   robot; the supervised r6 retest is pending
+
+## ARRIVAL-SIGHT-LOST-001 — operator-ruled contract change, hardware pending
+
+- Trigger: the r6 supervised run (`399b47c3`, 2026-08-08) failed
+  `ARRIVAL_FAILURE` by near-gate starvation with a strong track — last
+  accepted geometry bottom 0.965, center (0.464, 0.908), 2 of 3 near
+  confirmations, continuation relief engaged — exposing the structural
+  race: the near gate demanded consecutive near-zone confirmations during
+  the fastest part of approach, so success was a per-run coin flip
+  (r3: 0 confirmations, r4: 5, r5: 5, r6: 2)
+- Operator ruling: "once it's lost sight of the fruit just sit down." The
+  near gate and the blind final push are retired entirely. The push
+  existed to end nose-at-fruit; the operator explicitly prefers stopping
+  farther (the original too-close complaint), and the push's protective
+  gate caused three of the four recorded arrival failures
+- New Arrival contract: when the qualified track stays lost through the
+  0.75 s grace window, Arrival is declared where Woof stands if and only
+  if the last accepted track geometry had its lower edge at or above the
+  0.70 close-range boundary AND its horizontal center within 0.15 of frame
+  center. Every recorded genuine forward loss had last bottom 0.825-0.965
+  and center 0.464-0.512, comfortably inside both gates; the center guard
+  rejects a sideways frame exit. A distant or off-center loss holds zero
+  motion, waits out the deadline, and fails closed — Woof never sits in
+  the middle of the room after a tracking dropout
+- Close-range slowdown: once the track crosses the 0.70 boundary the
+  approach duty-cycles the qualified 1.0 m/s signal (one driving frame in
+  three, ~0.33 m/s effective, latched once engaged) using the same
+  reliable-signal hold pattern the search slowdown already validated on
+  hardware. A genuinely slower command was rejected because the
+  factory-avoidance deadband sits at ~0.50 m/s and continuous 0.50
+  measurably failed to translate. The slowdown makes the last-track
+  geometry reading fine-grained (at 1.0 m/s the track can jump from
+  mid-frame to gone between frames) and directly addresses the original
+  too-fast/too-close complaint
+- Return replay unaffected: hold frames command zero forward and consume
+  no forward heartbeat, so every counted outbound pulse still commanded
+  1.0 m/s for one heartbeat period and the replay budget maps one-to-one;
+  with the push retired the outbound count contains no reduced-speed
+  pulses at all
+- Proven guards retained: the arrival visibility confidence floor (r2),
+  spatial continuity (r4), and close-range continuation relief (r4-r6,
+  engaged on hardware in three consecutive runs) now define both "track"
+  and "sight loss"; a phantom can neither hold the fruit visible nor
+  supply arrival geometry, because it is never accepted as the track
+- Evidence: arrival records `arrival_mode="sight_lost_close"`, the arrival
+  gates, the last accepted track geometry, and the slowdown engagement
+  data (engagement bottom ratio, drive pulses, hold frames); failure paths
+  seal the same dict
+- Scope: 165 automated tests pass (new: close-range loss sits, distant
+  loss fails closed with a deep-bbox phantom unable to fake arrival, the
+  sideways-exit center guard, phantom-cannot-block-arrival at both
+  confidence tiers, the duty-cycle speed transition, and hold-frame pulse
+  accounting); Ruff clean. The r6 single-setpoint step-back rides along
+  unchanged and still awaits its hardware debut
+- Limitation: no physical run has exercised the sight-lost Arrival or the
+  close-range slowdown; deployments are paused pending the operator's go
