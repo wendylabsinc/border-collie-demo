@@ -24,16 +24,18 @@ class BarkPort(Protocol):
 DOWN_HOLD_S = 5.0
 ARRIVAL_STOP_SETTLE_S = 1.0
 STAND_UP_SETTLE_S = 1.0
-# The step back reverses through the direct SportClient with the
-# robot-global avoidance module suspended for the bounded window, so the
-# following Home turn rotates with clearance from the fruit. The direct
+# The step back holds ONE direct-sport reverse setpoint for the bounded
+# window with the robot-global avoidance module suspended, so the following
+# Home turn rotates with clearance from the fruit. The single-setpoint hold
+# is the pattern proven to physically reverse this robot
+# (go2-local-web-remote sender: one Move(-vx), sleep, StopMove); the direct
 # path produced physical steps at 0.25 and 0.50 m/s in the recorded
-# hardware facts, so 0.50 m/s x 0.5 s (~0.25 m commanded) is a conservative
-# default now that the reverse actually actuates; displacement is verified
-# by odometry against the 0.05 m gate and no return-pulse credit is taken
-# (see HardwareManager.step_back).
+# hardware facts, so 0.50 m/s held for 0.6 s (~0.30 m commanded, gait
+# initiation eats part of the window) is a conservative default;
+# displacement is verified by odometry against the 0.05 m gate and no
+# return-pulse credit is taken (see HardwareManager.step_back).
 STEP_BACK_REVERSE_MPS = 0.5
-STEP_BACK_DURATION_S = 0.5
+STEP_BACK_DURATION_S = 0.6
 STEP_BACK_MINIMUM_BACKWARD_M = 0.05
 
 

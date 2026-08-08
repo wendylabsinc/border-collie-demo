@@ -307,12 +307,12 @@ def test_step_back_runs_between_stand_and_home_turn_with_locked_values() -> None
             (
                 "step_back",
                 {
-                    # The direct SportClient produced physical steps at 0.25
-                    # and 0.50 m/s in the recorded hardware facts, so the
-                    # avoidance-suspended reverse uses a conservative
-                    # 0.5 m/s x 0.5 s (~0.25 m commanded) window.
+                    # One direct-sport setpoint held for the bounded window
+                    # (the proven go2-local-web-remote reverse shape) with
+                    # avoidance suspended: 0.5 m/s x 0.6 s, ~0.30 m
+                    # commanded with gait initiation eating part of it.
                     "reverse_mps": 0.5,
-                    "duration_s": 0.5,
+                    "duration_s": 0.6,
                     "minimum_backward_m": 0.05,
                 },
             )

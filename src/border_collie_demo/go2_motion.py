@@ -70,10 +70,12 @@ class MotionConfig:
     client_timeout_s: float = 12.0
     avoidance_verify_interval_s: float = 0.30
     remote_api_settle_s: float = 0.50
-    # Settle after toggling the robot-global avoidance module, mirroring the
-    # vendor example cadence (0.1 s between SwitchSet retries, 0.5 s after
-    # remote-command mode changes) — short but nonzero.
-    avoidance_switch_settle_s: float = 0.20
+    # Settle after toggling the robot-global avoidance module. The vendor
+    # examples sleep 0.1 s between SwitchSet retries and 0.5 s after
+    # remote-command mode changes; r5 used 0.2 s and the subsequent direct
+    # reverse still did not actuate, so the default now sits at the top of
+    # the vendor range as cheap insurance while authority hands back.
+    avoidance_switch_settle_s: float = 0.45
 
     def __post_init__(self) -> None:
         for name in (
@@ -298,36 +300,43 @@ class Go2Motion:
                 "avoidance_switched_off_s": round(switched_off_s, 3),
             }
 
-    async def command_step_back(
+    async def step_back_hold(
         self,
         lease: str,
         reverse_mps: float,
-        reason: str = "step_back_clearance",
-    ) -> VelocityCommand:
-        """Send one bounded reverse-only pulse through the direct SportClient.
+        duration_s: float,
+    ) -> dict[str, object]:
+        """One reverse setpoint held for a bounded window, then StopMove.
 
-        The general ``command`` path stays forward-only and avoidance-owned.
-        This dedicated entry point exists solely for the bounded post-stand
-        clearance step: it never combines reverse translation with yaw or
-        lateral input, it is limited by the same configured forward-speed
-        bound, and it renews the same command watchdog as every other
-        velocity command. It requires the avoidance module to be suspended
-        first (``suspend_avoidance_for_step_back``): the module is a
-        robot-global velocity owner and vetoes reverse from any client while
-        engaged, which two supervised runs (45a1e796's r2 sibling and r4
-        a9214ed8) measured as accepted commands with -0.001 m of motion.
+        Go2 ``sport.Move`` is a velocity setpoint. Re-sending it on a 0.1 s
+        cadence restarts gait initiation each time, so a reverse step never
+        gets planted: r5 (run 801b4a01) sent six -0.5 m/s setpoints 0.1 s
+        apart with the avoidance module suspended and measured 0.007 m.
+        The workspace's `go2-local-web-remote` sender, which has physically
+        reversed this robot, sends exactly ONE ``Move(-vx)``, sleeps the
+        bounded window, then calls ``StopMove()`` — this method reproduces
+        that proven shape.
 
-        The bypass is acceptable only for this step because the robot
-        reverses into space it traversed seconds earlier during its own
-        approach, the pulse is short and speed-bounded, the caller verifies
-        real displacement by odometry, restore is mandatory-or-fault, and
-        the demo is operator-supervised.
+        Watchdog interplay: the command watchdog exists to stop motion when
+        the commander dies mid-motion. A silent 0.5-0.6 s hold would trip
+        the 0.35 s watchdog, so the hold loop renews the watchdog timer
+        WITHOUT emitting a new Move setpoint. The safety guarantee is
+        preserved — if this process wedges mid-hold, the watchdog still
+        fires StopMove within ``command_watchdog_s`` — while the single
+        setpoint stays untouched for the whole window.
+
+        Requires the avoidance module to be suspended first
+        (``suspend_avoidance_for_step_back``): the module is a robot-global
+        velocity owner and vetoes reverse from any client while engaged.
         """
         speed = float(reverse_mps)
+        duration = float(duration_s)
         if not math.isfinite(speed) or speed <= 0.0:
             raise ValueError("step-back speed must be finite and positive")
         if speed > self.config.maximum_forward_mps:
             raise ValueError("step-back speed exceeds the configured limit")
+        if not math.isfinite(duration) or duration <= 0.0:
+            raise ValueError("step-back hold duration must be positive")
         async with self._lock:
             self._require_owner(lease)
             if not self._avoidance_suspended:
@@ -342,9 +351,39 @@ class Go2Motion:
                 self._fault = f"step-back command failed: {exc}"
                 await self._release_locked(use_stop=True)
                 raise MotionNotReady(self._fault) from exc
-            self._last_command = VelocityCommand(-speed, 0.0, reason)
-            self._arm_watchdog()
-            return self._last_command
+            setpoint_at = time.monotonic()
+            self._last_command = VelocityCommand(-speed, 0.0, "step_back_hold")
+            deadline = setpoint_at + duration
+            renew_interval = self.config.command_watchdog_s / 3.0
+            watchdog_renewals = 0
+            while True:
+                self._arm_watchdog()
+                watchdog_renewals += 1
+                now = time.monotonic()
+                if now >= deadline:
+                    break
+                await self._sleep(min(renew_interval, deadline - now))
+            self._cancel_watchdog()
+            hold_duration = time.monotonic() - setpoint_at
+            try:
+                stop_result = await self._call_stop(self.sport.StopMove)
+                if stop_result not in (0, -1):
+                    raise MotionError(f"StopMove returned {stop_result!r}")
+            except Exception as exc:
+                self._fault = f"step-back hold stop failed: {exc}"
+                await self._release_locked(use_stop=True)
+                raise MotionNotReady(self._fault) from exc
+            self._last_command = VelocityCommand(reason="step_back_hold_stopped")
+            return {
+                "hold_pattern": "single_setpoint_hold",
+                "hold_move_commands": 1,
+                "command_timestamps_monotonic_s": [setpoint_at],
+                "hold_duration_s": round(hold_duration, 3),
+                "watchdog_renewals": watchdog_renewals,
+                "watchdog_renewed_without_resend": True,
+                "stop_issued_by": "window_end",
+                "stop_confirmed": True,
+            }
 
     async def release(self, lease: str) -> None:
         async with self._lock:

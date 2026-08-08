@@ -33,16 +33,21 @@ The executable, hardware-free design probe lives in
   client while engaged (2026-08-08, twice: five accepted reverse commands
   measured -0.001 m through the avoidance client, then again through the
   direct SportClient with the module engaged), so the step suspends the
-  module for one bounded under-a-second window: prior state recorded,
-  SwitchSet off with a short settle, direct-sport reverse, StopMove, then a
-  mandatory SwitchSet-on with confirmation. A failed restore latches a hard
-  motion fault and seals the run `FAILED` — autonomous work never continues
-  with avoidance silently off. The window is bounded and evidenced —
-  reverse-only with no yaw or lateral mixing, the same forward-speed limit
-  and command watchdog, fresh-pose displacement verification with a
-  fail-closed gate, switch states and off-window duration sealed in the Run
-  Result, a path the robot itself cleared seconds earlier during approach,
-  and an operator supervising the run.
+  module for one bounded window: prior state recorded, SwitchSet off with a
+  0.45 s settle, then ONE direct-sport reverse setpoint held for the
+  bounded window, StopMove, then a mandatory SwitchSet-on with
+  confirmation. The single held setpoint is deliberate: `sport.Move` is a
+  velocity setpoint and re-sending it every 0.1 s restarts gait initiation
+  so the step never plants (r5 measured 0.007 m from six re-sends); during
+  the silent hold the command watchdog is renewed without emitting a new
+  setpoint, preserving its stop-on-wedge guarantee. A failed restore
+  latches a hard motion fault and seals the run `FAILED` — autonomous work
+  never continues with avoidance silently off. The window is bounded and
+  evidenced — reverse-only with no yaw or lateral mixing, the same
+  forward-speed limit, fresh-pose displacement verification with a
+  fail-closed gate, switch states, settle and off-window durations, and the
+  stop origin sealed in the Run Result, a path the robot itself cleared
+  seconds earlier during approach, and an operator supervising the run.
 - Fresh measured local pose remains the authority for course, progress, early
   stop, the 0.10 m Home gate, and the reported Home Distance. Pulse count and
   requested velocity never substitute for measured Home Distance or prove

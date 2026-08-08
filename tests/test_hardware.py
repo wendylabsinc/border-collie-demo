@@ -30,6 +30,7 @@ class FakeMotion:
         self.avoidance_suspended = False
         self.suspend_calls = 0
         self.resume_calls = 0
+        self.hold_calls: list[tuple[float, float]] = []
 
     def status(self) -> dict[str, object]:
         return {
@@ -56,18 +57,28 @@ class FakeMotion:
         self.commands.append(command)
         return command
 
-    async def command_step_back(
-        self, lease: str, reverse_mps: float
-    ) -> VelocityCommand:
+    async def step_back_hold(
+        self, lease: str, reverse_mps: float, duration_s: float
+    ) -> dict[str, object]:
         assert lease == "lease"
         assert self.armed
         assert self.avoidance_suspended, (
             "reverse must only be commanded inside the avoidance-off window"
         )
-        command = VelocityCommand(-reverse_mps, 0.0, "step_back_clearance")
+        command = VelocityCommand(-reverse_mps, 0.0, "step_back_hold")
         self.commands.append(command)
         self.step_back_commands.append(command)
-        return command
+        self.hold_calls.append((reverse_mps, duration_s))
+        return {
+            "hold_pattern": "single_setpoint_hold",
+            "hold_move_commands": 1,
+            "command_timestamps_monotonic_s": [1.0],
+            "hold_duration_s": duration_s,
+            "watchdog_renewals": 3,
+            "watchdog_renewed_without_resend": True,
+            "stop_issued_by": "window_end",
+            "stop_confirmed": True,
+        }
 
     async def suspend_avoidance_for_step_back(self, lease: str) -> dict[str, object]:
         assert lease == "lease"
@@ -374,7 +385,11 @@ def test_step_back_reverses_measures_displacement_then_disarms() -> None:
         assert result["motion_path"] == "direct_sport_reverse"
         assert result["commanded_reverse_mps"] == 1.0
         assert result["commanded_duration_s"] == 0.03
-        assert result["command_count"] >= 1
+        assert result["hold_pattern"] == "single_setpoint_hold"
+        assert result["hold_move_commands"] == 1
+        assert result["hold_duration_s"] == 0.03
+        assert result["stop_issued_by"] == "window_end"
+        assert result["watchdog_renewed_without_resend"] is True
         assert result["measured_backward_m"] == pytest.approx(0.28)
         assert result["measured_lateral_m"] == pytest.approx(0.05)
         assert result["minimum_backward_m"] == 0.02
@@ -386,13 +401,16 @@ def test_step_back_reverses_measures_displacement_then_disarms() -> None:
         assert result["pose_after"] == {"x_m": 0.72, "y_m": 0.05, "yaw_rad": 0.0}
         assert motion.suspend_calls == 1
         assert motion.resume_calls == 1
-        assert len(motion.step_back_commands) == result["command_count"]
+        assert motion.hold_calls == [(1.0, 0.03)]
+        assert len(motion.step_back_commands) == 1
         assert all(
             command.forward_mps == -1.0 and command.yaw_rps == 0.0
             for command in motion.step_back_commands
         )
         assert all(
-            command["phase"] == "step_back" and command["forward_mps"] == -1.0
+            command["phase"] == "step_back"
+            and command["forward_mps"] == -1.0
+            and command["reason"] == "step_back_hold"
             for command in manager.motion_trace()
         )
         assert motion.armed is False
@@ -428,7 +446,7 @@ def test_step_back_fails_closed_when_odometry_measures_no_movement() -> None:
         assert evidence["motion_path"] == "direct_sport_reverse"
         assert evidence["avoidance_restored"] is True
         assert evidence["measured_backward_m"] == pytest.approx(0.0)
-        assert evidence["command_count"] >= 1
+        assert evidence["hold_move_commands"] == 1
         assert motion.armed is False
         assert manager.status()["active_operation"] is None
         await manager.close()
@@ -499,16 +517,18 @@ def test_step_back_window_starts_only_after_the_motion_arm_settle() -> None:
         await manager.start()
 
         # The arm settle (0.08 s) is longer than the whole reverse window
-        # (0.02 s). If the window timer started before the settle finished,
-        # zero reverse commands would be sent.
+        # (0.02 s). If the window budget were consumed before the settle
+        # finished, no setpoint would be sent; the hold must receive its
+        # full requested window regardless of how long arming takes.
         result = await manager.step_back(
             reverse_mps=1.0,
             duration_s=0.02,
             minimum_backward_m=0.01,
         )
 
-        assert result["command_count"] >= 2
-        assert len(motion.step_back_commands) == result["command_count"]
+        assert motion.hold_calls == [(1.0, 0.02)]
+        assert len(motion.step_back_commands) == 1
+        assert result["hold_move_commands"] == 1
         assert motion.armed is False
         await manager.close()
 

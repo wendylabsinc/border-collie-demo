@@ -603,3 +603,51 @@ Evidence: `benchmarks/results/supervised-three-run-2026-08-08.json`.
   manager levels, and the failure-details mapping); Ruff clean
 - Limitation: the avoidance-window reverse has not yet moved the physical
   robot; the supervised r5 retest is pending
+
+## STEP-BACK-ACTUATION-003 — failed on hardware, corrected, hardware pending
+
+- Observed: 2026-08-08 on Woof, r5 supervised run `801b4a01`: the switch
+  choreography executed exactly as designed — evidence sealed
+  `avoidance_prior_enabled` true, module off 0.709 s, `avoidance_restored`
+  true, poses recorded — and the robot STILL did not move: six direct-sport
+  reverse setpoints at 0.5 m/s over 0.502 s measured 0.0074 m against the
+  0.05 m gate. Arrival kept working (approach 3.7 s, search skipped,
+  sit/bark/stand clean)
+- Watchdog exonerated before blaming cadence: the sealed command
+  timestamps show gaps of 0.094-0.102 s, all far inside the 0.35 s command
+  watchdog, and the run reached the odometry gate with the module restored
+  and a clean release — the watchdog never fired mid-window
+- Remaining suspect, backed by working code in this workspace: Go2
+  `sport.Move` is a velocity setpoint, and re-sending it every 0.1 s
+  restarts gait initiation each time, so a reverse step never gets
+  planted. The `go2-local-web-remote` sender — which has physically
+  reversed this robot — sends exactly ONE `Move(-vx)`, sleeps the bounded
+  window (up to 2.0 s), then calls `StopMove()`, on a bare SportClient
+  with no avoidance client in the process. Forward tolerates the demo's
+  0.1 s cadence because it flows through the avoidance module's own
+  controller
+- Fix: the reverse window is now that proven shape — one direct-sport
+  setpoint held for 0.6 s at 0.5 m/s, then `StopMove` — inside the same
+  suspend/restore choreography, with the switch settle lengthened from
+  0.2 s to 0.45 s (top of the vendor example range) as cheap insurance
+  while authority hands back
+- Watchdog interplay resolved by decoupling renewal from re-sending: a
+  silent 0.6 s hold would trip the 0.35 s watchdog, so the hold loop
+  renews the watchdog timer roughly every watchdog/3 without emitting a
+  new setpoint. The stop-on-wedge guarantee is preserved; the setpoint is
+  never restarted. This choice (rather than one mid-window re-send) is
+  documented in the step-back contract because re-sending is exactly the
+  failure r5 measured
+- Evidence extended: the hold pattern, setpoint timestamp, hold duration,
+  watchdog renewal count, and stop origin (window end vs watchdog) join
+  the switch states, settle, poses, and displacement, sealed on success
+  and failure
+- Fallback hypothesis if the r6 run still measures ~0 m (not implemented):
+  motion authority — disabling avoidance may leave no service holding
+  motion control; the next probe is the MotionSwitcherClient
+  (`unitree_sdk2py/comm/motion_switcher/`, `CheckMode`/`SelectMode`)
+- Scope: 163 automated tests pass (the single-setpoint hold with a quiet
+  watchdog, StopMove at window end, suspension-required guard, and the
+  restore-or-fault choreography are all pinned); Ruff clean
+- Limitation: the held-setpoint reverse has not yet moved the physical
+  robot; the supervised r6 retest is pending

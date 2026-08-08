@@ -111,9 +111,9 @@ class MotionAdapterProtocol(Protocol):
         self, lease: str, command: VelocityCommand
     ) -> VelocityCommand: ...
 
-    async def command_step_back(
-        self, lease: str, reverse_mps: float
-    ) -> VelocityCommand: ...
+    async def step_back_hold(
+        self, lease: str, reverse_mps: float, duration_s: float
+    ) -> dict[str, object]: ...
 
     async def suspend_avoidance_for_step_back(
         self, lease: str
@@ -311,14 +311,14 @@ class HardwareManager:
         return-home (0.187-0.375 m misses); this implementation verifies the
         actual movement instead of assuming the commanded motion happened.
 
-        The reverse pulse itself travels through the direct SportClient with
-        the robot-global avoidance module suspended for the bounded window
-        (see Go2Motion.suspend_avoidance_for_step_back): while engaged, the
-        module owns velocity control and vetoes reverse translation from any
-        client — both the avoidance-path attempt (r2) and the direct-sport
-        attempt with the module still engaged (r4) measured -0.001 m over
-        five accepted commands. Restoring the module afterwards is mandatory;
-        a failed restore is a hard fault.
+        The reverse itself is ONE direct-sport setpoint held for the bounded
+        window with the robot-global avoidance module suspended (see
+        Go2Motion.suspend_avoidance_for_step_back and step_back_hold): while
+        engaged, the module owns velocity control and vetoes reverse from
+        any client (r2, r4: -0.001 m over five accepted commands), and
+        re-sending the setpoint on a 0.1 s cadence restarts gait initiation
+        so the step never plants (r5: six setpoints, 0.007 m). Restoring the
+        module afterwards is mandatory; a failed restore is a hard fault.
         """
         reverse = float(reverse_mps)
         duration = float(duration_s)
@@ -347,7 +347,6 @@ class HardwareManager:
             resume_error: str | None = None
             suspended = False
             command_count = 0
-            elapsed_s = 0.0
             origin = None
             # Progressive evidence: sealed on success AND on every failure
             # path (the r4 failure surfaced only the raw motion trace, which
@@ -356,13 +355,13 @@ class HardwareManager:
                 "motion_path": "direct_sport_reverse",
                 "commanded_reverse_mps": reverse,
                 "commanded_duration_s": duration,
-                "command_period_s": self.config.command_heartbeat_s,
                 "minimum_backward_m": minimum,
                 "avoidance_prior_enabled": None,
                 "avoidance_restored": False,
                 "avoidance_switched_off_s": None,
-                "command_count": 0,
-                "elapsed_s": None,
+                "hold_pattern": "single_setpoint_hold",
+                "hold_move_commands": 0,
+                "hold_duration_s": None,
                 "motion_commands_sent": False,
                 "pose_before": None,
                 "pose_after": None,
@@ -391,26 +390,40 @@ class HardwareManager:
                 )
                 suspended = True
                 step_evidence.update(suspend_evidence)
-                # The arm sequence and the avoidance-switch settle have both
-                # completed before this timestamp, so the reverse window
-                # always gets its full duration. (Run 2 of the 2026-08-07
-                # attempt started this timer before the 0.5-second settle
-                # and sent zero reverse commands.)
-                pulse_started = time.monotonic()
-                deadline = pulse_started + duration
-                while True:
-                    await self._send_step_back_command(lease, reverse)
-                    command_count += 1
-                    step_evidence["command_count"] = command_count
-                    step_evidence["motion_commands_sent"] = True
-                    now = time.monotonic()
-                    if now >= deadline:
-                        break
-                    await asyncio.sleep(
-                        min(self.config.command_heartbeat_s, deadline - now)
-                    )
-                elapsed_s = time.monotonic() - pulse_started
-                step_evidence["elapsed_s"] = round(elapsed_s, 3)
+                # One reverse setpoint held for the bounded window (the
+                # pattern proven to physically reverse this robot), sent
+                # only after the arm sequence and the avoidance-switch
+                # settle have both completed, so the window always gets its
+                # full duration. (Run 2 of the 2026-08-07 attempt started
+                # its timer before the 0.5-second settle and sent zero
+                # reverse commands; r5 re-sent the setpoint every 0.1 s and
+                # measured 0.007 m because each re-send restarted gait
+                # initiation.)
+                hold_evidence = await self._motion.step_back_hold(
+                    lease,
+                    reverse,
+                    duration,
+                )
+                step_evidence.update(hold_evidence)
+                command_count = int(
+                    hold_evidence.get("hold_move_commands", 1) or 1
+                )
+                step_evidence["motion_commands_sent"] = True
+                timestamps = hold_evidence.get("command_timestamps_monotonic_s")
+                self._motion_trace.append(
+                    {
+                        "sequence": len(self._motion_trace) + 1,
+                        "phase": self._motion_trace_phase,
+                        "recorded_monotonic_s": (
+                            timestamps[0]
+                            if isinstance(timestamps, list) and timestamps
+                            else time.monotonic()
+                        ),
+                        "forward_mps": -reverse,
+                        "yaw_rps": 0.0,
+                        "reason": "step_back_hold",
+                    }
+                )
             except Exception as exc:  # noqa: BLE001 - always disarm below
                 operation_error = exc
             finally:
@@ -479,8 +492,9 @@ class HardwareManager:
             step_evidence["measured_lateral_m"] = lateral_m
             if backward_m < minimum:
                 raise StepBackNoResponse(
-                    f"step back sent {command_count} reverse commands but odometry "
-                    f"measured only {backward_m:.3f} m backward movement "
+                    f"step back held {command_count} reverse setpoint for "
+                    f"{duration:.2f} s but odometry measured only "
+                    f"{backward_m:.3f} m backward movement "
                     f"(gate {minimum:.3f} m)",
                     evidence=step_evidence,
                 )
@@ -1648,28 +1662,6 @@ class HardwareManager:
                 "forward command blocked before approach or return motion"
             )
         sent = await self._motion.command(lease, command)
-        self._motion_trace.append(
-            {
-                "sequence": len(self._motion_trace) + 1,
-                "phase": self._motion_trace_phase,
-                "recorded_monotonic_s": time.monotonic(),
-                **sent.to_dict(),
-            }
-        )
-        return sent
-
-    async def _send_step_back_command(
-        self,
-        lease: str,
-        reverse_mps: float,
-    ) -> VelocityCommand:
-        if self._motion is None:
-            raise HardwareUnavailable("Go2 motion adapter is not connected")
-        if self._active_operation != "step_back":
-            raise HardwareUnavailable(
-                "reverse command blocked outside the step-back stage"
-            )
-        sent = await self._motion.command_step_back(lease, reverse_mps)
         self._motion_trace.append(
             {
                 "sequence": len(self._motion_trace) + 1,

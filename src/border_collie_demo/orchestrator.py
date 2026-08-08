@@ -221,11 +221,13 @@ class SimulatedStageExecutor:
         },
         MissionPhase.STEP_BACK: {
             "commanded_reverse_mps": 0.5,
-            "commanded_duration_s": 0.5,
+            "commanded_duration_s": 0.6,
+            "hold_pattern": "single_setpoint_hold",
+            "hold_move_commands": 1,
             "measured_backward_m": 0.24,
             "avoidance_prior_enabled": True,
             "avoidance_restored": True,
-            "avoidance_switched_off_s": 0.9,
+            "avoidance_switched_off_s": 1.5,
             "motion_commands_sent": False,
         },
         MissionPhase.TURN_TOWARD_HOME: {

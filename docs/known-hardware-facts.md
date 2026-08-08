@@ -27,6 +27,22 @@ proof that this clean implementation works:
   odometry, and re-engage and confirm the module afterwards. This also
   means the 2026-08-07 avoidance-path step-back, which had no odometry
   check, most likely never physically executed.
+- Direct `sport.Move` is a velocity setpoint, and re-sending it on a 0.1 s
+  cadence restarts gait initiation each time, so a reverse step never gets
+  planted: r5 (2026-08-08, run 801b4a01) sent six -0.5 m/s direct-sport
+  setpoints inside a correctly suspended avoidance window and measured
+  0.007 m. The pattern proven to physically reverse this robot
+  (`go2-local-web-remote` sender) is ONE `Move(-vx)`, a silent hold of the
+  bounded duration, then `StopMove()`. The demo's forward approach
+  tolerates the 0.1 s re-send cadence because it flows through the
+  avoidance module's own controller. Any command watchdog spanning a
+  silent hold must be renewed without re-sending the setpoint.
+- If the single held setpoint with a longer (0.45 s) switch settle still
+  measures ~0 m, the next hypothesis is motion authority: disabling
+  avoidance may leave no service holding motion control, and the
+  MotionSwitcherClient (`unitree_sdk2py/comm/motion_switcher/`,
+  `CheckMode`/`SelectMode`) would be the next probe. Not implemented; noted
+  for the next investigator.
 - The previous final approach used one direct 1.0 m/s, 0.4-second push only
   after confirmed near-fruit evidence and lower-camera disappearance.
 - The first clean combined Arrival used that 0.4-second value but stopped too
