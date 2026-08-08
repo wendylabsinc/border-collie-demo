@@ -1,0 +1,2019 @@
+{
+  "schema_version": 3,
+  "session": "fruit-soak-2026-08-08T204555Z",
+  "build_label": "base+approach-fix r3 (demo/approach-consistency)",
+  "note": "approach-fix r3 validation (direct-sport step-back actuation); apple 94in, banana+pear 84in from start",
+  "qualified_fruits": [
+    "apple",
+    "banana",
+    "pear"
+  ],
+  "target_runs": 1,
+  "seed": 5,
+  "fruit_sequence": [
+    "pear"
+  ],
+  "temperature_source": "wendy device top (192.168.0.107:50052)",
+  "runs": [
+    {
+      "number": 1,
+      "target_fruit": "pear",
+      "run_id": "d740a5f2-d0f4-49fa-9718-ec1865f77260",
+      "started_at_utc": "2026-08-08T20:45:56.475692Z",
+      "ended_at_utc": "2026-08-08T20:46:28.384741Z",
+      "duration_s": 31.90903002700003,
+      "outcome": "FAILED",
+      "reason": "ARRIVAL_FAILURE",
+      "message": "qualified pear Arrival timed out",
+      "failed_phase": "approach_fruit",
+      "final_safety_state": "DISARMED_CONFIRMED",
+      "home_distance_m": null,
+      "heading_error_rad": null,
+      "stage_results": {
+        "turn_to_fruit": {
+          "label": "pear",
+          "confidence": 0.6601731777191162,
+          "stable_detections": 5,
+          "search_progress_rad": 2.9440025612711906,
+          "recognition": {
+            "samples": 105,
+            "pear_candidate_samples": 60,
+            "maximum_confidence": 0.8031741380691528,
+            "maximum_consecutive_detections": 5,
+            "maximum_bbox_area_ratio": 0.009982638888888888,
+            "closest_detection": {
+              "source_pts": 172560,
+              "confidence": 0.23511099815368652,
+              "bbox_xyxy": [
+                858.0,
+                618.0,
+                958.0,
+                710.0
+              ],
+              "bbox_area_ratio": 0.009982638888888888
+            },
+            "crop_confirmation_samples": 11,
+            "crop_candidate_confidence_threshold": 0.5,
+            "crop_slowdown_hold_samples": 6,
+            "crop_slowdown_turn_samples": 4,
+            "search_progress_rad": 2.9440025612711906
+          },
+          "motion_commands_sent": true,
+          "motion_commands": [
+            {
+              "sequence": 1,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 350.080091265,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 2,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 350.187604213,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 3,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 350.294186834,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 4,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 350.405324737,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 5,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 350.511586902,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 6,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 350.617133016,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 7,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 350.723528432,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 8,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 350.829817189,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 9,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 350.935117826,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 10,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 351.043968561,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 11,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 351.148074262,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 12,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 351.254076682,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 13,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 351.359708405,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 14,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 351.465235102,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 15,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 351.571159408,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 16,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 351.6805286,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 17,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 351.785299342,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 18,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 351.890746708,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 19,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 351.997467994,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 20,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 352.102485282,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 21,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 352.207548421,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 22,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 352.314049453,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 23,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 352.420939358,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 24,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 352.525076075,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 25,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 352.633842698,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 26,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 352.739692769,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 27,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 352.844919593,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 28,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 352.951734904,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 29,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 353.058525373,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 30,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 353.16270357,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 31,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 353.267968514,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 32,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 353.371221921,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 33,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 353.474883658,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 34,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 353.583706769,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 35,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 353.688210542,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 36,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 353.794323347,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 37,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 353.902915221,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 38,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 354.008107043,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 39,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 354.114540153,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 40,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 354.221392727,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 41,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 354.327305182,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 42,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 354.432866493,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 43,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 354.540104453,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 44,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 354.646362517,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 45,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 354.752703559,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 46,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 354.859881133,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 47,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 354.964178093,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 48,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 355.070929436,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 49,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 355.176629478,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 50,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 355.282092299,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 51,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 355.391335338,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 52,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 355.498534776,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 53,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 355.60437287,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 54,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 355.710821698,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 55,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 355.81975625,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 56,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 355.924578863,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 57,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 356.030842436,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 58,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 356.136927487,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 59,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 356.242436461,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 60,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 356.34957933,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 61,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 356.45669855,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 62,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 356.561417073,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 63,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 356.667799828,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 64,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 356.774851143,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 65,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 356.880116751,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 66,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 356.984408384,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 67,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 357.093452433,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 68,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 357.200699601,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 69,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 357.307273857,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 70,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 357.416485007,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 71,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 357.523049214,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 72,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 357.629085121,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 73,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 357.737457787,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 74,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 357.844387924,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 75,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 357.951976315,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 76,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 358.060297323,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 77,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 358.166550652,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 78,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 358.271907704,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "crop_confirm_hold"
+            },
+            {
+              "sequence": 79,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 358.380362365,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 80,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 358.4863706,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 81,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 358.59213643,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 82,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 358.699386007,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 83,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 358.805760779,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "crop_confirm_hold"
+            },
+            {
+              "sequence": 84,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 358.910995524,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "crop_confirm_slow_turn"
+            },
+            {
+              "sequence": 85,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 359.019591563,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 86,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 359.124598377,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 87,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 359.236738955,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 88,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 359.345982955,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 89,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 359.452639183,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 90,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 359.557504713,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 91,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 359.666949102,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 92,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 359.772457783,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 93,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 359.878517229,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 94,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 359.985553145,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 95,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 360.090714283,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 96,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 360.197562813,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "crop_confirm_hold"
+            },
+            {
+              "sequence": 97,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 360.30464338,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 98,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 360.409518072,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 99,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 360.513233154,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "crop_confirm_hold"
+            },
+            {
+              "sequence": 100,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 360.62243169,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "crop_confirm_slow_turn"
+            },
+            {
+              "sequence": 101,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 360.727783097,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "crop_confirm_hold"
+            },
+            {
+              "sequence": 102,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 360.833431183,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "crop_confirm_slow_turn"
+            },
+            {
+              "sequence": 103,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 360.940097949,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "crop_confirm_hold"
+            },
+            {
+              "sequence": 104,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 361.049108538,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "crop_confirm_slow_turn"
+            }
+          ]
+        },
+        "find_fruit": {
+          "label": "pear",
+          "confidence": 0.6601731777191162,
+          "stable_detections": 5,
+          "detection_age_s": 0.1315684290000263,
+          "center_x_ratio": 0.033203125,
+          "center_y_ratio": 0.6444444444444445,
+          "bottom_ratio": 0.6694444444444444,
+          "search_progress_rad": 0.0,
+          "search_skipped": true,
+          "skip_reason": "target_already_visible",
+          "motion_commands_sent": false,
+          "motion_commands": []
+        }
+      },
+      "stage_durations": {
+        "idle": 0.008,
+        "preflight": 0.022,
+        "capture_home": 0.013,
+        "wait_for_command": 0.008,
+        "turn_to_fruit": 11.636,
+        "find_fruit": 0.032,
+        "approach_fruit": 20.183
+      },
+      "lighting_frame": {
+        "path": "benchmarks/results/approach-fix-r3-validation-2026-08-08-frames/run-01-start.jpg",
+        "bytes": 74980
+      },
+      "stage_telemetry": {
+        "turn_to_fruit": {
+          "target_confidence": {
+            "min": 0.0113,
+            "mean": 0.3663,
+            "max": 0.7879,
+            "samples": 4
+          },
+          "bbox_bottom_ratio": {
+            "min": 0.6903,
+            "mean": 0.8417,
+            "max": 0.9972,
+            "samples": 4
+          },
+          "app_latency_ms": {
+            "min": 18.9,
+            "mean": 25.7375,
+            "max": 51.5,
+            "samples": 8
+          },
+          "app_errors": 0,
+          "temps_c": {
+            "soc1-thermal": {
+              "min": 50.687,
+              "mean": 50.7065,
+              "max": 50.843,
+              "samples": 8
+            },
+            "tj-thermal": {
+              "min": 50.625,
+              "mean": 50.6793,
+              "max": 50.687,
+              "samples": 8
+            },
+            "cpu-thermal": {
+              "min": 49.906,
+              "mean": 50.1519,
+              "max": 50.187,
+              "samples": 8
+            },
+            "soc0-thermal": {
+              "min": 49.031,
+              "mean": 49.0853,
+              "max": 49.093,
+              "samples": 8
+            },
+            "cv1-thermal": {
+              "min": 48.031,
+              "mean": 48.2769,
+              "max": 48.312,
+              "samples": 8
+            },
+            "gpu-thermal": {
+              "min": 48.25,
+              "mean": 48.2539,
+              "max": 48.281,
+              "samples": 8
+            },
+            "cv0-thermal": {
+              "min": 47.687,
+              "mean": 47.7692,
+              "max": 47.781,
+              "samples": 8
+            },
+            "soc2-thermal": {
+              "min": 47.687,
+              "mean": 47.6988,
+              "max": 47.781,
+              "samples": 8
+            },
+            "cv2-thermal": {
+              "min": 47.187,
+              "mean": 47.187,
+              "max": 47.187,
+              "samples": 8
+            }
+          }
+        },
+        "approach_fruit": {
+          "target_confidence": {
+            "min": 0.2659,
+            "mean": 0.6653,
+            "max": 0.8918,
+            "samples": 5
+          },
+          "bbox_bottom_ratio": {
+            "min": 0.6667,
+            "mean": 0.7625,
+            "max": 0.9972,
+            "samples": 5
+          },
+          "app_latency_ms": {
+            "min": 18.3,
+            "mean": 22.9462,
+            "max": 35.4,
+            "samples": 13
+          },
+          "app_errors": 0,
+          "temps_c": {
+            "soc1-thermal": {
+              "min": 50.843,
+              "mean": 50.8602,
+              "max": 50.875,
+              "samples": 13
+            },
+            "tj-thermal": {
+              "min": 50.625,
+              "mean": 50.7596,
+              "max": 50.875,
+              "samples": 13
+            },
+            "cpu-thermal": {
+              "min": 49.906,
+              "mean": 50.0406,
+              "max": 50.156,
+              "samples": 13
+            },
+            "soc0-thermal": {
+              "min": 49.031,
+              "mean": 49.115,
+              "max": 49.187,
+              "samples": 13
+            },
+            "gpu-thermal": {
+              "min": 48.281,
+              "mean": 48.7688,
+              "max": 49.187,
+              "samples": 13
+            },
+            "cv1-thermal": {
+              "min": 48.031,
+              "mean": 48.2496,
+              "max": 48.437,
+              "samples": 13
+            },
+            "soc2-thermal": {
+              "min": 47.781,
+              "mean": 47.7977,
+              "max": 47.812,
+              "samples": 13
+            },
+            "cv0-thermal": {
+              "min": 47.687,
+              "mean": 47.7037,
+              "max": 47.718,
+              "samples": 13
+            },
+            "cv2-thermal": {
+              "min": 47.187,
+              "mean": 47.3216,
+              "max": 47.437,
+              "samples": 13
+            }
+          }
+        },
+        "failed": {
+          "target_confidence": null,
+          "bbox_bottom_ratio": null,
+          "app_latency_ms": {
+            "min": 22.5,
+            "mean": 22.5,
+            "max": 22.5,
+            "samples": 1
+          },
+          "app_errors": 0,
+          "temps_c": {
+            "soc1-thermal": {
+              "min": 51.031,
+              "mean": 51.031,
+              "max": 51.031,
+              "samples": 1
+            },
+            "tj-thermal": {
+              "min": 50.937,
+              "mean": 50.937,
+              "max": 50.937,
+              "samples": 1
+            },
+            "cpu-thermal": {
+              "min": 50.531,
+              "mean": 50.531,
+              "max": 50.531,
+              "samples": 1
+            },
+            "soc0-thermal": {
+              "min": 49.281,
+              "mean": 49.281,
+              "max": 49.281,
+              "samples": 1
+            },
+            "gpu-thermal": {
+              "min": 49.0,
+              "mean": 49.0,
+              "max": 49.0,
+              "samples": 1
+            },
+            "cv1-thermal": {
+              "min": 48.468,
+              "mean": 48.468,
+              "max": 48.468,
+              "samples": 1
+            },
+            "soc2-thermal": {
+              "min": 48.093,
+              "mean": 48.093,
+              "max": 48.093,
+              "samples": 1
+            },
+            "cv0-thermal": {
+              "min": 48.0,
+              "mean": 48.0,
+              "max": 48.0,
+              "samples": 1
+            },
+            "cv2-thermal": {
+              "min": 47.718,
+              "mean": 47.718,
+              "max": 47.718,
+              "samples": 1
+            }
+          }
+        }
+      },
+      "network": {
+        "poll_count": 22,
+        "error_count": 0,
+        "errors": [],
+        "latency_ms": {
+          "min": 18.3,
+          "mean": 23.9409,
+          "max": 51.5,
+          "samples": 22
+        },
+        "latency_p95_ms": 27.9,
+        "cut_out": false
+      },
+      "samples": [
+        {
+          "t_monotonic_s": 0.996576416,
+          "phase": "turn_to_fruit",
+          "app_latency_ms": 23.2,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "soc1-thermal": 50.687,
+            "tj-thermal": 50.687,
+            "cpu-thermal": 50.187,
+            "soc0-thermal": 49.093,
+            "cv1-thermal": 48.312,
+            "gpu-thermal": 48.25,
+            "cv0-thermal": 47.781,
+            "soc2-thermal": 47.687,
+            "cv2-thermal": 47.187
+          },
+          "temps_age_s": 0.1
+        },
+        {
+          "t_monotonic_s": 2.547662833,
+          "phase": "turn_to_fruit",
+          "app_latency_ms": 21.7,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "soc1-thermal": 50.687,
+            "tj-thermal": 50.687,
+            "cpu-thermal": 50.187,
+            "soc0-thermal": 49.093,
+            "cv1-thermal": 48.312,
+            "gpu-thermal": 48.25,
+            "cv0-thermal": 47.781,
+            "soc2-thermal": 47.687,
+            "cv2-thermal": 47.187
+          },
+          "temps_age_s": 1.7
+        },
+        {
+          "t_monotonic_s": 4.093135083,
+          "phase": "turn_to_fruit",
+          "app_latency_ms": 21.9,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "soc1-thermal": 50.687,
+            "tj-thermal": 50.687,
+            "cpu-thermal": 50.187,
+            "soc0-thermal": 49.093,
+            "cv1-thermal": 48.312,
+            "gpu-thermal": 48.25,
+            "cv0-thermal": 47.781,
+            "soc2-thermal": 47.687,
+            "cv2-thermal": 47.187
+          },
+          "temps_age_s": 3.2
+        },
+        {
+          "t_monotonic_s": 5.643338708,
+          "phase": "turn_to_fruit",
+          "app_latency_ms": 18.9,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "soc1-thermal": 50.687,
+            "tj-thermal": 50.687,
+            "cpu-thermal": 50.187,
+            "soc0-thermal": 49.093,
+            "cv1-thermal": 48.312,
+            "gpu-thermal": 48.25,
+            "cv0-thermal": 47.781,
+            "soc2-thermal": 47.687,
+            "cv2-thermal": 47.187
+          },
+          "temps_age_s": 4.8
+        },
+        {
+          "t_monotonic_s": 7.193349333,
+          "phase": "turn_to_fruit",
+          "app_latency_ms": 20.6,
+          "app_error": null,
+          "detection_label": "pear",
+          "confidence": 0.15817251801490784,
+          "inference_s": 0.06688022999998111,
+          "target_matches": true,
+          "bbox_bottom_ratio": 0.9319,
+          "temps": {
+            "soc1-thermal": 50.687,
+            "tj-thermal": 50.687,
+            "cpu-thermal": 50.187,
+            "soc0-thermal": 49.093,
+            "cv1-thermal": 48.312,
+            "gpu-thermal": 48.25,
+            "cv0-thermal": 47.781,
+            "soc2-thermal": 47.687,
+            "cv2-thermal": 47.187
+          },
+          "temps_age_s": 6.3
+        },
+        {
+          "t_monotonic_s": 8.74927125,
+          "phase": "turn_to_fruit",
+          "app_latency_ms": 26.9,
+          "app_error": null,
+          "detection_label": "pear",
+          "confidence": 0.011331260204315186,
+          "inference_s": 0.06566417200002661,
+          "target_matches": true,
+          "bbox_bottom_ratio": 0.9972,
+          "temps": {
+            "soc1-thermal": 50.687,
+            "tj-thermal": 50.687,
+            "cpu-thermal": 50.187,
+            "soc0-thermal": 49.093,
+            "cv1-thermal": 48.312,
+            "gpu-thermal": 48.25,
+            "cv0-thermal": 47.781,
+            "soc2-thermal": 47.687,
+            "cv2-thermal": 47.187
+          },
+          "temps_age_s": 7.9
+        },
+        {
+          "t_monotonic_s": 10.302930541,
+          "phase": "turn_to_fruit",
+          "app_latency_ms": 21.2,
+          "app_error": null,
+          "detection_label": "pear",
+          "confidence": 0.5078119039535522,
+          "inference_s": 0.12972085399997013,
+          "target_matches": true,
+          "bbox_bottom_ratio": 0.7472,
+          "temps": {
+            "soc1-thermal": 50.687,
+            "tj-thermal": 50.687,
+            "cpu-thermal": 50.187,
+            "soc0-thermal": 49.093,
+            "cv1-thermal": 48.312,
+            "gpu-thermal": 48.25,
+            "cv0-thermal": 47.781,
+            "soc2-thermal": 47.687,
+            "cv2-thermal": 47.187
+          },
+          "temps_age_s": 9.5
+        },
+        {
+          "t_monotonic_s": 11.931076291,
+          "phase": "turn_to_fruit",
+          "app_latency_ms": 51.5,
+          "app_error": null,
+          "detection_label": "pear",
+          "confidence": 0.787930965423584,
+          "inference_s": 0.14164830400000028,
+          "target_matches": true,
+          "bbox_bottom_ratio": 0.6903,
+          "temps": {
+            "soc1-thermal": 50.843,
+            "tj-thermal": 50.625,
+            "cpu-thermal": 49.906,
+            "soc0-thermal": 49.031,
+            "gpu-thermal": 48.281,
+            "cv1-thermal": 48.031,
+            "soc2-thermal": 47.781,
+            "cv0-thermal": 47.687,
+            "cv2-thermal": 47.187
+          },
+          "temps_age_s": 0.2
+        },
+        {
+          "t_monotonic_s": 13.496680916,
+          "phase": "approach_fruit",
+          "app_latency_ms": 23.3,
+          "app_error": null,
+          "detection_label": "pear",
+          "confidence": 0.5717664957046509,
+          "inference_s": 0.13091689500004122,
+          "target_matches": true,
+          "bbox_bottom_ratio": 0.6667,
+          "temps": {
+            "soc1-thermal": 50.843,
+            "tj-thermal": 50.625,
+            "cpu-thermal": 49.906,
+            "soc0-thermal": 49.031,
+            "gpu-thermal": 48.281,
+            "cv1-thermal": 48.031,
+            "soc2-thermal": 47.781,
+            "cv0-thermal": 47.687,
+            "cv2-thermal": 47.187
+          },
+          "temps_age_s": 1.7
+        },
+        {
+          "t_monotonic_s": 15.051213375,
+          "phase": "approach_fruit",
+          "app_latency_ms": 18.3,
+          "app_error": null,
+          "detection_label": "pear",
+          "confidence": 0.8116765022277832,
+          "inference_s": 0.13618588700001055,
+          "target_matches": true,
+          "bbox_bottom_ratio": 0.6708,
+          "temps": {
+            "soc1-thermal": 50.843,
+            "tj-thermal": 50.625,
+            "cpu-thermal": 49.906,
+            "soc0-thermal": 49.031,
+            "gpu-thermal": 48.281,
+            "cv1-thermal": 48.031,
+            "soc2-thermal": 47.781,
+            "cv0-thermal": 47.687,
+            "cv2-thermal": 47.187
+          },
+          "temps_age_s": 3.3
+        },
+        {
+          "t_monotonic_s": 16.611490125,
+          "phase": "approach_fruit",
+          "app_latency_ms": 23.6,
+          "app_error": null,
+          "detection_label": "pear",
+          "confidence": 0.7853084802627563,
+          "inference_s": 0.13046856100004334,
+          "target_matches": true,
+          "bbox_bottom_ratio": 0.7,
+          "temps": {
+            "soc1-thermal": 50.843,
+            "tj-thermal": 50.625,
+            "cpu-thermal": 49.906,
+            "soc0-thermal": 49.031,
+            "gpu-thermal": 48.281,
+            "cv1-thermal": 48.031,
+            "soc2-thermal": 47.781,
+            "cv0-thermal": 47.687,
+            "cv2-thermal": 47.187
+          },
+          "temps_age_s": 4.8
+        },
+        {
+          "t_monotonic_s": 18.170527166,
+          "phase": "approach_fruit",
+          "app_latency_ms": 22.8,
+          "app_error": null,
+          "detection_label": "pear",
+          "confidence": 0.8918098211288452,
+          "inference_s": 0.12790412399999695,
+          "target_matches": true,
+          "bbox_bottom_ratio": 0.7778,
+          "temps": {
+            "soc1-thermal": 50.843,
+            "tj-thermal": 50.625,
+            "cpu-thermal": 49.906,
+            "soc0-thermal": 49.031,
+            "gpu-thermal": 48.281,
+            "cv1-thermal": 48.031,
+            "soc2-thermal": 47.781,
+            "cv0-thermal": 47.687,
+            "cv2-thermal": 47.187
+          },
+          "temps_age_s": 6.4
+        },
+        {
+          "t_monotonic_s": 19.740572958,
+          "phase": "approach_fruit",
+          "app_latency_ms": 18.9,
+          "app_error": null,
+          "detection_label": "pear",
+          "confidence": 0.2658802270889282,
+          "inference_s": 0.06329197600001635,
+          "target_matches": true,
+          "bbox_bottom_ratio": 0.9972,
+          "temps": {
+            "soc1-thermal": 50.843,
+            "tj-thermal": 50.625,
+            "cpu-thermal": 49.906,
+            "soc0-thermal": 49.031,
+            "gpu-thermal": 48.281,
+            "cv1-thermal": 48.031,
+            "soc2-thermal": 47.781,
+            "cv0-thermal": 47.687,
+            "cv2-thermal": 47.187
+          },
+          "temps_age_s": 8.0
+        },
+        {
+          "t_monotonic_s": 21.299808875,
+          "phase": "approach_fruit",
+          "app_latency_ms": 21.2,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "soc1-thermal": 50.843,
+            "tj-thermal": 50.625,
+            "cpu-thermal": 49.906,
+            "soc0-thermal": 49.031,
+            "gpu-thermal": 48.281,
+            "cv1-thermal": 48.031,
+            "soc2-thermal": 47.781,
+            "cv0-thermal": 47.687,
+            "cv2-thermal": 47.187
+          },
+          "temps_age_s": 9.5
+        },
+        {
+          "t_monotonic_s": 22.869895083,
+          "phase": "approach_fruit",
+          "app_latency_ms": 27.9,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "soc1-thermal": 50.875,
+            "tj-thermal": 50.875,
+            "cpu-thermal": 50.156,
+            "gpu-thermal": 49.187,
+            "soc0-thermal": 49.187,
+            "cv1-thermal": 48.437,
+            "soc2-thermal": 47.812,
+            "cv0-thermal": 47.718,
+            "cv2-thermal": 47.437
+          },
+          "temps_age_s": 0.3
+        },
+        {
+          "t_monotonic_s": 24.445991,
+          "phase": "approach_fruit",
+          "app_latency_ms": 35.4,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "soc1-thermal": 50.875,
+            "tj-thermal": 50.875,
+            "cpu-thermal": 50.156,
+            "gpu-thermal": 49.187,
+            "soc0-thermal": 49.187,
+            "cv1-thermal": 48.437,
+            "soc2-thermal": 47.812,
+            "cv0-thermal": 47.718,
+            "cv2-thermal": 47.437
+          },
+          "temps_age_s": 1.9
+        },
+        {
+          "t_monotonic_s": 26.003836583,
+          "phase": "approach_fruit",
+          "app_latency_ms": 24.5,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "soc1-thermal": 50.875,
+            "tj-thermal": 50.875,
+            "cpu-thermal": 50.156,
+            "gpu-thermal": 49.187,
+            "soc0-thermal": 49.187,
+            "cv1-thermal": 48.437,
+            "soc2-thermal": 47.812,
+            "cv0-thermal": 47.718,
+            "cv2-thermal": 47.437
+          },
+          "temps_age_s": 3.5
+        },
+        {
+          "t_monotonic_s": 27.561308375,
+          "phase": "approach_fruit",
+          "app_latency_ms": 19.3,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "soc1-thermal": 50.875,
+            "tj-thermal": 50.875,
+            "cpu-thermal": 50.156,
+            "gpu-thermal": 49.187,
+            "soc0-thermal": 49.187,
+            "cv1-thermal": 48.437,
+            "soc2-thermal": 47.812,
+            "cv0-thermal": 47.718,
+            "cv2-thermal": 47.437
+          },
+          "temps_age_s": 5.0
+        },
+        {
+          "t_monotonic_s": 29.121894166,
+          "phase": "approach_fruit",
+          "app_latency_ms": 21.4,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "soc1-thermal": 50.875,
+            "tj-thermal": 50.875,
+            "cpu-thermal": 50.156,
+            "gpu-thermal": 49.187,
+            "soc0-thermal": 49.187,
+            "cv1-thermal": 48.437,
+            "soc2-thermal": 47.812,
+            "cv0-thermal": 47.718,
+            "cv2-thermal": 47.437
+          },
+          "temps_age_s": 6.6
+        },
+        {
+          "t_monotonic_s": 30.684049416,
+          "phase": "approach_fruit",
+          "app_latency_ms": 19.3,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "soc1-thermal": 50.875,
+            "tj-thermal": 50.875,
+            "cpu-thermal": 50.156,
+            "gpu-thermal": 49.187,
+            "soc0-thermal": 49.187,
+            "cv1-thermal": 48.437,
+            "soc2-thermal": 47.812,
+            "cv0-thermal": 47.718,
+            "cv2-thermal": 47.437
+          },
+          "temps_age_s": 8.1
+        },
+        {
+          "t_monotonic_s": 32.249864833,
+          "phase": "approach_fruit",
+          "app_latency_ms": 22.4,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "soc1-thermal": 50.875,
+            "tj-thermal": 50.875,
+            "cpu-thermal": 50.156,
+            "gpu-thermal": 49.187,
+            "soc0-thermal": 49.187,
+            "cv1-thermal": 48.437,
+            "soc2-thermal": 47.812,
+            "cv0-thermal": 47.718,
+            "cv2-thermal": 47.437
+          },
+          "temps_age_s": 9.7
+        },
+        {
+          "t_monotonic_s": 33.81176925,
+          "phase": "failed",
+          "app_latency_ms": 22.5,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "soc1-thermal": 51.031,
+            "tj-thermal": 50.937,
+            "cpu-thermal": 50.531,
+            "soc0-thermal": 49.281,
+            "gpu-thermal": 49,
+            "cv1-thermal": 48.468,
+            "soc2-thermal": 48.093,
+            "cv0-thermal": 48,
+            "cv2-thermal": 47.718
+          },
+          "temps_age_s": 0.5
+        }
+      ],
+      "preflight_probes": {
+        "dongle": {
+          "checked": true,
+          "usb_devices": [
+            "802.11ac WLAN Adapter (0bda:0811)",
+            "DJI MIC MINI (2ca3:4011)",
+            "xHCI Host Controller (1d6b:0002)",
+            "xHCI Host Controller (1d6b:0003)"
+          ],
+          "audio_devices": [
+            {
+              "id": 257,
+              "name": "hw:1,0",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 0: tegra-dlink-0 XBAR-ADMAIF1-0 []",
+              "type": 1
+            },
+            {
+              "id": 258,
+              "name": "hw:1,1",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 1: tegra-dlink-1 XBAR-ADMAIF2-1 []",
+              "type": 1
+            },
+            {
+              "id": 259,
+              "name": "hw:1,2",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 2: tegra-dlink-2 XBAR-ADMAIF3-2 []",
+              "type": 1
+            },
+            {
+              "id": 260,
+              "name": "hw:1,3",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 3: tegra-dlink-3 XBAR-ADMAIF4-3 []",
+              "type": 1
+            },
+            {
+              "id": 261,
+              "name": "hw:1,4",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 4: tegra-dlink-4 XBAR-ADMAIF5-4 []",
+              "type": 1
+            },
+            {
+              "id": 262,
+              "name": "hw:1,5",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 5: tegra-dlink-5 XBAR-ADMAIF6-5 []",
+              "type": 1
+            },
+            {
+              "id": 263,
+              "name": "hw:1,6",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 6: tegra-dlink-6 XBAR-ADMAIF7-6 []",
+              "type": 1
+            },
+            {
+              "id": 264,
+              "name": "hw:1,7",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 7: tegra-dlink-7 XBAR-ADMAIF8-7 []",
+              "type": 1
+            },
+            {
+              "id": 265,
+              "name": "hw:1,8",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 8: tegra-dlink-8 XBAR-ADMAIF9-8 []",
+              "type": 1
+            },
+            {
+              "id": 266,
+              "name": "hw:1,9",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 9: tegra-dlink-9 XBAR-ADMAIF10-9 []",
+              "type": 1
+            },
+            {
+              "id": 267,
+              "name": "hw:1,10",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 10: tegra-dlink-10 XBAR-ADMAIF11-10 []",
+              "type": 1
+            },
+            {
+              "id": 268,
+              "name": "hw:1,11",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 11: tegra-dlink-11 XBAR-ADMAIF12-11 []",
+              "type": 1
+            },
+            {
+              "id": 269,
+              "name": "hw:1,12",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 12: tegra-dlink-12 XBAR-ADMAIF13-12 []",
+              "type": 1
+            },
+            {
+              "id": 270,
+              "name": "hw:1,13",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 13: tegra-dlink-13 XBAR-ADMAIF14-13 []",
+              "type": 1
+            },
+            {
+              "id": 271,
+              "name": "hw:1,14",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 14: tegra-dlink-14 XBAR-ADMAIF15-14 []",
+              "type": 1
+            },
+            {
+              "id": 272,
+              "name": "hw:1,15",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 15: tegra-dlink-15 XBAR-ADMAIF16-15 []",
+              "type": 1
+            },
+            {
+              "id": 273,
+              "name": "hw:1,16",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 16: tegra-dlink-16 XBAR-ADMAIF17-16 []",
+              "type": 1
+            },
+            {
+              "id": 274,
+              "name": "hw:1,17",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 17: tegra-dlink-17 XBAR-ADMAIF18-17 []",
+              "type": 1
+            },
+            {
+              "id": 275,
+              "name": "hw:1,18",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 18: tegra-dlink-18 XBAR-ADMAIF19-18 []",
+              "type": 1
+            },
+            {
+              "id": 276,
+              "name": "hw:1,19",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 19: tegra-dlink-19 XBAR-ADMAIF20-19 []",
+              "type": 1
+            },
+            {
+              "id": 4,
+              "name": "hw:0,3",
+              "description": "HDA [NVIDIA Jetson Orin NX HDA], device 3: HDMI 0 [HDMI 0]",
+              "type": 2
+            },
+            {
+              "id": 8,
+              "name": "hw:0,7",
+              "description": "HDA [NVIDIA Jetson Orin NX HDA], device 7: HDMI 1 [HDMI 1]",
+              "type": 2
+            },
+            {
+              "id": 9,
+              "name": "hw:0,8",
+              "description": "HDA [NVIDIA Jetson Orin NX HDA], device 8: HDMI 2 [HDMI 2]",
+              "type": 2
+            },
+            {
+              "id": 10,
+              "name": "hw:0,9",
+              "description": "HDA [NVIDIA Jetson Orin NX HDA], device 9: HDMI 3 [HDMI 3]",
+              "type": 2
+            },
+            {
+              "id": 257,
+              "name": "hw:1,0",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 0: tegra-dlink-0 XBAR-ADMAIF1-0 []",
+              "type": 2
+            },
+            {
+              "id": 258,
+              "name": "hw:1,1",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 1: tegra-dlink-1 XBAR-ADMAIF2-1 []",
+              "type": 2
+            },
+            {
+              "id": 259,
+              "name": "hw:1,2",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 2: tegra-dlink-2 XBAR-ADMAIF3-2 []",
+              "type": 2
+            },
+            {
+              "id": 260,
+              "name": "hw:1,3",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 3: tegra-dlink-3 XBAR-ADMAIF4-3 []",
+              "type": 2
+            },
+            {
+              "id": 261,
+              "name": "hw:1,4",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 4: tegra-dlink-4 XBAR-ADMAIF5-4 []",
+              "type": 2
+            },
+            {
+              "id": 262,
+              "name": "hw:1,5",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 5: tegra-dlink-5 XBAR-ADMAIF6-5 []",
+              "type": 2
+            },
+            {
+              "id": 263,
+              "name": "hw:1,6",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 6: tegra-dlink-6 XBAR-ADMAIF7-6 []",
+              "type": 2
+            },
+            {
+              "id": 264,
+              "name": "hw:1,7",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 7: tegra-dlink-7 XBAR-ADMAIF8-7 []",
+              "type": 2
+            },
+            {
+              "id": 265,
+              "name": "hw:1,8",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 8: tegra-dlink-8 XBAR-ADMAIF9-8 []",
+              "type": 2
+            },
+            {
+              "id": 266,
+              "name": "hw:1,9",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 9: tegra-dlink-9 XBAR-ADMAIF10-9 []",
+              "type": 2
+            },
+            {
+              "id": 267,
+              "name": "hw:1,10",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 10: tegra-dlink-10 XBAR-ADMAIF11-10 []",
+              "type": 2
+            },
+            {
+              "id": 268,
+              "name": "hw:1,11",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 11: tegra-dlink-11 XBAR-ADMAIF12-11 []",
+              "type": 2
+            },
+            {
+              "id": 269,
+              "name": "hw:1,12",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 12: tegra-dlink-12 XBAR-ADMAIF13-12 []",
+              "type": 2
+            },
+            {
+              "id": 270,
+              "name": "hw:1,13",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 13: tegra-dlink-13 XBAR-ADMAIF14-13 []",
+              "type": 2
+            },
+            {
+              "id": 271,
+              "name": "hw:1,14",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 14: tegra-dlink-14 XBAR-ADMAIF15-14 []",
+              "type": 2
+            },
+            {
+              "id": 272,
+              "name": "hw:1,15",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 15: tegra-dlink-15 XBAR-ADMAIF16-15 []",
+              "type": 2
+            },
+            {
+              "id": 273,
+              "name": "hw:1,16",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 16: tegra-dlink-16 XBAR-ADMAIF17-16 []",
+              "type": 2
+            },
+            {
+              "id": 274,
+              "name": "hw:1,17",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 17: tegra-dlink-17 XBAR-ADMAIF18-17 []",
+              "type": 2
+            },
+            {
+              "id": 275,
+              "name": "hw:1,18",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 18: tegra-dlink-18 XBAR-ADMAIF19-18 []",
+              "type": 2
+            },
+            {
+              "id": 276,
+              "name": "hw:1,19",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 19: tegra-dlink-19 XBAR-ADMAIF20-19 []",
+              "type": 2
+            }
+          ],
+          "match": "DJI MIC MINI",
+          "visible": true
+        },
+        "wifi_before": {
+          "connected": true,
+          "ssid": "wendy"
+        }
+      },
+      "wifi_after": {
+        "connected": true,
+        "ssid": "wendy"
+      }
+    }
+  ],
+  "aborted": null,
+  "scorecard": {
+    "recorded_only": true,
+    "note": "criteria are recorded, never enforced; the session continues regardless",
+    "criteria": {
+      "completion": {
+        "passed": false,
+        "completed": 0,
+        "attempted": 1,
+        "target_runs": 1,
+        "remote_takeovers": 0,
+        "harness_stops": 0
+      },
+      "home_gate": {
+        "passed": null,
+        "detail": "no terminal home measurements yet"
+      },
+      "fruit_coverage": {
+        "passed": false,
+        "minimum_successes": 2,
+        "per_fruit": {
+          "pear": {
+            "attempts": 1,
+            "successes": 0
+          }
+        }
+      },
+      "approach_confidence_floor": {
+        "passed": false,
+        "per_run": [
+          {
+            "number": 1,
+            "fruit": "pear",
+            "floor": 0.65,
+            "min_confidence": 0.2659,
+            "held": false
+          }
+        ]
+      },
+      "network_stability": {
+        "passed": true,
+        "cutouts": 0,
+        "worst_p95_ms": 27.9,
+        "p95_limit_ms": 250.0
+      },
+      "thermal_trend": {
+        "passed": null,
+        "detail": "temperatures not measured (or <2 runs)"
+      },
+      "dongle_visible": {
+        "passed": true,
+        "visible_per_run": [
+          true
+        ]
+      }
+    },
+    "observations": {
+      "approach_min_confidence_by_fruit": {
+        "pear": {
+          "min": 0.266,
+          "mean": 0.266,
+          "runs": 1
+        }
+      },
+      "acquisition_seconds_by_fruit": {
+        "pear": [
+          11.64
+        ]
+      },
+      "lighting_frames": [
+        "benchmarks/results/approach-fix-r3-validation-2026-08-08-frames/run-01-start.jpg"
+      ]
+    }
+  }
+}

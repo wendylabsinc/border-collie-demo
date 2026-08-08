@@ -336,3 +336,4 @@ def test_summarize_run_flattens_terminal_measurements():
     assert record["home_distance_m"] == 0.05
     assert record["run_id"] == "run-9"
     assert record["stage_results"]["approach_fruit"]["forward_pulse_count"] == 12
+    assert record["failure_details"] is None  # present even when the run succeeded

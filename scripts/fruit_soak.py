@@ -452,6 +452,7 @@ def summarize_run(run: dict, fruit: str, number: int) -> dict:
         "home_distance_m": terminal.get("home_distance_m"),
         "heading_error_rad": terminal.get("heading_error_rad"),
         "stage_results": run.get("stage_results"),
+        "failure_details": run.get("failure_details"),
         "stage_durations": compute_stage_durations(run.get("events")),
     }
 
