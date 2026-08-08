@@ -425,3 +425,42 @@ Evidence: `benchmarks/results/supervised-three-run-2026-08-08.json`.
   Home turn after the step back, and `return_home` still inside the 0.10 m
   gate against the BASE-BRANCH-CONFIRMATION-2026-08-08 baseline
   (0.0274-0.0756 m)
+
+## ARRIVAL-VISIBILITY-001 — failed on hardware, corrected, hardware pending
+
+- Observed: 2026-08-08 on Woof, supervised Demo Run
+  `45a1e796-ba91-431c-8bae-d531ad63c3f8` on build
+  `base+approach-fix (demo/approach-consistency)`; sealed
+  `FAILED / ARRIVAL_FAILURE` ("qualified pear Arrival timed out") after
+  31.5 s, final safety state `DISARMED_CONFIRMED`, no motion hazard
+- Telemetry: the approach tracked the pear at 0.76/0.78/0.60 confidence with
+  the box bottom rising 0.729 -> 0.858, then the operator confirmed the pear
+  genuinely dropped below the camera at arrival distance. One tick later a
+  static phantom appeared: label `pear`, confidence 0.010-0.016, box bottom
+  frozen at exactly 0.3861 every sample for ~12 s until the 20 s approach
+  deadline
+- Root cause: the arrival visibility check accepted any matching-label
+  detection with no confidence floor, so the phantom kept
+  `target_still_visible` true and suppressed the one bounded final push.
+  This defect is latent in `demo/base` as well; it was exposed here by an
+  unlucky static false positive, not by the approach-consistency changes
+- Fix: arrival visibility now requires the fruit's close-range tracking
+  confidence (pear 0.55, banana 0.20, apple 0.10 from `fruits.py`) — the
+  same floor that qualifies a close-range track. A sub-floor matching label
+  counts as disappearance and is tallied as
+  `subthreshold_visibility_samples` in the approach evidence
+- Evidence sealing: the failed run recorded no `approach_fruit` evidence, so
+  the suppression was invisible from the Run Result. Every terminal approach
+  path (Arrival, identity change, timeout) now emits the same evidence dict;
+  failures carry it in `failure_details.approach`, including
+  `near_gate_confirmed`, which disambiguates the second possible suppression
+  path (a never-confirmed near gate) if a failure recurs
+- Late-band jitter hardening: the tighter 0.04 centering band now engages
+  only after two consecutive off-band samples; a wide-band (0.08) offset
+  still corrects immediately. `late_center_corrections` in the evidence will
+  confirm or refute oscillation on hardware
+- Scope: 156 automated tests pass (four new: the phantom-push regression,
+  the sealed timeout evidence, the jitter hysteresis, and the
+  `failure_details.approach` mapping); Ruff clean on every touched file
+- Limitation: corrected in code and pinned by regression tests against the
+  recorded telemetry; the supervised retest on Woof is pending

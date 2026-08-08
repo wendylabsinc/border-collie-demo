@@ -984,17 +984,236 @@ def test_late_approach_tightens_centering_before_the_blind_push() -> None:
         early = [command for command in forward_commands if command.yaw_rps == 0.0]
         late = [command for command in forward_commands if command.yaw_rps == -0.30]
         # Far approach: the 0.06 offset stays inside the 0.08 band, no yaw.
-        assert len(early) == 2
-        # Late approach: the same offset now draws the fixed correction while
-        # forward translation continues, so every iteration still records
-        # exactly one forward pulse.
-        assert len(late) == 3
+        # The first late sample is the hysteresis confirmation and also sends
+        # zero yaw.
+        assert len(early) == 3
+        # Late approach: after two consecutive off-band samples the same
+        # offset draws the fixed correction while forward translation
+        # continues, so every iteration still records exactly one forward
+        # pulse.
+        assert len(late) == 2
         assert all(command.forward_mps == 1.0 for command in forward_commands)
         assert result["approach_center_tolerance_ratio"] == 0.08
         assert result["late_center_tolerance_ratio"] == 0.04
-        assert result["late_center_corrections"] == 3
+        assert result["late_center_confirmations"] == 2
+        assert result["late_center_corrections"] == 2
         assert result["forward_pulse_count"] == len(forward_commands) + 1
         assert result["final_push_count"] == 1
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_late_centering_ignores_single_frame_jitter_across_the_tight_band() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+
+        def seen(center_x: float) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": True,
+                "detection": {
+                    "label": "pear",
+                    "confidence": 0.81,
+                    "consecutive_detections": 5,
+                    "center_x_ratio": center_x,
+                    "center_y_ratio": 0.76,
+                    "bottom_ratio": 0.91,
+                },
+            }
+
+        # Alternating 0.05/0.03 offsets straddle the 0.04 tight band but
+        # never hold two consecutive off-band samples.
+        statuses = iter(
+            (
+                seen(0.55),
+                seen(0.53),
+                seen(0.55),
+                seen(0.53),
+                seen(0.55),
+                seen(0.53),
+                {"camera_healthy": True, "target_ready": False},
+            )
+        )
+
+        result = await manager.approach_target(
+            lambda: next(
+                statuses,
+                {"camera_healthy": True, "target_ready": False},
+            ),
+            "pear",
+            forward_mps=1.0,
+            maximum_yaw_rps=0.30,
+            near_bottom_ratio=0.86,
+            near_center_ratio=0.72,
+            near_confirmations=3,
+            near_loss_grace_s=0.75,
+            final_push_mps=0.30,
+            final_push_duration_s=0.001,
+            timeout_s=0.5,
+        )
+
+        assert result["arrival_confirmed"] is True
+        assert result["late_center_corrections"] == 0
+        assert all(command.yaw_rps == 0.0 for command in motion.commands)
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_final_push_fires_despite_a_static_low_confidence_phantom() -> None:
+    """Regression for supervised run 45a1e796 (2026-08-08).
+
+    After a confirmed near track, a static 0.010-0.016 confidence detection
+    with a matching label held the arrival gate open for ~12 seconds and
+    suppressed the final push until the approach deadline. A detection below
+    the fruit's close-range tracking confidence must count as NOT visible
+    for arrival purposes.
+    """
+
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+
+        def near() -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": True,
+                "detection": {
+                    "label": "pear",
+                    "confidence": 0.81,
+                    "consecutive_detections": 5,
+                    "center_x_ratio": 0.50,
+                    "center_y_ratio": 0.76,
+                    "bottom_ratio": 0.91,
+                },
+            }
+
+        # The measured phantom: matching label, ~0.015 confidence, frozen
+        # geometry far above the arrival region.
+        phantom = {
+            "camera_healthy": True,
+            "target_ready": False,
+            "detection": {
+                "label": "pear",
+                "confidence": 0.015,
+                "center_x_ratio": 0.42,
+                "center_y_ratio": 0.35,
+                "bottom_ratio": 0.3861,
+            },
+        }
+        statuses = iter((near(), near(), near(), near(), near(), phantom))
+
+        result = await manager.approach_target(
+            lambda: next(statuses, phantom),
+            "pear",
+            forward_mps=1.0,
+            maximum_yaw_rps=0.30,
+            near_bottom_ratio=0.86,
+            near_center_ratio=0.72,
+            near_confirmations=3,
+            near_loss_grace_s=0.75,
+            final_push_mps=0.30,
+            final_push_duration_s=0.001,
+            timeout_s=0.5,
+        )
+
+        assert result["arrival_confirmed"] is True
+        assert result["final_push_count"] == 1
+        assert any(
+            command.reason == "fruit_offscreen_final_push"
+            for command in motion.commands
+        )
+        assert result["arrival_visibility_confidence_floor"] == 0.55
+        assert result["subthreshold_visibility_samples"] >= 1
+        assert result["near_gate_confirmed"] is True
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_arrival_timeout_carries_the_full_approach_evidence() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+
+        def far() -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": True,
+                "detection": {
+                    "label": "pear",
+                    "confidence": 0.81,
+                    "consecutive_detections": 5,
+                    "center_x_ratio": 0.50,
+                    "center_y_ratio": 0.50,
+                    "bottom_ratio": 0.65,
+                },
+            }
+
+        phantom = {
+            "camera_healthy": True,
+            "target_ready": False,
+            "detection": {
+                "label": "pear",
+                "confidence": 0.012,
+                "center_x_ratio": 0.42,
+                "center_y_ratio": 0.35,
+                "bottom_ratio": 0.3861,
+            },
+        }
+        statuses = iter((far(), far(), far(), far()))
+
+        with pytest.raises(TargetLost, match="Arrival timed out") as failure:
+            await manager.approach_target(
+                lambda: next(statuses, phantom),
+                "pear",
+                forward_mps=1.0,
+                maximum_yaw_rps=0.30,
+                near_bottom_ratio=0.86,
+                near_center_ratio=0.72,
+                near_confirmations=3,
+                near_loss_grace_s=0.75,
+                final_push_mps=0.30,
+                final_push_duration_s=0.001,
+                timeout_s=0.08,
+            )
+
+        evidence = failure.value.evidence
+        assert evidence["arrival_confirmed"] is False
+        assert evidence["near_gate_confirmed"] is False
+        assert evidence["final_push_count"] == 0
+        assert evidence["forward_pulse_count"] >= 1
+        assert evidence["subthreshold_visibility_samples"] >= 1
+        assert evidence["arrival_visibility_confidence_floor"] == 0.55
+        assert evidence["motion_commands_sent"] is True
+        assert evidence["last_track_geometry"] == {
+            "center_x_ratio": 0.50,
+            "center_y_ratio": 0.50,
+            "bottom_ratio": 0.65,
+        }
         assert motion.armed is False
         await manager.close()
 

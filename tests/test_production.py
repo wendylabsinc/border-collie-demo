@@ -387,6 +387,47 @@ def test_camera_failure_is_preserved_as_the_terminal_stage_reason() -> None:
     asyncio.run(scenario())
 
 
+def test_arrival_failure_preserves_the_approach_evidence_in_details() -> None:
+    class TimedOutApproachHardware(FakeProductionHardware):
+        async def approach_target(self, *_args, **_options):
+            raise TargetLost(
+                "qualified pear Arrival timed out",
+                evidence={
+                    "arrival_confirmed": False,
+                    "near_gate_confirmed": False,
+                    "near_confirmations": 0,
+                    "final_push_count": 0,
+                    "forward_pulse_count": 12,
+                    "subthreshold_visibility_samples": 9,
+                    "arrival_visibility_confidence_floor": 0.55,
+                },
+            )
+
+    async def scenario() -> None:
+        stages = ProductionStageExecutor(
+            TimedOutApproachHardware(), dict, FakeBark()
+        )
+
+        with pytest.raises(StageFailure) as failure:
+            await stages.execute(MissionPhase.APPROACH_FRUIT, context())
+
+        assert failure.value.reason == "ARRIVAL_FAILURE"
+        assert failure.value.message == "qualified pear Arrival timed out"
+        assert failure.value.details == {
+            "approach": {
+                "arrival_confirmed": False,
+                "near_gate_confirmed": False,
+                "near_confirmations": 0,
+                "final_push_count": 0,
+                "forward_pulse_count": 12,
+                "subthreshold_visibility_samples": 9,
+                "arrival_visibility_confidence_floor": 0.55,
+            }
+        }
+
+    asyncio.run(scenario())
+
+
 def test_search_target_loss_is_classified_with_recognition_evidence() -> None:
     class DistantPearHardware(FakeProductionHardware):
         async def find_target(self, *_args, **_options):

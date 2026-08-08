@@ -71,6 +71,7 @@ class ProductionStageExecutor:
                 MissionPhase.TURN_TO_FRUIT,
                 MissionPhase.FIND_FRUIT,
             )
+            evidence_key = "recognition" if search_phase else "approach"
             raise StageFailure(
                 (
                     "TARGET_RECOGNITION_FAILURE"
@@ -79,7 +80,7 @@ class ProductionStageExecutor:
                 ),
                 str(exc),
                 details=self._failure_details(
-                    {"recognition": exc.evidence} if exc.evidence else None
+                    {evidence_key: exc.evidence} if exc.evidence else None
                 ),
             ) from exc
         except HardwareUnavailable as exc:

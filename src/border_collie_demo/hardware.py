@@ -34,8 +34,12 @@ APPROACH_CENTER_TOLERANCE_RATIO = 0.08
 # Late approach keeps the same fixed 0.30 rad/s correction signal but engages
 # it earlier: once the track's lower edge crosses the close-range boundary, a
 # lateral offset the wide 0.08 band would ignore is corrected before the fruit
-# leaves the frame and the blind final push begins.
+# leaves the frame and the blind final push begins. To keep detection jitter
+# near the tighter boundary from toggling the correction every frame, the
+# tight band engages only after consecutive off-band samples; an offset beyond
+# the wide 0.08 band still corrects immediately, exactly as it always has.
 LATE_APPROACH_CENTER_TOLERANCE_RATIO = 0.04
+LATE_CENTER_CONFIRMATIONS = 2
 CLOSE_RANGE_MINIMUM_BOTTOM_RATIO = 0.70
 CLOSE_RANGE_MAXIMUM_CENTER_DELTA_RATIO = 0.20
 CLOSE_RANGE_MAXIMUM_VERTICAL_RETREAT_RATIO = 0.08
@@ -817,13 +821,76 @@ class HardwareManager:
             initial_centered = False
             initial_center_confirmations = 0
             late_center_corrections = 0
+            late_center_off_band_streak = 0
+            subthreshold_visibility_samples = 0
             tracking_confirmations = 0
             minimum_observed_tracking_confidence: float | None = None
             close_range_continuation_samples = 0
             track_acquired = False
             last_track_geometry: tuple[float, float, float] | None = None
             policy = fruit_policy(target_fruit)
+            final_push_executed = False
             started = time.monotonic()
+
+            def approach_evidence(*, arrival_confirmed: bool) -> dict[str, object]:
+                """One evidence shape for success and failure.
+
+                The 2026-08-08 supervised failure (run 45a1e796) sealed with
+                no approach evidence at all, which made the suppressed final
+                push impossible to see from the Run Result. Every terminal
+                approach path now reports the same dict.
+                """
+                return {
+                    "arrival_confirmed": arrival_confirmed,
+                    "near_confirmations": confirmations,
+                    "near_gate_confirmed": near_at is not None,
+                    "final_push_mps": final_push_mps,
+                    "final_push_duration_s": final_push_duration_s,
+                    "final_push_count": 1 if final_push_executed else 0,
+                    "initial_center_confirmations": initial_center_confirmations,
+                    "initial_center_tolerance_ratio": (
+                        INITIAL_CENTER_TOLERANCE_RATIO
+                    ),
+                    "initial_center_yaw_rps": INITIAL_CENTER_YAW_RPS,
+                    "approach_center_tolerance_ratio": (
+                        APPROACH_CENTER_TOLERANCE_RATIO
+                    ),
+                    "late_center_tolerance_ratio": (
+                        LATE_APPROACH_CENTER_TOLERANCE_RATIO
+                    ),
+                    "late_center_confirmations": LATE_CENTER_CONFIRMATIONS,
+                    "late_center_corrections": late_center_corrections,
+                    "arrival_visibility_confidence_floor": (
+                        policy.close_range_tracking_confidence
+                    ),
+                    "subthreshold_visibility_samples": (
+                        subthreshold_visibility_samples
+                    ),
+                    "forward_pulse_count": forward_pulse_count,
+                    "forward_pulse_period_s": self.config.command_heartbeat_s,
+                    "motion_commands_sent": commands_sent,
+                    "tracking_minimum_confidence": (
+                        self.config.pear_tracking_minimum_confidence
+                    ),
+                    "minimum_observed_tracking_confidence": (
+                        minimum_observed_tracking_confidence
+                    ),
+                    "close_range_tracking_confidence": (
+                        policy.close_range_tracking_confidence
+                    ),
+                    "close_range_continuation_samples": (
+                        close_range_continuation_samples
+                    ),
+                    "last_track_geometry": (
+                        {
+                            "center_x_ratio": last_track_geometry[0],
+                            "center_y_ratio": last_track_geometry[1],
+                            "bottom_ratio": last_track_geometry[2],
+                        }
+                        if last_track_geometry is not None
+                        else None
+                    ),
+                }
             try:
                 assert self._motion is not None
                 lease = await self._motion.arm()
@@ -868,7 +935,8 @@ class HardwareManager:
                         and detection_label != target_fruit.casefold()
                     ):
                         raise TargetLost(
-                            f"qualified {target_fruit} track changed identity"
+                            f"qualified {target_fruit} track changed identity",
+                            evidence=approach_evidence(arrival_confirmed=False),
                         )
                     tracking_candidate = (
                         isinstance(detection, dict)
@@ -927,10 +995,25 @@ class HardwareManager:
                     if not track_ready:
                         if not initial_centered:
                             initial_center_confirmations = 0
-                        target_still_visible = (
+                        # Arrival visibility needs a confidence floor. The
+                        # 2026-08-08 supervised run failed because a static
+                        # 0.010-0.016 confidence phantom kept a matching label
+                        # on screen for ~12 s, which suppressed the final push
+                        # until the arrival deadline. A detection that cannot
+                        # qualify for close-range tracking cannot hold the
+                        # arrival gate open either.
+                        same_label_detection = (
                             isinstance(detection, dict)
                             and detection_label == target_fruit.casefold()
                         )
+                        target_still_visible = (
+                            same_label_detection
+                            and detection_confidence is not None
+                            and detection_confidence
+                            >= policy.close_range_tracking_confidence
+                        )
+                        if same_label_detection and not target_still_visible:
+                            subthreshold_visibility_samples += 1
                         if (
                             target_still_visible
                             or near_at is None
@@ -968,49 +1051,16 @@ class HardwareManager:
                                     max(0.0, push_deadline - time.monotonic()),
                                 )
                             )
-                        evidence = {
-                            "arrival_confirmed": True,
-                            "near_confirmations": confirmations,
-                            "final_push_mps": final_push_mps,
-                            "final_push_duration_s": final_push_duration_s,
-                            "final_push_count": 1,
-                            "initial_center_confirmations": (
-                                initial_center_confirmations
-                            ),
-                            "initial_center_tolerance_ratio": (
-                                INITIAL_CENTER_TOLERANCE_RATIO
-                            ),
-                            "initial_center_yaw_rps": INITIAL_CENTER_YAW_RPS,
-                            "approach_center_tolerance_ratio": (
-                                APPROACH_CENTER_TOLERANCE_RATIO
-                            ),
-                            "late_center_tolerance_ratio": (
-                                LATE_APPROACH_CENTER_TOLERANCE_RATIO
-                            ),
-                            "late_center_corrections": late_center_corrections,
-                            "forward_pulse_count": forward_pulse_count,
-                            "forward_pulse_period_s": self.config.command_heartbeat_s,
-                            "motion_commands_sent": commands_sent,
-                            "tracking_minimum_confidence": (
-                                self.config.pear_tracking_minimum_confidence
-                            ),
-                            "minimum_observed_tracking_confidence": (
-                                minimum_observed_tracking_confidence
-                            ),
-                            "close_range_tracking_confidence": (
-                                policy.close_range_tracking_confidence
-                            ),
-                            "close_range_continuation_samples": (
-                                close_range_continuation_samples
-                            ),
-                        }
+                        final_push_executed = True
+                        evidence = approach_evidence(arrival_confirmed=True)
                         break
 
                     assert isinstance(detection, dict)
                     label = detection_label
                     if label != target_fruit.casefold():
                         raise TargetLost(
-                            f"qualified {target_fruit} track changed identity"
+                            f"qualified {target_fruit} track changed identity",
+                            evidence=approach_evidence(arrival_confirmed=False),
                         )
                     if detection_confidence is not None:
                         minimum_observed_tracking_confidence = (
@@ -1067,20 +1117,38 @@ class HardwareManager:
                         near_at = now
                     horizontal_error = center_x - 0.5
                     late_approach = bottom >= CLOSE_RANGE_MINIMUM_BOTTOM_RATIO
-                    center_tolerance = (
-                        LATE_APPROACH_CENTER_TOLERANCE_RATIO
-                        if late_approach
-                        else APPROACH_CENTER_TOLERANCE_RATIO
+                    wide_off_band = (
+                        abs(horizontal_error) > APPROACH_CENTER_TOLERANCE_RATIO
                     )
-                    yaw = (
-                        0.0
-                        if abs(horizontal_error) <= center_tolerance
-                        else -math.copysign(
-                            maximum_yaw_rps,
-                            horizontal_error,
+                    if late_approach:
+                        tight_off_band = (
+                            abs(horizontal_error)
+                            > LATE_APPROACH_CENTER_TOLERANCE_RATIO
                         )
+                        late_center_off_band_streak = (
+                            late_center_off_band_streak + 1
+                            if tight_off_band
+                            else 0
+                        )
+                        # A wide-band offset corrects immediately, exactly as
+                        # before this change. The tighter band engages only
+                        # after consecutive off-band samples so single-frame
+                        # detection jitter near 0.04 cannot toggle the yaw
+                        # correction on alternate frames.
+                        correct = wide_off_band or (
+                            tight_off_band
+                            and late_center_off_band_streak
+                            >= LATE_CENTER_CONFIRMATIONS
+                        )
+                    else:
+                        late_center_off_band_streak = 0
+                        correct = wide_off_band
+                    yaw = (
+                        -math.copysign(maximum_yaw_rps, horizontal_error)
+                        if correct
+                        else 0.0
                     )
-                    if late_approach and yaw != 0.0:
+                    if late_approach and correct:
                         late_center_corrections += 1
                     await self._send_motion_command(
                         lease,
@@ -1098,7 +1166,10 @@ class HardwareManager:
                     commands_sent = True
                     await asyncio.sleep(self.config.command_heartbeat_s)
                 else:
-                    raise TargetLost(f"qualified {target_fruit} Arrival timed out")
+                    raise TargetLost(
+                        f"qualified {target_fruit} Arrival timed out",
+                        evidence=approach_evidence(arrival_confirmed=False),
+                    )
             except Exception as exc:  # noqa: BLE001 - always disarm below
                 operation_error = exc
             finally:

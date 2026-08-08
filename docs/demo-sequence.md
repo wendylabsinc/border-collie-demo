@@ -56,14 +56,27 @@ track's lower edge remains above the 0.70 close-range boundary the center
 band stays at 0.08; once the lower edge crosses that boundary the band
 tightens to 0.04 so the same fixed 0.30 rad/s correction engages earlier and
 the heading is close to the fruit axis before the fruit leaves the frame.
+An offset beyond the wide 0.08 band corrects immediately as it always has;
+the tighter band engages only after two consecutive off-band samples so
+single-frame detection jitter near 0.04 cannot toggle the correction.
 Forward translation continues through every steering sample, so the
 forward-heartbeat count is unaffected by the tighter band. Confirmed
 near-fruit geometry arms the lower-edge Arrival gate; it does not command a
 zero-motion hold. While the fresh Target Fruit remains visible, forward
-approach continues. Every forward heartbeat is counted, including the single
+approach continues. For arrival purposes "visible" requires the detection to
+meet the fruit's close-range tracking confidence: a matching label below
+that floor counts as disappearance. (Supervised run `45a1e796` on 2026-08-08
+showed a static 0.010-0.016-confidence phantom holding the arrival gate open
+for ~12 seconds after the pear had genuinely dropped below the camera at
+arrival distance, which suppressed the final push until the deadline.)
+Every forward heartbeat is counted, including the single
 bounded 0.3 m/s by 0.6-second push after qualified lower-edge disappearance.
 The push trigger is unchanged; only its window was shortened from 1.0 s after
-the 2026-08-08 supervised baseline finished too close to the fruit.
+the 2026-08-08 supervised baseline finished too close to the fruit. Every
+terminal approach path — Arrival, identity change, and timeout — seals the
+same approach evidence dict (near gate state, pulse counts, centering
+counters, and sub-floor visibility samples) so a failed approach is never
+blind in the Run Result.
 
 An acquired red-apple track may survive its observed close-range confidence
 collapse only while its box remains low and spatially continuous with the last
