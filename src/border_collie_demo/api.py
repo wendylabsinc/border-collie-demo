@@ -20,6 +20,7 @@ from .preflight import evaluate_preflight, preflight_check_ready
 from .recovery import (
     RECOVERY_CONFIRMATION,
     FailedRunHomeRecovery,
+    recovery_forward_pulse_budget,
 )
 from .run_results import ActiveRunError, RunResultNotFound, RunResultStore
 
@@ -384,7 +385,8 @@ def create_app(
         task.add_done_callback(active_tasks.discard)
         return {
             "recovery": attempt,
-            "maximum_forward_pulses": pulse_count,
+            "outbound_forward_pulses": pulse_count,
+            "maximum_forward_pulses": recovery_forward_pulse_budget(pulse_count),
             "forward_pulse_source": pulse_source,
         }
 

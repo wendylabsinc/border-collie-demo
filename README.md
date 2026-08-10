@@ -353,8 +353,10 @@ curl -X POST \
 
 The endpoint returns `202 Accepted` with a recovery ID. Poll
 `/api/results/RUN_ID` and read `recovery_attempts`; the active recovery also
-appears in `/api/status`. Only one recovery attempt is accepted for a failed
-run. `/api/stop` cancels and disarms an active recovery.
+appears in `/api/status`. One correction attempt is accepted only when the
+first recovery itself failed with a confirmed disarm; completed, stopped, or
+unconfirmed recoveries cannot be retried. `/api/stop` cancels and disarms an
+active recovery.
 
 Failed and stopped runs retain their full event, stage, failure, motion, and
 frame evidence. Completed runs retain one compact `result.json` with the key

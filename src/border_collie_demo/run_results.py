@@ -148,8 +148,18 @@ class RunResultStore:
         result = self.get(run_id)
         if result.get("outcome") != "FAILED":
             raise ActiveRunError("only failed Demo Runs can be recovered")
-        if result.get("recovery_attempts"):
-            raise ActiveRunError("failed Demo Run already has a recovery attempt")
+        attempts = result.get("recovery_attempts") or []
+        if len(attempts) >= 2:
+            raise ActiveRunError("failed Demo Run exhausted its recovery attempts")
+        if attempts:
+            previous = attempts[-1]
+            if (
+                previous.get("outcome") != "FAILED"
+                or previous.get("final_safety_state") != "DISARMED_CONFIRMED"
+            ):
+                raise ActiveRunError(
+                    "failed Demo Run already has a non-retryable recovery attempt"
+                )
 
         recovery_id = str(uuid4())
         recovery = {
@@ -166,6 +176,7 @@ class RunResultStore:
             "message": "failed-run Home recovery accepted",
             "final_safety_state": None,
             "steps": [],
+            "attempt_number": len(attempts) + 1,
         }
         result.setdefault("recovery_attempts", []).append(recovery)
         self._write_result(result)

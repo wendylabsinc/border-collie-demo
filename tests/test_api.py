@@ -641,7 +641,8 @@ def test_failed_run_recovery_uses_saved_home_and_failed_approach_trace(
 
     assert wrong.status_code == 409
     assert accepted.status_code == 202
-    assert accepted.json()["maximum_forward_pulses"] == 3
+    assert accepted.json()["outbound_forward_pulses"] == 3
+    assert accepted.json()["maximum_forward_pulses"] == 5
     assert accepted.json()["forward_pulse_source"] == (
         "failure_details.motion_commands"
     )
@@ -661,14 +662,16 @@ def test_failed_run_recovery_uses_saved_home_and_failed_approach_trace(
         "return_home",
     ]
     assert attempt["steps"][2]["evidence"]["home_distance_m"] == 0.08
-    assert attempt["steps"][2]["evidence"]["requested_forward_pulses"] == 3
+    assert attempt["steps"][0]["evidence"]["outbound_forward_pulses"] == 3
+    assert attempt["steps"][0]["evidence"]["maximum_forward_pulses"] == 5
+    assert attempt["steps"][2]["evidence"]["requested_forward_pulses"] == 5
     assert attempt["steps"][2]["evidence"]["motion_commands"][0][
         "phase"
     ] == "recovery_return_home"
     assert hardware.calls[0][0] == "turn_toward_home"
     assert hardware.calls[0][1] == failed["home"]
     assert hardware.calls[1][0] == "return_home"
-    assert hardware.calls[1][2]["forward_pulse_count"] == 3
+    assert hardware.calls[1][2]["forward_pulse_count"] == 5
     assert status["active_recovery"] is None
     assert status["hardware"]["motion"]["armed"] is False
 

@@ -85,7 +85,7 @@ state.
 
 ## Recovery after a failed run
 
-A failed run with `DISARMED_CONFIRMED` and a persisted Home pose may accept one
+A failed run with `DISARMED_CONFIRMED` and a persisted Home pose may accept an
 explicit recovery attempt. Translation additionally requires at least one
 recorded forward approach heartbeat; a run already inside the position gate is
 sealed as recovered without arming motion.
@@ -95,8 +95,10 @@ resumed.
 
 The API persists the recovery record before motion, returns `202 Accepted`, and
 runs recovery asynchronously so a client disconnect cannot cause an ambiguous
-second activation. Recovery turns toward the saved Home and uses the original
-approach heartbeat count as the maximum forward-return budget. Fresh pose,
+second activation. Recovery turns toward the saved Home and uses 1.5 times the
+original approach heartbeat count as its maximum forward-return budget. The
+reserve accounts for factory obstacle avoidance reducing actual return speed;
+pose-based arrival stops playback early. Fresh pose,
 factory obstacle avoidance, progress, course, timeout, watchdog, stop, and
 0.10-meter position gates remain authoritative.
 
@@ -106,6 +108,9 @@ outside the position gate. Recovery reports `HOME_POSITION_RECOVERED` only when
 a fresh terminal pose is inside 0.10 meters and stop/disarm is confirmed. Any
 failure or operator stop seals the recovery attempt with its own outcome and
 full evidence without altering the failed run's original reason.
+One correction attempt is allowed only when the first recovery ended `FAILED`
+with `DISARMED_CONFIRMED`. No third attempt is accepted, and a completed,
+stopped, active, interrupted, or unconfirmed recovery is not retryable.
 
 ## Run Result evidence
 

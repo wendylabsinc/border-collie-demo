@@ -1,12 +1,12 @@
 {
   "appId": "border-collie-demo",
-  "version": "1.0.3-base-recovery",
+  "version": "1.0.4-base-recovery-reserve",
   "services": {
     "app": {
       "context": ".",
       "env": {
         "BORDER_COLLIE_PORT": "8110",
-        "BORDER_COLLIE_BUILD_LABEL": "base-soak-v3-recovery-retention (demo/base)",
+        "BORDER_COLLIE_BUILD_LABEL": "base-soak-v4-recovery-reserve (demo/base)",
         "BORDER_COLLIE_RUNTIME_MODE": "production",
         "BORDER_COLLIE_HARDWARE_ENABLED": "1",
         "BORDER_COLLIE_AUTONOMY_ENABLED": "1",

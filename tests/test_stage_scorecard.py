@@ -154,7 +154,7 @@ def test_pear_approach_arrival_failure_counts_as_close_range_error():
         reason="ARRIVAL_FAILURE",
         failed_phase="approach_fruit",
         orientation_degrees=0,
-        recovery_poll_errors=1,
+        recovery_poll_errors=["temporary timeout"],
     )
     other_arrival = make_run(2, "apple", outcome="FAILED")
     other_arrival.update(

@@ -11,6 +11,12 @@ from .run_results import RunResultStore
 
 RECOVERY_CONFIRMATION = "RECOVER FAILED RUN TO CAPTURED HOME"
 HOME_POSITION_TOLERANCE_M = 0.10
+RECOVERY_PULSE_RESERVE_FACTOR = 1.5
+
+
+def recovery_forward_pulse_budget(outbound_pulses: int) -> int:
+    """Return a bounded reserve while pose feedback remains authoritative."""
+    return math.ceil(outbound_pulses * RECOVERY_PULSE_RESERVE_FACTOR)
 
 
 class RecoveryHardware(Protocol):
@@ -153,6 +159,7 @@ class FailedRunHomeRecovery:
         run = self._results.get(run_id)
         home = run["home"]
         pulse_count, pulse_source = recoverable_forward_pulses(run)
+        recovery_pulse_budget = recovery_forward_pulse_budget(pulse_count)
         self._results.record_recovery_step(
             run_id,
             recovery_id,
@@ -160,7 +167,10 @@ class FailedRunHomeRecovery:
             {
                 "hardware": self._hardware.status(),
                 "captured_home": home,
-                "maximum_forward_pulses": pulse_count,
+                "outbound_forward_pulses": pulse_count,
+                "maximum_forward_pulses": recovery_pulse_budget,
+                "recovery_forward_pulse_budget": recovery_pulse_budget,
+                "recovery_pulse_reserve_factor": RECOVERY_PULSE_RESERVE_FACTOR,
                 "forward_pulse_source": pulse_source,
                 "position_tolerance_m": HOME_POSITION_TOLERANCE_M,
                 "heading_restore_planned": False,
@@ -234,7 +244,7 @@ class FailedRunHomeRecovery:
             returned = await self._hardware.return_home(
                 home,
                 forward_mps=1.0,
-                forward_pulse_count=pulse_count,
+                forward_pulse_count=recovery_pulse_budget,
                 arrival_tolerance_m=HOME_POSITION_TOLERANCE_M,
                 heading_gate_rad=math.radians(20.0),
                 maximum_yaw_rps=0.30,

@@ -233,8 +233,9 @@ The audience and diagnostic surfaces read the same persisted record:
 Result APIs are read-only except for the explicit failed-run Home recovery
 endpoint. Recovery cannot change the original terminal outcome, resume its
 mission stages, clear evidence, or relabel the run. It appends one separately
-identified recovery attempt after exact operator confirmation. Arbitrary
-filesystem paths and short IDs are rejected.
+identified recovery attempt after exact operator confirmation and may append
+one correction only when the first recovery failed with a confirmed disarm.
+Arbitrary filesystem paths and short IDs are rejected.
 
 ## Acceptance requirements
 

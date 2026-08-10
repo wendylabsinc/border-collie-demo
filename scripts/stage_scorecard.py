@@ -69,9 +69,16 @@ def _failure_counts(runs: list[dict]) -> dict:
         f"{_failure_category(run)}:{run.get('target_fruit') or 'unknown'}"
         for run in failed
     )
+    def poll_error_count(value: object) -> int:
+        if isinstance(value, list):
+            return len(value)
+        if isinstance(value, int) and not isinstance(value, bool):
+            return value
+        return 0
+
     network_poll_errors = sum(
-        int((run.get("network") or {}).get("error_count") or 0)
-        + int(run.get("recovery_poll_errors") or 0)
+        poll_error_count((run.get("network") or {}).get("error_count"))
+        + poll_error_count(run.get("recovery_poll_errors"))
         for run in runs
     )
     zero_degree_runs = sum(
