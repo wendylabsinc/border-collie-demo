@@ -41,6 +41,7 @@ class QualifiedTrackingConfig:
     maximum_detection_age_s: float = 0.250
     close_bottom_ratio: float = 0.70
     maximum_center_delta_ratio: float = 0.20
+    stationary_recenter_error_ratio: float = 0.25
     maximum_vertical_retreat_ratio: float = 0.08
     maximum_area_retreat_fraction: float = 0.35
     slow_speed_scale: float = 0.30
@@ -100,6 +101,7 @@ class QualifiedTrackingConfig:
             self.near_center_ratio,
             self.close_bottom_ratio,
             self.maximum_center_delta_ratio,
+            self.stationary_recenter_error_ratio,
             self.maximum_vertical_retreat_ratio,
             self.maximum_area_retreat_fraction,
             self.slow_speed_scale,
@@ -115,6 +117,10 @@ class QualifiedTrackingConfig:
             < 1
         ):
             raise ValueError("tracking confirmation counts must be positive")
+        if self.stationary_recenter_error_ratio <= self.center_tolerance_ratio:
+            raise ValueError(
+                "stationary recenter error must exceed initial center tolerance"
+            )
         if (
             not math.isfinite(self.sight_loss_grace_s)
             or self.sight_loss_grace_s <= 0.0
@@ -171,6 +177,8 @@ class QualifiedFruitTracker:
         self._bbox_growth_samples = 0
         self._track_acquired = False
         self._initial_centered = False
+        self._approach_authorized = False
+        self._stationary_recenter_samples = 0
         self._last_observation: _Observation | None = None
         self._last_source_pts: int | None = None
         self._last_qualified_at: float | None = None
@@ -267,12 +275,20 @@ class QualifiedFruitTracker:
             self._acquisition_samples += 1
             self._update_centering(observation)
             if self._acquisition_samples < self.config.acquisition_confirmations:
+                if self._approach_authorized:
+                    return self._decision(
+                        MotionRecommendation.STOP,
+                        "confirming_target_reacquisition",
+                        observation,
+                    )
                 return self._decision(
                     MotionRecommendation.ALIGN,
                     "confirming_target_identity",
                     observation,
                 )
             self._track_acquired = True
+            if self._approach_authorized:
+                self._initial_centered = True
             if self._centered_samples >= self.config.center_confirmations:
                 self._initial_centered = True
             if not self._initial_centered:
@@ -288,7 +304,7 @@ class QualifiedFruitTracker:
             return self._handle_weak_close_observation(observation, now)
         if not self._continuous_with_last(observation):
             self._discontinuity_stops += 1
-            self._reset_track()
+            self._reset_track(preserve_approach_authorization=True)
             return self._decision(MotionRecommendation.STOP, "track_discontinuous")
 
         self._accept_observation(observation, now)
@@ -308,6 +324,18 @@ class QualifiedFruitTracker:
         observation: _Observation,
         now: float,
     ) -> TrackDecision:
+        horizontal_error = observation.center_x - 0.5
+        if (
+            self._approach_authorized
+            and abs(horizontal_error) > self.config.stationary_recenter_error_ratio
+        ):
+            self._stationary_recenter_samples += 1
+            return self._decision(
+                MotionRecommendation.ALIGN,
+                "large_tracking_error",
+                observation,
+            )
+
         near = (
             observation.bottom >= self.config.near_bottom_ratio
             and observation.center_y >= self.config.near_center_ratio
@@ -326,12 +354,14 @@ class QualifiedFruitTracker:
             self.config.near_bottom_ratio - 0.10,
         )
         if observation.bottom >= slow_bottom or self._close_samples >= 2:
+            self._approach_authorized = True
             return self._decision(
                 MotionRecommendation.SLOW,
                 "close_range_track",
                 observation,
                 forward_scale=self.config.slow_speed_scale,
             )
+        self._approach_authorized = True
         return self._decision(
             MotionRecommendation.APPROACH,
             "qualified_track",
@@ -499,13 +529,17 @@ class QualifiedFruitTracker:
             source_pts=source_pts,
         )
 
-    def _reset_track(self) -> None:
+    def _reset_track(self, *, preserve_approach_authorization: bool = False) -> None:
+        approach_authorized = (
+            self._approach_authorized if preserve_approach_authorization else False
+        )
         self._acquisition_samples = 0
         self._centered_samples = 0
         self._near_samples = 0
         self._close_samples = 0
         self._track_acquired = False
-        self._initial_centered = False
+        self._approach_authorized = approach_authorized
+        self._initial_centered = approach_authorized
         self._last_observation = None
         self._last_source_pts = None
         self._last_qualified_at = None
@@ -529,6 +563,8 @@ class QualifiedFruitTracker:
             "tracking_reason": reason,
             "track_acquired": self._track_acquired,
             "initial_centered": self._initial_centered,
+            "approach_authorized": self._approach_authorized,
+            "stationary_recenter_samples": self._stationary_recenter_samples,
             "acquisition_samples": self._acquisition_samples,
             "qualified_samples": self._qualified_samples,
             "close_range_samples": self._close_samples,

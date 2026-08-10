@@ -48,10 +48,12 @@ allowed only after camera freshness passes preflight again.
 
 From activation through `TURN_TO_FRUIT` and `FIND_FRUIT`, every velocity command
 has zero forward input. During `APPROACH_FRUIT`, translation remains zero while
-a fixed 0.50 rad/s correction first turns toward the Target Fruit. Once its
-center enters 0.08 of the horizontal frame center, yaw becomes zero and must
-remain centered for three fresh samples. After that initial gate, approach may
-combine forward input with bounded yaw to steer toward the fruit. Confirmed
+a fixed 1.00 rad/s correction first turns toward the Target Fruit. Once its
+center enters 0.05 of the horizontal frame center, yaw becomes zero and must
+remain centered for three fresh samples. After that initial gate, errors inside
+0.12 of center use zero yaw and larger ordinary errors use proportional yaw
+while moving. A same-fruit track discontinuity stops for reacquisition but does
+not repeat yaw-only centering unless horizontal error exceeds 0.25. Confirmed
 near-fruit geometry slows the approach. Fresh continuous geometry may confirm
 visible Arrival. A track already proven close may also confirm Arrival when it
 disappears through the lower camera edge within the bounded grace period.
@@ -65,9 +67,9 @@ missing evidence commands zero motion.
 Arrival releases motion before `SIT_AND_BARK`; Woof barks while down and holds
 that posture for 5 seconds before `STAND` may begin. After the measured turn
 toward Home,
-`RETURN_HOME` replays the recorded number of forward heartbeats at the same
-1.0 m/s signal. Heading-only corrections do not consume a forward heartbeat;
-bounded course correction may accompany forward replay after approach.
+`RETURN_HOME` follows sparse outbound pose breadcrumbs in reverse. The recorded
+forward-heartbeat count remains a maximum translation budget rather than the
+route estimate. Heading-only corrections do not consume that budget.
 
 Return-to-Home must not use open-ended recovery. Loss of trustworthy pose or
 failure to make bounded progress must stop and disarm Woof, terminate the run

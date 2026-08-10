@@ -314,3 +314,79 @@ def test_bbox_retreat_breaks_continuity_and_stops_forward_motion() -> None:
     assert decision.reason == "track_discontinuous"
     assert decision.evidence["discontinuity_stops"] == 1
     assert decision.evidence["track_acquired"] is False
+
+
+def test_moderate_reacquisition_error_resumes_with_moving_correction() -> None:
+    target = tracker()
+    pts = acquire(target)
+
+    stopped = target.observe(
+        observation(
+            center_y=0.49,
+            bottom=0.64,
+            area=0.01,
+            source_pts=pts,
+        ),
+        now_s=0.4,
+    )
+    reacquiring = [
+        target.observe(
+            observation(
+                center_x=0.64,
+                center_y=0.50,
+                bottom=0.65,
+                area=0.04,
+                source_pts=pts + offset,
+            ),
+            now_s=0.4 + offset / 10,
+        )
+        for offset in range(1, 4)
+    ]
+
+    assert stopped.recommendation is MotionRecommendation.STOP
+    assert [decision.recommendation for decision in reacquiring] == [
+        MotionRecommendation.STOP,
+        MotionRecommendation.STOP,
+        MotionRecommendation.APPROACH,
+    ]
+    assert reacquiring[-1].horizontal_error == 0.14
+    assert reacquiring[-1].evidence["approach_authorized"] is True
+    assert reacquiring[-1].evidence["initial_centered"] is True
+    assert reacquiring[-1].evidence["stationary_recenter_samples"] == 0
+
+
+def test_large_reacquisition_error_requires_stationary_recenter() -> None:
+    target = tracker()
+    pts = acquire(target)
+    target.observe(
+        observation(
+            center_y=0.49,
+            bottom=0.64,
+            area=0.01,
+            source_pts=pts,
+        ),
+        now_s=0.4,
+    )
+
+    decisions = [
+        target.observe(
+            observation(
+                center_x=0.80,
+                center_y=0.50,
+                bottom=0.65,
+                area=0.04,
+                source_pts=pts + offset,
+            ),
+            now_s=0.4 + offset / 10,
+        )
+        for offset in range(1, 4)
+    ]
+
+    assert [decision.recommendation for decision in decisions] == [
+        MotionRecommendation.STOP,
+        MotionRecommendation.STOP,
+        MotionRecommendation.ALIGN,
+    ]
+    assert decisions[-1].reason == "large_tracking_error"
+    assert decisions[-1].forward_scale == 0.0
+    assert decisions[-1].evidence["stationary_recenter_samples"] == 1

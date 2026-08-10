@@ -1,13 +1,13 @@
 {
   "appId": "border-collie-demo",
-  "version": "1.0.8-durability",
+  "version": "1.0.9-durability",
   "services": {
     "app": {
       "context": ".",
       "env": {
         "BORDER_COLLIE_PORT": "8110",
-        "BORDER_COLLIE_BUILD_LABEL": "durability-foundation-v5-full-speed-approach (codex/extreme-durability-foundation)",
-        "BORDER_COLLIE_RELEASE_ID": "durability-foundation-v5-full-speed-approach",
+        "BORDER_COLLIE_BUILD_LABEL": "durability-foundation-v6-fused-steering (codex/extreme-durability-foundation)",
+        "BORDER_COLLIE_RELEASE_ID": "durability-foundation-v6-fused-steering",
         "BORDER_COLLIE_CONFIG_SCHEMA": "1",
         "BORDER_COLLIE_RUNTIME_MODE": "production",
         "BORDER_COLLIE_HARDWARE_ENABLED": "1",
@@ -29,6 +29,12 @@
         "BORDER_COLLIE_FORWARD_PULSE_DURATION_S": "0.40",
         "BORDER_COLLIE_MAX_FORWARD_MPS": "1.0",
         "BORDER_COLLIE_COMMAND_WATCHDOG_S": "0.35",
+        "BORDER_COLLIE_BREADCRUMB_SPACING_M": "0.20",
+        "BORDER_COLLIE_BREADCRUMB_REACH_M": "0.25",
+        "BORDER_COLLIE_MAXIMUM_BREADCRUMBS": "128",
+        "BORDER_COLLIE_FOOT_CONTACT_MIN_FORCE": "5.0",
+        "BORDER_COLLIE_STATIONARY_MAX_SPEED_MPS": "0.05",
+        "BORDER_COLLIE_STATIONARY_MAX_YAW_RATE_RPS": "0.08",
         "GO2_NETWORK_INTERFACE": "enP8p1s0"
       },
       "entitlements": [
@@ -44,7 +50,7 @@
       "context": "./media",
       "env": {
         "UNITREE_ROBOT_IP": "192.168.123.161",
-        "BORDER_COLLIE_RELEASE_ID": "durability-foundation-v5-full-speed-approach",
+        "BORDER_COLLIE_RELEASE_ID": "durability-foundation-v6-fused-steering",
         "BORDER_COLLIE_CONFIG_SCHEMA": "1",
         "PEAR_MODEL_PATH": "/media/model.engine",
         "BANANA_SPECIALIST_MODEL_PATH": "/media/banana-specialist.pt",
@@ -61,7 +67,17 @@
         "MEDIA_INITIAL_BACKOFF_S": "8.0",
         "MEDIA_MAXIMUM_BACKOFF_S": "30.0",
         "EVIDENCE_MAXIMUM_FRAMES": "40",
-        "EVIDENCE_FRAME_INTERVAL_S": "0.5"
+        "EVIDENCE_FRAME_INTERVAL_S": "0.5",
+        "VISUAL_ODOMETRY_ENABLED": "1",
+        "VISUAL_ODOMETRY_INTERVAL_S": "0.10",
+        "VISUAL_ODOMETRY_MAX_INTERVAL_S": "0.50",
+        "VISUAL_ODOMETRY_PROCESSING_BUDGET_S": "0.030",
+        "VISUAL_ODOMETRY_PROCESSING_WIDTH_PX": "424",
+        "VISUAL_ODOMETRY_MAX_FEATURES": "800",
+        "VISUAL_ODOMETRY_MIN_TRACKS": "30",
+        "VISUAL_ODOMETRY_MAX_KEYFRAMES": "48",
+        "VISUAL_ODOMETRY_HORIZONTAL_FOV_DEG": "90.0",
+        "VISUAL_ODOMETRY_CAMERA_TO_BODY_YAW_RAD": "0.0"
       },
       "entitlements": [
         {"type": "network", "mode": "host"},

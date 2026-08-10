@@ -52,9 +52,9 @@ Gate:
 
 ### 3. Qualified Target Fruit tracking
 
-The primary branch carries a short-form temporal gate so no approach decision
-depends on one frame. The derived branch develops the mature tracker with
-explicit stop, align, approach, slow, and Arrival recommendations.
+The primary branch carries the mature temporal tracker, so no approach decision
+depends on one frame. Its interface returns explicit stop, align, approach,
+slow, and Arrival recommendations.
 
 Integration gate:
 
@@ -62,20 +62,27 @@ Integration gate:
 - motion never acquires a 0.01-confidence phantom;
 - close-range continuation requires prior acquisition and continuous geometry;
 - wrong identity, stale frames, and discontinuous geometry stop or fail closed;
+- initial centering is strict, while ordinary post-acquisition corrections
+  combine forward motion with proportional yaw;
+- same-fruit reacquisition preserves the completed centering gate, and yaw-only
+  recentering is reserved for large horizontal error;
 - pear close-range confidence collapse can reach Arrival without contact.
 
-### 4. Redundant Home localization
+### 4. Redundant relative-motion localization
 
-Fuse fresh Go2 odometry with an optional absolute Home observation. A stale or
-contradictory absolute observation is unavailable evidence, never an implicit
-position correction. The first deploy remains compatible with odometry-only
-operation until a qualified AprilTag or ArUco producer is connected.
+Fuse Go2 metric pose, body velocity, IMU yaw rate, loaded-foot stationary
+updates, and bounded CPU-only sparse visual motion. Essential-matrix visual
+translation is direction-only and cannot invent metres; Go2 displacement
+supplies scale.
 
 Integration gate:
 
-- odometry-only behavior remains regression compatible;
-- fresh agreeing fiducial evidence corrects accumulated drift;
-- stale and disagreeing evidence fail closed;
+- Go2-only behavior remains regression compatible;
+- fresh agreeing visual direction/yaw reduces pose uncertainty;
+- stationary foot contact drives velocity to zero and learns gyro bias;
+- timestamp regressions, sample gaps, and persistent innovations fail closed;
+- stale visual evidence falls back explicitly and persistent disagreement fails closed;
+- visual processing stays within its CPU, latency, memory, and thermal budgets;
 - the final measured Home Distance remains at most `0.10 m`.
 
 ### 5. Isolated media supervision

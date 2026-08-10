@@ -135,6 +135,22 @@ class ReturningPose(FakePose):
         )
 
 
+class BreadcrumbPose(FakePose):
+    def __init__(self) -> None:
+        super().__init__()
+        self.returning = False
+        self._outbound = iter((0.0, 0.25, 0.50, 0.75, 1.0))
+        self._returning = iter((1.0, 1.0, 0.75, 0.50, 0.25, 0.05))
+        self._x = 0.0
+
+    def status(self) -> PoseStatus:
+        if self.started:
+            values = self._returning if self.returning else self._outbound
+            self._x = next(values, self._x)
+        yaw = math.pi if self.returning else 0.0
+        return PoseStatus(Pose(self._x, 0.0, yaw, 1.0), 0.0, self.started, None)
+
+
 class HomeTurnPose(FakePose):
     def __init__(self) -> None:
         super().__init__()
@@ -767,7 +783,7 @@ def test_approach_centers_pear_before_first_forward_command() -> None:
             for index, command in enumerate(motion.commands)
             if command.forward_mps > 0.0
         )
-        assert first_forward == 4
+        assert first_forward == 5
         assert all(
             command.forward_mps == 0.0 for command in motion.commands[:first_forward]
         )
@@ -778,11 +794,12 @@ def test_approach_centers_pear_before_first_forward_command() -> None:
         assert [command.yaw_rps for command in motion.commands[:first_forward]] == [
             -1.00,
             -1.00,
+            -1.00,
             0.0,
             0.0,
         ]
         assert result["initial_center_confirmations"] == 3
-        assert result["initial_center_tolerance_ratio"] == 0.08
+        assert result["initial_center_tolerance_ratio"] == 0.05
         assert result["initial_center_yaw_rps"] == 1.00
         assert motion.armed is False
         await manager.close()
@@ -841,7 +858,7 @@ def test_approach_tracks_an_acquired_pear_at_sixty_percent_confidence() -> None:
             ),
             "pear",
             forward_mps=0.55,
-            maximum_yaw_rps=0.30,
+            maximum_yaw_rps=1.00,
             near_bottom_ratio=0.86,
             near_center_ratio=0.72,
             near_confirmations=3,
@@ -909,7 +926,7 @@ def test_approach_may_combine_forward_and_yaw_after_initial_centering() -> None:
             ),
             "pear",
             forward_mps=1.0,
-            maximum_yaw_rps=0.30,
+            maximum_yaw_rps=1.00,
             near_bottom_ratio=0.86,
             near_center_ratio=0.72,
             near_confirmations=3,
@@ -923,7 +940,7 @@ def test_approach_may_combine_forward_and_yaw_after_initial_centering() -> None:
         assert any(
             command.reason == "approach_target"
             and command.forward_mps == 1.0
-            and command.yaw_rps == -0.30
+            and command.yaw_rps == pytest.approx(-0.60)
             for command in motion.commands
         )
         first_forward = next(
@@ -1174,10 +1191,50 @@ def test_return_home_replays_outbound_pulses_and_logs_measured_home_distance() -
         assert result["arrival_tolerance_m"] == 0.10
         assert result["requested_forward_pulses"] == 3
         assert result["replayed_forward_pulses"] == 3
-        assert result["motion_path"] == "factory_avoidance"
+        assert result["motion_path"] == "direct_fused_closed_loop"
+        assert result["planned_breadcrumbs"] == 0
         assert len(motion.commands) == 3
         assert all(command.forward_mps == 1.0 for command in motion.commands)
         assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_return_home_follows_recorded_outbound_breadcrumbs_in_reverse() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        pose = BreadcrumbPose()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: pose,
+        )
+        await manager.start()
+        home = manager.capture_home()
+        await manager.run_forward_pulse(FORWARD_PULSE_CONFIRMATION)
+        pose.returning = True
+        motion.commands.clear()
+
+        result = await manager.return_home(
+            home,
+            forward_mps=1.0,
+            forward_pulse_count=6,
+            arrival_tolerance_m=0.10,
+            heading_gate_rad=math.radians(20.0),
+            maximum_yaw_rps=0.30,
+            minimum_progress_m=0.03,
+            stall_timeout_s=0.10,
+            timeout_s=0.50,
+        )
+
+        assert result["motion_path"] == "breadcrumb_closed_loop"
+        assert result["planned_breadcrumbs"] >= 2
+        assert result["reached_breadcrumbs"] == result["planned_breadcrumbs"]
+        assert result["home_distance_m"] == pytest.approx(0.05)
+        assert result["replayed_forward_pulses"] < 6
+        assert all(command.forward_mps == 1.0 for command in motion.commands)
         await manager.close()
 
     asyncio.run(scenario())
@@ -1355,6 +1412,13 @@ def test_home_capture_returns_one_fresh_disarmed_pose() -> None:
             "captured_monotonic_s": 1.0,
             "age_s": 0.0,
             "source": "rt/sportmodestate",
+            "visual_odometry": {
+                "state": "unavailable",
+                "generation": None,
+                    "frame_sequence": None,
+                    "error": None,
+                    "sensor_fusion": "legacy",
+                },
         }
         assert motion.armed is False
         assert motion.commands == []

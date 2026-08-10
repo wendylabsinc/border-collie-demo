@@ -25,19 +25,22 @@ reference, but it is not a runtime dependency.
    turn using the same reliable yaw signal; an unqualified crop keeps rotating
    rather than becoming a false stop.
 6. Confirm/reacquire and approach the requested fruit using fresh detections.
-   No forward command is permitted before this stage. Once approach begins,
-   forward and yaw inputs may be combined to steer toward the fruit.
+   No forward command is permitted until the fruit remains within 5% of frame
+   center for three fresh samples. Once approach begins, moderate corrections
+   combine forward motion with proportional yaw. Track reacquisition does not
+   repeat yaw-only centering unless the fruit is more than 25% off center.
 7. Near-fruit geometry slows the approach. Fresh continuous geometry may
    confirm visible Arrival; a track already proven close may also confirm
    Arrival when it disappears through the lower camera edge within the bounded
    sight-loss grace period. Sight loss always commands zero motion.
-8. First turn at a fixed 0.50 rad/s until the Target Fruit is within the middle
-   16% of the camera, then hold zero yaw for three fresh centered samples. After
+8. First turn at a fixed 1.00 rad/s until the Target Fruit is within the middle
+   10% of the camera, then hold zero yaw for three fresh centered samples. After
    qualified visible or sight-lost-close Arrival, stop without a blind final
    push, lie down, bark, and remain down for 5 seconds.
-9. Stand, turn toward Home, replay the recorded number of outbound forward
-   heartbeats at 1.0 m/s, and restore the original heading. Fresh pose remains
-   the authority for the 10 cm Home success gate and recorded Home Distance.
+9. Stand, turn toward Home, follow sparse outbound pose breadcrumbs in reverse,
+   and restore the original heading. The recorded heartbeat count remains a
+   translation budget. Fresh fused pose remains the authority for the 10 cm
+   Home success gate and recorded Home Distance.
 10. Stop all motion, record the result, and report completion.
 
 Arbitrary typed commands remain on the separate debug surface. The supervised
@@ -150,7 +153,10 @@ evidence before sealing success. Loss of pose freshness during capture also fail
 restart seals unfinished work as `PROCESS_INTERRUPTED`. The production executor
 uses measured pose turns, bounded camera-guided search, geometry-gated approach,
 zero-motion sight-lost-close Arrival, Unitree posture actions, bark, and
-closed-loop odometry return through factory obstacle avoidance.
+closed-loop fused-odometry return through factory obstacle avoidance. The
+planar estimator combines Go2 position/velocity, IMU yaw rate, loaded-foot
+zero-velocity updates, and bounded scale-free visual direction/yaw while the
+final 10 cm gate uses the farther of raw and filtered distance.
 The initial turn/search is explicitly **conditional**, not an unconditional
 part of every run. Target Fruit qualification may already be present when
 `TURN_TO_FRUIT` begins. Fresh qualified evidence for the selected Target Fruit
@@ -207,7 +213,10 @@ center cannot retreat by more than 0.08, and its box area cannot collapse by
 more than 35 percent between samples. This rule cannot acquire an apple. The
 approach slows near the fruit and confirms Arrival without a blind final push;
 stale frames, duplicate frames, identity changes, or discontinuous geometry
-produce zero-motion recommendations.
+produce zero-motion recommendations. A same-fruit discontinuity preserves the
+completed initial-centering gate: two fresh samples confirm reacquisition at
+zero motion, then moderate horizontal error is corrected while moving. Only an
+error greater than 0.25 of the frame authorizes another yaw-only recenter.
 
 For a complete zero-motion base Demo Run, explicitly start with
 `BORDER_COLLIE_RUNTIME_MODE=simulation`. The audience UI shows a persistent

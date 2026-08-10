@@ -64,6 +64,44 @@ def test_qualified_camera_and_pear_evidence_is_ready() -> None:
     assert status["detection"]["age_s"] < 0.250
 
 
+def test_visual_odometry_is_read_through_a_separate_motion_interface() -> None:
+    payload = valid_payload()
+    payload["visual_odometry"] = {
+        "state": "tracking",
+        "generation": "generation-1",
+        "frame_sequence": 20,
+        "motion_sequence": 18,
+        "trajectory_image_space": {"x_px": 40.0, "y_px": -3.0, "yaw_rad": -0.4},
+        "latest_motion": {
+            "captured_monotonic_s": 99.9,
+            "quality": 0.8,
+            "tracked_features": 120,
+            "inliers": 96,
+            "body_forward_direction": 0.98,
+            "body_left_direction": 0.20,
+            "body_yaw_rad": 0.03,
+            "motion_geometry": "essential_matrix_scale_free",
+        },
+        "loop_closure": {
+            "reference_frame_sequence": 2,
+            "current_frame_sequence": 20,
+            "quality": 0.9,
+        },
+    }
+
+    observation = client_for(payload).observe_motion()
+
+    assert observation is not None
+    assert observation.generation == "generation-1"
+    assert observation.trajectory_x_px == 40.0
+    assert observation.motion_quality == 0.8
+    assert observation.body_forward_direction == 0.98
+    assert observation.body_left_direction == 0.20
+    assert observation.body_yaw_delta_rad == 0.03
+    assert observation.motion_geometry == "essential_matrix_scale_free"
+    assert observation.loop_closure["reference_frame_sequence"] == 2
+
+
 def test_qualified_apple_evidence_uses_its_own_threshold() -> None:
     payload = valid_payload()
     payload["target_fruit"] = "apple"

@@ -31,10 +31,13 @@ def build_app_from_env() -> FastAPI:
         )
     if runtime_mode != "production":
         raise ValueError("BORDER_COLLIE_RUNTIME_MODE must be production or simulation")
-    hardware = HardwareManager(HardwareConfig.from_env())
     release_cohort = ReleaseCohort.from_env("app")
     perception = PerceptionStatusClient(
         PerceptionConfig.from_env(), release_cohort=release_cohort
+    )
+    hardware = HardwareManager(
+        HardwareConfig.from_env(),
+        visual_odometry=perception,
     )
     bark = BarkClient(BarkConfig.from_env(), release_cohort=release_cohort)
     terminal_evidence = TerminalEvidenceClient.from_env()

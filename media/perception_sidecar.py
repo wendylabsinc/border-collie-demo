@@ -32,6 +32,7 @@ from media.service_supervision import (
     ServiceSupervisionConfig,
     ServiceSupervisor,
 )
+from media.visual_odometry import SparseVisualOdometry, VisualOdometryConfig
 
 FRUIT_ACQUISITION_CONFIDENCE = {
     "apple": 0.70,
@@ -541,6 +542,10 @@ class PerceptionRuntime:
         self._inference_executor_closed = False
         self._preview_lock = Lock()
         self._preview_jpeg: bytes | None = None
+        self._visual_odometry = SparseVisualOdometry(
+            VisualOdometryConfig.from_env(dict(os.environ))
+        )
+        self._visual_odometry.reset(self.evidence.generation)
 
     async def start(self) -> None:
         configure_media_logging()
@@ -662,6 +667,7 @@ class PerceptionRuntime:
                     ),
                 }
             ),
+            "visual_odometry": self._visual_odometry.status(),
         }
 
     def select_target(self, target_fruit: str) -> dict[str, object]:
@@ -815,6 +821,7 @@ class PerceptionRuntime:
             maximum_frames=int(os.environ.get("EVIDENCE_MAXIMUM_FRAMES", "40")),
         )
         self._last_evidence_capture_s = None
+        self._visual_odometry.reset(generation)
 
     def _session_failure_for(self, generation: str) -> str | None:
         while not self._session_failures.empty():
@@ -1050,6 +1057,12 @@ class PerceptionRuntime:
         completed = time.monotonic()
         if generation is not None and generation != self.evidence.generation:
             return
+        self._visual_odometry.observe(
+            bgr,
+            captured_monotonic_s=received_monotonic_s,
+            source_pts=pts,
+            generation=generation or self.evidence.generation,
+        )
         if candidate is None:
             self.evidence.note_miss(target_fruit)
             self._publish_preview(

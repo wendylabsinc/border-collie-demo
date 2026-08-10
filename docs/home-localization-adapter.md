@@ -1,57 +1,69 @@
-# Absolute Home observation adapter
+# Fused Home localization
 
-`HomeLocalizer` is the SDK-neutral authority for Home estimates. It combines
-fresh short-term Go2 odometry with an optional absolute observation, rejects
-stale or contradictory evidence, and returns either `trusted` or `unavailable`.
-Motion and recovery code must not read a camera SDK or fiducial detector
-directly.
+`HomeLocalizer` treats Go2 SportModeState as the metric-scale source and sparse
+camera motion as independent relative-motion evidence. It does not use a Home
+marker and it does not convert monocular image translation into metres.
 
-## Adapter interface
+The media process tracks sparse features on frames already decoded for fruit
+inference. Processing is CPU-only, rate limited, resolution limited, and
+adaptively slowed when its measured processing time exceeds budget. Old frames
+are not queued and a media-generation change clears all visual history.
 
-A future AprilTag, ArUco, or equivalent producer implements one method:
+## Visual motion interface
+
+The mission process reads one compact observation:
 
 ```python
-class AbsoluteHomeObservationAdapter(Protocol):
-    def observe_home(self, home: Pose2D) -> AbsoluteHomeObservation | None: ...
+class VisualOdometryAdapter(Protocol):
+    def observe_motion(self) -> VisualOdometryObservation | None: ...
 ```
 
-The method must be non-blocking and return the newest observation available at
-the time of the call. `None` means no absolute observation is currently
-available. An exception means the adapter is unhealthy and makes the combined
-Home estimate unavailable.
+The observation includes the media generation, source frame and motion
+sequences, capture timestamp, accumulated image-space translation and yaw,
+feature/inlier counts, motion quality, and any geometrically verified natural
+scene loop closure.
 
-`AbsoluteHomeObservation.pose_from_home` is the robot pose in the coordinate
-frame established when Home was captured:
+Image translation remains pixels by contract. An essential-matrix estimate may
+provide scale-free body direction and yaw when enough geometry survives RANSAC.
+The Go2 pose delta supplies metric distance; the visual direction cannot create
+or enlarge that distance.
 
-- Home is `(0, 0, 0)`.
-- Positive x follows the captured Home heading.
-- Positive y points left from that heading.
-- Yaw is relative to the captured Home heading.
+## Stateful planar fusion
 
-The adapter owns camera calibration, camera-to-body extrinsics, fiducial pose
-solving, and transformation into this frame. It must bind an observation to the
-same physical marker and Home calibration used for the current Demo Run.
-`reference_id` identifies that marker or calibrated reference.
+`PlanarSensorFusion` maintains Home-relative position, heading, planar velocity,
+and gyroscope yaw bias with explicit covariance. Its interface is only
+`reset(observation)` and `update(observation)`.
 
-`captured_monotonic_s` must use the application process's monotonic clock. It is
-the time of image acquisition, not detector completion or publication. The
-adapter must never refresh this timestamp when replaying an older detection.
+Each advancing Go2 sample performs:
+
+1. prediction from velocity and IMU yaw rate;
+2. innovation-gated Go2 position and heading updates;
+3. body-velocity conversion into the Home frame;
+4. a zero-velocity and gyro-bias update when at least three qualified feet are
+   loaded and reported velocity/yaw rate are stationary; and
+5. qualified scale-free visual direction/yaw updates, using Go2 displacement
+   magnitude as the translation scale.
+
+Non-advancing timestamps with changed poses fail immediately. A bounded number
+of metric innovations may be rejected; persistent rejection makes localization
+unavailable. A long observation gap can re-seed only while a qualified
+stationary stance is observed.
 
 ## Trust behavior
 
-- Without an adapter, fresh Go2 odometry preserves current behavior and the
-  evidence reports `absolute.state = not_configured`.
-- With an adapter but no current observation, fresh odometry remains trusted
-  and reports `absolute.state = not_observed`.
-- A fresh, agreeing observation corrects odometry with the configured absolute
-  weight.
-- A stale, future-dated, malformed, or contradictory observation makes Home
-  unavailable. It is not allowed to silently replace odometry or fall back to
-  an apparently healthy distance.
-- Both raw measurements, their disagreement, thresholds, fusion weight, source,
-  and reference ID are retained in Home-localization evidence.
+- Fresh Go2 pose is always required for a metric Home estimate.
+- Missing, initializing, stale, low-quality, or restarted visual odometry falls
+  back to fresh Go2 metric pose and is reported explicitly.
+- Fresh agreeing scale-free visual direction and yaw reduce uncertainty and
+  participate in the fused state.
+- One visual disagreement is evidence, not an immediate stop. Persistent
+  qualified disagreement makes localization unavailable and stops motion.
+- Natural-feature loop closure is recorded for trajectory qualification. It
+  does not by itself prove the final 0.10 m Home gate.
+- The final metric gate uses the farther of raw Go2 distance and filtered
+  distance. Filtering therefore cannot turn an outside-10-cm raw pose into a
+  successful arrival.
 
-The initial software thresholds are conservative defaults, not a physically
-qualified Operating Envelope. Physical integration still requires marker
-selection and placement, calibration, occlusion and lighting tests, measured
-latency, disagreement-threshold qualification, and a new return-to-Home soak.
+Camera field of view/extrinsics, foot-force threshold, process/measurement
+variances, innovation gates, and CPU budget require physical qualification on
+Woof before deployment.
