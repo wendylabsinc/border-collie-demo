@@ -199,7 +199,7 @@ def live_config() -> HardwareConfig:
         autonomy_enabled=True,
         lab_motion_enabled=True,
         network_interface="test0",
-        forward_pulse_mps=0.50,
+        forward_pulse_mps=0.55,
         forward_pulse_duration_s=0.04,
         command_heartbeat_s=0.01,
         command_watchdog_s=0.03,
@@ -560,7 +560,7 @@ def test_approach_stops_on_confirmed_visible_geometry_without_a_final_push() -> 
                 {"camera_healthy": True, "target_ready": False},
             ),
             "pear",
-            forward_mps=0.50,
+            forward_mps=0.55,
             maximum_yaw_rps=0.30,
             near_bottom_ratio=0.86,
             near_center_ratio=0.72,
@@ -577,10 +577,10 @@ def test_approach_stops_on_confirmed_visible_geometry_without_a_final_push() -> 
         assert result["final_push_count"] == 0
         assert result["forward_pulse_count"] == 3
         assert any(
-            command.reason == "approach_target_slow" and command.forward_mps == 0.50
+            command.reason == "approach_target_slow" and command.forward_mps == 0.55
             for command in motion.commands
         )
-        assert any(command.forward_mps == 0.50 for command in motion.commands)
+        assert any(command.forward_mps == 0.55 for command in motion.commands)
         assert not any(command.forward_mps == 1.0 for command in motion.commands)
         assert motion.commands[-1].reason == "qualified_arrival_stop"
         assert motion.armed is False
@@ -640,7 +640,7 @@ def test_approach_slows_then_stops_while_near_pear_remains_visible() -> None:
             near_center_ratio=0.72,
             near_confirmations=3,
             near_loss_grace_s=0.75,
-            final_push_mps=0.30,
+            final_push_mps=0.55,
             final_push_duration_s=0.001,
             timeout_s=0.5,
         )
@@ -658,7 +658,7 @@ def test_approach_slows_then_stops_while_near_pear_remains_visible() -> None:
                     command
                     for command in motion.commands
                     if command.reason == "approach_target_slow"
-                    and command.forward_mps == 0.30
+                    and command.forward_mps == 0.55
                 ]
             )
             == 2
@@ -669,6 +669,39 @@ def test_approach_slows_then_stops_while_near_pear_remains_visible() -> None:
         assert result["near_confirmations"] == 3
         assert result["forward_pulse_count"] == 3
         assert result["final_push_count"] == 0
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_approach_rejects_sub_breakaway_slow_speed_before_arming() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+
+        with pytest.raises(ValueError, match="minimum 0.55"):
+            await manager.approach_target(
+                lambda: {"camera_healthy": True, "target_ready": False},
+                "pear",
+                forward_mps=1.0,
+                maximum_yaw_rps=0.30,
+                near_bottom_ratio=0.86,
+                near_center_ratio=0.72,
+                near_confirmations=3,
+                near_loss_grace_s=0.75,
+                final_push_mps=0.54,
+                final_push_duration_s=0.001,
+                timeout_s=0.001,
+            )
+
+        assert motion.commands == []
         assert motion.armed is False
         await manager.close()
 
@@ -743,14 +776,14 @@ def test_approach_centers_pear_before_first_forward_command() -> None:
             for command in motion.commands[:first_forward]
         )
         assert [command.yaw_rps for command in motion.commands[:first_forward]] == [
-            -0.50,
-            -0.50,
+            -1.00,
+            -1.00,
             0.0,
             0.0,
         ]
         assert result["initial_center_confirmations"] == 3
         assert result["initial_center_tolerance_ratio"] == 0.08
-        assert result["initial_center_yaw_rps"] == 0.50
+        assert result["initial_center_yaw_rps"] == 1.00
         assert motion.armed is False
         await manager.close()
 
@@ -807,13 +840,13 @@ def test_approach_tracks_an_acquired_pear_at_sixty_percent_confidence() -> None:
                 {"camera_healthy": True, "target_ready": False},
             ),
             "pear",
-            forward_mps=0.50,
+            forward_mps=0.55,
             maximum_yaw_rps=0.30,
             near_bottom_ratio=0.86,
             near_center_ratio=0.72,
             near_confirmations=3,
             near_loss_grace_s=0.75,
-            final_push_mps=0.30,
+            final_push_mps=0.55,
             final_push_duration_s=0.001,
             timeout_s=0.5,
         )
@@ -822,7 +855,7 @@ def test_approach_tracks_an_acquired_pear_at_sixty_percent_confidence() -> None:
         assert result["tracking_minimum_confidence"] == 0.55
         assert result["minimum_observed_tracking_confidence"] == 0.60
         assert any(
-            command.reason == "approach_target" and command.forward_mps == 0.50
+            command.reason == "approach_target" and command.forward_mps == 0.55
             for command in motion.commands
         )
         assert motion.armed is False
@@ -881,7 +914,7 @@ def test_approach_may_combine_forward_and_yaw_after_initial_centering() -> None:
             near_center_ratio=0.72,
             near_confirmations=3,
             near_loss_grace_s=0.75,
-            final_push_mps=0.30,
+            final_push_mps=0.55,
             final_push_duration_s=0.001,
             timeout_s=0.5,
         )
@@ -982,7 +1015,7 @@ def test_approach_uses_close_range_continuity_after_red_apple_confidence_drops()
             near_center_ratio=0.72,
             near_confirmations=3,
             near_loss_grace_s=0.75,
-            final_push_mps=0.30,
+            final_push_mps=0.55,
             final_push_duration_s=0.001,
             timeout_s=0.5,
         )
@@ -1040,7 +1073,7 @@ def test_close_range_continuity_rejects_a_discontinuous_low_confidence_apple() -
                 near_center_ratio=0.72,
                 near_confirmations=3,
                 near_loss_grace_s=0.75,
-                final_push_mps=0.30,
+                final_push_mps=0.55,
                 final_push_duration_s=0.001,
                 timeout_s=0.08,
             )
@@ -1091,7 +1124,7 @@ def test_visible_arrival_finishes_before_a_later_camera_failure() -> None:
                 {"camera_healthy": False, "detail": "source progress is stale"},
             ),
             "pear",
-            forward_mps=0.50,
+            forward_mps=0.55,
             maximum_yaw_rps=0.30,
             near_bottom_ratio=0.86,
             near_center_ratio=0.72,
@@ -1252,7 +1285,7 @@ def test_guarded_pulse_renews_fixed_command_then_releases() -> None:
         result = await manager.run_forward_pulse(FORWARD_PULSE_CONFIRMATION)
 
         assert len(motion.commands) >= 2
-        assert all(command.forward_mps == 0.50 for command in motion.commands)
+        assert all(command.forward_mps == 0.55 for command in motion.commands)
         assert all(command.yaw_rps == 0.0 for command in motion.commands)
         assert result["motion_path"] == "factory_avoidance"
         assert result["stopped"] is True
@@ -1348,6 +1381,7 @@ def test_motion_factory_receives_the_validated_limits() -> None:
         await manager.start()
 
         assert received[0].maximum_forward_mps == 1.0
+        assert received[0].minimum_forward_mps == 0.55
         assert received[0].command_watchdog_s == 0.03
         assert received[0].remote_api_settle_s == 0.0
         await manager.close()

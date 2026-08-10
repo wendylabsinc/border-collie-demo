@@ -21,7 +21,7 @@ def authority(*, forward: bool = True, ttl_s: float = 2.0) -> MotionAuthority:
         operation="test",
         allow_forward=forward,
         maximum_forward_mps=1.0,
-        maximum_yaw_rps=0.8,
+        maximum_yaw_rps=1.0,
         ttl_s=ttl_s,
     )
 
@@ -98,10 +98,10 @@ def test_factory_avoidance_motion_is_exclusive_and_stops_on_release() -> None:
         await motion.initialize()
         lease = await motion.arm(authority())
 
-        sent = await motion.command(lease, VelocityCommand(0.50, 0.20, "test"))
+        sent = await motion.command(lease, VelocityCommand(0.55, 0.20, "test"))
 
-        assert sent == VelocityCommand(0.50, 0.20, "test")
-        assert avoidance.moves[-1] == (0.50, 0.0, 0.20)
+        assert sent == VelocityCommand(0.55, 0.20, "test")
+        assert avoidance.moves[-1] == (0.55, 0.0, 0.20)
         assert motion.armed is True
         await motion.release(lease)
         assert sport.stop_calls == 1
@@ -118,8 +118,9 @@ def test_factory_avoidance_motion_is_exclusive_and_stops_on_release() -> None:
     "command,error",
     [
         (VelocityCommand(-0.01, 0.0), "non-negative"),
+        (VelocityCommand(0.54, 0.0), "minimum 0.55"),
         (VelocityCommand(1.01, 0.0), "configured limit"),
-        (VelocityCommand(0.0, 0.81), "configured limit"),
+        (VelocityCommand(0.0, 1.01), "configured limit"),
     ],
 )
 def test_unsafe_velocity_is_rejected_before_hardware(
@@ -158,7 +159,7 @@ def test_stale_command_watchdog_brakes_and_revokes_lease() -> None:
         )
         await motion.initialize()
         lease = await motion.arm(authority())
-        await motion.command(lease, VelocityCommand(0.50, 0.0, "test"))
+        await motion.command(lease, VelocityCommand(0.55, 0.0, "test"))
 
         await asyncio.sleep(0.08)
 
@@ -182,7 +183,7 @@ def test_stale_lease_cannot_command_motion() -> None:
         await motion.arm(authority())
 
         with pytest.raises(LeaseMismatch):
-            await motion.command("not-the-lease", VelocityCommand(0.50, 0.0))
+            await motion.command("not-the-lease", VelocityCommand(0.55, 0.0))
 
         assert all(move[0] == 0.0 for move in avoidance.moves)
         await motion.close()

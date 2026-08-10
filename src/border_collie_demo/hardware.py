@@ -36,7 +36,7 @@ from .return_home import (
 FORWARD_PULSE_CONFIRMATION = "PATH CLEAR - MOVE WOOF FORWARD"
 INITIAL_CENTER_TOLERANCE_RATIO = 0.08
 INITIAL_CENTER_CONFIRMATIONS = 3
-INITIAL_CENTER_YAW_RPS = 0.50
+INITIAL_CENTER_YAW_RPS = 1.00
 SEARCH_CROP_CANDIDATE_CONFIDENCE = 0.50
 APPROACH_CENTER_TOLERANCE_RATIO = 0.08
 FORWARD_CAPABLE_OPERATIONS = frozenset(
@@ -164,6 +164,7 @@ class HardwareManager:
             self._pose.start()
             self._motion = self._motion_factory(
                 MotionConfig(
+                    minimum_forward_mps=self.config.minimum_forward_mps,
                     maximum_forward_mps=self.config.maximum_forward_mps,
                     maximum_yaw_rps=self.config.maximum_yaw_rps,
                     command_watchdog_s=self.config.command_watchdog_s,
@@ -680,6 +681,16 @@ class HardwareManager:
             raise ValueError("approach speed is outside the configured limit")
         if not 0.0 < final_push_mps <= self.config.maximum_forward_mps:
             raise ValueError("final push is outside the configured limit")
+        if forward_mps < self.config.minimum_forward_mps:
+            raise ValueError(
+                "approach speed is below minimum "
+                f"{self.config.minimum_forward_mps:.2f} m/s"
+            )
+        if final_push_mps < self.config.minimum_forward_mps:
+            raise ValueError(
+                "slow approach speed is below minimum "
+                f"{self.config.minimum_forward_mps:.2f} m/s"
+            )
         if not 0.0 < maximum_yaw_rps <= self.config.maximum_yaw_rps:
             raise ValueError("approach yaw is outside the configured limit")
         if not 0.0 < near_bottom_ratio <= 1.0 or not 0.0 < near_center_ratio <= 1.0:
@@ -884,6 +895,11 @@ class HardwareManager:
         )
         if forward_mps > self.config.maximum_forward_mps:
             raise ValueError("return speed is outside the configured limit")
+        if forward_mps < self.config.minimum_forward_mps:
+            raise ValueError(
+                "return speed is below minimum "
+                f"{self.config.minimum_forward_mps:.2f} m/s"
+            )
         if (
             isinstance(forward_pulse_count, bool)
             or not isinstance(forward_pulse_count, int)
@@ -1301,6 +1317,11 @@ class HardwareManager:
     ) -> VelocityCommand:
         if self._motion is None:
             raise HardwareUnavailable("Go2 motion adapter is not connected")
+        if 0.0 < command.forward_mps < self.config.minimum_forward_mps:
+            raise HardwareUnavailable(
+                f"forward command {command.forward_mps:.2f} m/s is below minimum "
+                f"{self.config.minimum_forward_mps:.2f} m/s"
+            )
         if (
             command.forward_mps > 0.0
             and self._active_operation not in FORWARD_CAPABLE_OPERATIONS

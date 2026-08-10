@@ -264,7 +264,7 @@ def test_stage_result_records_the_exact_velocity_commands() -> None:
     asyncio.run(scenario())
 
 
-def test_approach_uses_measured_factory_motion_and_one_final_push() -> None:
+def test_approach_retains_full_speed_after_target_acquisition() -> None:
     async def scenario() -> None:
         hardware = FakeProductionHardware()
         status_reader = lambda: {"ready": True}
@@ -275,18 +275,16 @@ def test_approach_uses_measured_factory_motion_and_one_final_push() -> None:
         name, reader, fruit, options = hardware.calls[0]
         assert (name, reader, fruit) == ("approach_target", status_reader, "pear")
         assert options == {
-            # The factory-avoidance calibration established 0.50 m/s as the
-            # deadband edge, not a production value with usable margin. The
-            # camera-guided approach uses the separately verified 1.0 m/s
-            # signal, while the final off-screen movement is softened to
-            # 0.3 m/s before the explicit stop-and-lie-down sequence.
+            # Target acquisition must not switch into the old 0.55 m/s
+            # forward and 0.30 rad/s yaw profile. Arrival geometry owns the
+            # stop, while the tracked approach retains the qualified profile.
             "forward_mps": 1.0,
-            "maximum_yaw_rps": 0.30,
+            "maximum_yaw_rps": 1.0,
             "near_bottom_ratio": 0.86,
             "near_center_ratio": 0.72,
             "near_confirmations": 3,
             "near_loss_grace_s": 0.75,
-            "final_push_mps": 0.3,
+            "final_push_mps": 1.0,
             "final_push_duration_s": 1.0,
             "timeout_s": 20.0,
         }

@@ -282,8 +282,9 @@ Keep `BORDER_COLLIE_LAB_MOTION_ENABLED=0` for the audience demo. Confirm
 the person with the pear in the qualified search area, then use **Activate
 Demo** once. Keep the physical remote and **Stop Woof** immediately available.
 
-The pulse is fixed to the previously observed factory-path movement signal:
-0.50 m/s for 0.40 seconds. It uses a private exclusive lease, 100 ms command
+The pulse is fixed to the field-qualified factory-path movement signal:
+0.55 m/s for 0.40 seconds. Any nonzero forward command below 0.55 m/s fails
+closed before reaching the SDK. It uses a private exclusive lease, 100 ms command
 heartbeats, a 350 ms stale-command watchdog, factory avoidance verification,
 and `StopMove` plus avoidance release in a `finally` boundary.
 

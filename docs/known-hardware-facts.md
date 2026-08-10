@@ -4,14 +4,15 @@ These observations came from the earlier prototype and are design inputs, not
 proof that this clean implementation works:
 
 - Direct SportClient movement produced physical steps at 0.25 and 0.50 m/s.
-- Factory obstacle-avoidance movement required approximately 0.50 m/s.
+- Factory obstacle-avoidance commands below 0.55 m/s can load the legs and
+  produce a lean without translation; 0.55 m/s is the minimum permitted signal.
 - Corrective factory-avoidance yaw values around 0.24–0.30 rad/s can change
   posture without producing a useful turn. The clean centering candidate uses
   the separately observed working 0.50 rad/s turn signal outside its center
   band and zero yaw inside the band.
 - The same factory-avoidance calibration produced visible physical movement
   at 1.0 m/s. Production fruit approach therefore uses 1.0 m/s rather than
-  operating exactly at the observed 0.50 m/s deadband edge; camera steering,
+  operating below the 0.55 m/s movement floor; camera steering,
   near-fruit geometry, slowed close approach, timeout, and automatic release
   remain mandatory.
 - Short travel should use a reliable velocity with bounded pulse duration,

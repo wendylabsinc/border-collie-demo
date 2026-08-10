@@ -16,11 +16,12 @@ class HardwareConfig:
     autonomy_enabled: bool = False
     lab_motion_enabled: bool = False
     network_interface: str | None = None
-    forward_pulse_mps: float = 0.50
+    minimum_forward_mps: float = 0.55
+    forward_pulse_mps: float = 0.55
     forward_pulse_duration_s: float = 0.40
     command_heartbeat_s: float = 0.10
     maximum_forward_mps: float = 1.0
-    maximum_yaw_rps: float = 0.80
+    maximum_yaw_rps: float = 1.00
     command_watchdog_s: float = 0.35
     motion_authority_ttl_s: float = 2.0
     rpc_timeout_s: float = 0.75
@@ -32,6 +33,7 @@ class HardwareConfig:
 
     def __post_init__(self) -> None:
         positive_values = (
+            "minimum_forward_mps",
             "forward_pulse_mps",
             "forward_pulse_duration_s",
             "command_heartbeat_s",
@@ -49,6 +51,10 @@ class HardwareConfig:
                 raise ValueError(f"{name} must be finite and positive")
         if self.forward_pulse_mps > self.maximum_forward_mps:
             raise ValueError("forward pulse exceeds the configured motion limit")
+        if self.minimum_forward_mps > self.maximum_forward_mps:
+            raise ValueError("minimum forward speed exceeds the configured motion limit")
+        if self.forward_pulse_mps < self.minimum_forward_mps:
+            raise ValueError("forward pulse is below the configured movement minimum")
         if self.command_heartbeat_s >= self.command_watchdog_s:
             raise ValueError("command heartbeat must be faster than the watchdog")
         if self.motion_authority_ttl_s <= self.command_watchdog_s:
@@ -70,8 +76,11 @@ class HardwareConfig:
             autonomy_enabled=env_bool("BORDER_COLLIE_AUTONOMY_ENABLED"),
             lab_motion_enabled=env_bool("BORDER_COLLIE_LAB_MOTION_ENABLED"),
             network_interface=interface,
+            minimum_forward_mps=float(
+                os.environ.get("BORDER_COLLIE_MIN_FORWARD_MPS", "0.55")
+            ),
             forward_pulse_mps=float(
-                os.environ.get("BORDER_COLLIE_FORWARD_PULSE_MPS", "0.50")
+                os.environ.get("BORDER_COLLIE_FORWARD_PULSE_MPS", "0.55")
             ),
             forward_pulse_duration_s=float(
                 os.environ.get("BORDER_COLLIE_FORWARD_PULSE_DURATION_S", "0.40")
@@ -82,7 +91,7 @@ class HardwareConfig:
             maximum_forward_mps=float(
                 os.environ.get("BORDER_COLLIE_MAX_FORWARD_MPS", "1.0")
             ),
-            maximum_yaw_rps=float(os.environ.get("BORDER_COLLIE_MAX_YAW_RPS", "0.80")),
+            maximum_yaw_rps=float(os.environ.get("BORDER_COLLIE_MAX_YAW_RPS", "1.00")),
             command_watchdog_s=float(
                 os.environ.get("BORDER_COLLIE_COMMAND_WATCHDOG_S", "0.35")
             ),

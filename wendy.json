@@ -1,13 +1,13 @@
 {
   "appId": "border-collie-demo",
-  "version": "1.0.5-durability",
+  "version": "1.0.8-durability",
   "services": {
     "app": {
       "context": ".",
       "env": {
         "BORDER_COLLIE_PORT": "8110",
-        "BORDER_COLLIE_BUILD_LABEL": "durability-foundation-v2 (codex/extreme-durability-foundation)",
-        "BORDER_COLLIE_RELEASE_ID": "durability-foundation-v2",
+        "BORDER_COLLIE_BUILD_LABEL": "durability-foundation-v5-full-speed-approach (codex/extreme-durability-foundation)",
+        "BORDER_COLLIE_RELEASE_ID": "durability-foundation-v5-full-speed-approach",
         "BORDER_COLLIE_CONFIG_SCHEMA": "1",
         "BORDER_COLLIE_RUNTIME_MODE": "production",
         "BORDER_COLLIE_HARDWARE_ENABLED": "1",
@@ -24,7 +24,8 @@
         "BORDER_COLLIE_EVIDENCE_BASE_URL": "http://127.0.0.1:8111/",
         "BORDER_COLLIE_EVIDENCE_TIMEOUT_S": "3.0",
         "BORDER_COLLIE_RUNS_DIR": "/var/lib/border-collie-demo/runs",
-        "BORDER_COLLIE_FORWARD_PULSE_MPS": "0.50",
+        "BORDER_COLLIE_FORWARD_PULSE_MPS": "0.55",
+        "BORDER_COLLIE_MIN_FORWARD_MPS": "0.55",
         "BORDER_COLLIE_FORWARD_PULSE_DURATION_S": "0.40",
         "BORDER_COLLIE_MAX_FORWARD_MPS": "1.0",
         "BORDER_COLLIE_COMMAND_WATCHDOG_S": "0.35",
@@ -43,7 +44,7 @@
       "context": "./media",
       "env": {
         "UNITREE_ROBOT_IP": "192.168.123.161",
-        "BORDER_COLLIE_RELEASE_ID": "durability-foundation-v2",
+        "BORDER_COLLIE_RELEASE_ID": "durability-foundation-v5-full-speed-approach",
         "BORDER_COLLIE_CONFIG_SCHEMA": "1",
         "PEAR_MODEL_PATH": "/media/model.engine",
         "BANANA_SPECIALIST_MODEL_PATH": "/media/banana-specialist.pt",

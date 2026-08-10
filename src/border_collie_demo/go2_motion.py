@@ -67,8 +67,9 @@ class AvoidanceClientProtocol(Protocol):
 
 @dataclass(frozen=True)
 class MotionConfig:
+    minimum_forward_mps: float = 0.55
     maximum_forward_mps: float = 1.0
-    maximum_yaw_rps: float = 0.80
+    maximum_yaw_rps: float = 1.00
     command_watchdog_s: float = 0.35
     rpc_timeout_s: float = 0.75
     client_timeout_s: float = 12.0
@@ -78,6 +79,7 @@ class MotionConfig:
 
     def __post_init__(self) -> None:
         for name in (
+            "minimum_forward_mps",
             "maximum_forward_mps",
             "maximum_yaw_rps",
             "command_watchdog_s",
@@ -89,6 +91,8 @@ class MotionConfig:
             value = float(getattr(self, name))
             if not math.isfinite(value) or value <= 0.0:
                 raise ValueError(f"{name} must be finite and positive")
+        if self.minimum_forward_mps > self.maximum_forward_mps:
+            raise ValueError("minimum forward speed exceeds maximum forward speed")
         if self.remote_api_settle_s < 0.0:
             raise ValueError("remote_api_settle_s must be non-negative")
 
@@ -147,6 +151,7 @@ class Go2Motion:
             "remote_api_enabled": self._remote_api_enabled,
             "watchdog_s": self.config.command_watchdog_s,
             "limits": {
+                "minimum_forward_mps": self.config.minimum_forward_mps,
                 "forward_mps": self.config.maximum_forward_mps,
                 "yaw_rps": self.config.maximum_yaw_rps,
                 "lateral_mps": 0.0,
@@ -466,6 +471,11 @@ class Go2Motion:
         number = float(value)
         if not math.isfinite(number) or number < 0.0:
             raise ValueError("forward speed must be finite and non-negative")
+        if 0.0 < number < self.config.minimum_forward_mps:
+            raise ValueError(
+                "forward speed is below minimum "
+                f"{self.config.minimum_forward_mps:.2f} m/s"
+            )
         if number > self.config.maximum_forward_mps:
             raise ValueError("forward speed exceeds the configured limit")
         return number
