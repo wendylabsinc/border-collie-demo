@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import math
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Callable, Protocol
+from typing import Protocol
 
 from .return_home import Pose2D, normalize_angle
 

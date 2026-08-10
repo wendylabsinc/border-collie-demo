@@ -41,7 +41,7 @@ def test_production_runtime_wires_the_real_stage_executor(
     created = []
 
     class Perception:
-        def __init__(self, _config) -> None:
+        def __init__(self, _config, **_options) -> None:
             pass
 
         status = staticmethod(simulated_camera_perception)
@@ -59,7 +59,7 @@ def test_production_runtime_wires_the_real_stage_executor(
         return SimulatedStageExecutor()
 
     class Bark:
-        def __init__(self, _config) -> None:
+        def __init__(self, _config, **_options) -> None:
             pass
 
         @staticmethod

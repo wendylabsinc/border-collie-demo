@@ -11,6 +11,7 @@ from urllib.request import Request, urlopen
 
 from .config import PerceptionConfig
 from .fruits import SUPPORTED_FRUITS, fruit_policy
+from .release import ReleaseCohort, evaluate_peer_release
 
 SOURCE_MAXIMUM_AGE_S = 0.350
 SOURCE_MINIMUM_CONSECUTIVE_FRAMES = 10
@@ -34,11 +35,13 @@ class PerceptionStatusClient:
         fetcher: StatusFetcher | None = None,
         target_poster: TargetPoster | None = None,
         clock: Clock = time.monotonic,
+        release_cohort: ReleaseCohort | None = None,
     ) -> None:
         self.config = config or PerceptionConfig()
         self._fetcher = fetcher or _fetch_status
         self._target_poster = target_poster or _post_target
         self._clock = clock
+        self._release_cohort = release_cohort
 
     def select_target(self, target_fruit: str) -> dict[str, object]:
         if not self.config.enabled:
@@ -68,7 +71,11 @@ class PerceptionStatusClient:
                 self.config.status_url,
                 self.config.timeout_s,
             )
-            return evaluate_perception_evidence(payload, now_s=self._clock())
+            return evaluate_perception_evidence(
+                payload,
+                now_s=self._clock(),
+                release_cohort=self._release_cohort,
+            )
         except Exception as exc:  # noqa: BLE001 - remote evidence is untrusted
             return {
                 "ready": False,
@@ -97,6 +104,7 @@ def evaluate_perception_evidence(
     payload: dict[str, Any],
     *,
     now_s: float,
+    release_cohort: ReleaseCohort | None = None,
 ) -> dict[str, object]:
     violations: list[str] = []
     camera_violations: list[str] = []
@@ -113,6 +121,13 @@ def evaluate_perception_evidence(
     supervision = payload.get("supervision")
     source = payload.get("source")
     detection = payload.get("detection")
+    release = evaluate_peer_release(
+        release_cohort,
+        payload.get("release"),
+        peer_service="media",
+    )
+    if release["ready"] is not True:
+        camera_violations.append(str(release["detail"]))
     if not isinstance(generation, str) or not generation.strip():
         camera_violations.append("connection generation is missing")
     if not isinstance(supervision, dict):
@@ -269,6 +284,7 @@ def evaluate_perception_evidence(
         "supported_fruits": list(SUPPORTED_FRUITS),
         "motion_qualified": target_policy.motion_qualified,
         "generation": generation,
+        "release": release,
         "supervision": dict(supervision),
         "source": {
             "pts": pts,

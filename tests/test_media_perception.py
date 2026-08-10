@@ -5,6 +5,7 @@ import logging
 import time
 import zipfile
 from types import SimpleNamespace
+from typing import ClassVar
 
 from fastapi.testclient import TestClient
 
@@ -68,7 +69,7 @@ def test_runtime_supervisor_cleans_failed_sessions_and_recovers_in_process() -> 
             self.channels.append(enabled)
 
     class Connection:
-        instances = []
+        instances: ClassVar[list[object]] = []
 
         def __init__(self, method, *, ip: str) -> None:
             self.method = method
@@ -122,6 +123,19 @@ def test_runtime_supervisor_cleans_failed_sessions_and_recovers_in_process() -> 
         assert Connection.instances[2].video.channels == [True, False]
 
     asyncio.run(scenario())
+
+
+def test_media_status_publishes_its_release_cohort(monkeypatch) -> None:
+    monkeypatch.setenv("BORDER_COLLIE_RELEASE_ID", "release-9")
+    monkeypatch.setenv("BORDER_COLLIE_CONFIG_SCHEMA", "4")
+
+    status = perception_sidecar.release_cohort_status()
+
+    assert status == {
+        "release_id": "release-9",
+        "config_schema": 4,
+        "service": "media",
+    }
 
 
 def test_preview_encoding_cannot_starve_the_sidecar_status_event_loop() -> None:

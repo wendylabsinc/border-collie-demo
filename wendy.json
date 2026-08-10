@@ -7,6 +7,8 @@
       "env": {
         "BORDER_COLLIE_PORT": "8110",
         "BORDER_COLLIE_BUILD_LABEL": "base-soak-v4-recovery-reserve (demo/base)",
+        "BORDER_COLLIE_RELEASE_ID": "durability-foundation-v1",
+        "BORDER_COLLIE_CONFIG_SCHEMA": "1",
         "BORDER_COLLIE_RUNTIME_MODE": "production",
         "BORDER_COLLIE_HARDWARE_ENABLED": "1",
         "BORDER_COLLIE_AUTONOMY_ENABLED": "1",
@@ -41,6 +43,8 @@
       "context": "./media",
       "env": {
         "UNITREE_ROBOT_IP": "192.168.123.161",
+        "BORDER_COLLIE_RELEASE_ID": "durability-foundation-v1",
+        "BORDER_COLLIE_CONFIG_SCHEMA": "1",
         "PEAR_MODEL_PATH": "/media/model.engine",
         "BANANA_SPECIALIST_MODEL_PATH": "/media/banana-specialist.pt",
         "BANANA_SPECIALIST_MIN_CONFIDENCE": "0.55",

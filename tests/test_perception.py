@@ -4,6 +4,7 @@ import pytest
 
 from border_collie_demo.config import PerceptionConfig
 from border_collie_demo.perception import PerceptionStatusClient
+from border_collie_demo.release import ReleaseCohort
 
 
 def valid_payload() -> dict[str, object]:
@@ -151,6 +152,27 @@ def test_media_supervision_generation_must_match_camera_generation() -> None:
 
     assert status["camera_healthy"] is False
     assert "supervision generation does not match" in status["detail"]
+
+
+def test_perception_fails_closed_on_mixed_release_cohort() -> None:
+    payload = valid_payload()
+    payload["release"] = {
+        "release_id": "release-old",
+        "config_schema": 1,
+        "service": "media",
+    }
+    client = PerceptionStatusClient(
+        PerceptionConfig(enabled=True),
+        fetcher=lambda _url, _timeout: payload,
+        clock=lambda: 100.0,
+        release_cohort=ReleaseCohort("release-new", 1, "app"),
+    )
+
+    status = client.status()
+
+    assert status["camera_healthy"] is False
+    assert status["release"]["ready"] is False
+    assert "release cohort is missing or mismatched" in status["detail"]
 
 
 def test_disabled_perception_fails_closed_without_fetching() -> None:

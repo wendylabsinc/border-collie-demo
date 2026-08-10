@@ -43,6 +43,17 @@ SEARCH_CROP_FRUITS = frozenset({"apple", "banana"})
 LOGGER = logging.getLogger(__name__)
 
 
+def release_cohort_status() -> dict[str, object] | None:
+    release_id = os.environ.get("BORDER_COLLIE_RELEASE_ID", "").strip()
+    if not release_id:
+        return None
+    return {
+        "release_id": release_id,
+        "config_schema": int(os.environ.get("BORDER_COLLIE_CONFIG_SCHEMA", "1")),
+        "service": "media",
+    }
+
+
 class TargetFruitRequest(BaseModel):
     target_fruit: Literal["apple", "banana", "pear"]
 
@@ -624,6 +635,7 @@ class PerceptionRuntime:
         supervision = self._supervision.status()
         return {
             **self.evidence.status(),
+            "release": release_cohort_status(),
             "supervision": supervision,
             "bark_ready": (
                 supervision["ready"] is True
@@ -777,15 +789,15 @@ class PerceptionRuntime:
             return
         try:
             connection.video.switchVideoChannel(False)
-        except Exception:  # noqa: BLE001 - cleanup is best effort and SDK-neutral
-            pass
+        except Exception:
+            LOGGER.debug("failed to disable stale video channel", exc_info=True)
         try:
             await asyncio.wait_for(
                 connection.disconnect(),
                 timeout=self._cleanup_timeout_s,
             )
-        except Exception:  # noqa: BLE001 - stale session cleanup must be bounded
-            pass
+        except Exception:
+            LOGGER.debug("failed to disconnect stale media session", exc_info=True)
 
     def _begin_generation(self, generation: str) -> None:
         with self._target_lock:

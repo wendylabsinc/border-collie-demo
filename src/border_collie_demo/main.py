@@ -13,6 +13,7 @@ from .media import BarkClient, BarkConfig
 from .orchestrator import SimulatedStageExecutor
 from .perception import PerceptionStatusClient
 from .production import ProductionStageExecutor
+from .release import ReleaseCohort
 from .simulation import SimulatedHardware, simulated_camera_perception
 
 
@@ -31,8 +32,11 @@ def build_app_from_env() -> FastAPI:
     if runtime_mode != "production":
         raise ValueError("BORDER_COLLIE_RUNTIME_MODE must be production or simulation")
     hardware = HardwareManager(HardwareConfig.from_env())
-    perception = PerceptionStatusClient(PerceptionConfig.from_env())
-    bark = BarkClient(BarkConfig.from_env())
+    release_cohort = ReleaseCohort.from_env("app")
+    perception = PerceptionStatusClient(
+        PerceptionConfig.from_env(), release_cohort=release_cohort
+    )
+    bark = BarkClient(BarkConfig.from_env(), release_cohort=release_cohort)
     terminal_evidence = TerminalEvidenceClient.from_env()
     return create_app(
         hardware=hardware,
@@ -42,6 +46,7 @@ def build_app_from_env() -> FastAPI:
         media_status=bark.status,
         stage_executor=ProductionStageExecutor(hardware, perception.status, bark),
         terminal_evidence=terminal_evidence.capture,
+        release_cohort=release_cohort,
         runtime_mode="production",
     )
 

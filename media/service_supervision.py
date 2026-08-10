@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import math
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Callable
 
 
 class ServiceState(str, Enum):
@@ -137,7 +137,7 @@ class ServiceSupervisor:
             # Delayed callbacks from a cleaned-up session must not revive it.
             return False
         if isinstance(pts, bool) or not isinstance(pts, int):
-            raise ValueError("frame PTS must be an integer")
+            raise TypeError("frame PTS must be an integer")
         now = self._now(now_s)
         advancing = self._last_pts is None or pts > self._last_pts
         timely = self._last_frame_s is None or (

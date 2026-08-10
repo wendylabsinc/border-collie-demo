@@ -10,10 +10,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from .flight_recorder import FlightRecorder
 from .mission import MissionMachine
 from .models import MissionPhase
 from .run_results import RunResultStore
-from .flight_recorder import FlightRecorder
 
 
 @dataclass(frozen=True)

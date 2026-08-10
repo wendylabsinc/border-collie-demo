@@ -12,8 +12,8 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from .evidence import EvidenceArtifact
-from .fruits import QUALIFIED_FRUITS, SUPPORTED_FRUITS
 from .flight_recorder import FlightRecorder, terminal_evidence_bundle
+from .fruits import QUALIFIED_FRUITS, SUPPORTED_FRUITS
 from .hardware import HardwareManager, HardwareUnavailable
 from .mission import MissionMachine, RestartRequired
 from .models import MissionPhase
@@ -24,6 +24,7 @@ from .recovery import (
     FailedRunHomeRecovery,
     recovery_forward_pulse_budget,
 )
+from .release import ReleaseCohort
 from .run_coordinator import RunActivation, RunCoordinator
 from .run_results import ActiveRunError, RunResultNotFound, RunResultStore
 
@@ -69,6 +70,7 @@ def create_app(
     stage_executor: StageExecutor | None = None,
     terminal_evidence: Callable[[], list[EvidenceArtifact]] | None = None,
     flight_recorder: FlightRecorder | None = None,
+    release_cohort: ReleaseCohort | None = None,
     runtime_mode: Literal["production", "simulation"] = "production",
 ) -> FastAPI:
     machine = mission or MissionMachine()
@@ -249,6 +251,7 @@ def create_app(
         return {
             "build_label": build_label(),
             "runtime_mode": runtime_mode,
+            "release": None if release_cohort is None else release_cohort.to_dict(),
             "mission": machine.status(),
             "hardware": robot.status(),
             "active_run_id": results.active_run_id,
