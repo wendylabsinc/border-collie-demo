@@ -110,10 +110,31 @@ def evaluate_perception_evidence(
         target_policy = fruit_policy("pear")
         violations.append("selected Target Fruit is unsupported")
     generation = payload.get("generation")
+    supervision = payload.get("supervision")
     source = payload.get("source")
     detection = payload.get("detection")
     if not isinstance(generation, str) or not generation.strip():
         camera_violations.append("connection generation is missing")
+    if not isinstance(supervision, dict):
+        supervision = {}
+        camera_violations.append("media supervision evidence is missing")
+    else:
+        if (
+            supervision.get("state") != "ready"
+            or supervision.get("ready") is not True
+        ):
+            camera_violations.append(
+                "media supervision is not ready: "
+                + str(
+                    supervision.get("last_error")
+                    or supervision.get("state")
+                    or "unknown"
+                )
+            )
+        if supervision.get("generation") != generation:
+            camera_violations.append(
+                "media supervision generation does not match camera generation"
+            )
     if not isinstance(source, dict):
         source = {}
         camera_violations.append("source evidence is missing")
@@ -248,6 +269,7 @@ def evaluate_perception_evidence(
         "supported_fruits": list(SUPPORTED_FRUITS),
         "motion_qualified": target_policy.motion_qualified,
         "generation": generation,
+        "supervision": dict(supervision),
         "source": {
             "pts": pts,
             "time_base": time_base,

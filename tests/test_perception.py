@@ -9,6 +9,12 @@ from border_collie_demo.perception import PerceptionStatusClient
 def valid_payload() -> dict[str, object]:
     return {
         "generation": "generation-1",
+        "supervision": {
+            "state": "ready",
+            "ready": True,
+            "generation": "generation-1",
+            "last_error": None,
+        },
         "source": {
             "pts": 12345,
             "time_base": "1/90000",
@@ -119,6 +125,32 @@ def test_detection_must_be_bound_to_the_current_camera_generation() -> None:
     assert status["camera_healthy"] is True
     assert status["target_ready"] is False
     assert "generation does not match" in status["detail"]
+
+
+def test_media_supervision_must_be_ready_for_camera_motion_readiness() -> None:
+    payload = valid_payload()
+    payload["supervision"] = {
+        "state": "degraded",
+        "ready": False,
+        "generation": "generation-1",
+        "last_error": "DataChannelTimeoutError",
+    }
+
+    status = client_for(payload).status()
+
+    assert status["camera_healthy"] is False
+    assert status["target_ready"] is False
+    assert "media supervision is not ready" in status["detail"]
+
+
+def test_media_supervision_generation_must_match_camera_generation() -> None:
+    payload = valid_payload()
+    payload["supervision"]["generation"] = "generation-2"
+
+    status = client_for(payload).status()
+
+    assert status["camera_healthy"] is False
+    assert "supervision generation does not match" in status["detail"]
 
 
 def test_disabled_perception_fails_closed_without_fetching() -> None:

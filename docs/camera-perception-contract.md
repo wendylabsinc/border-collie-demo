@@ -44,6 +44,13 @@ than trusting a sidecar-provided `ready` flag:
 ```json
 {
   "generation": "opaque-generation",
+  "supervision": {
+    "state": "ready",
+    "ready": true,
+    "generation": "opaque-generation",
+    "stable_frames": 10,
+    "restart_budget": 5
+  },
   "source": {
     "pts": 12345,
     "time_base": "1/90000",
@@ -77,6 +84,17 @@ Both processes must run on the same Woof host so their monotonic timestamps use
 the same kernel clock. A missing, future, malformed, stale, unreachable, or
 cross-host timestamp fails readiness closed. The complete validated document is
 persisted in the Demo Run preflight evidence.
+
+The sidecar process stays available while its SDK-neutral service supervisor
+owns WebRTC connection attempts. A partial or stale session is disconnected
+before each retry, failures use bounded exponential backoff, and exhausting the
+configured restart budget produces an explicit `failed` state. Every retry
+receives a new generation. The supervisor reports `degraded` until ten strictly
+advancing frames from that one generation have arrived, then reports `ready`.
+A frame stall revokes readiness before cleanup and reconnect. The mission-side
+adapter requires the supervisor generation to match the camera generation and
+still validates all source and detection evidence independently; the
+supervisor's `ready` flag never authorizes motion by itself.
 
 ## Qualified thresholds
 

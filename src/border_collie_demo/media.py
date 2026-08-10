@@ -71,13 +71,27 @@ class BarkClient:
             payload = self._fetcher(self.config.status_url, self.config.timeout_s)
         except Exception as exc:  # noqa: BLE001 - sidecar failures are untyped
             return {"ready": False, "detail": f"Go2 bark status unavailable: {exc}"}
-        ready = payload.get("bark_ready") is True
+        supervision = payload.get("supervision")
+        supervision_ready = bool(
+            isinstance(supervision, dict)
+            and supervision.get("state") == "ready"
+            and supervision.get("ready") is True
+        )
+        ready = payload.get("bark_ready") is True and supervision_ready
         return {
             "ready": ready,
             "detail": (
                 "Go2 bark sidecar is ready"
                 if ready
-                else str(payload.get("error") or "Go2 bark sidecar is not ready")
+                else str(
+                    payload.get("error")
+                    or (
+                        supervision.get("last_error")
+                        if isinstance(supervision, dict)
+                        else None
+                    )
+                    or "Go2 bark sidecar is not ready"
+                )
             ),
         }
 
