@@ -18,6 +18,7 @@ from .go2_motion import (
     initialize_dds,
 )
 from .go2_pose import Go2PoseProvider, PoseStatus
+from .home_localization import HomeEstimate, HomeLocalizationConfig, HomeLocalizer
 from .models import VelocityCommand
 from .motion_guardian import MotionAuthority
 from .qualified_track import QualifiedTrackGate, TrackIdentityChanged
@@ -127,12 +128,18 @@ class HardwareManager:
         dds_initializer: DdsInitializer = initialize_dds,
         motion_factory: MotionFactory | None = None,
         pose_factory: PoseFactory | None = None,
+        home_localizer: HomeLocalizer | None = None,
     ) -> None:
         self.config = config or HardwareConfig()
         self._dds_initializer = dds_initializer
         self._motion_factory = motion_factory or create_go2_motion
         self._pose_factory = pose_factory or (
             lambda maximum_age_s: Go2PoseProvider(maximum_age_s=maximum_age_s)
+        )
+        self._home_localizer = home_localizer or HomeLocalizer(
+            config=HomeLocalizationConfig(
+                maximum_odometry_age_s=self.config.pose_maximum_age_s
+            )
         )
         self._motion: MotionAdapterProtocol | None = None
         self._pose: PoseProviderProtocol | None = None
@@ -933,16 +940,17 @@ class HardwareManager:
                 deadline = started + timeout_s
                 while time.monotonic() < deadline:
                     sample = self._pose.status()
-                    if not sample.healthy or sample.pose is None:
-                        raise HardwareUnavailable(
-                            sample.error or "Go2 pose became stale during return Home"
-                        )
-                    current = Pose2D(
-                        sample.pose.x_m,
-                        sample.pose.y_m,
-                        sample.pose.yaw_rad,
+                    estimate = self._trusted_home_estimate(
+                        home_pose,
+                        sample,
+                        operation="return Home",
                     )
-                    step = plan_return_step(home_pose, current, config)
+                    assert estimate.pose_from_home is not None
+                    step = plan_return_step(
+                        Pose2D(0.0, 0.0, 0.0),
+                        estimate.pose_from_home,
+                        config,
+                    )
                     samples += 1
                     if step.distance_m <= arrival_tolerance_m:
                         evidence = {
@@ -956,6 +964,7 @@ class HardwareManager:
                             "pose_samples": samples,
                             "motion_path": "factory_avoidance",
                             "motion_commands_sent": commands_sent,
+                            "home_localization": estimate.to_dict(),
                         }
                         break
                     if replayed_forward_pulses >= forward_pulse_count:
@@ -1023,12 +1032,17 @@ class HardwareManager:
         while True:
             assert self._pose is not None
             sample = self._pose.status()
-            if not sample.healthy or sample.pose is None:
-                raise HardwareUnavailable(
-                    sample.error or "fresh Go2 pose is required to turn toward Home"
-                )
-            dx = home_pose.x_m - sample.pose.x_m
-            dy = home_pose.y_m - sample.pose.y_m
+            estimate = self._trusted_home_estimate(
+                home_pose,
+                sample,
+                operation="turn toward Home",
+            )
+            assert estimate.pose_from_home is not None
+            current = estimate.pose_from_home
+            dx = -current.x_m
+            dy = -current.y_m
+            if abs(dy) < 1e-12:
+                dy = 0.0
             distance = math.hypot(dx, dy)
             if distance <= 0.10:
                 return {
@@ -1037,9 +1051,10 @@ class HardwareManager:
                     "measured_yaw_change_rad": 0.0,
                     "turn_recovery_count": recovery_count,
                     "motion_commands_sent": False,
+                    "home_localization": estimate.to_dict(),
                 }
             bearing_error = normalize_angle(
-                math.atan2(dy, dx) - sample.pose.yaw_rad
+                math.atan2(dy, dx) - current.yaw_rad
             )
             if abs(bearing_error) <= tolerance_rad:
                 return {
@@ -1048,6 +1063,7 @@ class HardwareManager:
                     "measured_yaw_change_rad": 0.0,
                     "turn_recovery_count": recovery_count,
                     "motion_commands_sent": False,
+                    "home_localization": estimate.to_dict(),
                 }
             remaining_s = deadline - time.monotonic()
             if remaining_s <= 0.0:
@@ -1076,6 +1092,7 @@ class HardwareManager:
                 "home_distance_m": distance,
                 "home_bearing_error_rad": bearing_error,
                 "turn_recovery_count": recovery_count,
+                "home_localization": estimate.to_dict(),
             }
 
     async def restore_home_heading(
@@ -1091,19 +1108,20 @@ class HardwareManager:
         self._require_autonomy_ready()
         assert self._pose is not None
         before = self._pose.status()
-        if not before.healthy or before.pose is None:
-            raise HardwareUnavailable(
-                before.error or "fresh Go2 pose is required to restore Home heading"
-            )
-        initial_distance = math.hypot(
-            home_pose.x_m - before.pose.x_m,
-            home_pose.y_m - before.pose.y_m,
+        before_estimate = self._trusted_home_estimate(
+            home_pose,
+            before,
+            operation="restore Home heading",
         )
+        assert before_estimate.pose_from_home is not None
+        initial_distance = before_estimate.home_distance_m
+        assert initial_distance is not None
         if initial_distance > position_tolerance_m:
             raise HardwareUnavailable(
                 f"Home position was lost before heading restore: {initial_distance:.3f} m"
             )
-        initial_error = normalize_angle(home_pose.yaw_rad - before.pose.yaw_rad)
+        initial_error = before_estimate.heading_error_rad
+        assert initial_error is not None
         motion_sent = False
         if abs(initial_error) > heading_tolerance_rad:
             await self.turn_relative(
@@ -1115,15 +1133,14 @@ class HardwareManager:
             motion_sent = True
 
         after = self._pose.status()
-        if not after.healthy or after.pose is None:
-            raise HardwareUnavailable(
-                after.error or "Go2 pose became stale after heading restore"
-            )
-        distance = math.hypot(
-            home_pose.x_m - after.pose.x_m,
-            home_pose.y_m - after.pose.y_m,
+        after_estimate = self._trusted_home_estimate(
+            home_pose,
+            after,
+            operation="restore Home heading",
         )
-        heading_error = normalize_angle(home_pose.yaw_rad - after.pose.yaw_rad)
+        distance = after_estimate.home_distance_m
+        heading_error = after_estimate.heading_error_rad
+        assert distance is not None and heading_error is not None
         if distance > position_tolerance_m:
             raise HardwareUnavailable(
                 f"Home position was lost during heading restore: {distance:.3f} m"
@@ -1138,6 +1155,7 @@ class HardwareManager:
             "position_tolerance_m": position_tolerance_m,
             "heading_tolerance_rad": heading_tolerance_rad,
             "motion_commands_sent": motion_sent,
+            "home_localization": after_estimate.to_dict(),
         }
 
     def capture_home(self) -> dict[str, object]:
@@ -1160,6 +1178,25 @@ class HardwareManager:
             "age_s": status.age_s,
             "source": "rt/sportmodestate",
         }
+
+    def estimate_home(self, home: dict[str, object]) -> dict[str, object]:
+        """Return explicit trusted/unavailable Home evidence without motion."""
+        try:
+            home_pose = _home_pose(home)
+        except ValueError as exc:
+            return self._unavailable_home_estimate(str(exc))
+        if self._pose is None:
+            return self._unavailable_home_estimate("Go2 pose provider is unavailable")
+        sample = self._pose.status()
+        if not sample.healthy or sample.pose is None or sample.age_s is None:
+            return self._unavailable_home_estimate(
+                sample.error or "fresh Go2 pose is unavailable"
+            )
+        return self._home_localizer.estimate(
+            home_pose,
+            Pose2D(sample.pose.x_m, sample.pose.y_m, sample.pose.yaw_rad),
+            odometry_age_s=sample.age_s,
+        ).to_dict()
 
     async def close(self) -> list[str]:
         errors: list[str] = []
@@ -1205,7 +1242,45 @@ class HardwareManager:
             },
             "motion": motion,
             "pose": pose,
+            "home_localization": self._home_localizer.describe(),
             "last_pulse": self._last_pulse,
+        }
+
+    def _trusted_home_estimate(
+        self,
+        home: Pose2D,
+        sample: PoseStatus,
+        *,
+        operation: str,
+    ) -> HomeEstimate:
+        if not sample.healthy or sample.pose is None or sample.age_s is None:
+            raise HardwareUnavailable(
+                sample.error or f"fresh Go2 pose is required to {operation}"
+            )
+        estimate = self._home_localizer.estimate(
+            home,
+            Pose2D(sample.pose.x_m, sample.pose.y_m, sample.pose.yaw_rad),
+            odometry_age_s=sample.age_s,
+        )
+        if not estimate.trusted:
+            raise HardwareUnavailable(
+                f"Home localization unavailable during {operation}: "
+                f"{estimate.unavailable_reason}"
+            )
+        return estimate
+
+    def _unavailable_home_estimate(self, reason: str) -> dict[str, object]:
+        return {
+            "state": "unavailable",
+            "trusted": False,
+            "source": None,
+            "unavailable_reason": reason,
+            "home_distance_m": None,
+            "heading_error_rad": None,
+            "pose_from_home": None,
+            "evidence": {
+                "capabilities": self._home_localizer.describe(),
+            },
         }
 
     def start_motion_trace(self, phase: str) -> None:

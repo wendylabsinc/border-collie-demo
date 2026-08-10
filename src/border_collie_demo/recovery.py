@@ -7,6 +7,8 @@ import math
 from typing import Any, Protocol
 
 from .hardware import HardwareUnavailable
+from .home_localization import HomeLocalizer
+from .return_home import Pose2D
 from .run_results import RunResultStore
 
 RECOVERY_CONFIRMATION = "RECOVER FAILED RUN TO CAPTURED HOME"
@@ -100,23 +102,70 @@ def _with_trace(
     return {**evidence, "motion_commands": hardware.motion_trace()}
 
 
-def _home_distance_from_status(
-    home: dict[str, object], status: dict[str, object]
-) -> float | None:
+def _home_estimate_from_status(
+    home: dict[str, object],
+    status: dict[str, object],
+    hardware: RecoveryHardware,
+) -> dict[str, object]:
+    estimate_home = getattr(hardware, "estimate_home", None)
+    if callable(estimate_home):
+        estimate = estimate_home(home)
+        if isinstance(estimate, dict):
+            return estimate
+
     pose_status = status.get("pose")
     pose = pose_status.get("pose") if isinstance(pose_status, dict) else None
     if not isinstance(pose, dict):
-        return None
-    values = (home.get("x_m"), home.get("y_m"), pose.get("x_m"), pose.get("y_m"))
+        return _unavailable_home_estimate("fresh Go2 pose is unavailable")
+    values = (
+        home.get("x_m"),
+        home.get("y_m"),
+        home.get("yaw_rad"),
+        pose.get("x_m"),
+        pose.get("y_m"),
+        pose.get("yaw_rad"),
+        pose_status.get("age_s") if isinstance(pose_status, dict) else None,
+    )
     if not all(
         isinstance(value, (int, float))
         and not isinstance(value, bool)
         and math.isfinite(float(value))
         for value in values
     ):
-        return None
-    home_x, home_y, pose_x, pose_y = (float(value) for value in values)
-    return math.hypot(home_x - pose_x, home_y - pose_y)
+        return _unavailable_home_estimate("Home or Go2 pose is invalid")
+    home_x, home_y, home_yaw, pose_x, pose_y, pose_yaw, pose_age = (
+        float(value) for value in values
+    )
+    return HomeLocalizer().estimate(
+        Pose2D(home_x, home_y, home_yaw),
+        Pose2D(pose_x, pose_y, pose_yaw),
+        odometry_age_s=pose_age,
+    ).to_dict()
+
+
+def _unavailable_home_estimate(reason: str) -> dict[str, object]:
+    return {
+        "state": "unavailable",
+        "trusted": False,
+        "source": None,
+        "unavailable_reason": reason,
+        "home_distance_m": None,
+        "heading_error_rad": None,
+        "pose_from_home": None,
+        "evidence": {},
+    }
+
+
+def _trusted_home_distance(estimate: dict[str, object]) -> float | None:
+    distance = estimate.get("home_distance_m")
+    if (
+        estimate.get("trusted") is True
+        and isinstance(distance, (int, float))
+        and not isinstance(distance, bool)
+        and math.isfinite(float(distance))
+    ):
+        return float(distance)
+    return None
 
 
 class FailedRunHomeRecovery:
@@ -149,7 +198,8 @@ class FailedRunHomeRecovery:
         if blockers:
             raise HardwareUnavailable("; ".join(blockers))
         if pulse_count < 1:
-            home_distance = _home_distance_from_status(home, status)
+            home_estimate = _home_estimate_from_status(home, status, self._hardware)
+            home_distance = _trusted_home_distance(home_estimate)
             if home_distance is None or home_distance > HOME_POSITION_TOLERANCE_M:
                 raise HardwareUnavailable(
                     "failed run is outside Home and recorded no forward approach "
@@ -190,7 +240,10 @@ class FailedRunHomeRecovery:
             if pulse_count < 1:
                 stop_errors = await self._hardware.emergency_stop()
                 final_status = self._hardware.status()
-                home_distance = _home_distance_from_status(home, final_status)
+                home_estimate = _home_estimate_from_status(
+                    home, final_status, self._hardware
+                )
+                home_distance = _trusted_home_distance(home_estimate)
                 recovered = (
                     home_distance is not None
                     and home_distance <= HOME_POSITION_TOLERANCE_M
@@ -220,6 +273,7 @@ class FailedRunHomeRecovery:
                         "hardware": final_status,
                         "stop_errors": stop_errors,
                         "home_distance_m": home_distance,
+                        "home_localization": home_estimate,
                         "heading_restored": False,
                         "motion_commands": [],
                     },
@@ -268,11 +322,13 @@ class FailedRunHomeRecovery:
             stop_errors = await self._hardware.emergency_stop()
             final_status = self._hardware.status()
             controller_home_distance = returned.get("home_distance_m")
-            home_distance = _home_distance_from_status(home, final_status)
+            home_estimate = _home_estimate_from_status(
+                home, final_status, self._hardware
+            )
+            home_distance = _trusted_home_distance(home_estimate)
             recovered = (
-                isinstance(home_distance, (int, float))
-                and not isinstance(home_distance, bool)
-                and float(home_distance) <= HOME_POSITION_TOLERANCE_M
+                home_distance is not None
+                and home_distance <= HOME_POSITION_TOLERANCE_M
                 and not stop_errors
                 and not _recovery_blockers(final_status)
             )
@@ -297,6 +353,7 @@ class FailedRunHomeRecovery:
                     "hardware": final_status,
                     "stop_errors": stop_errors,
                     "home_distance_m": home_distance,
+                    "home_localization": home_estimate,
                     "controller_home_distance_m": controller_home_distance,
                     "heading_restored": False,
                 },

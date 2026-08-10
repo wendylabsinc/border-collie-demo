@@ -30,6 +30,15 @@ The executable, hardware-free design probe lives in
 - When the pose is untrustworthy, Home Distance and heading error are recorded
   as unavailable rather than copied from the last estimate.
 
+The implementation now accepts an optional absolute Home observation through
+the SDK-neutral contract in
+[`home-localization-adapter.md`](home-localization-adapter.md). Existing
+deployments remain odometry-only and explicitly report that no absolute source
+is configured. A fresh agreeing fiducial may correct short-term odometry, while
+a stale or contradictory fiducial makes Home unavailable and stops recovery.
+No AprilTag or ArUco producer is connected yet; the numeric fusion and
+disagreement thresholds remain unqualified until physical integration.
+
 ## Bounded return sequence
 
 1. Stop and settle after standing from the fruit action.
