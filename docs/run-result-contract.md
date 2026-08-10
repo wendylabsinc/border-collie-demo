@@ -1,14 +1,19 @@
 # Run Result contract
 
-Every accepted **Activate Demo** request creates a durable Run Result before
-preflight or any hardware action begins. A failed preflight, operator stop,
-camera failure, process interruption, or Remote Takeover is still a Demo Run
-and must remain inspectable.
+The first accepted **Activate Demo** request for an idempotency key creates a
+durable Run Result before preflight or any hardware action begins. Repeating
+that request returns the same run instead of starting duplicate motion. A
+failed preflight, operator stop, camera failure, process interruption, or
+Remote Takeover is still a Demo Run and must remain inspectable.
 
 ## Identity and ownership
 
 - `schema_version` begins at `1` and changes only for incompatible schemas.
 - `run_id` is an immutable UUIDv4 generated when activation is accepted.
+- `idempotency_key` identifies one operator intent. Reuse with the same intent
+  returns the original run; reuse with different intent is rejected.
+- `run_epoch` fences motion authority so work from an older process or run
+  generation cannot command the robot.
 - The full UUID is used in storage, logs, snapshots, and APIs. A short prefix
   may be displayed but is never accepted as an authoritative identifier.
 - Only one Demo Run may be active in the process. A second activation is
@@ -46,16 +51,20 @@ Each run owns one directory:
     └── terminal.jpg
 ```
 
-- `events.ndjson` is an append-only journal written and flushed after every
-  accepted phase transition, safety event, failure, and terminal action.
+- `events.ndjson` is an append-only, hash-linked journal written and fsynced
+  after every accepted phase transition, safety event, failure, and terminal
+  action. Each event has an immutable event ID, prior-event hash, and event
+  hash.
 - `result.json` is the current materialized Run Result. It is written to a
   sibling temporary file, flushed, and atomically renamed after every journal
   event.
 - A terminal Run Result is sealed and never mutated. Corrections create a new
   explicitly linked administrative record; they do not rewrite evidence.
-- On application startup, any unsealed prior run is sealed as `FAILED` with
-  reason `PROCESS_INTERRUPTED` and safety state `UNKNOWN`. The new process does
-  not infer that Woof stopped safely.
+- On application startup, the coordinator requests a hardware stop before it
+  seals any unsealed prior run as `FAILED` with reason `PROCESS_INTERRUPTED`.
+  The safety state is `DISARMED_CONFIRMED` only when the stop result verifies
+  disarm; otherwise it is `STOP_REQUESTED_UNCONFIRMED`. The new process never
+  infers that Woof stopped safely.
 - Evidence is never silently overwritten or automatically deleted. If storage
   is full, a new Demo Run fails preflight. Retention may be added later only as
   an explicit operator policy.
@@ -195,6 +204,14 @@ frame. Evidence-capture failure is recorded with an `unavailable_reason` and
 must never mask the run's motion-safety result. Full continuous video and audio
 recording remain outside this contract.
 
+The mission process also maintains a bounded rolling flight recorder outside
+individual run directories. Its rotating NDJSON segments are hash-linked and
+fsynced, and include lifecycle, motion-authority, accepted-command, pose, and
+perception events. Failed and stopped runs freeze the current window into
+`snapshots/flight-recorder.ndjson`. A media-sidecar evidence failure cannot
+remove this application-side evidence; capture warnings are persisted beside
+the snapshot.
+
 ## Outcome-based retention
 
 Failed and stopped runs retain the complete materialized result, append-only
@@ -242,9 +259,11 @@ Arbitrary filesystem paths and short IDs are rejected.
 Before the recorder can support a stage-ready run, automated tests must prove:
 
 - activation persists before the first hardware call;
+- ambiguous activation retry with the same key cannot create a second run;
 - every phase and terminal path is journaled in order;
 - atomic materialization survives an interrupted write;
-- startup seals an interrupted run without claiming a safe stop;
+- startup attempts stop and seals an interrupted run without claiming a safe
+  stop unless disarm is verified;
 - camera, motion, return, operator-stop, and Remote Takeover failures retain
   the required reason and safety evidence;
 - unavailable pose produces null Home measurements with a reason;
