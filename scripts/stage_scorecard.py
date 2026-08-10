@@ -45,7 +45,10 @@ def _score_completion(runs: list[dict], target_runs: int) -> dict:
     takeovers = [r for r in runs if r.get("outcome") == "REMOTE_TAKEOVER"]
     harness_stops = [r for r in runs if r.get("harness_note")]
     return _criterion(
-        len(completed) == len(runs) and not takeovers and not harness_stops
+        len(runs) == target_runs
+        and len(completed) == target_runs
+        and not takeovers
+        and not harness_stops
         if runs
         else None,
         completed=len(completed),
@@ -62,24 +65,37 @@ def _score_home_gate(runs: list[dict]) -> dict:
     ]
     if not distances:
         return _criterion(None, detail="no terminal home measurements yet")
+    missing = len(runs) - len(distances)
     return _criterion(
-        all(d <= HOME_GATE_M for d in distances),
+        missing == 0 and all(d <= HOME_GATE_M for d in distances),
         gate_m=HOME_GATE_M,
         max_m=round(max(distances), 4),
         per_run=[round(d, 4) for d in distances],
+        missing_measurements=missing,
     )
 
 
-def _score_fruit_coverage(runs: list[dict]) -> dict:
-    per_fruit: dict[str, dict] = {}
+def _score_fruit_coverage(
+    runs: list[dict], qualified_fruits: list[str] | None = None
+) -> dict:
+    per_fruit: dict[str, dict] = {
+        fruit: {"attempts": 0, "successes": 0}
+        for fruit in (qualified_fruits or [])
+    }
     for run in runs:
         fruit = run.get("target_fruit")
         bucket = per_fruit.setdefault(fruit, {"attempts": 0, "successes": 0})
         bucket["attempts"] += 1
         if run.get("outcome") == "COMPLETED":
             bucket["successes"] += 1
-    if not per_fruit:
-        return _criterion(None, detail="no runs yet")
+    if not runs:
+        return _criterion(
+            None,
+            detail="no runs yet",
+            minimum_successes=MIN_SUCCESSES_PER_FRUIT,
+            required_fruits=sorted(per_fruit),
+            per_fruit=per_fruit,
+        )
     short = {
         fruit: stats
         for fruit, stats in per_fruit.items()
@@ -88,6 +104,7 @@ def _score_fruit_coverage(runs: list[dict]) -> dict:
     return _criterion(
         not short,
         minimum_successes=MIN_SUCCESSES_PER_FRUIT,
+        required_fruits=sorted(per_fruit),
         per_fruit=per_fruit,
     )
 
@@ -218,7 +235,9 @@ def score_session(session: dict) -> dict:
         "criteria": {
             "completion": _score_completion(runs, session.get("target_runs", 0)),
             "home_gate": _score_home_gate(runs),
-            "fruit_coverage": _score_fruit_coverage(runs),
+            "fruit_coverage": _score_fruit_coverage(
+                runs, session.get("qualified_fruits")
+            ),
             "approach_confidence_floor": _score_confidence_floor(runs),
             "network_stability": _score_network(runs),
             "thermal_trend": _score_thermal(runs),

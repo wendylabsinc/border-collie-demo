@@ -1,4 +1,5 @@
 import json
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -70,13 +71,13 @@ class FakeClient:
 
 
 READY = {
-    "build_label": "base (demo/base)",
+    "build_label": "base-soak-v1 (demo/base)",
     "mission": {"restart_required": False, "phase": "idle"},
     "activation": {"ready": True, "blockers": []},
     "active_run_id": None,
 }
 LATCHED = {
-    "build_label": "base (demo/base)",
+    "build_label": "base-soak-v1 (demo/base)",
     "mission": {"restart_required": True, "reason": "REMOTE_TAKEOVER"},
     "activation": {"ready": False, "blockers": []},
     "active_run_id": None,
@@ -115,12 +116,20 @@ def test_sequence_is_seeded_and_only_qualified():
     second = draw_fruit_sequence(["banana", "apple", "pear"], 10, seed=7)
     assert first == second
     assert set(first) <= {"pear", "apple", "banana"}
+    counts = [first.count(fruit) for fruit in ("apple", "banana", "pear")]
+    assert max(counts) - min(counts) <= 1
+    assert min(counts) >= 3
     assert draw_fruit_sequence(["pear"], 3, seed=1) == ["pear", "pear", "pear"]
 
 
 def test_sequence_requires_qualified_fruits():
     with pytest.raises(HarnessAbort):
         draw_fruit_sequence([], 10, seed=7)
+
+
+def test_sequence_requires_a_positive_run_count():
+    with pytest.raises(HarnessAbort, match="greater than zero"):
+        draw_fruit_sequence(["pear"], 0, seed=7)
 
 
 def test_wait_for_ready_aborts_on_restart_required():
@@ -298,7 +307,7 @@ def test_session_records_every_run_and_build_label(tmp_path: Path):
         client, runs=2, seed=7, output_path=output, sleep=lambda _: None, log=lambda *_: None
     )
     saved = json.loads(output.read_text())
-    assert saved["build_label"] == "base (demo/base)"
+    assert saved["build_label"] == "base-soak-v1 (demo/base)"
     assert saved["seed"] == 7
     assert saved["fruit_sequence"] == client.activated
     assert [r["outcome"] for r in saved["runs"]] == ["COMPLETED", "FAILED"]
@@ -328,6 +337,90 @@ def test_session_aborts_and_persists_partial_on_latch(tmp_path: Path):
     assert len(saved["runs"]) == 1
     assert "restart-required" in saved["aborted"]
     assert session["aborted"] == saved["aborted"]
+
+
+def test_session_rejects_the_wrong_build_before_activation(tmp_path: Path):
+    client = FakeClient([READY], sidecar=SIDECAR)
+    with pytest.raises(HarnessAbort, match="no run was activated"):
+        run_session(
+            client,
+            runs=1,
+            seed=7,
+            output_path=tmp_path / "soak.json",
+            expected_build_label="edge (demo/edge)",
+            sleep=lambda _: None,
+            log=lambda *_: None,
+        )
+    assert client.activated == []
+
+
+def test_session_rejects_the_wrong_qualified_fruits_before_activation(tmp_path: Path):
+    client = FakeClient([READY], qualified=("pear",), sidecar=SIDECAR)
+    with pytest.raises(HarnessAbort, match="expected qualified fruits"):
+        run_session(
+            client,
+            runs=10,
+            seed=7,
+            output_path=tmp_path / "soak.json",
+            expected_build_label="base-soak-v1 (demo/base)",
+            expected_fruits=["apple", "banana", "pear"],
+            sleep=lambda _: None,
+            log=lambda *_: None,
+        )
+    assert client.activated == []
+
+
+def test_ambiguous_activation_aborts_and_persists_without_retry(tmp_path: Path):
+    class AmbiguousClient(FakeClient):
+        def activate(self, fruit):
+            self.activated.append(fruit)
+            raise TimeoutError("request timed out")
+
+    client = AmbiguousClient([READY], sidecar=SIDECAR)
+    output = tmp_path / "soak.json"
+    session = run_session(
+        client,
+        runs=10,
+        seed=7,
+        output_path=output,
+        expected_build_label="base-soak-v1 (demo/base)",
+        expected_fruits=["apple", "banana", "pear"],
+        sleep=lambda _: None,
+        log=lambda *_: None,
+    )
+    saved = json.loads(output.read_text())
+    assert len(client.activated) == 1
+    assert saved["runs"] == []
+    assert "ambiguous" in saved["aborted"]
+    assert "no automatic retry" in session["aborted"]
+
+
+def test_complete_ten_run_soak_is_balanced_and_scores_cleanly(tmp_path: Path):
+    results = {
+        f"run-{number}": [terminal(f"run-{number}")]
+        for number in range(1, 11)
+    }
+    client = FakeClient([READY], results_by_id=results, sidecar=SIDECAR)
+    output = tmp_path / "ten-run-soak.json"
+    session = run_session(
+        client,
+        runs=10,
+        seed=20260810,
+        output_path=output,
+        expected_build_label="base-soak-v1 (demo/base)",
+        sleep=lambda _: None,
+        log=lambda *_: None,
+    )
+
+    counts = Counter(client.activated)
+    assert len(session["runs"]) == 10
+    assert max(counts.values()) - min(counts.values()) <= 1
+    assert set(counts) == {"apple", "banana", "pear"}
+    assert session["scorecard"]["criteria"]["completion"]["passed"] is True
+    assert session["scorecard"]["criteria"]["fruit_coverage"]["passed"] is True
+    assert session["scorecard"]["criteria"]["home_gate"]["passed"] is True
+    assert output.exists()
+    assert not output.with_suffix(".json.tmp").exists()
 
 
 def test_summarize_run_flattens_terminal_measurements():

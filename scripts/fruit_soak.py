@@ -22,20 +22,23 @@ fail-closed camera rules) belongs to the deployed application, and a latched
 restart-required state aborts the session immediately.
 
 Usage:
-    python3 scripts/fruit_soak.py --host 192.168.0.107 --runs 10 --seed 7 \
+    python3 scripts/fruit_soak.py --host 192.168.0.107 --runs 10 --seed 20260810 \
+        --expected-build-label "base-soak-v1 (demo/base)" \
+        --expected-fruits apple banana pear \
         --note "apple at 94in; banana and pear at 84in" \
-        --dongle-match "USB Audio" --device-probes
+        --dongle-match "DJI MIC MINI" --device-probes
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import shutil
 import subprocess
-import threading
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -279,11 +282,25 @@ def dongle_check(sources: dict | None, match: str | None) -> dict:
 
 
 def draw_fruit_sequence(qualified: list[str], runs: int, seed: int) -> list[str]:
-    """Seeded uniform draw so a session's fruit order is reproducible."""
+    """Build a seeded, balanced sequence with a reproducibly random order.
+
+    Balance matters for acceptance: ten independent choices can schedule one
+    of three fruits only once, making the scorecard's two-successes-per-fruit
+    criterion impossible before the robot moves. Every fruit therefore gets
+    either ``runs // fruit_count`` or one additional attempt, while the extra
+    slots and final order remain seeded and random.
+    """
     if not qualified:
         raise HarnessAbort("deployed build reports no qualified fruits")
+    if runs <= 0:
+        raise HarnessAbort("run count must be greater than zero")
+    fruits = sorted(set(qualified))
     rng = random.Random(seed)
-    return [rng.choice(sorted(qualified)) for _ in range(runs)]
+    repetitions, remainder = divmod(runs, len(fruits))
+    sequence = fruits * repetitions
+    sequence.extend(rng.sample(fruits, remainder))
+    rng.shuffle(sequence)
+    return sequence
 
 
 def take_sample(
@@ -527,6 +544,8 @@ def run_session(
     device_probe: DeviceProbe | None = None,
     dongle_match: str | None = None,
     note: str | None = None,
+    expected_build_label: str | None = None,
+    expected_fruits: list[str] | None = None,
     keep_samples: bool = True,
     sleep=time.sleep,
     log=print,
@@ -534,7 +553,20 @@ def run_session(
     temp_sampler = ThreadedTempSampler(temp_source or TempSource())
     status = wait_for_ready(client)
     build_label = status.get("build_label", "unlabelled")
+    if expected_build_label is not None and build_label != expected_build_label:
+        raise HarnessAbort(
+            f"expected build {expected_build_label!r}, got {build_label!r}; "
+            "no run was activated"
+        )
     qualified = list(client.fruits().get("qualified_fruits", []))
+    if expected_fruits is not None:
+        expected = sorted(set(expected_fruits))
+        actual = sorted(set(qualified))
+        if actual != expected:
+            raise HarnessAbort(
+                f"expected qualified fruits {expected!r}, got {actual!r}; "
+                "no run was activated"
+            )
     sequence = draw_fruit_sequence(qualified, runs, seed)
     log(f"build: {build_label}")
     log(f"qualified fruits: {', '.join(qualified)}")
@@ -564,7 +596,12 @@ def run_session(
     def persist() -> None:
         session["scorecard"] = score_session(session)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(json.dumps(session, indent=2) + "\n")
+        temporary_path = output_path.with_suffix(output_path.suffix + ".tmp")
+        with temporary_path.open("w", encoding="utf-8") as handle:
+            handle.write(json.dumps(session, indent=2) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, output_path)
 
     persist()
     temp_sampler.start()
@@ -585,7 +622,13 @@ def run_session(
                 preflight["wifi_before"] = device_probe.wifi_status()
             lighting_frame = capture_lighting_frame(client, frames_dir, number)
             log(f"run {number}/{runs}: activating {fruit}")
-            run_id = client.activate(fruit)["run"]["run_id"]
+            try:
+                run_id = client.activate(fruit)["run"]["run_id"]
+            except Exception as exc:
+                raise HarnessAbort(
+                    f"run {number} activation outcome is ambiguous; "
+                    f"no automatic retry will be attempted: {exc}"
+                ) from exc
             run, samples, harness_note = wait_for_terminal(
                 client, run_id, target_fruit=fruit, temp_sampler=temp_sampler
             )
@@ -637,6 +680,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=None, help="default: current epoch seconds")
     parser.add_argument("--cooldown", type=float, default=COOLDOWN_S)
     parser.add_argument("--note", default=None, help="session context, e.g. fruit placements")
+    parser.add_argument(
+        "--expected-build-label",
+        default=None,
+        help=(
+            "abort before activation unless /api/status reports this exact "
+            "build label"
+        ),
+    )
+    parser.add_argument(
+        "--expected-fruits",
+        nargs="+",
+        default=None,
+        help="abort before activation unless these are the exact qualified fruits",
+    )
     parser.add_argument("--temp-url", default=None, help="HTTP JSON endpoint of temperatures")
     parser.add_argument("--temp-cmd", default=None, help="shell command printing temperature JSON")
     parser.add_argument("--no-temps", action="store_true", help="disable temperature sampling")
@@ -669,8 +726,13 @@ def main(argv: list[str] | None = None) -> int:
             device_probe=DeviceProbe(agent, args.device_probes),
             dongle_match=args.dongle_match,
             note=args.note,
+            expected_build_label=args.expected_build_label,
+            expected_fruits=args.expected_fruits,
             keep_samples=not args.no_samples,
         )
+    except HarnessAbort as exc:
+        print(f"session aborted: {exc}", file=sys.stderr)
+        return 1
     except urllib.error.URLError as exc:
         print(f"cannot reach the demo app: {exc}", file=sys.stderr)
         return 2

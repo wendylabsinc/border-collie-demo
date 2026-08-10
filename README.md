@@ -296,6 +296,43 @@ legacy app on `8096` without replacing it.
 Run Results default to `artifacts/runs/`. A deployment must set
 `BORDER_COLLIE_RUNS_DIR` to durable mounted storage before stage use.
 
+## Ten-run randomized soak
+
+The supervised soak runs ten complete missions in a seeded, randomized order.
+It reads the deployed build's qualified fruits and balances the schedule before
+shuffling it, so three qualified fruits receive three or four attempts each.
+The result JSON is replaced atomically after every run and includes the exact
+sequence, per-stage telemetry, lighting frames, network observations, device
+temperatures, dongle checks, terminal measurements, and the records-only
+scorecard.
+
+Use an exact expected build label so an old or experimental deployment cannot
+be activated accidentally:
+
+```bash
+python3 scripts/fruit_soak.py \
+  --host 192.168.0.107 \
+  --agent 192.168.0.107:50052 \
+  --runs 10 \
+  --seed 20260810 \
+  --expected-build-label "base-soak-v1 (demo/base)" \
+  --expected-fruits apple banana pear \
+  --device-probes \
+  --dongle-match "DJI MIC MINI" \
+  --note "<fruit placements, lighting, and microphone setup>"
+```
+
+The build label and qualified-fruit set are checked before the first activation.
+An activation request with an ambiguous response aborts the session without an
+automatic retry. A restart-required application state also aborts immediately.
+Individual terminal run failures are recorded and the supervised soak continues
+unless the deployed application's safety state prevents another activation.
+
+The root app and `media` service each have a committed `build.stagefile.yaml`
+and digest-pinned lockfile. A Stagefile-capable Wendy CLI selects both
+automatically for the multi-service deployment; generated Dockerfiles are build
+artifacts and are not committed.
+
 ## Local validation
 
 ```bash
