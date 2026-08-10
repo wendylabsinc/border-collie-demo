@@ -678,6 +678,8 @@ class RunResultStore:
             "run_id": result["run_id"],
             "target_fruit": result["target_fruit"],
             "activation_source": result["activation_source"],
+            "idempotency_key": result.get("idempotency_key"),
+            "run_epoch": result.get("run_epoch"),
             "orientation_degrees": result.get("orientation_degrees", 0.0),
             "started_at_utc": result["started_at_utc"],
             "ended_at_utc": result["ended_at_utc"],

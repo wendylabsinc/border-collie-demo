@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from .config import HardwareConfig
 from .fruits import fruit_policy
+from .flight_recorder import FlightRecorder
 from .go2_motion import (
     MotionConfig,
     MotionError,
@@ -145,6 +146,7 @@ class HardwareManager:
         self._motion_run_id = "system"
         self._motion_run_epoch = str(uuid4())
         self._motion_authority_phase = "idle"
+        self._flight_recorder: FlightRecorder | None = None
 
     async def start(self) -> None:
         if not self.config.enabled or self._connected:
@@ -453,6 +455,7 @@ class HardwareManager:
                 deadline = started + timeout
                 while time.monotonic() < deadline:
                     status = status_reader()
+                    self._record_perception_sample(status, target_fruit)
                     slow_for_crop_confirmation = False
                     recognition["samples"] = int(recognition["samples"]) + 1
                     if not status.get("camera_healthy"):
@@ -703,6 +706,7 @@ class HardwareManager:
                 while time.monotonic() < deadline:
                     now = time.monotonic()
                     status = status_reader()
+                    self._record_perception_sample(status, target_fruit)
                     if not status.get("camera_healthy"):
                         raise CameraFailure(
                             str(status.get("detail") or "camera evidence became unhealthy")
@@ -729,6 +733,7 @@ class HardwareManager:
                         push_deadline = now + final_push_duration_s
                         while time.monotonic() < push_deadline:
                             push_status = status_reader()
+                            self._record_perception_sample(push_status, target_fruit)
                             if not push_status.get("camera_healthy"):
                                 raise CameraFailure(
                                     str(
@@ -1217,6 +1222,17 @@ class HardwareManager:
         self._motion_run_id = run_id
         self._motion_run_epoch = epoch
         self._motion_authority_phase = phase
+        self._record_flight(
+            "motion_authority_selected",
+            {"epoch": epoch, "phase": phase},
+        )
+
+    def set_flight_recorder(self, recorder: FlightRecorder) -> None:
+        if self._active_operation is not None:
+            raise HardwareUnavailable(
+                "flight recorder cannot change while hardware operation is active"
+            )
+        self._flight_recorder = recorder
 
     def motion_trace(self) -> list[dict[str, object]]:
         return [dict(command) for command in self._motion_trace]
@@ -1244,7 +1260,48 @@ class HardwareManager:
                 **sent.to_dict(),
             }
         )
+        if self._flight_recorder is not None:
+            pose = None
+            if self._pose is not None:
+                pose = self._pose.status().to_dict()
+            self._record_flight(
+                "motion_command",
+                {
+                    "epoch": self._motion_run_epoch,
+                    "phase": self._motion_trace_phase,
+                    "operation": self._active_operation,
+                    "command": sent.to_dict(),
+                    "pose": pose,
+                },
+            )
         return sent
+
+    def _record_perception_sample(
+        self,
+        status: dict[str, object],
+        target_fruit: str,
+    ) -> None:
+        detection = status.get("detection")
+        self._record_flight(
+            "perception_sample",
+            {
+                "epoch": self._motion_run_epoch,
+                "phase": self._motion_authority_phase,
+                "target_fruit": target_fruit,
+                "camera_healthy": status.get("camera_healthy"),
+                "target_ready": status.get("target_ready"),
+                "generation": status.get("generation"),
+                "detection": detection if isinstance(detection, dict) else None,
+            },
+        )
+
+    def _record_flight(self, kind: str, payload: dict[str, object]) -> None:
+        if self._flight_recorder is not None:
+            self._flight_recorder.record(
+                kind,
+                payload,
+                run_id=self._motion_run_id,
+            )
 
     def _authority_for_active_operation(self) -> MotionAuthority:
         operation = self._active_operation

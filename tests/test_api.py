@@ -581,6 +581,7 @@ def test_failed_search_persists_downloadable_fieldmark_evidence(tmp_path) -> Non
         }
     }
     assert [artifact["filename"] for artifact in run["artifacts"]] == [
+        "flight-recorder.ndjson",
         "evidence.zip",
         "terminal.jpg",
     ]
@@ -590,7 +591,7 @@ def test_failed_search_persists_downloadable_fieldmark_evidence(tmp_path) -> Non
     assert unreferenced.status_code == 404
     assert [
         artifact["filename"] for artifact in diagnostic["latest_run"]["artifacts"]
-    ] == ["evidence.zip", "terminal.jpg"]
+    ] == ["flight-recorder.ndjson", "evidence.zip", "terminal.jpg"]
 
 
 def test_failed_run_recovery_uses_saved_home_and_failed_approach_trace(
@@ -865,18 +866,17 @@ def test_diagnostics_identifies_completed_failed_and_unreached_stages(
 
         assert response.status_code == 200
         body = response.json()
-        assert body["latest_run"] == {
-            "run_id": run_id,
-            "outcome": "FAILED",
-            "reason": "RETURN_HOME_FAILURE",
-            "failed_phase": "return_home",
-            "failure_details": None,
-            "artifacts": [],
-            "evidence_capture": {
-                "available": False,
-                "unavailable_reason": ("terminal evidence adapter is not configured"),
-            },
-        }
+        latest = body["latest_run"]
+        assert latest["run_id"] == run_id
+        assert latest["outcome"] == "FAILED"
+        assert latest["reason"] == "RETURN_HOME_FAILURE"
+        assert latest["failed_phase"] == "return_home"
+        assert latest["failure_details"] is None
+        assert latest["evidence_capture"] == {"available": True}
+        assert [artifact["filename"] for artifact in latest["artifacts"]] == [
+            "flight-recorder.ndjson",
+            "evidence-capture-warnings.json",
+        ]
         assert [stage["phase"] for stage in body["stages"]] == [
             "orient_for_run",
             "turn_to_fruit",

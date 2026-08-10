@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from .evidence import EvidenceArtifact
 from .fruits import QUALIFIED_FRUITS, SUPPORTED_FRUITS
+from .flight_recorder import FlightRecorder, terminal_evidence_bundle
 from .hardware import HardwareManager, HardwareUnavailable
 from .mission import MissionMachine, RestartRequired
 from .models import MissionPhase
@@ -67,15 +68,23 @@ def create_app(
     media_status: Callable[[], dict[str, object]] | None = None,
     stage_executor: StageExecutor | None = None,
     terminal_evidence: Callable[[], list[EvidenceArtifact]] | None = None,
+    flight_recorder: FlightRecorder | None = None,
     runtime_mode: Literal["production", "simulation"] = "production",
 ) -> FastAPI:
     machine = mission or MissionMachine()
     robot = hardware or HardwareManager()
     root = web_root or Path(os.environ.get("BORDER_COLLIE_WEB_ROOT", "web")).resolve()
-    results = RunResultStore(
-        runs_root or Path(os.environ.get("BORDER_COLLIE_RUNS_DIR", "artifacts/runs"))
+    runs_directory = runs_root or Path(
+        os.environ.get("BORDER_COLLIE_RUNS_DIR", "artifacts/runs")
     )
-    coordinator = RunCoordinator(machine, results)
+    results = RunResultStore(runs_directory)
+    recorder = flight_recorder or FlightRecorder(
+        Path(runs_directory) / "_flight_recorder"
+    )
+    coordinator = RunCoordinator(machine, results, recorder)
+    set_recorder = getattr(robot, "set_flight_recorder", None)
+    if callable(set_recorder):
+        set_recorder(recorder)
     read_camera_perception = camera_perception_status or (
         lambda: {
             "ready": False,
@@ -96,6 +105,8 @@ def create_app(
             }
 
     active_tasks: set[asyncio.Task[dict[str, object]]] = set()
+    def capture_terminal_bundle() -> list[EvidenceArtifact]:
+        return terminal_evidence_bundle(recorder, terminal_evidence)
     orchestrator = (
         None
         if stage_executor is None
@@ -103,20 +114,19 @@ def create_app(
             coordinator,
             results,
             stage_executor,
-            terminal_evidence=terminal_evidence,
+            terminal_evidence=capture_terminal_bundle,
         )
     )
     recovery = FailedRunHomeRecovery(robot, results)
 
     async def capture_failed_evidence(run_id: str) -> None:
-        if terminal_evidence is None:
-            results.record_evidence_unavailable(
-                run_id,
-                "terminal evidence adapter is not configured",
-            )
-            return
         try:
-            artifacts = await asyncio.to_thread(terminal_evidence)
+            recorder.record(
+                "terminal_evidence_requested",
+                {"run": results.get(run_id)},
+                run_id=run_id,
+            )
+            artifacts = await asyncio.to_thread(capture_terminal_bundle)
             results.record_artifacts(run_id, artifacts)
         except Exception as exc:  # noqa: BLE001 - evidence must not mask safety
             results.record_evidence_unavailable(
@@ -127,6 +137,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         await robot.start()
+        recorder.record("application_started", {"runtime_mode": runtime_mode})
         if results.has_interrupted_work():
             startup_stop_errors = await robot.emergency_stop()
             motion = robot.status().get("motion")
@@ -145,6 +156,7 @@ def create_app(
         try:
             yield
         finally:
+            recorder.record("application_stopping", {"active_tasks": len(active_tasks)})
             tasks = list(active_tasks)
             for task in tasks:
                 task.cancel()
@@ -241,6 +253,7 @@ def create_app(
             "hardware": robot.status(),
             "active_run_id": results.active_run_id,
             "active_recovery": results.active_recovery,
+            "flight_recorder": recorder.status(),
             "activation": {
                 "ready": preflight["ready"] and results.active_recovery is None,
                 "blockers": [
