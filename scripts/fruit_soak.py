@@ -636,7 +636,7 @@ def run_session(
     temp_sampler.start()
     try:
         for number, (fruit, orientation_degrees) in enumerate(
-            zip(sequence, orientation_sequence, strict=True),
+            zip(sequence, orientation_sequence),
             start=1,
         ):
             if number > 1:
