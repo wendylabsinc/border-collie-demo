@@ -120,16 +120,32 @@ class FlightRecorder:
         for path in paths:
             if not path.is_file():
                 continue
-            for line in path.read_text(encoding="utf-8").splitlines():
+            valid_bytes = 0
+            for raw_line in path.read_bytes().splitlines(keepends=True):
+                if not raw_line.endswith(b"\n"):
+                    if path.name == "active.ndjson":
+                        self._truncate_active(valid_bytes)
+                    return
                 try:
-                    event = json.loads(line)
+                    event = json.loads(raw_line)
                     sequence = int(event["sequence"])
                     event_hash = str(event["event_sha256"])
                 except (KeyError, TypeError, ValueError, json.JSONDecodeError):
-                    continue
+                    if path.name == "active.ndjson":
+                        self._truncate_active(valid_bytes)
+                    return
                 if sequence >= self._sequence:
                     self._sequence = sequence
                     self._previous_hash = event_hash
+                valid_bytes += len(raw_line)
+
+    def _truncate_active(self, valid_bytes: int) -> None:
+        active = self.root / "active.ndjson"
+        with active.open("r+b") as handle:
+            handle.truncate(valid_bytes)
+            handle.flush()
+            os.fsync(handle.fileno())
+        self._fsync_directory()
 
     def _fsync_directory(self) -> None:
         descriptor = os.open(self.root, os.O_RDONLY)
