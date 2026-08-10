@@ -8,8 +8,22 @@ from border_collie_demo.go2_motion import (
     Go2Motion,
     LeaseMismatch,
     MotionConfig,
+    MotionNotReady,
 )
 from border_collie_demo.models import VelocityCommand
+from border_collie_demo.motion_guardian import MotionAuthority
+
+
+def authority(*, forward: bool = True, ttl_s: float = 2.0) -> MotionAuthority:
+    return MotionAuthority(
+        run_id="run-test",
+        epoch="epoch-test",
+        operation="test",
+        allow_forward=forward,
+        maximum_forward_mps=1.0,
+        maximum_yaw_rps=0.8,
+        ttl_s=ttl_s,
+    )
 
 
 class FakeSport:
@@ -82,7 +96,7 @@ def test_factory_avoidance_motion_is_exclusive_and_stops_on_release() -> None:
             MotionConfig(remote_api_settle_s=0.0),
         )
         await motion.initialize()
-        lease = await motion.arm()
+        lease = await motion.arm(authority())
 
         sent = await motion.command(lease, VelocityCommand(0.50, 0.20, "test"))
 
@@ -119,7 +133,7 @@ def test_unsafe_velocity_is_rejected_before_hardware(
             MotionConfig(remote_api_settle_s=0.0),
         )
         await motion.initialize()
-        lease = await motion.arm()
+        lease = await motion.arm(authority())
         moves_before = list(avoidance.moves)
 
         with pytest.raises(ValueError, match=error):
@@ -143,7 +157,7 @@ def test_stale_command_watchdog_brakes_and_revokes_lease() -> None:
             ),
         )
         await motion.initialize()
-        lease = await motion.arm()
+        lease = await motion.arm(authority())
         await motion.command(lease, VelocityCommand(0.50, 0.0, "test"))
 
         await asyncio.sleep(0.08)
@@ -165,12 +179,38 @@ def test_stale_lease_cannot_command_motion() -> None:
             MotionConfig(remote_api_settle_s=0.0),
         )
         await motion.initialize()
-        await motion.arm()
+        await motion.arm(authority())
 
         with pytest.raises(LeaseMismatch):
             await motion.command("not-the-lease", VelocityCommand(0.50, 0.0))
 
         assert all(move[0] == 0.0 for move in avoidance.moves)
+        await motion.close()
+
+    asyncio.run(scenario())
+
+
+def test_expired_authority_stops_hardware_before_rejecting_command() -> None:
+    async def scenario() -> None:
+        sport, avoidance = FakeSport(), FakeAvoidance()
+        motion = Go2Motion(
+            sport,
+            avoidance,
+            MotionConfig(
+                command_watchdog_s=1.0,
+                remote_api_settle_s=0.0,
+            ),
+        )
+        await motion.initialize()
+        lease = await motion.arm(authority(ttl_s=0.01))
+        await asyncio.sleep(0.02)
+
+        with pytest.raises(MotionNotReady, match="authority expired"):
+            await motion.command(lease, VelocityCommand(0.0, 0.1))
+
+        assert motion.armed is False
+        assert sport.stop_calls >= 1
+        assert avoidance.moves[-1] == (0.0, 0.0, 0.0)
         await motion.close()
 
     asyncio.run(scenario())

@@ -306,6 +306,24 @@ def test_activate_rejects_a_second_active_demo_run(tmp_path) -> None:
         assert second.json()["detail"] == "a Demo Run is already active"
 
 
+def test_activate_reuses_an_idempotency_key_without_starting_twice(tmp_path) -> None:
+    with TestClient(
+        create_app(
+            runs_root=tmp_path,
+            hardware=ReadyHardwareBoundary(),
+            camera_perception_status=ready_camera_perception,
+        )
+    ) as client:
+        payload = {"target_fruit": "pear", "idempotency_key": "request-123"}
+        first = client.post("/api/run", json=payload)
+        second = client.post("/api/run", json=payload)
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert second.json()["activation_reused"] is True
+    assert second.json()["run"]["run_id"] == first.json()["run"]["run_id"]
+
+
 def test_activation_allows_a_healthy_camera_before_pear_is_visible(tmp_path) -> None:
     with TestClient(
         create_app(
@@ -963,7 +981,7 @@ def test_startup_seals_an_interrupted_demo_run(tmp_path) -> None:
         assert recovered["outcome"] == "FAILED"
         assert recovered["reason"] == "PROCESS_INTERRUPTED"
         assert recovered["current_phase"] == "failed"
-        assert recovered["final_safety_state"] == "UNKNOWN"
+        assert recovered["final_safety_state"] == "STOP_REQUESTED_UNCONFIRMED"
         assert restarted.get("/api/status").json()["active_run_id"] is None
 
 

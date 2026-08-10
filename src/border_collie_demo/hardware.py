@@ -5,6 +5,7 @@ import math
 import time
 from collections.abc import Callable
 from typing import Protocol
+from uuid import uuid4
 
 from .config import HardwareConfig
 from .fruits import fruit_policy
@@ -17,6 +18,7 @@ from .go2_motion import (
 )
 from .go2_pose import Go2PoseProvider, PoseStatus
 from .models import VelocityCommand
+from .motion_guardian import MotionAuthority
 from .return_home import (
     Pose2D,
     ReturnMode,
@@ -85,7 +87,7 @@ class MotionAdapterProtocol(Protocol):
 
     async def initialize(self) -> None: ...
 
-    async def arm(self) -> str: ...
+    async def arm(self, authority: MotionAuthority) -> str: ...
 
     async def command(
         self, lease: str, command: VelocityCommand
@@ -139,6 +141,9 @@ class HardwareManager:
         self._last_pulse: dict[str, object] | None = None
         self._motion_trace_phase: str | None = None
         self._motion_trace: list[dict[str, object]] = []
+        self._motion_run_id = "system"
+        self._motion_run_epoch = str(uuid4())
+        self._motion_authority_phase = "idle"
 
     async def start(self) -> None:
         if not self.config.enabled or self._connected:
@@ -152,6 +157,7 @@ class HardwareManager:
                     maximum_forward_mps=self.config.maximum_forward_mps,
                     maximum_yaw_rps=self.config.maximum_yaw_rps,
                     command_watchdog_s=self.config.command_watchdog_s,
+                    authority_ttl_s=self.config.motion_authority_ttl_s,
                     rpc_timeout_s=self.config.rpc_timeout_s,
                     client_timeout_s=self.config.client_timeout_s,
                     remote_api_settle_s=self.config.remote_api_settle_s,
@@ -192,7 +198,7 @@ class HardwareManager:
             release_error: str | None = None
             operation_error: Exception | None = None
             try:
-                lease = await self._motion.arm()
+                lease = await self._motion.arm(self._authority_for_active_operation())
                 deadline = started + self.config.forward_pulse_duration_s
                 while True:
                     now = time.monotonic()
@@ -322,7 +328,7 @@ class HardwareManager:
                         initial.error or "fresh Go2 pose is required before motion"
                     )
                 previous_yaw = initial.pose.yaw_rad
-                lease = await self._motion.arm()
+                lease = await self._motion.arm(self._authority_for_active_operation())
                 command_started = time.monotonic()
                 deadline = started + timeout
                 while time.monotonic() < deadline:
@@ -442,7 +448,7 @@ class HardwareManager:
                         initial.error or "fresh Go2 pose is required before search"
                     )
                 previous_yaw = initial.pose.yaw_rad
-                lease = await self._motion.arm()
+                lease = await self._motion.arm(self._authority_for_active_operation())
                 deadline = started + timeout
                 while time.monotonic() < deadline:
                     status = status_reader()
@@ -687,7 +693,7 @@ class HardwareManager:
             started = time.monotonic()
             try:
                 assert self._motion is not None
-                lease = await self._motion.arm()
+                lease = await self._motion.arm(self._authority_for_active_operation())
                 deadline = started + timeout_s
                 while time.monotonic() < deadline:
                     now = time.monotonic()
@@ -1018,7 +1024,7 @@ class HardwareManager:
             commands_sent = False
             try:
                 assert self._motion is not None and self._pose is not None
-                lease = await self._motion.arm()
+                lease = await self._motion.arm(self._authority_for_active_operation())
                 deadline = started + timeout_s
                 while time.monotonic() < deadline:
                     sample = self._pose.status()
@@ -1301,6 +1307,17 @@ class HardwareManager:
         self._motion_trace_phase = str(phase)
         self._motion_trace = []
 
+    def set_motion_authority(self, run_id: str, epoch: str, phase: str) -> None:
+        if self._active_operation is not None:
+            raise HardwareUnavailable(
+                "motion authority cannot change while hardware operation is active"
+            )
+        if not run_id.strip() or not epoch.strip() or not phase.strip():
+            raise ValueError("motion authority identifiers must be non-empty")
+        self._motion_run_id = run_id
+        self._motion_run_epoch = epoch
+        self._motion_authority_phase = phase
+
     def motion_trace(self) -> list[dict[str, object]]:
         return [dict(command) for command in self._motion_trace]
 
@@ -1328,6 +1345,20 @@ class HardwareManager:
             }
         )
         return sent
+
+    def _authority_for_active_operation(self) -> MotionAuthority:
+        operation = self._active_operation
+        if operation is None:
+            raise HardwareUnavailable("motion authority requires an active operation")
+        return MotionAuthority(
+            run_id=self._motion_run_id,
+            epoch=self._motion_run_epoch,
+            operation=f"{self._motion_authority_phase}:{operation}",
+            allow_forward=operation in FORWARD_CAPABLE_OPERATIONS,
+            maximum_forward_mps=self.config.maximum_forward_mps,
+            maximum_yaw_rps=self.config.maximum_yaw_rps,
+            ttl_s=self.config.motion_authority_ttl_s,
+        )
 
     async def _best_effort_stop(self) -> None:
         if self._motion is None:

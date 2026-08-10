@@ -24,6 +24,8 @@ class RecoveryHardware(Protocol):
 
     def start_motion_trace(self, phase: str) -> None: ...
 
+    def set_motion_authority(self, run_id: str, epoch: str, phase: str) -> None: ...
+
     def motion_trace(self) -> list[dict[str, object]]: ...
 
     async def turn_toward_home(
@@ -223,6 +225,9 @@ class FailedRunHomeRecovery:
                     },
                 )
 
+            set_authority = getattr(self._hardware, "set_motion_authority", None)
+            if callable(set_authority):
+                set_authority(run_id, recovery_id, "recovery_turn_toward_home")
             self._hardware.start_motion_trace("recovery_turn_toward_home")
             turn = await self._hardware.turn_toward_home(
                 home,
@@ -240,6 +245,8 @@ class FailedRunHomeRecovery:
                 _with_trace(self._hardware, turn),
             )
 
+            if callable(set_authority):
+                set_authority(run_id, recovery_id, "recovery_return_home")
             self._hardware.start_motion_trace("recovery_return_home")
             returned = await self._hardware.return_home(
                 home,

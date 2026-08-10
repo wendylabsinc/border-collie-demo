@@ -37,6 +37,7 @@ class FakeClient:
         self._sidecar = sidecar
         self.activated: list[str] = []
         self.orientation_degrees: list[float] = []
+        self.idempotency_keys: list[str | None] = []
         self.stop_calls = 0
 
     def status(self):
@@ -56,9 +57,10 @@ class FakeClient:
     def fruits(self):
         return {"qualified_fruits": self._qualified}
 
-    def activate(self, fruit, orientation_degrees=0.0):
+    def activate(self, fruit, orientation_degrees=0.0, idempotency_key=None):
         self.activated.append(fruit)
         self.orientation_degrees.append(orientation_degrees)
+        self.idempotency_keys.append(idempotency_key)
         run_id = f"run-{len(self.activated)}"
         return {"run": {"run_id": run_id}}
 
@@ -519,18 +521,28 @@ def test_session_rejects_the_wrong_qualified_fruits_before_activation(tmp_path: 
     assert client.activated == []
 
 
-def test_ambiguous_activation_aborts_and_persists_without_retry(tmp_path: Path):
+def test_ambiguous_activation_retries_once_with_the_same_key(tmp_path: Path):
     class AmbiguousClient(FakeClient):
-        def activate(self, fruit, orientation_degrees=0.0):
+        calls = 0
+
+        def activate(self, fruit, orientation_degrees=0.0, idempotency_key=None):
             self.activated.append(fruit)
             self.orientation_degrees.append(orientation_degrees)
-            raise TimeoutError("request timed out")
+            self.idempotency_keys.append(idempotency_key)
+            self.calls += 1
+            if self.calls == 1:
+                raise TimeoutError("request timed out after server acceptance")
+            return {"run": {"run_id": "run-1"}, "activation_reused": True}
 
-    client = AmbiguousClient([READY], sidecar=SIDECAR)
+    client = AmbiguousClient(
+        [READY],
+        results_by_id={"run-1": [terminal("run-1")]},
+        sidecar=SIDECAR,
+    )
     output = tmp_path / "soak.json"
     session = run_session(
         client,
-        runs=10,
+        runs=1,
         seed=7,
         output_path=output,
         expected_build_label="base-soak-v2-orientation (demo/base)",
@@ -539,11 +551,11 @@ def test_ambiguous_activation_aborts_and_persists_without_retry(tmp_path: Path):
         log=lambda *_: None,
     )
     saved = json.loads(output.read_text())
-    assert len(client.activated) == 1
-    assert len(client.orientation_degrees) == 1
-    assert saved["runs"] == []
-    assert "ambiguous" in saved["aborted"]
-    assert "no automatic retry" in session["aborted"]
+    assert len(client.activated) == 2
+    assert len(client.orientation_degrees) == 2
+    assert client.idempotency_keys[0] == client.idempotency_keys[1]
+    assert len(saved["runs"]) == 1
+    assert session["aborted"] is None
 
 
 def test_complete_ten_run_soak_is_balanced_and_scores_cleanly(tmp_path: Path):

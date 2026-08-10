@@ -17,6 +17,12 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from .models import VelocityCommand
+from .motion_guardian import (
+    MotionAuthority,
+    MotionAuthorityExpired,
+    MotionGuardian,
+    MotionPermitMismatch,
+)
 
 
 class MotionError(RuntimeError):
@@ -68,6 +74,7 @@ class MotionConfig:
     client_timeout_s: float = 12.0
     avoidance_verify_interval_s: float = 0.30
     remote_api_settle_s: float = 0.50
+    authority_ttl_s: float = 2.0
 
     def __post_init__(self) -> None:
         for name in (
@@ -77,6 +84,7 @@ class MotionConfig:
             "rpc_timeout_s",
             "client_timeout_s",
             "avoidance_verify_interval_s",
+            "authority_ttl_s",
         ):
             value = float(getattr(self, name))
             if not math.isfinite(value) or value <= 0.0:
@@ -91,10 +99,12 @@ class Go2Motion:
         sport: SportClientProtocol,
         avoidance: AvoidanceClientProtocol,
         config: MotionConfig | None = None,
+        guardian: MotionGuardian | None = None,
     ) -> None:
         self.sport = sport
         self.avoidance = avoidance
         self.config = config or MotionConfig()
+        self._guardian = guardian or MotionGuardian()
         self._lock = asyncio.Lock()
         self._rpc_executor = ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="border-collie-sdk"
@@ -123,6 +133,7 @@ class Go2Motion:
             and self._lease
             and self._avoidance_enabled
             and self._remote_api_enabled
+            and self._guardian.status()["active"] is True
         )
 
     def status(self) -> dict[str, object]:
@@ -142,6 +153,7 @@ class Go2Motion:
                 "reverse_allowed": False,
             },
             "last_command": self._last_command.to_dict(),
+            "guardian": self._guardian.status(),
         }
 
     async def initialize(self) -> None:
@@ -162,7 +174,7 @@ class Go2Motion:
                 raise MotionNotReady(self._fault) from exc
             self._initialized = True
 
-    async def arm(self) -> str:
+    async def arm(self, authority: MotionAuthority) -> str:
         async with self._lock:
             self._require_ready()
             if self._lease is not None:
@@ -182,15 +194,26 @@ class Go2Motion:
             except Exception as exc:
                 await self._release_locked(use_stop=True)
                 raise MotionNotReady(f"arm failed: {exc}") from exc
-            self._lease = secrets.token_urlsafe(32)
+            try:
+                self._lease = self._guardian.acquire(authority)
+            except Exception as exc:
+                await self._release_locked(use_stop=True)
+                raise MotionNotReady(f"motion authority acquisition failed: {exc}") from exc
             self._last_command = VelocityCommand(reason="armed_zero")
             return self._lease
 
     async def command(self, lease: str, command: VelocityCommand) -> VelocityCommand:
-        forward = self._bounded_forward(command.forward_mps)
-        yaw = self._bounded_yaw(command.yaw_rps)
         async with self._lock:
             self._require_owner(lease)
+            try:
+                guarded = self._guardian.authorize(lease, command)
+            except MotionPermitMismatch as exc:
+                raise LeaseMismatch(str(exc)) from exc
+            except MotionAuthorityExpired as exc:
+                await self._release_locked(use_stop=True)
+                raise MotionNotReady(str(exc)) from exc
+            forward = self._bounded_forward(guarded.forward_mps)
+            yaw = self._bounded_yaw(guarded.yaw_rps)
             self._cancel_watchdog()
             try:
                 if forward != 0.0 or yaw != 0.0:
@@ -354,6 +377,7 @@ class Go2Motion:
         self._remote_api_enabled = False
         self._last_verify_at = None
         self._last_command = VelocityCommand(reason="released")
+        self._guardian.trip("motion released")
         return errors
 
     def _require_ready(self) -> None:

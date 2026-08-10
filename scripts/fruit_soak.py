@@ -101,13 +101,19 @@ class ApiClient:
     def fruits(self) -> dict:
         return self._request(f"{self.base_url}/api/fruits")
 
-    def activate(self, fruit: str, orientation_degrees: float = 0.0) -> dict:
+    def activate(
+        self,
+        fruit: str,
+        orientation_degrees: float = 0.0,
+        idempotency_key: str | None = None,
+    ) -> dict:
         return self._request(
             f"{self.base_url}/api/run",
             "POST",
             {
                 "target_fruit": fruit,
                 "orientation_degrees": orientation_degrees,
+                "idempotency_key": idempotency_key,
             },
         )
 
@@ -686,9 +692,10 @@ def run_session(
         + ", ".join(f"{angle}\N{DEGREE SIGN}" for angle in orientation_sequence)
     )
 
+    session_id = f"fruit-soak-{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H%M%SZ')}"
     session: dict = {
         "schema_version": SCHEMA_VERSION,
-        "session": f"fruit-soak-{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H%M%SZ')}",
+        "session": session_id,
         "build_label": build_label,
         "note": note,
         "qualified_fruits": qualified,
@@ -747,11 +754,26 @@ def run_session(
                 f"after {orientation_degrees}\N{DEGREE SIGN} orientation turn"
             )
             try:
-                run_id = client.activate(fruit, orientation_degrees)["run"]["run_id"]
+                activation_key = f"{session_id}:run:{number}"
+                try:
+                    activation = client.activate(
+                        fruit,
+                        orientation_degrees,
+                        idempotency_key=activation_key,
+                    )
+                except Exception:
+                    # The server contract makes this retry safe: the same key
+                    # can only return the original Demo Run.
+                    activation = client.activate(
+                        fruit,
+                        orientation_degrees,
+                        idempotency_key=activation_key,
+                    )
+                run_id = activation["run"]["run_id"]
             except Exception as exc:
                 raise HarnessAbort(
-                    f"run {number} activation outcome is ambiguous; "
-                    f"no automatic retry will be attempted: {exc}"
+                    f"run {number} activation could not be reconciled with its "
+                    f"idempotency key: {exc}"
                 ) from exc
             run, samples, harness_note = wait_for_terminal(
                 client, run_id, target_fruit=fruit, temp_sampler=temp_sampler

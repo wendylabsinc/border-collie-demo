@@ -46,11 +46,16 @@ class MissionMachine:
 
     def advance(self, reason: str) -> MissionPhase:
         self._require_process_control()
+        next_phase = self.next_phase()
+        self._record(next_phase, reason)
+        return self.phase
+
+    def next_phase(self) -> MissionPhase:
+        self._require_process_control()
         next_phase = NEXT_PHASE.get(self.phase)
         if next_phase is None:
             raise MissionError(f"cannot advance from {self.phase.value}")
-        self._record(next_phase, reason)
-        return self.phase
+        return next_phase
 
     def begin_run(self, reason: str) -> MissionPhase:
         self._require_process_control()

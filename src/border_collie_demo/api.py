@@ -15,6 +15,7 @@ from .evidence import EvidenceArtifact
 from .fruits import QUALIFIED_FRUITS, SUPPORTED_FRUITS
 from .hardware import HardwareManager, HardwareUnavailable
 from .mission import MissionMachine, RestartRequired
+from .models import MissionPhase
 from .orchestrator import EXECUTED_STAGES, DemoOrchestrator, StageExecutor
 from .preflight import evaluate_preflight, preflight_check_ready
 from .recovery import (
@@ -22,6 +23,7 @@ from .recovery import (
     FailedRunHomeRecovery,
     recovery_forward_pulse_budget,
 )
+from .run_coordinator import RunActivation, RunCoordinator
 from .run_results import ActiveRunError, RunResultNotFound, RunResultStore
 
 
@@ -43,6 +45,7 @@ class RunRequest(BaseModel):
     target_fruit: Literal["apple", "banana", "pear"] = "pear"
     activation_source: Literal["audience_ui", "voice"] = "audience_ui"
     orientation_degrees: float = Field(default=0.0, ge=0.0, lt=360.0)
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=128)
 
 
 class FruitPreviewRequest(BaseModel):
@@ -72,6 +75,7 @@ def create_app(
     results = RunResultStore(
         runs_root or Path(os.environ.get("BORDER_COLLIE_RUNS_DIR", "artifacts/runs"))
     )
+    coordinator = RunCoordinator(machine, results)
     read_camera_perception = camera_perception_status or (
         lambda: {
             "ready": False,
@@ -96,7 +100,7 @@ def create_app(
         None
         if stage_executor is None
         else DemoOrchestrator(
-            machine,
+            coordinator,
             results,
             stage_executor,
             terminal_evidence=terminal_evidence,
@@ -122,8 +126,22 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
-        results.seal_interrupted_runs()
         await robot.start()
+        if results.has_interrupted_work():
+            startup_stop_errors = await robot.emergency_stop()
+            motion = robot.status().get("motion")
+            startup_disarmed = (
+                not startup_stop_errors
+                and isinstance(motion, dict)
+                and motion.get("armed") is False
+            )
+            coordinator.recover_interrupted(
+                final_safety_state=(
+                    "DISARMED_CONFIRMED"
+                    if startup_disarmed
+                    else "STOP_REQUESTED_UNCONFIRMED"
+                )
+            )
         try:
             yield
         finally:
@@ -259,20 +277,19 @@ def create_app(
                 detail="failed-run Home recovery is active",
             )
         try:
-            run = results.start_run(
-                target_fruit=request.target_fruit,
-                activation_source=request.activation_source,
-                orientation_degrees=request.orientation_degrees,
+            decision = coordinator.activate(
+                RunActivation(
+                    target_fruit=request.target_fruit,
+                    activation_source=request.activation_source,
+                    orientation_degrees=request.orientation_degrees,
+                    idempotency_key=request.idempotency_key,
+                )
             )
         except ActiveRunError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        machine.begin_run("Demo Run activation persisted")
-        run = results.enter_phase(
-            run["run_id"],
-            phase=machine.phase.value,
-            reason="PREFLIGHT_STARTED",
-            message="preflight entered; verifying production motion and media gates",
-        )
+        run = decision.run
+        if not decision.created:
+            return {"run": run, "activation_reused": True}
         try:
             if select_perception_target is not None:
                 select_perception_target(request.target_fruit)
@@ -287,11 +304,10 @@ def create_app(
         run = results.record_preflight(run["run_id"], report)
         if not report["ready"]:
             stop_errors = await robot.emergency_stop()
-            machine.fail("preflight readiness failed")
             await capture_failed_evidence(run["run_id"])
-            run = results.seal(
+            run = coordinator.finish(
                 run["run_id"],
-                phase=machine.phase.value,
+                terminal_phase=MissionPhase.FAILED,
                 outcome="FAILED",
                 reason="PREFLIGHT_FAILURE",
                 message="required preflight readiness checks did not pass",
@@ -307,11 +323,10 @@ def create_app(
                 failed_phase="preflight",
             )
         else:
-            machine.advance("preflight readiness passed")
-            run = results.enter_phase(
+            run = coordinator.advance(
                 run["run_id"],
-                phase=machine.phase.value,
-                reason="CAPTURE_HOME_STARTED",
+                reason="preflight readiness passed",
+                event_reason="CAPTURE_HOME_STARTED",
                 message="preflight passed; ready to capture Home",
             )
             try:
@@ -319,11 +334,10 @@ def create_app(
                 run = results.record_home(run["run_id"], home)
             except Exception as exc:  # noqa: BLE001 - hardware evidence boundary
                 stop_errors = await robot.emergency_stop()
-                machine.fail("fresh Home pose capture failed")
                 await capture_failed_evidence(run["run_id"])
-                run = results.seal(
+                run = coordinator.finish(
                     run["run_id"],
-                    phase=machine.phase.value,
+                    terminal_phase=MissionPhase.FAILED,
                     outcome="FAILED",
                     reason="PREFLIGHT_FAILURE",
                     message=f"fresh Home pose capture failed: {exc}",
@@ -335,11 +349,10 @@ def create_app(
                     failed_phase="capture_home",
                 )
             else:
-                machine.advance("fresh Home pose captured")
-                run = results.enter_phase(
+                run = coordinator.advance(
                     run["run_id"],
-                    phase=machine.phase.value,
-                    reason="WAITING_FOR_COMMAND",
+                    reason="fresh Home pose captured",
+                    event_reason="WAITING_FOR_COMMAND",
                     message=(
                         "Home captured; waiting for the qualified "
                         f"{request.target_fruit} command"
@@ -482,16 +495,12 @@ def create_app(
         stop_errors = await robot.emergency_stop()
         if stage_executor is not None:
             stop_errors.extend(await stage_executor.stop())
-        try:
-            machine.stop()
-        except RestartRequired:
-            pass
         run = None
         if results.active_run_id is not None:
             await capture_failed_evidence(results.active_run_id)
-            run = results.seal(
+            run = coordinator.finish(
                 results.active_run_id,
-                phase=machine.phase.value,
+                terminal_phase=MissionPhase.STOPPED,
                 outcome="STOPPED",
                 reason="OPERATOR_STOP",
                 message="operator stopped the Demo Run",
@@ -501,6 +510,11 @@ def create_app(
                     else "STOP_REQUESTED_UNCONFIRMED"
                 ),
             )
+        else:
+            try:
+                machine.stop()
+            except RestartRequired:
+                pass
         return {
             "mission": machine.status(),
             "hardware": robot.status(),

@@ -9,8 +9,8 @@ from dataclasses import dataclass, replace
 from typing import Any, ClassVar, Protocol
 
 from .evidence import EvidenceArtifact
-from .mission import MissionMachine
 from .models import MissionPhase
+from .run_coordinator import RunCoordinator
 from .run_results import RunResultStore
 
 
@@ -19,6 +19,7 @@ class StageContext:
     run_id: str
     target_fruit: str
     home: dict[str, Any]
+    run_epoch: str = "simulation"
     orientation_degrees: float = 0.0
     outbound_forward_pulses: int = 0
 
@@ -75,12 +76,12 @@ DEFAULT_STAGE_FAILURE_REASONS = {
 class DemoOrchestrator:
     def __init__(
         self,
-        mission: MissionMachine,
+        coordinator: RunCoordinator,
         results: RunResultStore,
         stages: StageExecutor,
         terminal_evidence: Callable[[], list[EvidenceArtifact]] | None = None,
     ) -> None:
-        self._mission = mission
+        self._coordinator = coordinator
         self._results = results
         self._stages = stages
         self._terminal_evidence = terminal_evidence
@@ -105,17 +106,17 @@ class DemoOrchestrator:
         run = self._results.get(run_id)
         context = StageContext(
             run_id=run_id,
+            run_epoch=str(run["run_epoch"]),
             target_fruit=run["target_fruit"],
             home=run["home"],
             orientation_degrees=float(run.get("orientation_degrees", 0.0)),
         )
         try:
             for phase in EXECUTED_STAGES:
-                self._mission.advance(f"starting {phase.value}")
-                self._results.enter_phase(
+                self._coordinator.advance(
                     run_id,
-                    phase=phase.value,
-                    reason=f"{phase.value.upper()}_STARTED",
+                    reason=f"starting {phase.value}",
+                    event_reason=f"{phase.value.upper()}_STARTED",
                     message=f"{phase.value} started",
                 )
                 evidence = await self._stages.execute(phase, context)
@@ -131,34 +132,31 @@ class DemoOrchestrator:
                         context,
                         outbound_forward_pulses=pulse_count,
                     )
-                    self._mission.advance("Arrival confirmed")
-                    self._results.enter_phase(
+                    self._coordinator.advance(
                         run_id,
-                        phase=self._mission.phase.value,
-                        reason="ARRIVAL_CONFIRMED",
+                        reason="Arrival confirmed",
+                        event_reason="ARRIVAL_CONFIRMED",
                         message="qualified near-fruit Arrival confirmed",
                     )
 
             stop_errors = await self._stages.stop()
             if stop_errors:
                 raise RuntimeError("; ".join(stop_errors))
-            self._mission.advance("Demo Run completed and disarmed")
-            return self._results.seal(
+            return self._coordinator.finish(
                 run_id,
-                phase=self._mission.phase.value,
+                terminal_phase=MissionPhase.COMPLETE,
                 outcome="COMPLETED",
                 reason="SUCCESS",
                 message="Demo Run completed at Home",
                 final_safety_state="DISARMED_CONFIRMED",
             )
         except StageFailure as exc:
-            failed_phase = self._mission.phase.value
+            failed_phase = self._results.get(run_id)["current_phase"]
             stop_errors = await self._stages.stop()
             await self._capture_terminal_evidence(run_id)
-            self._mission.fail(exc.message)
-            return self._results.seal(
+            return self._coordinator.finish(
                 run_id,
-                phase=self._mission.phase.value,
+                terminal_phase=MissionPhase.FAILED,
                 outcome="FAILED",
                 reason=exc.reason,
                 message=exc.message,
@@ -171,13 +169,12 @@ class DemoOrchestrator:
                 failure_details=exc.details,
             )
         except Exception as exc:  # noqa: BLE001 - terminal safety boundary
-            failed_phase = self._mission.phase.value
+            failed_phase = self._results.get(run_id)["current_phase"]
             stop_errors = await self._stages.stop()
             await self._capture_terminal_evidence(run_id)
-            self._mission.fail(f"Demo Run failed: {exc}")
-            return self._results.seal(
+            return self._coordinator.finish(
                 run_id,
-                phase=self._mission.phase.value,
+                terminal_phase=MissionPhase.FAILED,
                 outcome="FAILED",
                 reason="INTERNAL_ERROR",
                 message=f"Demo Run failed: {exc}",

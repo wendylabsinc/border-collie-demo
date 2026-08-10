@@ -22,6 +22,7 @@ class HardwareConfig:
     maximum_forward_mps: float = 1.0
     maximum_yaw_rps: float = 0.80
     command_watchdog_s: float = 0.35
+    motion_authority_ttl_s: float = 2.0
     rpc_timeout_s: float = 0.75
     client_timeout_s: float = 12.0
     remote_api_settle_s: float = 0.50
@@ -37,6 +38,7 @@ class HardwareConfig:
             "maximum_forward_mps",
             "maximum_yaw_rps",
             "command_watchdog_s",
+            "motion_authority_ttl_s",
             "rpc_timeout_s",
             "client_timeout_s",
             "pose_maximum_age_s",
@@ -49,6 +51,8 @@ class HardwareConfig:
             raise ValueError("forward pulse exceeds the configured motion limit")
         if self.command_heartbeat_s >= self.command_watchdog_s:
             raise ValueError("command heartbeat must be faster than the watchdog")
+        if self.motion_authority_ttl_s <= self.command_watchdog_s:
+            raise ValueError("motion authority TTL must exceed the command watchdog")
         if self.remote_api_settle_s < 0.0:
             raise ValueError("remote_api_settle_s must be non-negative")
         if not 0.0 <= self.pear_tracking_minimum_confidence <= 1.0:
@@ -81,6 +85,9 @@ class HardwareConfig:
             maximum_yaw_rps=float(os.environ.get("BORDER_COLLIE_MAX_YAW_RPS", "0.80")),
             command_watchdog_s=float(
                 os.environ.get("BORDER_COLLIE_COMMAND_WATCHDOG_S", "0.35")
+            ),
+            motion_authority_ttl_s=float(
+                os.environ.get("BORDER_COLLIE_MOTION_AUTHORITY_TTL_S", "2.0")
             ),
             rpc_timeout_s=float(os.environ.get("BORDER_COLLIE_RPC_TIMEOUT_S", "0.75")),
             client_timeout_s=float(

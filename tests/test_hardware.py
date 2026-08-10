@@ -41,8 +41,9 @@ class FakeMotion:
     async def initialize(self) -> None:
         self.initialized = True
 
-    async def arm(self) -> str:
+    async def arm(self, authority=None) -> str:
         self.armed = True
+        self.authority = authority
         return "lease"
 
     async def command(self, lease: str, command: VelocityCommand) -> VelocityCommand:

@@ -47,6 +47,9 @@ class ProductionStageExecutor:
         phase: MissionPhase,
         context: StageContext,
     ) -> dict[str, Any]:
+        set_authority = getattr(self._hardware, "set_motion_authority", None)
+        if callable(set_authority):
+            set_authority(context.run_id, context.run_epoch, phase.value)
         start_trace = getattr(self._hardware, "start_motion_trace", None)
         if callable(start_trace):
             start_trace(phase.value)
