@@ -16,6 +16,7 @@ from scripts.fruit_soak import (
     summarize_network,
     summarize_run,
     wait_for_ready,
+    wait_for_recovery,
     wait_for_terminal,
 )
 
@@ -203,6 +204,69 @@ def test_wait_for_terminal_samples_confidence_and_proximity():
     assert samples[0]["bbox_bottom_ratio"] == 0.9  # 648 / 720
 
 
+def test_wait_for_terminal_reconciles_a_transient_result_timeout():
+    class TransientResultClient(FakeClient):
+        def __init__(self):
+            super().__init__(
+                [READY],
+                results_by_id={"run-1": [terminal("run-1")]},
+                sidecar=SIDECAR,
+            )
+            self.calls = 0
+
+        def result(self, run_id):
+            self.calls += 1
+            if self.calls == 1:
+                raise TimeoutError("transient result timeout")
+            return super().result(run_id)
+
+    run, samples, note = wait_for_terminal(
+        TransientResultClient(),
+        "run-1",
+        target_fruit="pear",
+        sleep=lambda _: None,
+    )
+
+    assert run["outcome"] == "COMPLETED"
+    assert note is None
+    assert samples[0]["result_error"] == "transient result timeout"
+
+
+def test_wait_for_recovery_reconciles_transient_poll_errors():
+    class RecoveryPollClient:
+        calls = 0
+        stop_calls = 0
+
+        def result(self, run_id):
+            self.calls += 1
+            if self.calls == 1:
+                raise TimeoutError("link timeout")
+            return {
+                "run": {
+                    "recovery_attempts": [
+                        {
+                            "recovery_id": "recovery-1",
+                            "outcome": "COMPLETED",
+                            "reason": "HOME_POSITION_RECOVERED",
+                        }
+                    ]
+                }
+            }
+
+        def stop(self):
+            self.stop_calls += 1
+
+    attempt, errors = wait_for_recovery(
+        RecoveryPollClient(),
+        "run-1",
+        "recovery-1",
+        sleep=lambda _: None,
+    )
+
+    assert attempt["outcome"] == "COMPLETED"
+    assert errors == ["link timeout"]
+
+
 def test_aggregate_stage_telemetry_groups_by_phase():
     samples = [
         {
@@ -362,6 +426,50 @@ def test_session_can_run_the_regular_soak_without_orientation_turns(tmp_path: Pa
     assert session["orientation_randomized"] is False
     assert session["orientation_sequence_degrees"] == [0, 0]
     assert client.orientation_degrees == [0, 0]
+
+
+def test_session_recovers_a_failed_run_before_continuing(tmp_path: Path):
+    recovery = {
+        "recovery_id": "recovery-1",
+        "outcome": "COMPLETED",
+        "reason": "HOME_POSITION_RECOVERED",
+        "final_safety_state": "DISARMED_CONFIRMED",
+        "final_evidence": {"home_distance_m": 0.08},
+    }
+    failed = terminal("run-1", outcome="FAILED", home=0.3)
+    recovered = json.loads(json.dumps(failed))
+    recovered["run"]["recovery_attempts"] = [recovery]
+
+    class RecoveryClient(FakeClient):
+        def recover_home(self, run_id):
+            assert run_id == "run-1"
+            return {"recovery": {"recovery_id": "recovery-1"}}
+
+    client = RecoveryClient(
+        [READY],
+        results_by_id={
+            "run-1": [failed, recovered],
+            "run-2": [terminal("run-2")],
+        },
+        sidecar=SIDECAR,
+    )
+
+    session = run_session(
+        client,
+        runs=2,
+        seed=17,
+        output_path=tmp_path / "recovering-soak.json",
+        recover_failures=True,
+        sleep=lambda _: None,
+        log=lambda *_: None,
+    )
+
+    assert session["failure_recovery_enabled"] is True
+    assert len(session["runs"]) == 2
+    assert session["runs"][0]["outcome"] == "FAILED"
+    assert session["runs"][0]["recovery"]["outcome"] == "COMPLETED"
+    assert session["runs"][1]["outcome"] == "COMPLETED"
+    assert session["aborted"] is None
 
 
 def test_session_aborts_and_persists_partial_on_latch(tmp_path: Path):

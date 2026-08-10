@@ -318,8 +318,9 @@ python3 scripts/fruit_soak.py \
   --agent 192.168.0.107:50052 \
   --runs 10 \
   --seed 20260810 \
-  --expected-build-label "base-soak-v2-orientation (demo/base)" \
+  --expected-build-label "base-soak-v3-recovery-retention (demo/base)" \
   --expected-fruits apple banana pear \
+  --recover-failures \
   --device-probes \
   --dongle-match "DJI MIC MINI" \
   --note "<fruit placements, lighting, and microphone setup>"
@@ -329,9 +330,35 @@ The build label and qualified-fruit set are checked before the first activation.
 An activation request with an ambiguous response aborts the session without an
 automatic retry. A restart-required application state also aborts immediately.
 Individual terminal run failures are recorded and the supervised soak continues
-unless the deployed application's safety state prevents another activation.
+only after their saved-Home recovery completes when `--recover-failures` is
+enabled. A rejected, failed, stopped, or timed-out recovery aborts the soak
+before another run can capture a displaced Home. Without that flag, failures
+retain the earlier records-only behavior and the harness does not issue recovery
+motion.
 Pass `--no-orientation-randomization` to run the original soak with a zero-degree
 pre-search turn on every mission.
+
+### Recover a failed run to its captured Home
+
+Failed-run recovery is a separate, position-only operation. It reuses the
+failed run's saved Home and recorded forward approach heartbeat count; it does
+not capture a new Home or change the original failed outcome.
+
+```bash
+curl -X POST \
+  http://woof.local:8110/api/results/RUN_ID/recover-home \
+  -H 'content-type: application/json' \
+  -d '{"confirmation":"RECOVER FAILED RUN TO CAPTURED HOME"}'
+```
+
+The endpoint returns `202 Accepted` with a recovery ID. Poll
+`/api/results/RUN_ID` and read `recovery_attempts`; the active recovery also
+appears in `/api/status`. Only one recovery attempt is accepted for a failed
+run. `/api/stop` cancels and disarms an active recovery.
+
+Failed and stopped runs retain their full event, stage, failure, motion, and
+frame evidence. Completed runs retain one compact `result.json` with the key
+acceptance values and no frame archive or event journal.
 
 The root app and `media` service each have a committed `build.stagefile.yaml`
 and digest-pinned lockfile. A Stagefile-capable Wendy CLI selects both

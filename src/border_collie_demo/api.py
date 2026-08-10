@@ -17,6 +17,10 @@ from .hardware import HardwareManager, HardwareUnavailable
 from .mission import MissionMachine, RestartRequired
 from .orchestrator import EXECUTED_STAGES, DemoOrchestrator, StageExecutor
 from .preflight import evaluate_preflight, preflight_check_ready
+from .recovery import (
+    RECOVERY_CONFIRMATION,
+    FailedRunHomeRecovery,
+)
 from .run_results import ActiveRunError, RunResultNotFound, RunResultStore
 
 
@@ -42,6 +46,10 @@ class RunRequest(BaseModel):
 
 class FruitPreviewRequest(BaseModel):
     target_fruit: Literal["apple", "banana", "pear"]
+
+
+class FailedRunRecoveryRequest(BaseModel):
+    confirmation: str
 
 
 def create_app(
@@ -93,6 +101,23 @@ def create_app(
             terminal_evidence=terminal_evidence,
         )
     )
+    recovery = FailedRunHomeRecovery(robot, results)
+
+    async def capture_failed_evidence(run_id: str) -> None:
+        if terminal_evidence is None:
+            results.record_evidence_unavailable(
+                run_id,
+                "terminal evidence adapter is not configured",
+            )
+            return
+        try:
+            artifacts = await asyncio.to_thread(terminal_evidence)
+            results.record_artifacts(run_id, artifacts)
+        except Exception as exc:  # noqa: BLE001 - evidence must not mask safety
+            results.record_evidence_unavailable(
+                run_id,
+                f"terminal evidence capture failed: {exc}",
+            )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -196,8 +221,9 @@ def create_app(
             "mission": machine.status(),
             "hardware": robot.status(),
             "active_run_id": results.active_run_id,
+            "active_recovery": results.active_recovery,
             "activation": {
-                "ready": preflight["ready"],
+                "ready": preflight["ready"] and results.active_recovery is None,
                 "blockers": [
                     {
                         "name": check["name"],
@@ -205,7 +231,17 @@ def create_app(
                     }
                     for check in preflight["checks"]
                     if not check["ready"]
-                ],
+                ]
+                + (
+                    [
+                        {
+                            "name": "failed_run_recovery_active",
+                            "detail": "failed-run Home recovery is active",
+                        }
+                    ]
+                    if results.active_recovery is not None
+                    else []
+                ),
             },
         }
 
@@ -215,6 +251,11 @@ def create_app(
             raise HTTPException(
                 status_code=423,
                 detail="physical remote takeover is latched; restart required",
+            )
+        if results.active_recovery is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="failed-run Home recovery is active",
             )
         try:
             run = results.start_run(
@@ -246,6 +287,7 @@ def create_app(
         if not report["ready"]:
             stop_errors = await robot.emergency_stop()
             machine.fail("preflight readiness failed")
+            await capture_failed_evidence(run["run_id"])
             run = results.seal(
                 run["run_id"],
                 phase=machine.phase.value,
@@ -277,6 +319,7 @@ def create_app(
             except Exception as exc:  # noqa: BLE001 - hardware evidence boundary
                 stop_errors = await robot.emergency_stop()
                 machine.fail("fresh Home pose capture failed")
+                await capture_failed_evidence(run["run_id"])
                 run = results.seal(
                     run["run_id"],
                     phase=machine.phase.value,
@@ -306,6 +349,44 @@ def create_app(
                     active_tasks.add(task)
                     task.add_done_callback(active_tasks.discard)
         return {"run": run}
+
+    @app.post("/api/results/{run_id}/recover-home", status_code=202)
+    async def recover_failed_run_home(
+        run_id: str,
+        request: FailedRunRecoveryRequest,
+    ) -> dict[str, object]:
+        if request.confirmation.strip().upper() != RECOVERY_CONFIRMATION:
+            raise HTTPException(
+                status_code=409,
+                detail=f'type exactly "{RECOVERY_CONFIRMATION}"',
+            )
+        if machine.takeover_latched:
+            raise HTTPException(
+                status_code=423,
+                detail="physical remote takeover is latched; restart required",
+            )
+        try:
+            run = results.get(run_id)
+            pulse_count, pulse_source = recovery.validate(run)
+            attempt = results.start_recovery(
+                run_id,
+                confirmation=RECOVERY_CONFIRMATION,
+            )
+        except RunResultNotFound as exc:
+            raise HTTPException(status_code=404, detail="Run Result not found") from exc
+        except (ActiveRunError, HardwareUnavailable) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        task = asyncio.create_task(
+            recovery.run(run_id, str(attempt["recovery_id"]))
+        )
+        active_tasks.add(task)
+        task.add_done_callback(active_tasks.discard)
+        return {
+            "recovery": attempt,
+            "maximum_forward_pulses": pulse_count,
+            "forward_pulse_source": pulse_source,
+        }
 
     @app.get("/api/results/{run_id}")
     async def get_result(run_id: str) -> dict[str, object]:
@@ -337,10 +418,13 @@ def create_app(
         runs = results.list_results()
         latest = runs[0] if runs else None
         completed = (latest or {}).get("stage_results", {})
+        compact_completed = set(
+            ((latest or {}).get("key_values") or {}).get("completed_stages", [])
+        )
         failed_phase = (latest or {}).get("failed_phase")
         stages = []
         for phase in EXECUTED_STAGES:
-            if phase.value in completed:
+            if phase.value in completed or phase.value in compact_completed:
                 stage_status = "COMPLETED"
             elif failed_phase == phase.value:
                 stage_status = "FAILED"
@@ -402,6 +486,7 @@ def create_app(
             pass
         run = None
         if results.active_run_id is not None:
+            await capture_failed_evidence(results.active_run_id)
             run = results.seal(
                 results.active_run_id,
                 phase=machine.phase.value,

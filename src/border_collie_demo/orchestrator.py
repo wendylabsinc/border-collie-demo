@@ -142,7 +142,6 @@ class DemoOrchestrator:
             stop_errors = await self._stages.stop()
             if stop_errors:
                 raise RuntimeError("; ".join(stop_errors))
-            await self._capture_terminal_evidence(run_id)
             self._mission.advance("Demo Run completed and disarmed")
             return self._results.seal(
                 run_id,

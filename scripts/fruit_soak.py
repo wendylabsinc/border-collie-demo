@@ -23,8 +23,9 @@ restart-required state aborts the session immediately.
 
 Usage:
     python3 scripts/fruit_soak.py --host 192.168.0.107 --runs 10 --seed 20260810 \
-        --expected-build-label "base-soak-v2-orientation (demo/base)" \
+        --expected-build-label "base-soak-v3-recovery-retention (demo/base)" \
         --expected-fruits apple banana pear \
+        --recover-failures \
         --note "apple at 94in; banana and pear at 84in" \
         --dongle-match "DJI MIC MINI" --device-probes
 """
@@ -54,7 +55,9 @@ SCHEMA_VERSION = 4
 POLL_INTERVAL_S = 1.5
 READY_TIMEOUT_S = 90.0
 RUN_TIMEOUT_S = 180.0
+RECOVERY_TIMEOUT_S = 90.0
 COOLDOWN_S = 10.0
+RECOVERY_CONFIRMATION = "RECOVER FAILED RUN TO CAPTURED HOME"
 
 
 class HarnessAbort(RuntimeError):
@@ -110,6 +113,13 @@ class ApiClient:
 
     def result(self, run_id: str) -> dict:
         return self._request(f"{self.base_url}/api/results/{run_id}")
+
+    def recover_home(self, run_id: str) -> dict:
+        return self._request(
+            f"{self.base_url}/api/results/{run_id}/recover-home",
+            "POST",
+            {"confirmation": RECOVERY_CONFIRMATION},
+        )
 
     def camera_frame(self) -> bytes:
         request = urllib.request.Request(f"{self.base_url}/api/camera/frame.jpg")
@@ -474,6 +484,7 @@ def summarize_run(
     orientation_degrees: float = 0.0,
 ) -> dict:
     terminal = run.get("terminal_measurements") or {}
+    key_values = run.get("key_values") or {}
     return {
         "number": number,
         "target_fruit": fruit,
@@ -489,11 +500,19 @@ def summarize_run(
         "message": run.get("message"),
         "failed_phase": run.get("failed_phase"),
         "final_safety_state": run.get("final_safety_state"),
-        "home_distance_m": terminal.get("home_distance_m"),
-        "heading_error_rad": terminal.get("heading_error_rad"),
+        "home_distance_m": terminal.get(
+            "home_distance_m", key_values.get("home_distance_m")
+        ),
+        "heading_error_rad": terminal.get(
+            "heading_error_rad", key_values.get("heading_error_rad")
+        ),
+        "run_key_values": key_values or None,
         "stage_results": run.get("stage_results"),
         "failure_details": run.get("failure_details"),
-        "stage_durations": compute_stage_durations(run.get("events")),
+        "stage_durations": (
+            key_values.get("stage_durations_s")
+            or compute_stage_durations(run.get("events"))
+        ),
     }
 
 
@@ -508,7 +527,17 @@ def wait_for_ready(
     deadline = clock() + timeout_s
     last_blockers: list[str] = []
     while True:
-        status = client.status()
+        try:
+            status = client.status()
+        except Exception as exc:  # noqa: BLE001 - transient link errors are retried
+            last_blockers = [f"status unavailable: {exc}"]
+            if clock() >= deadline:
+                raise HarnessAbort(
+                    f"activation not ready within {timeout_s:.0f}s; "
+                    f"blockers: {'; '.join(last_blockers)}"
+                ) from exc
+            sleep(POLL_INTERVAL_S)
+            continue
         mission = status.get("mission") or {}
         if mission.get("restart_required"):
             raise HarnessAbort(
@@ -545,7 +574,23 @@ def wait_for_terminal(
     samples: list[dict] = []
     while True:
         samples.append(take_sample(client, target_fruit, temp_sampler, clock=clock))
-        run = client.result(run_id).get("run") or {}
+        try:
+            run = client.result(run_id).get("run") or {}
+        except Exception as exc:  # noqa: BLE001 - reconcile transient result loss
+            samples[-1]["result_error"] = str(exc)
+            if clock() >= deadline:
+                client.stop()
+                note = (
+                    f"harness stop issued after {timeout_s:.0f}s without a "
+                    "readable terminal state"
+                )
+                try:
+                    run = client.result(run_id).get("run") or {}
+                except Exception:  # noqa: BLE001 - preserve the stop note
+                    run = {}
+                return run, samples, note
+            sleep(POLL_INTERVAL_S)
+            continue
         if run.get("outcome"):
             return run, samples, None
         if clock() >= deadline:
@@ -553,6 +598,43 @@ def wait_for_terminal(
             note = f"harness stop issued after {timeout_s:.0f}s without a terminal state"
             run = client.result(run_id).get("run") or run
             return run, samples, note
+        sleep(POLL_INTERVAL_S)
+
+
+def wait_for_recovery(
+    client: ApiClient,
+    run_id: str,
+    recovery_id: str,
+    *,
+    timeout_s: float = RECOVERY_TIMEOUT_S,
+    sleep=time.sleep,
+    clock=time.monotonic,
+) -> tuple[dict, list[str]]:
+    """Wait for an asynchronous recovery without retrying its activation."""
+    deadline = clock() + timeout_s
+    poll_errors: list[str] = []
+    while True:
+        try:
+            run = client.result(run_id).get("run") or {}
+        except Exception as exc:  # noqa: BLE001 - recovery continues server-side
+            poll_errors.append(str(exc))
+        else:
+            attempt = next(
+                (
+                    item
+                    for item in run.get("recovery_attempts", [])
+                    if item.get("recovery_id") == recovery_id
+                ),
+                None,
+            )
+            if attempt is not None and attempt.get("outcome") is not None:
+                return attempt, poll_errors
+        if clock() >= deadline:
+            client.stop()
+            raise HarnessAbort(
+                f"Home recovery {recovery_id} did not become terminal within "
+                f"{timeout_s:.0f}s; operator stop requested"
+            )
         sleep(POLL_INTERVAL_S)
 
 
@@ -570,6 +652,7 @@ def run_session(
     expected_build_label: str | None = None,
     expected_fruits: list[str] | None = None,
     randomize_orientation: bool = True,
+    recover_failures: bool = False,
     keep_samples: bool = True,
     sleep=time.sleep,
     log=print,
@@ -614,6 +697,7 @@ def run_session(
         "fruit_sequence": sequence,
         "orientation_randomized": randomize_orientation,
         "orientation_sequence_degrees": orientation_sequence,
+        "failure_recovery_enabled": recover_failures,
         "temperature_source": (
             temp_sampler.source.url
             or temp_sampler.source.command
@@ -691,6 +775,39 @@ def run_session(
                 f" | polls {record['network']['poll_count']}"
                 f" (errors {record['network']['error_count']})"
             )
+            if recover_failures and record["outcome"] == "FAILED":
+                log(f"run {number}/{runs}: requesting bounded Home recovery")
+                try:
+                    accepted = client.recover_home(run_id)
+                except Exception as exc:
+                    record["recovery"] = {
+                        "outcome": "NOT_STARTED",
+                        "error": str(exc),
+                    }
+                    persist()
+                    raise HarnessAbort(
+                        f"run {number} failed and Home recovery was not accepted: {exc}"
+                    ) from exc
+                recovery_id = accepted["recovery"]["recovery_id"]
+                attempt, recovery_poll_errors = wait_for_recovery(
+                    client,
+                    run_id,
+                    recovery_id,
+                    sleep=sleep,
+                )
+                record["recovery"] = attempt
+                if recovery_poll_errors:
+                    record["recovery_poll_errors"] = recovery_poll_errors
+                persist()
+                log(
+                    f"run {number}/{runs}: recovery {attempt['outcome']} / "
+                    f"{attempt['reason']}"
+                )
+                if attempt["outcome"] != "COMPLETED":
+                    raise HarnessAbort(
+                        f"run {number} failed and Home recovery ended "
+                        f"{attempt['outcome']} / {attempt['reason']}"
+                    )
     except HarnessAbort as abort:
         session["aborted"] = str(abort)
         persist()
@@ -744,6 +861,14 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="use a 0 degree pre-search turn for every run",
     )
+    parser.add_argument(
+        "--recover-failures",
+        action="store_true",
+        help=(
+            "after a failed run, explicitly request its bounded saved-Home "
+            "recovery before continuing"
+        ),
+    )
     parser.add_argument("--output", type=Path, default=None)
     args = parser.parse_args(argv)
 
@@ -773,6 +898,7 @@ def main(argv: list[str] | None = None) -> int:
             expected_build_label=args.expected_build_label,
             expected_fruits=args.expected_fruits,
             randomize_orientation=not args.no_orientation_randomization,
+            recover_failures=args.recover_failures,
             keep_samples=not args.no_samples,
         )
     except HarnessAbort as exc:
