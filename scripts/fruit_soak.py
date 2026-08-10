@@ -569,6 +569,7 @@ def run_session(
     note: str | None = None,
     expected_build_label: str | None = None,
     expected_fruits: list[str] | None = None,
+    randomize_orientation: bool = True,
     keep_samples: bool = True,
     sleep=time.sleep,
     log=print,
@@ -591,7 +592,9 @@ def run_session(
                 "no run was activated"
             )
     sequence = draw_fruit_sequence(qualified, runs, seed)
-    orientation_sequence = draw_orientation_sequence(runs, seed)
+    orientation_sequence = (
+        draw_orientation_sequence(runs, seed) if randomize_orientation else [0] * runs
+    )
     log(f"build: {build_label}")
     log(f"qualified fruits: {', '.join(qualified)}")
     log(f"seed {seed} -> sequence: {', '.join(sequence)}")
@@ -609,6 +612,7 @@ def run_session(
         "target_runs": runs,
         "seed": seed,
         "fruit_sequence": sequence,
+        "orientation_randomized": randomize_orientation,
         "orientation_sequence_degrees": orientation_sequence,
         "temperature_source": (
             temp_sampler.source.url
@@ -735,6 +739,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--device-probes", action="store_true", help="enable wendy CLI probes")
     parser.add_argument("--dongle-match", default=None, help="substring marking the voice dongle")
     parser.add_argument("--no-samples", action="store_true", help="omit raw sample series")
+    parser.add_argument(
+        "--no-orientation-randomization",
+        action="store_true",
+        help="use a 0 degree pre-search turn for every run",
+    )
     parser.add_argument("--output", type=Path, default=None)
     args = parser.parse_args(argv)
 
@@ -763,6 +772,7 @@ def main(argv: list[str] | None = None) -> int:
             note=args.note,
             expected_build_label=args.expected_build_label,
             expected_fruits=args.expected_fruits,
+            randomize_orientation=not args.no_orientation_randomization,
             keep_samples=not args.no_samples,
         )
     except HarnessAbort as exc:
