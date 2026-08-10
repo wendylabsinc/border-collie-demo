@@ -44,6 +44,10 @@ INITIAL_CENTER_TOLERANCE_RATIO = 0.05
 INITIAL_CENTER_CONFIRMATIONS = 3
 INITIAL_CENTER_YAW_RPS = 1.00
 SEARCH_CROP_CANDIDATE_CONFIDENCE = 0.50
+SEARCH_CANDIDATE_HOLD_S = 0.75
+SEARCH_CANDIDATE_YAW_RPS = 0.50
+SEARCH_CANDIDATE_LOSS_GRACE_S = 0.50
+SEARCH_CANDIDATE_MAXIMUM_AGE_S = 0.25
 # Once initial centering is complete, keep walking through the middle 40% of
 # the frame. Only steer while moving outside that corridor; the tracker owns a
 # still-wider outer gate before it may request a stationary recenter.
@@ -140,6 +144,7 @@ class HardwareManager:
         pose_factory: PoseFactory | None = None,
         home_localizer: HomeLocalizer | None = None,
         visual_odometry: VisualOdometryAdapter | None = None,
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self.config = config or HardwareConfig()
         self._dds_initializer = dds_initializer
@@ -164,6 +169,7 @@ class HardwareManager:
                 maximum_odometry_age_s=self.config.pose_maximum_age_s
             )
         )
+        self._monotonic = monotonic
         self._motion: MotionAdapterProtocol | None = None
         self._pose: PoseProviderProtocol | None = None
         self._connected = False
@@ -469,9 +475,11 @@ class HardwareManager:
             operation_error: Exception | None = None
             commands_sent = False
             progress = 0.0
-            started = time.monotonic()
+            started = self._monotonic()
             evidence: dict[str, object] | None = None
-            crop_slow_turn_next = False
+            candidate_lock_active = False
+            candidate_hold_until: float | None = None
+            candidate_last_seen_at: float | None = None
             recognition: dict[str, object] = {
                 "samples": 0,
                 "pear_candidate_samples": 0,
@@ -490,10 +498,10 @@ class HardwareManager:
                 previous_yaw = initial.pose.yaw_rad
                 lease = await self._motion.arm(self._authority_for_active_operation())
                 deadline = started + timeout
-                while time.monotonic() < deadline:
+                while self._monotonic() < deadline:
                     status = status_reader()
                     self._record_perception_sample(status, target_fruit)
-                    slow_for_crop_confirmation = False
+                    plausible_candidate = False
                     recognition["samples"] = int(recognition["samples"]) + 1
                     if not status.get("camera_healthy"):
                         raise CameraFailure(
@@ -510,6 +518,15 @@ class HardwareManager:
                                 int(recognition["pear_candidate_samples"]) + 1
                             )
                         confidence = _finite_float(detection.get("confidence"))
+                        detection_age_s = _finite_float(detection.get("age_s"))
+                        plausible_candidate = bool(
+                            label == target_fruit.casefold()
+                            and confidence is not None
+                            and confidence >= SEARCH_CROP_CANDIDATE_CONFIDENCE
+                            and detection_age_s is not None
+                            and 0.0 <= detection_age_s
+                            <= SEARCH_CANDIDATE_MAXIMUM_AGE_S
+                        )
                         if confidence is not None:
                             current_maximum = _finite_float(
                                 recognition["maximum_confidence"]
@@ -551,14 +568,14 @@ class HardwareManager:
                             full_frame_confidence = _finite_float(
                                 crop_confirmation.get("full_frame_confidence")
                             )
-                            slow_for_crop_confirmation = bool(
+                            crop_candidate = bool(
                                 label == target_fruit.casefold()
                                 and crop_confirmation.get("attempted") is True
                                 and full_frame_confidence is not None
                                 and full_frame_confidence
                                 >= SEARCH_CROP_CANDIDATE_CONFIDENCE
                             )
-                            if slow_for_crop_confirmation:
+                            if crop_candidate:
                                 recognition["crop_confirmation_samples"] = (
                                     int(
                                         recognition.get(
@@ -610,35 +627,56 @@ class HardwareManager:
                                 "search_progress_rad": progress,
                             },
                         )
+                    now = self._monotonic()
+                    if plausible_candidate:
+                        candidate_last_seen_at = now
+                        if not candidate_lock_active:
+                            candidate_lock_active = True
+                            candidate_hold_until = now + SEARCH_CANDIDATE_HOLD_S
+                            recognition["candidate_lock_count"] = int(
+                                recognition.get("candidate_lock_count", 0)
+                            ) + 1
+                            recognition["candidate_lock_confidence_threshold"] = (
+                                SEARCH_CROP_CANDIDATE_CONFIDENCE
+                            )
+                            recognition["candidate_lock_hold_s"] = (
+                                SEARCH_CANDIDATE_HOLD_S
+                            )
+                            recognition["candidate_lock_maximum_age_s"] = (
+                                SEARCH_CANDIDATE_MAXIMUM_AGE_S
+                            )
+                            recognition["candidate_lock_yaw_rps"] = min(
+                                rate,
+                                SEARCH_CANDIDATE_YAW_RPS,
+                            )
+                    elif (
+                        candidate_lock_active
+                        and candidate_last_seen_at is not None
+                        and now - candidate_last_seen_at
+                        > SEARCH_CANDIDATE_LOSS_GRACE_S
+                    ):
+                        candidate_lock_active = False
+                        candidate_hold_until = None
+                        candidate_last_seen_at = None
+                        recognition["candidate_lock_losses"] = int(
+                            recognition.get("candidate_lock_losses", 0)
+                        ) + 1
                     command_rate = rate
                     command_reason = "find_target"
-                    if slow_for_crop_confirmation:
-                        crop_slow_turn_next = not crop_slow_turn_next
-                        if crop_slow_turn_next:
+                    if candidate_lock_active:
+                        assert candidate_hold_until is not None
+                        if now < candidate_hold_until:
                             command_rate = 0.0
                             command_reason = "crop_confirm_hold"
-                            recognition["crop_slowdown_hold_samples"] = (
-                                int(
-                                    recognition.get(
-                                        "crop_slowdown_hold_samples",
-                                        0,
-                                    )
-                                )
-                                + 1
-                            )
+                            recognition["crop_slowdown_hold_samples"] = int(
+                                recognition.get("crop_slowdown_hold_samples", 0)
+                            ) + 1
                         else:
+                            command_rate = min(rate, SEARCH_CANDIDATE_YAW_RPS)
                             command_reason = "crop_confirm_slow_turn"
-                            recognition["crop_slowdown_turn_samples"] = (
-                                int(
-                                    recognition.get(
-                                        "crop_slowdown_turn_samples",
-                                        0,
-                                    )
-                                )
-                                + 1
-                            )
-                    else:
-                        crop_slow_turn_next = False
+                            recognition["crop_slowdown_turn_samples"] = int(
+                                recognition.get("crop_slowdown_turn_samples", 0)
+                            ) + 1
                     await self._send_motion_command(
                         lease,
                         VelocityCommand(0.0, command_rate, command_reason),

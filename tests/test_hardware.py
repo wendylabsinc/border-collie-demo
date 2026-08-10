@@ -363,7 +363,7 @@ def test_find_target_turns_until_fresh_stable_perception_then_stops() -> None:
     asyncio.run(scenario())
 
 
-def test_find_target_slows_but_keeps_rotating_during_crop_confirmation() -> None:
+def test_find_target_holds_during_crop_confirmation() -> None:
     async def scenario() -> None:
         motion = FakeMotion()
         manager = HardwareManager(
@@ -381,6 +381,7 @@ def test_find_target_slows_but_keeps_rotating_during_crop_confirmation() -> None
                 "label": "pear",
                 "confidence": 0.58,
                 "consecutive_detections": 0,
+                "age_s": 0.01,
                 "crop_confirmation": {
                     "attempted": True,
                     "promoted": False,
@@ -430,19 +431,323 @@ def test_find_target_slows_but_keeps_rotating_during_crop_confirmation() -> None
         assert reasons == [
             "find_target",
             "crop_confirm_hold",
-            "crop_confirm_slow_turn",
-            "find_target",
+            "crop_confirm_hold",
+            "crop_confirm_hold",
         ]
         assert [command.yaw_rps for command in motion.commands] == [
             0.50,
             0.0,
-            0.50,
-            0.50,
+            0.0,
+            0.0,
         ]
         assert result["recognition"]["crop_confirmation_samples"] == 2
-        assert result["recognition"]["crop_slowdown_hold_samples"] == 1
-        assert result["recognition"]["crop_slowdown_turn_samples"] == 1
+        assert result["recognition"]["crop_slowdown_hold_samples"] == 3
+        assert result["recognition"].get("crop_slowdown_turn_samples", 0) == 0
         assert result["recognition"]["crop_candidate_confidence_threshold"] == 0.50
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_find_target_resumes_candidate_tracking_at_half_rate_after_hold() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        clock = 0.0
+
+        def monotonic() -> float:
+            return clock
+
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+            monotonic=monotonic,
+        )
+        await manager.start()
+
+        def candidate(consecutive: int, *, ready: bool = False) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": ready,
+                "detection": {
+                    "label": "pear",
+                    "confidence": 0.85,
+                    "consecutive_detections": consecutive,
+                    "age_s": 0.01,
+                },
+            }
+
+        statuses = iter(
+            (
+                candidate(1),
+                candidate(2),
+                candidate(3),
+                candidate(4),
+                candidate(4),
+                candidate(4),
+                candidate(5, ready=True),
+            )
+        )
+
+        def read_status() -> dict[str, object]:
+            nonlocal clock
+            clock += 0.2
+            return next(statuses)
+
+        result = await manager.find_target(
+            read_status,
+            "pear",
+            yaw_rps=1.0,
+            sweep_rad=2.0 * math.pi,
+            timeout_s=5.0,
+        )
+
+        assert result["stable_detections"] == 5
+        assert [command.reason for command in motion.commands] == [
+            "crop_confirm_hold",
+            "crop_confirm_hold",
+            "crop_confirm_hold",
+            "crop_confirm_hold",
+            "crop_confirm_slow_turn",
+            "crop_confirm_slow_turn",
+        ]
+        assert [command.yaw_rps for command in motion.commands] == [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.5,
+            0.5,
+        ]
+        assert result["recognition"]["candidate_lock_hold_s"] == 0.75
+        assert result["recognition"]["candidate_lock_yaw_rps"] == 0.5
+        assert result["recognition"]["crop_slowdown_hold_samples"] == 4
+        assert result["recognition"]["crop_slowdown_turn_samples"] == 2
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_find_target_returns_to_broad_search_after_candidate_loss() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        clock = 0.0
+
+        def monotonic() -> float:
+            return clock
+
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+            monotonic=monotonic,
+        )
+        await manager.start()
+
+        statuses = iter(
+            (
+                {
+                    "camera_healthy": True,
+                    "target_ready": False,
+                    "detection": {
+                        "label": "pear",
+                        "confidence": 0.85,
+                        "consecutive_detections": 1,
+                        "age_s": 0.01,
+                    },
+                },
+                {"camera_healthy": True, "target_ready": False},
+                {"camera_healthy": True, "target_ready": False},
+                {"camera_healthy": True, "target_ready": False},
+                {
+                    "camera_healthy": True,
+                    "target_ready": True,
+                    "detection": {
+                        "label": "pear",
+                        "confidence": 0.85,
+                        "consecutive_detections": 5,
+                    },
+                },
+            )
+        )
+
+        def read_status() -> dict[str, object]:
+            nonlocal clock
+            clock += 0.2
+            return next(statuses)
+
+        result = await manager.find_target(
+            read_status,
+            "pear",
+            yaw_rps=1.0,
+            sweep_rad=2.0 * math.pi,
+            timeout_s=5.0,
+        )
+
+        assert result["stable_detections"] == 5
+        assert [command.reason for command in motion.commands] == [
+            "crop_confirm_hold",
+            "crop_confirm_hold",
+            "crop_confirm_hold",
+            "find_target",
+        ]
+        assert [command.yaw_rps for command in motion.commands] == [
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+        ]
+        assert result["recognition"]["candidate_lock_losses"] == 1
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    ("confidence", "age_s"),
+    ((0.49, 0.01), (0.85, 0.251)),
+)
+def test_find_target_does_not_lock_unqualified_candidate(
+    confidence: float,
+    age_s: float,
+) -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+        statuses = iter(
+            (
+                {
+                    "camera_healthy": True,
+                    "target_ready": False,
+                    "detection": {
+                        "label": "pear",
+                        "confidence": confidence,
+                        "consecutive_detections": 1,
+                        "age_s": age_s,
+                    },
+                },
+                {
+                    "camera_healthy": True,
+                    "target_ready": True,
+                    "detection": {
+                        "label": "pear",
+                        "confidence": 0.85,
+                        "consecutive_detections": 5,
+                    },
+                },
+            )
+        )
+
+        result = await manager.find_target(
+            lambda: next(statuses),
+            "pear",
+            yaw_rps=1.0,
+            sweep_rad=2.0 * math.pi,
+            timeout_s=0.5,
+        )
+
+        assert [command.reason for command in motion.commands] == ["find_target"]
+        assert [command.yaw_rps for command in motion.commands] == [1.0]
+        assert result["recognition"].get("candidate_lock_count", 0) == 0
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_find_target_holds_a_plausible_pear_long_enough_to_qualify() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+
+        class MotionCoupledTurningPose(FakePose):
+            def __init__(self) -> None:
+                super().__init__()
+                self.yaw = 0.0
+
+            def status(self) -> PoseStatus:
+                if self.started and motion.commands:
+                    self.yaw += abs(motion.commands[-1].yaw_rps) * 0.2
+                return PoseStatus(
+                    Pose(0.0, 0.0, self.yaw, 1.0),
+                    0.0,
+                    self.started,
+                    None if self.started else "pose unavailable",
+                )
+
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: MotionCoupledTurningPose(),
+        )
+        await manager.start()
+
+        def candidate(consecutive: int, *, ready: bool = False) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": ready,
+                "detection": {
+                    "label": "pear",
+                    "confidence": 0.85,
+                    "consecutive_detections": consecutive,
+                    "age_s": 0.01,
+                    "crop_confirmation": {
+                        "attempted": True,
+                        "promoted": ready,
+                        "full_frame_confidence": 0.85,
+                        "crop_confidence": 0.88,
+                    },
+                },
+            }
+
+        statuses = iter(
+            (
+                {"camera_healthy": True, "target_ready": False},
+                candidate(1),
+                candidate(2),
+                candidate(3),
+                candidate(4),
+                candidate(4),
+                candidate(5, ready=True),
+            )
+        )
+
+        result = await manager.find_target(
+            lambda: next(statuses),
+            "pear",
+            yaw_rps=1.0,
+            sweep_rad=0.5,
+            timeout_s=0.5,
+        )
+
+        assert result["stable_detections"] == 5
+        assert [command.reason for command in motion.commands] == [
+            "find_target",
+            "crop_confirm_hold",
+            "crop_confirm_hold",
+            "crop_confirm_hold",
+            "crop_confirm_hold",
+            "crop_confirm_hold",
+        ]
+        assert [command.yaw_rps for command in motion.commands] == [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        ]
         assert motion.armed is False
         await manager.close()
 

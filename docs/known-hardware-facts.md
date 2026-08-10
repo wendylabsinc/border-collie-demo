@@ -10,6 +10,13 @@ proof that this clean implementation works:
   posture without producing a useful turn. The clean centering candidate uses
   the separately observed working 0.50 rad/s turn signal outside its center
   band and zero yaw inside the band.
+- Direct SportClient search can use a 1.0 rad/s broad sweep, but the August 10
+  live run crossed a strong pear candidate before the fifth qualifying frame.
+  The current candidate holds fresh detections at or above 0.50 confidence for
+  0.75 seconds, then resumes at no more than 0.50 rad/s while evidence persists.
+  It keeps the existing five-frame gate and returns to the broad rate only
+  after 0.50 seconds without a plausible candidate. This policy still needs a
+  supervised physical qualification run.
 - The same factory-avoidance calibration produced visible physical movement
   at 1.0 m/s. Production fruit approach therefore uses 1.0 m/s rather than
   operating below the 0.55 m/s movement floor; camera steering,
