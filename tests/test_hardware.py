@@ -10,6 +10,7 @@ from border_collie_demo.go2_motion import MotionConfig
 from border_collie_demo.go2_pose import PoseStatus
 from border_collie_demo.hardware import (
     FORWARD_PULSE_CONFIRMATION,
+    CameraFailure,
     HardwareManager,
     HardwareUnavailable,
     TargetLost,
@@ -552,6 +553,7 @@ def test_approach_stops_on_confirmed_visible_geometry_without_a_final_push() -> 
                     "center_x_ratio": center_x,
                     "center_y_ratio": center_y,
                     "bottom_ratio": bottom,
+                    "age_s": 0.01,
                 },
             }
 
@@ -583,6 +585,7 @@ def test_approach_stops_on_confirmed_visible_geometry_without_a_final_push() -> 
             near_center_ratio=0.72,
             near_confirmations=3,
             near_loss_grace_s=0.75,
+            close_range_mps=0.55,
             final_push_mps=1.0,
             final_push_duration_s=0.001,
             timeout_s=0.5,
@@ -628,6 +631,7 @@ def test_approach_slows_then_stops_while_near_pear_remains_visible() -> None:
                     "center_x_ratio": 0.50,
                     "center_y_ratio": center_y,
                     "bottom_ratio": bottom,
+                    "age_s": 0.01,
                 },
             }
 
@@ -657,6 +661,7 @@ def test_approach_slows_then_stops_while_near_pear_remains_visible() -> None:
             near_center_ratio=0.72,
             near_confirmations=3,
             near_loss_grace_s=0.75,
+            close_range_mps=0.55,
             final_push_mps=0.55,
             final_push_duration_s=0.001,
             timeout_s=0.5,
@@ -692,6 +697,156 @@ def test_approach_slows_then_stops_while_near_pear_remains_visible() -> None:
     asyncio.run(scenario())
 
 
+def test_approach_holds_authorized_command_between_fresh_inference_frames() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+
+        def seen(
+            source_pts: int,
+            *,
+            age_s: float = 0.01,
+            near: bool = False,
+        ) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": True,
+                "generation": "camera-1",
+                "detection": {
+                    "label": "pear",
+                    "generation": "camera-1",
+                    "confidence": 0.81,
+                    "center_x_ratio": 0.50,
+                    "center_y_ratio": 0.76 if near else 0.50,
+                    "bottom_ratio": 0.91 if near else 0.65,
+                    "bbox_area_ratio": 0.12 if near else 0.04,
+                    "age_s": age_s,
+                    "source_pts": source_pts,
+                },
+            }
+
+        # A 10 Hz control loop observes one or two duplicate samples between
+        # fresh 4-8 Hz inference frames. Only the new source PTS values may
+        # advance acquisition and arrival confirmation counts.
+        statuses = iter(
+            (
+                seen(1),
+                seen(1, age_s=0.10),
+                seen(2),
+                seen(2, age_s=0.10),
+                seen(3),
+                seen(3, age_s=0.10),
+                seen(3, age_s=0.20),
+                seen(3, age_s=0.251),
+                seen(4, near=True),
+                seen(4, age_s=0.10, near=True),
+                seen(5, near=True),
+                seen(6, near=True),
+            )
+        )
+
+        result = await manager.approach_target(
+            lambda: next(statuses),
+            "pear",
+            forward_mps=1.0,
+            maximum_yaw_rps=1.0,
+            near_bottom_ratio=0.86,
+            near_center_ratio=0.72,
+            near_confirmations=3,
+            near_loss_grace_s=0.75,
+            close_range_mps=0.55,
+            final_push_mps=1.0,
+            final_push_duration_s=1.0,
+            timeout_s=0.5,
+        )
+
+        assert motion.commands[0] == motion.commands[1]
+        assert motion.commands[0].forward_mps == 0.0
+        assert motion.commands[4] == motion.commands[5] == motion.commands[6]
+        assert motion.commands[4].forward_mps == 1.0
+        assert motion.commands[7] == VelocityCommand(
+            reason="qualified_track_detection_stale"
+        )
+        assert motion.commands[8] == motion.commands[9]
+        assert motion.commands[8].forward_mps == 0.55
+        assert result["acquisition_samples"] == 3
+        assert result["qualified_samples"] == 6
+        assert result["near_samples"] == 3
+        assert result["duplicate_samples"] == 5
+        assert result["forward_pulse_count"] == 6
+        assert result["close_range_mps"] == 0.55
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_approach_zeros_motion_before_reporting_camera_failure() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+
+        def seen(source_pts: int) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": True,
+                "detection": {
+                    "label": "pear",
+                    "confidence": 0.81,
+                    "center_x_ratio": 0.50,
+                    "center_y_ratio": 0.50,
+                    "bottom_ratio": 0.65,
+                    "age_s": 0.01,
+                    "source_pts": source_pts,
+                },
+            }
+
+        statuses = iter(
+            (
+                seen(1),
+                seen(2),
+                seen(3),
+                {"camera_healthy": False, "detail": "camera stalled"},
+            )
+        )
+
+        with pytest.raises(CameraFailure, match="camera stalled"):
+            await manager.approach_target(
+                lambda: next(statuses),
+                "pear",
+                forward_mps=1.0,
+                maximum_yaw_rps=1.0,
+                near_bottom_ratio=0.86,
+                near_center_ratio=0.72,
+                near_confirmations=3,
+                near_loss_grace_s=0.75,
+                close_range_mps=0.55,
+                final_push_mps=1.0,
+                final_push_duration_s=1.0,
+                timeout_s=0.5,
+            )
+
+        assert any(command.forward_mps == 1.0 for command in motion.commands)
+        assert motion.commands[-1] == VelocityCommand(
+            reason="qualified_track_camera_unhealthy"
+        )
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
 def test_approach_rejects_sub_breakaway_slow_speed_before_arming() -> None:
     async def scenario() -> None:
         motion = FakeMotion()
@@ -713,6 +868,7 @@ def test_approach_rejects_sub_breakaway_slow_speed_before_arming() -> None:
                 near_center_ratio=0.72,
                 near_confirmations=3,
                 near_loss_grace_s=0.75,
+                close_range_mps=0.54,
                 final_push_mps=0.54,
                 final_push_duration_s=0.001,
                 timeout_s=0.001,
@@ -745,6 +901,7 @@ def test_approach_centers_pear_before_first_forward_command() -> None:
                     "center_x_ratio": center_x,
                     "center_y_ratio": 0.76 if near else 0.50,
                     "bottom_ratio": 0.91 if near else 0.65,
+                    "age_s": 0.01,
                 },
             }
 
@@ -774,6 +931,7 @@ def test_approach_centers_pear_before_first_forward_command() -> None:
             near_center_ratio=0.72,
             near_confirmations=3,
             near_loss_grace_s=0.75,
+            close_range_mps=0.55,
             final_push_mps=1.0,
             final_push_duration_s=0.001,
             timeout_s=0.5,
@@ -864,6 +1022,7 @@ def test_approach_tracks_an_acquired_pear_at_sixty_percent_confidence() -> None:
             near_center_ratio=0.72,
             near_confirmations=3,
             near_loss_grace_s=0.75,
+            close_range_mps=0.55,
             final_push_mps=0.55,
             final_push_duration_s=0.001,
             timeout_s=0.5,
@@ -903,6 +1062,7 @@ def test_approach_may_combine_forward_and_yaw_after_initial_centering() -> None:
                     "center_x_ratio": center_x,
                     "center_y_ratio": 0.77 if near else 0.50,
                     "bottom_ratio": 0.92 if near else 0.65,
+                    "age_s": 0.01,
                 },
             }
 
@@ -933,6 +1093,7 @@ def test_approach_may_combine_forward_and_yaw_after_initial_centering() -> None:
             near_center_ratio=0.72,
             near_confirmations=3,
             near_loss_grace_s=0.75,
+            close_range_mps=0.55,
             final_push_mps=0.55,
             final_push_duration_s=0.001,
             timeout_s=0.5,
@@ -1042,6 +1203,7 @@ def test_approach_uses_close_range_continuity_after_red_apple_confidence_drops()
             near_center_ratio=0.72,
             near_confirmations=3,
             near_loss_grace_s=0.75,
+            close_range_mps=0.55,
             final_push_mps=0.55,
             final_push_duration_s=0.001,
             timeout_s=0.5,
@@ -1075,6 +1237,7 @@ def test_close_range_continuity_rejects_a_discontinuous_low_confidence_apple() -
                 "center_x_ratio": 0.50,
                 "center_y_ratio": 0.70,
                 "bottom_ratio": 0.74,
+                "age_s": 0.01,
             },
         }
         discontinuous = {
@@ -1086,11 +1249,12 @@ def test_close_range_continuity_rejects_a_discontinuous_low_confidence_apple() -
                 "center_x_ratio": 0.90,
                 "center_y_ratio": 0.85,
                 "bottom_ratio": 0.90,
+                "age_s": 0.01,
             },
         }
         statuses = iter((acquired, acquired, acquired, discontinuous))
 
-        with pytest.raises(TargetLost, match="Arrival timed out"):
+        with pytest.raises(TargetLost, match="Arrival timed out") as caught:
             await manager.approach_target(
                 lambda: next(statuses, discontinuous),
                 "apple",
@@ -1100,11 +1264,13 @@ def test_close_range_continuity_rejects_a_discontinuous_low_confidence_apple() -
                 near_center_ratio=0.72,
                 near_confirmations=3,
                 near_loss_grace_s=0.75,
+                close_range_mps=0.55,
                 final_push_mps=0.55,
                 final_push_duration_s=0.001,
                 timeout_s=0.08,
             )
 
+        assert caught.value.evidence["close_range_mps"] == 0.55
         assert all(
             command.reason != "fruit_offscreen_final_push"
             for command in motion.commands
@@ -1133,6 +1299,7 @@ def test_visible_arrival_finishes_before_a_later_camera_failure() -> None:
                 "center_x_ratio": 0.5,
                 "center_y_ratio": 0.8,
                 "bottom_ratio": 0.95,
+                "age_s": 0.01,
             },
         }
         statuses = iter(
@@ -1157,6 +1324,7 @@ def test_visible_arrival_finishes_before_a_later_camera_failure() -> None:
             near_center_ratio=0.72,
             near_confirmations=3,
             near_loss_grace_s=0.75,
+            close_range_mps=0.55,
             final_push_mps=1.0,
             final_push_duration_s=0.05,
             timeout_s=0.5,

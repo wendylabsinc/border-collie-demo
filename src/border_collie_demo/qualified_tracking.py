@@ -22,6 +22,7 @@ class MotionRecommendation(str, Enum):
     ALIGN = "align"
     APPROACH = "approach"
     SLOW = "slow"
+    HOLD = "hold"
     ARRIVAL = "arrival"
     STOP = "stop"
 
@@ -217,7 +218,7 @@ class QualifiedFruitTracker:
 
         age_s = _finite_number(detection.get("age_s"))
         freshness_attested = status.get("target_ready") is True
-        if age_s is None and not freshness_attested:
+        if age_s is None:
             self._stale_samples += 1
             self._invalidate_close_loss()
             return self._decision(MotionRecommendation.STOP, "detection_age_missing")
@@ -244,14 +245,10 @@ class QualifiedFruitTracker:
         if observation is None:
             self._invalidate_close_loss()
             return self._decision(MotionRecommendation.STOP, "geometry_invalid")
-        if (
+        duplicate = (
             observation.source_pts is not None
             and observation.source_pts == self._last_source_pts
-        ):
-            self._duplicate_samples += 1
-            return self._decision(
-                MotionRecommendation.STOP, "duplicate_detection_frame"
-            )
+        )
 
         confidence = observation.confidence
         acquisition_qualified = (
@@ -271,6 +268,13 @@ class QualifiedFruitTracker:
                 self._acquisition_samples = 0
                 self._centered_samples = 0
                 return self._decision(MotionRecommendation.SEARCH, "target_unqualified")
+            if duplicate:
+                self._duplicate_samples += 1
+                return self._decision(
+                    MotionRecommendation.HOLD,
+                    "duplicate_detection_frame",
+                    observation,
+                )
             self._accept_observation(observation, now)
             self._acquisition_samples += 1
             self._update_centering(observation)
@@ -301,11 +305,25 @@ class QualifiedFruitTracker:
 
         if not tracking_qualified:
             self._weak_samples += 1
+            if duplicate:
+                self._invalidate_close_loss()
+                return self._decision(
+                    MotionRecommendation.STOP,
+                    "tracking_confidence_low",
+                    observation,
+                )
             return self._handle_weak_close_observation(observation, now)
         if not self._continuous_with_last(observation):
             self._discontinuity_stops += 1
             self._reset_track(preserve_approach_authorization=True)
             return self._decision(MotionRecommendation.STOP, "track_discontinuous")
+        if duplicate:
+            self._duplicate_samples += 1
+            return self._decision(
+                MotionRecommendation.HOLD,
+                "duplicate_detection_frame",
+                observation,
+            )
 
         self._accept_observation(observation, now)
         if not self._initial_centered:

@@ -662,6 +662,7 @@ class RunResultStore:
             "recognition_stable_detections": recognition.get("stable_detections"),
             "arrival_confirmed": approach.get("arrival_confirmed"),
             "outbound_forward_pulses": approach.get("forward_pulse_count"),
+            "close_range_mps": approach.get("close_range_mps"),
             "final_push_mps": approach.get("final_push_mps"),
             "final_push_duration_s": approach.get("final_push_duration_s"),
             "bark_played": action.get("bark_played"),

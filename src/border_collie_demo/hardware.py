@@ -686,6 +686,7 @@ class HardwareManager:
         near_center_ratio: float,
         near_confirmations: int,
         near_loss_grace_s: float,
+        close_range_mps: float,
         final_push_mps: float,
         final_push_duration_s: float,
         timeout_s: float,
@@ -697,6 +698,7 @@ class HardwareManager:
             near_bottom_ratio,
             near_center_ratio,
             near_loss_grace_s,
+            close_range_mps,
             final_push_mps,
             final_push_duration_s,
             timeout_s,
@@ -712,9 +714,11 @@ class HardwareManager:
                 "approach speed is below minimum "
                 f"{self.config.minimum_forward_mps:.2f} m/s"
             )
-        if final_push_mps < self.config.minimum_forward_mps:
+        if not 0.0 < close_range_mps <= forward_mps:
+            raise ValueError("close-range speed must not exceed approach speed")
+        if close_range_mps < self.config.minimum_forward_mps:
             raise ValueError(
-                "slow approach speed is below minimum "
+                "close-range speed is below minimum "
                 f"{self.config.minimum_forward_mps:.2f} m/s"
             )
         if not 0.0 < maximum_yaw_rps <= self.config.maximum_yaw_rps:
@@ -740,7 +744,7 @@ class HardwareManager:
             evidence: dict[str, object] | None = None
             commands_sent = False
             forward_pulse_count = 0
-            slow_speed_scale = min(1.0, final_push_mps / forward_mps)
+            slow_speed_scale = close_range_mps / forward_mps
             tracker = QualifiedFruitTracker(
                 QualifiedTrackingConfig.for_fruit(
                     target_fruit,
@@ -760,6 +764,7 @@ class HardwareManager:
                 )
             )
             last_decision_evidence: dict[str, object] = {}
+            last_authorized_command: VelocityCommand | None = None
             started = time.monotonic()
             try:
                 assert self._motion is not None
@@ -770,6 +775,10 @@ class HardwareManager:
                     status = status_reader()
                     self._record_perception_sample(status, target_fruit)
                     if not status.get("camera_healthy"):
+                        last_authorized_command = await self._send_motion_command(
+                            lease,
+                            VelocityCommand(reason="qualified_track_camera_unhealthy"),
+                        )
                         raise CameraFailure(
                             str(
                                 status.get("detail")
@@ -779,7 +788,7 @@ class HardwareManager:
                     decision = tracker.observe(status, now_s=now)
                     last_decision_evidence = dict(decision.evidence)
                     if decision.recommendation is MotionRecommendation.ARRIVAL:
-                        await self._send_motion_command(
+                        last_authorized_command = await self._send_motion_command(
                             lease,
                             VelocityCommand(reason="qualified_arrival_stop"),
                         )
@@ -791,6 +800,7 @@ class HardwareManager:
                             ),
                             # Kept for result-schema compatibility. Mature
                             # tracking deliberately never moves after sight loss.
+                            "close_range_mps": close_range_mps,
                             "final_push_mps": final_push_mps,
                             "final_push_duration_s": final_push_duration_s,
                             "final_push_count": 0,
@@ -818,11 +828,27 @@ class HardwareManager:
                             ),
                         }
                         break
+                    if decision.recommendation is MotionRecommendation.HOLD:
+                        held_command = last_authorized_command or VelocityCommand(
+                            reason="qualified_track_hold_without_authority"
+                        )
+                        last_authorized_command = await self._send_motion_command(
+                            lease,
+                            held_command,
+                        )
+                        if last_authorized_command.forward_mps > 0.0:
+                            forward_pulse_count += 1
+                        commands_sent = commands_sent or (
+                            last_authorized_command.forward_mps != 0.0
+                            or last_authorized_command.yaw_rps != 0.0
+                        )
+                        await asyncio.sleep(self.config.command_heartbeat_s)
+                        continue
                     if decision.recommendation in {
                         MotionRecommendation.SEARCH,
                         MotionRecommendation.STOP,
                     }:
-                        await self._send_motion_command(
+                        last_authorized_command = await self._send_motion_command(
                             lease,
                             VelocityCommand(
                                 reason=f"qualified_track_{decision.reason}"
@@ -841,7 +867,7 @@ class HardwareManager:
                                 horizontal_error,
                             )
                         )
-                        await self._send_motion_command(
+                        last_authorized_command = await self._send_motion_command(
                             lease,
                             VelocityCommand(
                                 0.0,
@@ -868,7 +894,7 @@ class HardwareManager:
                             ),
                         )
                     )
-                    await self._send_motion_command(
+                    last_authorized_command = await self._send_motion_command(
                         lease,
                         VelocityCommand(
                             forward_mps * decision.forward_scale,
@@ -888,6 +914,7 @@ class HardwareManager:
                         f"qualified {target_fruit} Arrival timed out",
                         evidence={
                             **last_decision_evidence,
+                            "close_range_mps": close_range_mps,
                             "moving_yaw_deadband_ratio": (
                                 APPROACH_CENTER_TOLERANCE_RATIO
                             ),

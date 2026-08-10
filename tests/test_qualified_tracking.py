@@ -233,10 +233,73 @@ def test_same_detection_frame_cannot_satisfy_temporal_confirmations() -> None:
     third = target.observe(observation(source_pts=1), now_s=0.3)
 
     assert first.recommendation is MotionRecommendation.ALIGN
-    assert second.recommendation is MotionRecommendation.STOP
-    assert third.recommendation is MotionRecommendation.STOP
+    assert second.recommendation is MotionRecommendation.HOLD
+    assert third.recommendation is MotionRecommendation.HOLD
     assert third.evidence["track_acquired"] is False
+    assert third.evidence["acquisition_samples"] == 1
+    assert third.evidence["qualified_samples"] == 1
     assert third.evidence["duplicate_samples"] == 2
+
+
+def test_duplicate_frame_loses_hold_authority_when_it_becomes_stale() -> None:
+    target = tracker()
+
+    first = target.observe(observation(source_pts=1), now_s=0.1)
+    stale = target.observe(
+        observation(age_s=0.251, source_pts=1),
+        now_s=0.35,
+    )
+
+    assert first.recommendation is MotionRecommendation.ALIGN
+    assert stale.recommendation is MotionRecommendation.STOP
+    assert stale.reason == "detection_stale"
+    assert stale.evidence["duplicate_samples"] == 0
+    assert stale.evidence["stale_samples"] == 1
+
+    missing_age_status = observation(source_pts=1)
+    del missing_age_status["detection"]["age_s"]  # type: ignore[index]
+    missing = target.observe(missing_age_status, now_s=0.36)
+    assert missing.recommendation is MotionRecommendation.STOP
+    assert missing.reason == "detection_age_missing"
+
+
+def test_unsafe_duplicate_frame_stops_instead_of_holding() -> None:
+    target = tracker()
+    target.observe(observation(source_pts=1), now_s=0.1)
+
+    weak = target.observe(
+        observation(confidence=0.01, source_pts=1),
+        now_s=0.2,
+    )
+    generation_mismatch = target.observe(
+        {
+            **observation(source_pts=1),
+            "generation": "camera-2",
+        },
+        now_s=0.21,
+    )
+
+    assert weak.recommendation is MotionRecommendation.SEARCH
+    assert weak.reason == "target_unqualified"
+    assert weak.forward_scale == 0.0
+    assert generation_mismatch.recommendation is MotionRecommendation.STOP
+    assert generation_mismatch.reason == "generation_mismatch"
+    assert generation_mismatch.forward_scale == 0.0
+
+
+def test_discontinuous_duplicate_frame_stops_instead_of_holding() -> None:
+    target = tracker()
+    acquire(target)
+
+    discontinuous = target.observe(
+        observation(center_x=0.90, source_pts=3),
+        now_s=0.4,
+    )
+
+    assert discontinuous.recommendation is MotionRecommendation.STOP
+    assert discontinuous.reason == "track_discontinuous"
+    assert discontinuous.forward_scale == 0.0
+    assert discontinuous.evidence["duplicate_samples"] == 0
 
 
 def test_sight_lost_close_arrival_is_bounded_by_time_and_geometry() -> None:
