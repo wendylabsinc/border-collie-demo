@@ -10,6 +10,16 @@ def env_bool(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def optional_env_float(name: str) -> float | None:
+    value = os.environ.get(name, "").strip()
+    return None if not value else float(value)
+
+
+def optional_env_int(name: str) -> int | None:
+    value = os.environ.get(name, "").strip()
+    return None if not value else int(value)
+
+
 @dataclass(frozen=True)
 class HardwareConfig:
     enabled: bool = False
@@ -36,6 +46,14 @@ class HardwareConfig:
     stationary_maximum_yaw_rate_rps: float = 0.08
     pear_tracking_minimum_confidence: float = 0.55
     pear_tracking_confirmations: int = 3
+    forward_range_index: int | None = None
+    range_sensor_to_front_envelope_m: float | None = None
+    range_sensor_latency_s: float | None = None
+    range_braking_distance_m: float | None = None
+    range_noise_m: float | None = None
+    arrival_clearance_m: float = 0.15
+    arrival_clearance_tolerance_m: float = 0.05
+    range_maximum_age_s: float = 0.25
 
     def __post_init__(self) -> None:
         positive_values = (
@@ -55,6 +73,9 @@ class HardwareConfig:
             "foot_contact_minimum_force",
             "stationary_maximum_speed_mps",
             "stationary_maximum_yaw_rate_rps",
+            "arrival_clearance_m",
+            "arrival_clearance_tolerance_m",
+            "range_maximum_age_s",
         )
         for name in positive_values:
             value = float(getattr(self, name))
@@ -80,6 +101,27 @@ class HardwareConfig:
             raise ValueError("pear_tracking_confirmations must be positive")
         if self.maximum_breadcrumbs < 2:
             raise ValueError("maximum_breadcrumbs must be at least two")
+        calibration = (
+            self.forward_range_index,
+            self.range_sensor_to_front_envelope_m,
+            self.range_sensor_latency_s,
+            self.range_braking_distance_m,
+            self.range_noise_m,
+        )
+        configured = [value is not None for value in calibration]
+        if any(configured) and not all(configured):
+            raise ValueError("forward range calibration must be configured completely")
+        if self.forward_range_index is not None and self.forward_range_index < 0:
+            raise ValueError("forward range index must be non-negative")
+        for name in (
+            "range_sensor_to_front_envelope_m",
+            "range_sensor_latency_s",
+            "range_braking_distance_m",
+            "range_noise_m",
+        ):
+            value = getattr(self, name)
+            if value is not None and (not math.isfinite(value) or value < 0.0):
+                raise ValueError(f"{name} must be finite and non-negative")
 
     @classmethod
     def from_env(cls) -> HardwareConfig:
@@ -153,6 +195,31 @@ class HardwareConfig:
                     "BORDER_COLLIE_PEAR_TRACKING_CONFIRMATIONS",
                     "3",
                 )
+            ),
+            forward_range_index=optional_env_int(
+                "BORDER_COLLIE_FORWARD_RANGE_INDEX"
+            ),
+            range_sensor_to_front_envelope_m=optional_env_float(
+                "BORDER_COLLIE_RANGE_SENSOR_TO_FRONT_ENVELOPE_M"
+            ),
+            range_sensor_latency_s=optional_env_float(
+                "BORDER_COLLIE_RANGE_SENSOR_LATENCY_S"
+            ),
+            range_braking_distance_m=optional_env_float(
+                "BORDER_COLLIE_RANGE_BRAKING_DISTANCE_M"
+            ),
+            range_noise_m=optional_env_float("BORDER_COLLIE_RANGE_NOISE_M"),
+            arrival_clearance_m=float(
+                os.environ.get("BORDER_COLLIE_ARRIVAL_CLEARANCE_M", "0.15")
+            ),
+            arrival_clearance_tolerance_m=float(
+                os.environ.get(
+                    "BORDER_COLLIE_ARRIVAL_CLEARANCE_TOLERANCE_M",
+                    "0.05",
+                )
+            ),
+            range_maximum_age_s=float(
+                os.environ.get("BORDER_COLLIE_RANGE_MAXIMUM_AGE_S", "0.25")
             ),
         )
 

@@ -7,7 +7,12 @@ import math
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
-from .hardware import CameraFailure, HardwareUnavailable, TargetLost
+from .hardware import (
+    CameraFailure,
+    HardwareUnavailable,
+    RangeUnavailable,
+    TargetLost,
+)
 from .media import BarkFailure
 from .models import MissionPhase
 from .orchestrator import (
@@ -60,6 +65,14 @@ class ProductionStageExecutor:
                 "CAMERA_FAILURE",
                 str(exc),
                 details=self._failure_details(),
+            ) from exc
+        except RangeUnavailable as exc:
+            raise StageFailure(
+                "RANGE_UNAVAILABLE",
+                str(exc),
+                details=self._failure_details(
+                    {"metric_arrival": exc.evidence} if exc.evidence else None
+                ),
             ) from exc
         except TargetLost as exc:
             search_phase = phase in (
@@ -172,6 +185,7 @@ class ProductionStageExecutor:
                 final_push_mps=1.0,
                 final_push_duration_s=1.0,
                 timeout_s=20.0,
+                metric_arrival_required=True,
             )
         if phase is MissionPhase.SIT_AND_BARK:
             stop_errors = await self._hardware.emergency_stop()

@@ -72,6 +72,7 @@ def motion(
         imu_yaw_rate_rps=yaw_rate_rps,
         mode=1,
         gait_type=0,
+        obstacle_ranges_m=None,
         foot_force=(20.0, 20.0, 20.0, 20.0),
         contact_feet=4,
         stationary_stance=stationary,

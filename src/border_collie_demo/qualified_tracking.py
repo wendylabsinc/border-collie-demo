@@ -42,7 +42,12 @@ class QualifiedTrackingConfig:
     maximum_detection_age_s: float = 0.250
     close_bottom_ratio: float = 0.70
     maximum_center_delta_ratio: float = 0.20
+    center_filter_alpha: float = 0.70
+    moving_steering_enter_ratio: float = 0.25
+    moving_steering_exit_ratio: float = 0.12
+    moving_steering_enter_confirmations: int = 2
     stationary_recenter_error_ratio: float = 0.40
+    stationary_recenter_confirmations: int = 2
     maximum_vertical_retreat_ratio: float = 0.08
     maximum_area_retreat_fraction: float = 0.35
     slow_speed_scale: float = 0.30
@@ -102,6 +107,9 @@ class QualifiedTrackingConfig:
             self.near_center_ratio,
             self.close_bottom_ratio,
             self.maximum_center_delta_ratio,
+            self.center_filter_alpha,
+            self.moving_steering_enter_ratio,
+            self.moving_steering_exit_ratio,
             self.stationary_recenter_error_ratio,
             self.maximum_vertical_retreat_ratio,
             self.maximum_area_retreat_fraction,
@@ -114,6 +122,8 @@ class QualifiedTrackingConfig:
                 self.acquisition_confirmations,
                 self.center_confirmations,
                 self.near_confirmations,
+                self.moving_steering_enter_confirmations,
+                self.stationary_recenter_confirmations,
             )
             < 1
         ):
@@ -121,6 +131,14 @@ class QualifiedTrackingConfig:
         if self.stationary_recenter_error_ratio <= self.center_tolerance_ratio:
             raise ValueError(
                 "stationary recenter error must exceed initial center tolerance"
+            )
+        if not (
+            self.moving_steering_exit_ratio
+            < self.moving_steering_enter_ratio
+            < self.stationary_recenter_error_ratio
+        ):
+            raise ValueError(
+                "steering thresholds must satisfy exit < enter < stationary recenter"
             )
         if (
             not math.isfinite(self.sight_loss_grace_s)
@@ -180,6 +198,12 @@ class QualifiedFruitTracker:
         self._initial_centered = False
         self._approach_authorized = False
         self._stationary_recenter_samples = 0
+        self._extreme_error_samples = 0
+        self._steering_outside_samples = 0
+        self._steering_active = False
+        self._filtered_center_x: float | None = None
+        self._pending_center_jump_samples = 0
+        self._pending_center_jump_pts: int | None = None
         self._last_observation: _Observation | None = None
         self._last_source_pts: int | None = None
         self._last_qualified_at: float | None = None
@@ -289,6 +313,7 @@ class QualifiedFruitTracker:
                     MotionRecommendation.ALIGN,
                     "confirming_target_identity",
                     observation,
+                    horizontal_error=self._filtered_horizontal_error(observation),
                 )
             self._track_acquired = True
             if self._approach_authorized:
@@ -300,6 +325,7 @@ class QualifiedFruitTracker:
                     MotionRecommendation.ALIGN,
                     "centering_acquired_target",
                     observation,
+                    horizontal_error=self._filtered_horizontal_error(observation),
                 )
             return self._recommend_visible(observation, now)
 
@@ -313,10 +339,37 @@ class QualifiedFruitTracker:
                     observation,
                 )
             return self._handle_weak_close_observation(observation, now)
-        if not self._continuous_with_last(observation):
+        continuity_issue = self._continuity_issue(observation)
+        if continuity_issue == "center_jump":
+            same_suspect_frame = (
+                observation.source_pts is not None
+                and observation.source_pts == self._pending_center_jump_pts
+            )
+            if same_suspect_frame:
+                self._duplicate_samples += 1
+            else:
+                self._pending_center_jump_samples += 1
+                self._pending_center_jump_pts = observation.source_pts
+            last_authority_fresh = (
+                self._last_qualified_at is not None
+                and now - self._last_qualified_at
+                <= self.config.maximum_detection_age_s
+            )
+            if self._pending_center_jump_samples < 2 and last_authority_fresh:
+                return self._decision(
+                    MotionRecommendation.HOLD,
+                    "confirming_center_jump",
+                    observation,
+                )
             self._discontinuity_stops += 1
             self._reset_track(preserve_approach_authorization=True)
             return self._decision(MotionRecommendation.STOP, "track_discontinuous")
+        if continuity_issue is not None:
+            self._discontinuity_stops += 1
+            self._reset_track(preserve_approach_authorization=True)
+            return self._decision(MotionRecommendation.STOP, "track_discontinuous")
+        self._pending_center_jump_samples = 0
+        self._pending_center_jump_pts = None
         if duplicate:
             self._duplicate_samples += 1
             return self._decision(
@@ -333,6 +386,7 @@ class QualifiedFruitTracker:
                     MotionRecommendation.ALIGN,
                     "centering_acquired_target",
                     observation,
+                    horizontal_error=self._filtered_horizontal_error(observation),
                 )
             self._initial_centered = True
         return self._recommend_visible(observation, now)
@@ -342,17 +396,34 @@ class QualifiedFruitTracker:
         observation: _Observation,
         now: float,
     ) -> TrackDecision:
-        horizontal_error = observation.center_x - 0.5
-        if (
-            self._approach_authorized
-            and abs(horizontal_error) > self.config.stationary_recenter_error_ratio
+        horizontal_error = self._filtered_horizontal_error(observation)
+        if self._approach_authorized and (
+            self._extreme_error_samples
+            >= self.config.stationary_recenter_confirmations
         ):
             self._stationary_recenter_samples += 1
             return self._decision(
                 MotionRecommendation.ALIGN,
                 "large_tracking_error",
                 observation,
+                horizontal_error=horizontal_error,
             )
+
+        if self._steering_active:
+            if abs(horizontal_error) <= self.config.moving_steering_exit_ratio:
+                self._steering_active = False
+                self._steering_outside_samples = 0
+        else:
+            self._steering_outside_samples = (
+                self._steering_outside_samples + 1
+                if abs(horizontal_error) > self.config.moving_steering_enter_ratio
+                else 0
+            )
+            if (
+                self._steering_outside_samples
+                >= self.config.moving_steering_enter_confirmations
+            ):
+                self._steering_active = True
 
         near = (
             observation.bottom >= self.config.near_bottom_ratio
@@ -365,6 +436,7 @@ class QualifiedFruitTracker:
                 MotionRecommendation.ARRIVAL,
                 "qualified_visible_arrival",
                 observation,
+                horizontal_error=horizontal_error,
             )
 
         slow_bottom = max(
@@ -378,6 +450,7 @@ class QualifiedFruitTracker:
                 "close_range_track",
                 observation,
                 forward_scale=self.config.slow_speed_scale,
+                horizontal_error=(horizontal_error if self._steering_active else 0.0),
             )
         self._approach_authorized = True
         return self._decision(
@@ -385,6 +458,7 @@ class QualifiedFruitTracker:
             "qualified_track",
             observation,
             forward_scale=1.0,
+            horizontal_error=(horizontal_error if self._steering_active else 0.0),
         )
 
     def _handle_weak_close_observation(
@@ -477,37 +551,65 @@ class QualifiedFruitTracker:
                 observation.area,
             )
         self._last_observation = observation
+        self._extreme_error_samples = (
+            self._extreme_error_samples + 1
+            if abs(observation.center_x - 0.5)
+            > self.config.stationary_recenter_error_ratio
+            else 0
+        )
+        self._filtered_center_x = (
+            observation.center_x
+            if self._filtered_center_x is None
+            else self.config.center_filter_alpha * observation.center_x
+            + (1.0 - self.config.center_filter_alpha) * self._filtered_center_x
+        )
         self._last_source_pts = observation.source_pts
         self._last_qualified_at = now
 
-    def _continuous_with_last(self, observation: _Observation) -> bool:
+    def _continuity_issue(self, observation: _Observation) -> str | None:
         previous = self._last_observation
         if previous is None:
-            return True
+            return None
         if (
             abs(observation.center_x - previous.center_x)
             > self.config.maximum_center_delta_ratio
         ):
-            return False
+            return "center_jump"
         if (
             observation.center_y
             < previous.center_y - self.config.maximum_vertical_retreat_ratio
         ):
-            return False
+            return "vertical_retreat"
         if (
             observation.bottom
             < previous.bottom - self.config.maximum_vertical_retreat_ratio
         ):
-            return False
-        return not (
+            return "vertical_retreat"
+        if (
             observation.area is not None
             and previous.area is not None
             and observation.area
             < previous.area * (1.0 - self.config.maximum_area_retreat_fraction)
+        ):
+            return "area_retreat"
+        return None
+
+    def _continuous_with_last(self, observation: _Observation) -> bool:
+        return self._continuity_issue(observation) is None
+
+    def _filtered_horizontal_error(self, observation: _Observation) -> float:
+        center_x = (
+            observation.center_x
+            if self._filtered_center_x is None
+            else self._filtered_center_x
         )
+        return center_x - 0.5
 
     def _update_centering(self, observation: _Observation) -> None:
-        if abs(observation.center_x - 0.5) <= self.config.center_tolerance_ratio:
+        if (
+            abs(self._filtered_horizontal_error(observation))
+            <= self.config.center_tolerance_ratio
+        ):
             self._centered_samples += 1
         else:
             self._centered_samples = 0
@@ -561,6 +663,12 @@ class QualifiedFruitTracker:
         self._last_observation = None
         self._last_source_pts = None
         self._last_qualified_at = None
+        self._filtered_center_x = None
+        self._extreme_error_samples = 0
+        self._steering_outside_samples = 0
+        self._steering_active = False
+        self._pending_center_jump_samples = 0
+        self._pending_center_jump_pts = None
 
     def _invalidate_close_loss(self) -> None:
         """Prevent stale or ambiguous evidence from becoming a later Arrival."""
@@ -574,8 +682,12 @@ class QualifiedFruitTracker:
         observation: _Observation | None = None,
         *,
         forward_scale: float = 0.0,
+        horizontal_error: float | None = None,
     ) -> TrackDecision:
-        horizontal_error = 0.0 if observation is None else observation.center_x - 0.5
+        if horizontal_error is None:
+            horizontal_error = (
+                0.0 if observation is None else observation.center_x - 0.5
+            )
         evidence: dict[str, object] = {
             "tracking_recommendation": recommendation.value,
             "tracking_reason": reason,
@@ -586,6 +698,15 @@ class QualifiedFruitTracker:
             "stationary_recenter_error_ratio": (
                 self.config.stationary_recenter_error_ratio
             ),
+            "stationary_recenter_confirmations": (
+                self.config.stationary_recenter_confirmations
+            ),
+            "filtered_center_x_ratio": self._filtered_center_x,
+            "moving_steering_active": self._steering_active,
+            "moving_steering_enter_ratio": self.config.moving_steering_enter_ratio,
+            "moving_steering_exit_ratio": self.config.moving_steering_exit_ratio,
+            "moving_steering_outside_samples": self._steering_outside_samples,
+            "pending_center_jump_samples": self._pending_center_jump_samples,
             "acquisition_samples": self._acquisition_samples,
             "qualified_samples": self._qualified_samples,
             "close_range_samples": self._close_samples,

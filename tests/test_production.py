@@ -287,6 +287,7 @@ def test_approach_pins_full_and_close_range_speeds_independently() -> None:
             "final_push_mps": 1.0,
             "final_push_duration_s": 1.0,
             "timeout_s": 20.0,
+            "metric_arrival_required": True,
         }
         assert evidence["arrival_confirmed"] is True
 

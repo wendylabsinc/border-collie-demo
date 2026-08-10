@@ -229,10 +229,14 @@ def test_status_is_explicitly_non_operational() -> None:
                 "name": "fresh_pose",
                 "detail": "fresh Go2 pose is unavailable",
             },
-            {
-                "name": "camera_perception_ready",
-                "detail": "production camera/perception adapter is not connected",
-            },
+                {
+                    "name": "camera_perception_ready",
+                    "detail": "production camera/perception adapter is not connected",
+                },
+                {
+                    "name": "metric_arrival_calibrated",
+                    "detail": "stationary forward range calibration is required",
+                },
         ],
     }
 
@@ -262,8 +266,9 @@ def test_activate_fails_closed_when_preflight_is_not_ready(tmp_path) -> None:
             "autonomy_enabled": False,
             "fresh_pose": False,
             "motion_disarmed": True,
-            "camera_perception_ready": False,
-        }
+                "camera_perception_ready": False,
+                "metric_arrival_calibrated": False,
+            }
         assert client.get("/api/status").json()["active_run_id"] is None
 
         readback = client.get(f"/api/results/{created['run_id']}")

@@ -38,6 +38,12 @@ from .return_home import (
     normalize_angle,
     plan_return_step,
 )
+from .target_range import (
+    MetricArrivalAction,
+    MetricArrivalGate,
+    RangeCalibration,
+    RangeObservation,
+)
 
 FORWARD_PULSE_CONFIRMATION = "PATH CLEAR - MOVE WOOF FORWARD"
 INITIAL_CENTER_TOLERANCE_RATIO = 0.05
@@ -47,11 +53,11 @@ SEARCH_CANDIDATE_HOLD_S = 0.75
 SEARCH_CANDIDATE_YAW_RPS = 0.50
 SEARCH_CANDIDATE_LOSS_GRACE_S = 0.50
 SEARCH_CANDIDATE_MAXIMUM_AGE_S = 0.25
-# Once initial centering is complete, keep walking through the middle 40% of
-# the frame. Only steer while moving outside that corridor; the tracker owns a
-# still-wider outer gate before it may request a stationary recenter.
-APPROACH_CENTER_TOLERANCE_RATIO = 0.20
-APPROACH_YAW_GAIN = 3.0
+# QualifiedFruitTracker owns the filtered hysteresis state. Hardware translates
+# its authorized steering error to a bounded, slew-limited moving command.
+APPROACH_YAW_GAIN = 1.50
+APPROACH_MOVING_MAX_YAW_RPS = 0.50
+APPROACH_YAW_SLEW_RPS_PER_S = 2.0
 FORWARD_CAPABLE_OPERATIONS = frozenset(
     {"forward_pulse", "approach_target", "return_home"}
 )
@@ -78,6 +84,17 @@ class HardwareUnavailable(RuntimeError):
 
 class CameraFailure(HardwareUnavailable):
     pass
+
+
+class RangeUnavailable(HardwareUnavailable):
+    def __init__(
+        self,
+        message: str,
+        *,
+        evidence: dict[str, object] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.evidence = dict(evidence or {})
 
 
 class TargetLost(HardwareUnavailable):
@@ -143,6 +160,7 @@ class HardwareManager:
         pose_factory: PoseFactory | None = None,
         home_localizer: HomeLocalizer | None = None,
         visual_odometry: VisualOdometryAdapter | None = None,
+        metric_arrival_gate: MetricArrivalGate | None = None,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self.config = config or HardwareConfig()
@@ -168,6 +186,7 @@ class HardwareManager:
                 maximum_odometry_age_s=self.config.pose_maximum_age_s
             )
         )
+        self._metric_arrival_gate = metric_arrival_gate or self._configured_range_gate()
         self._monotonic = monotonic
         self._motion: MotionAdapterProtocol | None = None
         self._pose: PoseProviderProtocol | None = None
@@ -184,6 +203,10 @@ class HardwareManager:
         self._flight_recorder: FlightRecorder | None = None
         self._captured_home_pose: Pose2D | None = None
         self._breadcrumbs: list[Pose2D] = []
+        self._fusion_ingestion_task: asyncio.Task[None] | None = None
+        self._continuous_fusion_latest: dict[str, object] | None = None
+        self._continuous_fusion_consecutive_trusted = 0
+        self._continuous_fusion_interval_s = 0.20
 
     async def start(self) -> None:
         if not self.config.enabled or self._connected:
@@ -727,6 +750,7 @@ class HardwareManager:
         final_push_mps: float,
         final_push_duration_s: float,
         timeout_s: float,
+        metric_arrival_required: bool = False,
     ) -> dict[str, object]:
         """Follow temporal fruit recommendations and stop on qualified Arrival."""
         numeric = (
@@ -768,6 +792,11 @@ class HardwareManager:
         ):
             raise ValueError("approach timing or confirmation count is invalid")
         self._require_autonomy_ready()
+        if metric_arrival_required and self._metric_arrival_gate is None:
+            raise RangeUnavailable(
+                "metric Arrival is unavailable: forward range is not calibrated",
+                evidence={"range_calibration": {"configured": False}},
+            )
 
         async with self._operation_lock:
             if self._active_operation is not None:
@@ -781,6 +810,7 @@ class HardwareManager:
             evidence: dict[str, object] | None = None
             commands_sent = False
             forward_pulse_count = 0
+            metric_final_approach_pulses = 0
             slow_speed_scale = close_range_mps / forward_mps
             tracker = QualifiedFruitTracker(
                 QualifiedTrackingConfig.for_fruit(
@@ -802,6 +832,7 @@ class HardwareManager:
             )
             last_decision_evidence: dict[str, object] = {}
             last_authorized_command: VelocityCommand | None = None
+            last_moving_yaw_rps = 0.0
             started = time.monotonic()
             try:
                 assert self._motion is not None
@@ -824,7 +855,51 @@ class HardwareManager:
                         )
                     decision = tracker.observe(status, now_s=now)
                     last_decision_evidence = dict(decision.evidence)
-                    if decision.recommendation is MotionRecommendation.ARRIVAL:
+                    metric_decision = None
+                    if metric_arrival_required and decision.recommendation in {
+                        MotionRecommendation.SLOW,
+                        MotionRecommendation.ARRIVAL,
+                    }:
+                        assert self._metric_arrival_gate is not None
+                        metric_decision = self._metric_arrival_gate.observe(
+                            self._range_observation(
+                                status,
+                                target_fruit=target_fruit,
+                                filtered_center_x=last_decision_evidence.get(
+                                    "filtered_center_x_ratio"
+                                ),
+                                last_command=last_authorized_command,
+                                close_speed_mps=close_range_mps,
+                            )
+                        )
+                        last_decision_evidence.update(metric_decision.evidence)
+                        if metric_decision.action is MetricArrivalAction.UNAVAILABLE:
+                            last_authorized_command = await self._send_motion_command(
+                                lease,
+                                VelocityCommand(reason="metric_range_unavailable"),
+                            )
+                            raise RangeUnavailable(
+                                "metric Arrival unavailable: "
+                                + metric_decision.reason.replace("_", " "),
+                                evidence=dict(metric_decision.evidence),
+                            )
+                        if metric_decision.action is MetricArrivalAction.BRAKE:
+                            last_authorized_command = await self._send_motion_command(
+                                lease,
+                                VelocityCommand(reason="metric_arrival_predicted_stop"),
+                            )
+                            last_moving_yaw_rps = 0.0
+                            await asyncio.sleep(self.config.command_heartbeat_s)
+                            continue
+
+                    arrival_confirmed = (
+                        decision.recommendation is MotionRecommendation.ARRIVAL
+                        and not metric_arrival_required
+                    ) or (
+                        metric_decision is not None
+                        and metric_decision.action is MetricArrivalAction.ARRIVAL
+                    )
+                    if arrival_confirmed:
                         last_authorized_command = await self._send_motion_command(
                             lease,
                             VelocityCommand(reason="qualified_arrival_stop"),
@@ -832,6 +907,14 @@ class HardwareManager:
                         evidence = {
                             **last_decision_evidence,
                             "arrival_confirmed": True,
+                            "arrival_mode": (
+                                "metric_forward_range"
+                                if metric_arrival_required
+                                else last_decision_evidence.get("arrival_mode")
+                            ),
+                            "visual_final_approach_mode": (
+                                decision.evidence.get("arrival_mode")
+                            ),
                             "near_confirmations": last_decision_evidence.get(
                                 "near_samples", 0
                             ),
@@ -840,7 +923,7 @@ class HardwareManager:
                             "close_range_mps": close_range_mps,
                             "final_push_mps": final_push_mps,
                             "final_push_duration_s": final_push_duration_s,
-                            "final_push_count": 0,
+                            "final_push_count": metric_final_approach_pulses,
                             "initial_center_confirmations": (
                                 INITIAL_CENTER_CONFIRMATIONS
                             ),
@@ -849,7 +932,21 @@ class HardwareManager:
                             ),
                             "initial_center_yaw_rps": maximum_yaw_rps,
                             "moving_yaw_deadband_ratio": (
-                                APPROACH_CENTER_TOLERANCE_RATIO
+                                tracker.config.moving_steering_enter_ratio
+                            ),
+                            "moving_steering_enter_ratio": (
+                                tracker.config.moving_steering_enter_ratio
+                            ),
+                            "moving_steering_exit_ratio": (
+                                tracker.config.moving_steering_exit_ratio
+                            ),
+                            "moving_yaw_gain": APPROACH_YAW_GAIN,
+                            "moving_yaw_maximum_rps": min(
+                                maximum_yaw_rps,
+                                APPROACH_MOVING_MAX_YAW_RPS,
+                            ),
+                            "moving_yaw_slew_rps_per_s": (
+                                APPROACH_YAW_SLEW_RPS_PER_S
                             ),
                             "stationary_recenter_error_ratio": (
                                 tracker.config.stationary_recenter_error_ratio
@@ -891,6 +988,7 @@ class HardwareManager:
                                 reason=f"qualified_track_{decision.reason}"
                             ),
                         )
+                        last_moving_yaw_rps = 0.0
                         await asyncio.sleep(self.config.command_heartbeat_s)
                         continue
 
@@ -916,31 +1014,57 @@ class HardwareManager:
                                 ),
                             ),
                         )
+                        last_moving_yaw_rps = 0.0
                         commands_sent = commands_sent or yaw != 0.0
                         await asyncio.sleep(self.config.command_heartbeat_s)
                         continue
 
-                    yaw = (
-                        0.0
-                        if abs(horizontal_error) <= APPROACH_CENTER_TOLERANCE_RATIO
-                        else max(
-                            -maximum_yaw_rps,
-                            min(
-                                maximum_yaw_rps,
-                                -APPROACH_YAW_GAIN * horizontal_error,
-                            ),
-                        )
+                    moving_yaw_limit = min(
+                        maximum_yaw_rps,
+                        APPROACH_MOVING_MAX_YAW_RPS,
                     )
+                    desired_yaw = max(
+                        -moving_yaw_limit,
+                        min(
+                            moving_yaw_limit,
+                            -APPROACH_YAW_GAIN * horizontal_error,
+                        ),
+                    )
+                    maximum_yaw_delta = (
+                        APPROACH_YAW_SLEW_RPS_PER_S
+                        * self.config.command_heartbeat_s
+                    )
+                    yaw = max(
+                        last_moving_yaw_rps - maximum_yaw_delta,
+                        min(
+                            last_moving_yaw_rps + maximum_yaw_delta,
+                            desired_yaw,
+                        ),
+                    )
+                    if abs(yaw) < 1e-9:
+                        yaw = 0.0
+                    last_moving_yaw_rps = yaw
+                    commanded_scale = decision.forward_scale
+                    command_reason = (
+                        "approach_target_slow"
+                        if decision.recommendation is MotionRecommendation.SLOW
+                        else "approach_target"
+                    )
+                    if (
+                        metric_arrival_required
+                        and decision.recommendation is MotionRecommendation.ARRIVAL
+                        and metric_decision is not None
+                        and metric_decision.action is MetricArrivalAction.ADVANCE
+                    ):
+                        commanded_scale = slow_speed_scale
+                        command_reason = "metric_final_approach"
+                        metric_final_approach_pulses += 1
                     last_authorized_command = await self._send_motion_command(
                         lease,
                         VelocityCommand(
-                            forward_mps * decision.forward_scale,
+                            forward_mps * commanded_scale,
                             yaw,
-                            (
-                                "approach_target_slow"
-                                if decision.recommendation is MotionRecommendation.SLOW
-                                else "approach_target"
-                            ),
+                            command_reason,
                         ),
                     )
                     forward_pulse_count += 1
@@ -953,7 +1077,13 @@ class HardwareManager:
                             **last_decision_evidence,
                             "close_range_mps": close_range_mps,
                             "moving_yaw_deadband_ratio": (
-                                APPROACH_CENTER_TOLERANCE_RATIO
+                                tracker.config.moving_steering_enter_ratio
+                            ),
+                            "moving_steering_enter_ratio": (
+                                tracker.config.moving_steering_enter_ratio
+                            ),
+                            "moving_steering_exit_ratio": (
+                                tracker.config.moving_steering_exit_ratio
                             ),
                             "stationary_recenter_error_ratio": (
                                 tracker.config.stationary_recenter_error_ratio
@@ -981,6 +1111,96 @@ class HardwareManager:
                 raise HardwareUnavailable(f"approach stop failed: {release_error}")
             assert evidence is not None
             return evidence
+
+    def _configured_range_gate(self) -> MetricArrivalGate | None:
+        values = (
+            self.config.forward_range_index,
+            self.config.range_sensor_to_front_envelope_m,
+            self.config.range_sensor_latency_s,
+            self.config.range_braking_distance_m,
+            self.config.range_noise_m,
+        )
+        if any(value is None for value in values):
+            return None
+        index, offset, latency, braking, noise = values
+        assert isinstance(index, int)
+        return MetricArrivalGate(
+            RangeCalibration(
+                forward_index=index,
+                sensor_to_front_envelope_m=float(offset),
+                sensor_latency_s=float(latency),
+                braking_distance_m=float(braking),
+                noise_m=float(noise),
+                target_clearance_m=self.config.arrival_clearance_m,
+                tolerance_m=self.config.arrival_clearance_tolerance_m,
+                maximum_age_s=self.config.range_maximum_age_s,
+            )
+        )
+
+    def _range_observation(
+        self,
+        status: dict[str, object],
+        *,
+        target_fruit: str,
+        filtered_center_x: object,
+        last_command: VelocityCommand | None,
+        close_speed_mps: float,
+    ) -> RangeObservation:
+        pose_status = None if self._pose is None else self._pose.status()
+        motion = None if pose_status is None else pose_status.motion
+        detection = status.get("detection")
+        detection_age = (
+            _finite_float(detection.get("age_s"))
+            if isinstance(detection, dict)
+            else None
+        )
+        label = (
+            str(detection.get("label") or "").casefold()
+            if isinstance(detection, dict)
+            else ""
+        )
+        visual_fresh = bool(
+            status.get("camera_healthy") is True
+            and label == target_fruit.casefold().strip()
+            and detection_age is not None
+            and 0.0 <= detection_age <= 0.25
+        )
+        center_x = _finite_float(filtered_center_x)
+        commanded_stopped = bool(
+            last_command is not None
+            and last_command.forward_mps == 0.0
+            and last_command.yaw_rps == 0.0
+        )
+        robot_stopped: bool | None = False
+        if commanded_stopped:
+            velocity_x = None if motion is None else motion.velocity_x_mps
+            velocity_y = None if motion is None else motion.velocity_y_mps
+            yaw_rate = (
+                None
+                if motion is None
+                else (
+                    motion.imu_yaw_rate_rps
+                    if motion.imu_yaw_rate_rps is not None
+                    else motion.yaw_rate_rps
+                )
+            )
+            if velocity_x is None or velocity_y is None or yaw_rate is None:
+                robot_stopped = None
+            else:
+                robot_stopped = bool(
+                    math.hypot(velocity_x, velocity_y)
+                    <= self.config.stationary_maximum_speed_mps
+                    and abs(yaw_rate)
+                    <= self.config.stationary_maximum_yaw_rate_rps
+                )
+        return RangeObservation(
+            ranges_m=None if motion is None else motion.obstacle_ranges_m,
+            age_s=None if pose_status is None else pose_status.age_s,
+            pear_center_error_ratio=(None if center_x is None else center_x - 0.5),
+            visual_evidence_fresh=visual_fresh,
+            robot_stopped=robot_stopped,
+            close_speed_mps=close_speed_mps,
+        )
 
     async def return_home(
         self,
@@ -1162,6 +1382,7 @@ class HardwareManager:
     ) -> dict[str, object]:
         home_pose = _home_pose(home)
         self._require_autonomy_ready()
+        self._require_continuous_fusion_ready(operation="begin the Home turn")
         deadline = time.monotonic() + timeout_s
         recovery_count = 0
         while True:
@@ -1313,6 +1534,9 @@ class HardwareManager:
             captured_monotonic_s=status.pose.captured_monotonic_s,
             motion=status.motion,
         )
+        self._continuous_fusion_latest = None
+        self._continuous_fusion_consecutive_trusted = 0
+        self._start_continuous_fusion_ingestion()
         return {
             "x_m": status.pose.x_m,
             "y_m": status.pose.y_m,
@@ -1344,8 +1568,100 @@ class HardwareManager:
             motion=sample.motion,
         ).to_dict()
 
+    def ingest_home_fusion_sample(self) -> dict[str, object]:
+        """Advance captured-Home fusion independently of motion commands."""
+        try:
+            if self._captured_home_pose is None or self._pose is None:
+                result: dict[str, object] = {
+                    "trusted": False,
+                    "unavailable_reason": "Home fusion is not initialized",
+                }
+            else:
+                sample = self._pose.status()
+                if (
+                    not sample.healthy
+                    or sample.pose is None
+                    or sample.age_s is None
+                    or sample.motion is None
+                ):
+                    result = {
+                        "trusted": False,
+                        "unavailable_reason": (
+                            sample.error
+                            or "fresh pose and IMU evidence are unavailable"
+                        ),
+                    }
+                else:
+                    result = self._home_localizer.track_kinematics(
+                        self._captured_home_pose,
+                        Pose2D(sample.pose.x_m, sample.pose.y_m, sample.pose.yaw_rad),
+                        odometry_age_s=sample.age_s,
+                        captured_monotonic_s=sample.pose.captured_monotonic_s,
+                        motion=sample.motion,
+                    )
+        except Exception as exc:  # noqa: BLE001 - fusion must fail closed
+            result = {
+                "trusted": False,
+                "unavailable_reason": f"continuous fusion ingestion failed: {exc}",
+            }
+        if result.get("trusted") is True:
+            self._continuous_fusion_consecutive_trusted += 1
+        else:
+            self._continuous_fusion_consecutive_trusted = 0
+        self._continuous_fusion_latest = {
+            **result,
+            "recorded_monotonic_s": self._monotonic(),
+        }
+        return dict(result)
+
+    def _start_continuous_fusion_ingestion(self) -> None:
+        task = self._fusion_ingestion_task
+        if task is not None:
+            task.cancel()
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._fusion_ingestion_task = None
+            return
+        self._fusion_ingestion_task = loop.create_task(
+            self._continuous_fusion_ingestion_loop()
+        )
+
+    async def _continuous_fusion_ingestion_loop(self) -> None:
+        while self._connected and self._captured_home_pose is not None:
+            await asyncio.sleep(self._continuous_fusion_interval_s)
+            self.ingest_home_fusion_sample()
+
+    def _require_continuous_fusion_ready(self, *, operation: str) -> None:
+        if not self._home_localizer.fusion_initialized:
+            return
+        self.ingest_home_fusion_sample()
+        latest = self._continuous_fusion_latest or {}
+        recorded = _finite_float(latest.get("recorded_monotonic_s"))
+        age_s = None if recorded is None else self._monotonic() - recorded
+        if (
+            latest.get("trusted") is not True
+            or self._continuous_fusion_consecutive_trusted < 3
+            or age_s is None
+            or age_s > self._continuous_fusion_interval_s * 2.0
+        ):
+            raise HardwareUnavailable(
+                f"continuous Home fusion is not ready to {operation}: "
+                + str(
+                    latest.get("unavailable_reason")
+                    or "three trusted samples required"
+                )
+            )
+
     async def close(self) -> list[str]:
         errors: list[str] = []
+        task, self._fusion_ingestion_task = self._fusion_ingestion_task, None
+        if task is not None:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
         if self._motion is not None:
             errors.extend(await self._motion.close())
         if self._pose is not None:
@@ -1389,6 +1705,22 @@ class HardwareManager:
             "motion": motion,
             "pose": pose,
             "home_localization": self._home_localizer.describe(),
+            "continuous_home_fusion": {
+                "running": bool(
+                    self._fusion_ingestion_task is not None
+                    and not self._fusion_ingestion_task.done()
+                ),
+                "interval_s": self._continuous_fusion_interval_s,
+                "consecutive_trusted_samples": (
+                    self._continuous_fusion_consecutive_trusted
+                ),
+                "latest": self._continuous_fusion_latest,
+            },
+            "metric_arrival": (
+                {"configured": False}
+                if self._metric_arrival_gate is None
+                else self._metric_arrival_gate.describe()
+            ),
             "last_pulse": self._last_pulse,
         }
 

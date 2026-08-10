@@ -287,19 +287,38 @@ def test_unsafe_duplicate_frame_stops_instead_of_holding() -> None:
     assert generation_mismatch.forward_scale == 0.0
 
 
-def test_discontinuous_duplicate_frame_stops_instead_of_holding() -> None:
+def test_single_center_jump_holds_prior_authority_until_confirmed() -> None:
     target = tracker()
     acquire(target)
 
     discontinuous = target.observe(
-        observation(center_x=0.90, source_pts=3),
+        observation(center_x=0.90, source_pts=4),
         now_s=0.4,
     )
 
-    assert discontinuous.recommendation is MotionRecommendation.STOP
-    assert discontinuous.reason == "track_discontinuous"
-    assert discontinuous.forward_scale == 0.0
-    assert discontinuous.evidence["duplicate_samples"] == 0
+    assert discontinuous.recommendation is MotionRecommendation.HOLD
+    assert discontinuous.reason == "confirming_center_jump"
+    assert discontinuous.evidence["pending_center_jump_samples"] == 1
+
+
+def test_two_distinct_center_jumps_stop_and_reset_the_track() -> None:
+    target = tracker()
+    pts = acquire(target)
+
+    first = target.observe(
+        observation(center_x=0.90, source_pts=pts),
+        now_s=0.4,
+    )
+    confirmed = target.observe(
+        observation(center_x=0.88, source_pts=pts + 1),
+        now_s=0.5,
+    )
+
+    assert first.recommendation is MotionRecommendation.HOLD
+    assert confirmed.recommendation is MotionRecommendation.STOP
+    assert confirmed.reason == "track_discontinuous"
+    assert confirmed.evidence["discontinuity_stops"] == 1
+    assert confirmed.evidence["track_acquired"] is False
 
 
 def test_sight_lost_close_arrival_is_bounded_by_time_and_geometry() -> None:
@@ -412,7 +431,8 @@ def test_moderate_reacquisition_error_resumes_with_moving_correction() -> None:
         MotionRecommendation.STOP,
         MotionRecommendation.APPROACH,
     ]
-    assert reacquiring[-1].horizontal_error == 0.14
+    assert reacquiring[-1].horizontal_error == 0.0
+    assert reacquiring[-1].evidence["moving_steering_active"] is False
     assert reacquiring[-1].evidence["approach_authorized"] is True
     assert reacquiring[-1].evidence["initial_centered"] is True
     assert reacquiring[-1].evidence["stationary_recenter_samples"] == 0

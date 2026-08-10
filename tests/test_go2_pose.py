@@ -36,6 +36,7 @@ def test_pose_provider_preserves_robot_timestamp_and_motion_evidence() -> None:
             yaw_speed=0.3,
             mode=2,
             gait_type=1,
+            range_obstacle=[0.8, 0.6, 1.2, 0.9],
             foot_force=[20.0, 18.0, 22.0, 19.0],
         )
     )
@@ -50,6 +51,7 @@ def test_pose_provider_preserves_robot_timestamp_and_motion_evidence() -> None:
     assert motion.imu_yaw_rate_rps == 0.04
     assert motion.mode == 2
     assert motion.gait_type == 1
+    assert motion.obstacle_ranges_m == (0.8, 0.6, 1.2, 0.9)
     assert motion.contact_feet == 4
     assert motion.stationary_stance is False
 
@@ -74,6 +76,31 @@ def test_pose_provider_qualifies_stationary_stance_for_zero_velocity_updates() -
     assert motion is not None
     assert motion.contact_feet == 3
     assert motion.stationary_stance is True
+
+
+def test_verified_posture_qualifies_stationary_when_foot_force_is_zero() -> None:
+    provider = Go2PoseProvider(maximum_age_s=0.50)
+    provider._on_state(
+        SimpleNamespace(
+            imu_state=SimpleNamespace(
+                rpy=[0.0, 0.0, 0.0],
+                gyroscope=[0.0, 0.0, 0.01],
+            ),
+            position=[0.0, 0.0, 0.0],
+            velocity=[0.01, 0.0, 0.0],
+            yaw_speed=0.01,
+            mode=5,
+            gait_type=0,
+            foot_force=[0.0, 0.0, 0.0, 0.0],
+        )
+    )
+
+    motion = provider.status().motion
+
+    assert motion is not None
+    assert motion.contact_feet == 0
+    assert motion.stationary_stance is True
+    assert motion.stationary_evidence_source == "verified_posture_kinematics"
 
 
 def test_pose_provider_rejects_regressing_robot_timestamp() -> None:

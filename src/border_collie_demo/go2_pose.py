@@ -20,9 +20,11 @@ class Go2MotionEvidence:
     imu_yaw_rate_rps: float | None
     mode: int | None
     gait_type: int | None
+    obstacle_ranges_m: tuple[float, ...] | None
     foot_force: tuple[float, ...] | None
     contact_feet: int | None
     stationary_stance: bool
+    stationary_evidence_source: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -33,11 +35,17 @@ class Go2MotionEvidence:
             "imu_yaw_rate_rps": self.imu_yaw_rate_rps,
             "mode": self.mode,
             "gait_type": self.gait_type,
+            "obstacle_ranges_m": (
+                None
+                if self.obstacle_ranges_m is None
+                else list(self.obstacle_ranges_m)
+            ),
             "foot_force": (
                 None if self.foot_force is None else list(self.foot_force)
             ),
             "contact_feet": self.contact_feet,
             "stationary_stance": self.stationary_stance,
+            "stationary_evidence_source": self.stationary_evidence_source,
             "velocity_frame": "body_forward_left",
         }
 
@@ -165,6 +173,9 @@ class Go2PoseProvider:
             imu_yaw_rate_rps = _optional_sequence_float(gyroscope, 2)
             mode = _optional_int(getattr(message, "mode", None))
             gait_type = _optional_int(getattr(message, "gait_type", None))
+            obstacle_ranges_m = _optional_float_tuple(
+                getattr(message, "range_obstacle", None)
+            )
             foot_force = _optional_float_tuple(getattr(message, "foot_force", None))
             contact_feet = (
                 None
@@ -184,14 +195,31 @@ class Go2PoseProvider:
                 if imu_yaw_rate_rps is not None
                 else yaw_rate_rps
             )
-            stationary_stance = bool(
-                contact_feet is not None
-                and contact_feet >= 3
-                and velocity_magnitude is not None
+            kinematically_stationary = bool(
+                velocity_magnitude is not None
                 and velocity_magnitude <= self.stationary_maximum_speed_mps
                 and effective_yaw_rate is not None
                 and abs(effective_yaw_rate)
                 <= self.stationary_maximum_yaw_rate_rps
+            )
+            contact_stationary = bool(
+                contact_feet is not None
+                and contact_feet >= 3
+                and kinematically_stationary
+            )
+            posture_stationary = bool(
+                contact_feet in {None, 0}
+                and mode in {0, 1, 5, 10}
+                and gait_type in {None, 0}
+                and kinematically_stationary
+            )
+            stationary_stance = contact_stationary or posture_stationary
+            stationary_evidence_source = (
+                "foot_contact"
+                if contact_stationary
+                else "verified_posture_kinematics"
+                if posture_stationary
+                else None
             )
             if not all(math.isfinite(value) for value in (x_m, y_m, yaw_rad)):
                 raise ValueError("non-finite local pose")
@@ -216,9 +244,11 @@ class Go2PoseProvider:
                 imu_yaw_rate_rps=imu_yaw_rate_rps,
                 mode=mode,
                 gait_type=gait_type,
+                obstacle_ranges_m=obstacle_ranges_m,
                 foot_force=foot_force,
                 contact_feet=contact_feet,
                 stationary_stance=stationary_stance,
+                stationary_evidence_source=stationary_evidence_source,
             )
             if source_timestamp_s is not None:
                 self._source_timestamp_s = source_timestamp_s

@@ -29,7 +29,7 @@ The planar distance in meters between Woof's latest fresh measured position and 
 _Avoid_: Distance traveled, estimated route length
 
 **Arrival**:
-The validated near-fruit condition reached without requiring physical contact. It permits at most one bounded final approach after trustworthy lower-edge disappearance and ends with Woof stopped safely.
+The stopped, metric near-fruit condition confirmed by fresh centered pear evidence and calibrated forward range. Initial qualification requires 15 +/- 5 cm from Woof's front body/paw envelope. Image geometry may enter Final Approach but cannot establish Arrival.
 _Avoid_: Fruit contact, fruit disappearance
 
 **Demo Run**:
