@@ -18,13 +18,13 @@ stages:
             BUILD_TESTING: "OFF"
           jobs: 2
       pip:
-        packages:
-          - fastapi>=0.115,<1
-          - uvicorn[standard]>=0.30,<1
-          - cyclonedds==0.10.2
-          - numpy>=1.24,<3
-          - opencv-python>=4.8,<5
-          - git+https://github.com/unitreerobotics/unitree_sdk2_python.git@e4cd91f051aaa77a70600e3d2bf7f50889db1980
+        - packages:
+            - fastapi>=0.115,<1
+            - uvicorn[standard]>=0.30,<1
+            - cyclonedds==0.10.2
+            - numpy>=1.24,<3
+            - opencv-python>=4.8,<5
+            - git+https://github.com/unitreerobotics/unitree_sdk2_python.git@e4cd91f051aaa77a70600e3d2bf7f50889db1980
 
   - name: app
     from: python:3.11-slim-bookworm
