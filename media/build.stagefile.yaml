@@ -27,8 +27,8 @@ stages:
           - libssl3
           - portaudio19-dev
       pip:
-        requirements: requirements.txt
-        index: https://pypi.org/simple
+        - requirements: requirements.txt
+          index: https://pypi.org/simple
     copy:
       - from: local
         paths: [model/model.engine]
