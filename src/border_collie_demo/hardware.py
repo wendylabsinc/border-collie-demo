@@ -19,6 +19,7 @@ from .go2_motion import (
 from .go2_pose import Go2PoseProvider, PoseStatus
 from .models import VelocityCommand
 from .motion_guardian import MotionAuthority
+from .qualified_track import QualifiedTrackGate, TrackIdentityChanged
 from .return_home import (
     Pose2D,
     ReturnMode,
@@ -684,12 +685,16 @@ class HardwareManager:
             forward_pulse_count = 0
             initial_centered = False
             initial_center_confirmations = 0
-            tracking_confirmations = 0
-            minimum_observed_tracking_confidence: float | None = None
-            close_range_continuation_samples = 0
-            track_acquired = False
-            last_track_geometry: tuple[float, float, float] | None = None
             policy = fruit_policy(target_fruit)
+            track = QualifiedTrackGate(
+                target_fruit=target_fruit,
+                acquisition_confidence=self.config.pear_tracking_minimum_confidence,
+                acquisition_confirmations=self.config.pear_tracking_confirmations,
+                close_range_confidence=policy.close_range_tracking_confidence,
+                close_range_minimum_bottom_ratio=CLOSE_RANGE_MINIMUM_BOTTOM_RATIO,
+                maximum_center_delta_ratio=CLOSE_RANGE_MAXIMUM_CENTER_DELTA_RATIO,
+                maximum_vertical_retreat_ratio=CLOSE_RANGE_MAXIMUM_VERTICAL_RETREAT_RATIO,
+            )
             started = time.monotonic()
             try:
                 assert self._motion is not None
@@ -703,103 +708,15 @@ class HardwareManager:
                             str(status.get("detail") or "camera evidence became unhealthy")
                         )
                     detection = status.get("detection")
-                    target_ready = bool(status.get("target_ready"))
-                    detection_label = (
-                        str(detection.get("label") or "").casefold()
-                        if isinstance(detection, dict)
-                        else ""
-                    )
-                    detection_confidence = (
-                        _finite_float(detection.get("confidence"))
-                        if isinstance(detection, dict)
-                        else None
-                    )
-                    center_x = (
-                        _finite_float(detection.get("center_x_ratio"))
-                        if isinstance(detection, dict)
-                        else None
-                    )
-                    center_y = (
-                        _finite_float(detection.get("center_y_ratio"))
-                        if isinstance(detection, dict)
-                        else None
-                    )
-                    bottom = (
-                        _finite_float(detection.get("bottom_ratio"))
-                        if isinstance(detection, dict)
-                        else None
-                    )
-                    if (
-                        target_ready
-                        and isinstance(detection, dict)
-                        and detection_label != target_fruit.casefold()
-                    ):
-                        raise TargetLost(
-                            f"qualified {target_fruit} track changed identity"
-                        )
-                    tracking_candidate = (
-                        isinstance(detection, dict)
-                        and detection_label == target_fruit.casefold()
-                        and detection_confidence is not None
-                        and detection_confidence
-                        >= self.config.pear_tracking_minimum_confidence
-                    )
-                    close_range_continuation = (
-                        track_acquired
-                        and isinstance(detection, dict)
-                        and detection_label == target_fruit.casefold()
-                        and detection_confidence is not None
-                        and detection_confidence
-                        >= policy.close_range_tracking_confidence
-                        and center_x is not None
-                        and center_y is not None
-                        and bottom is not None
-                        and last_track_geometry is not None
-                        and max(bottom, last_track_geometry[2])
-                        >= CLOSE_RANGE_MINIMUM_BOTTOM_RATIO
-                        and abs(center_x - last_track_geometry[0])
-                        <= CLOSE_RANGE_MAXIMUM_CENTER_DELTA_RATIO
-                        and center_y
-                        >= last_track_geometry[1]
-                        - CLOSE_RANGE_MAXIMUM_VERTICAL_RETREAT_RATIO
-                        and bottom
-                        >= last_track_geometry[2]
-                        - CLOSE_RANGE_MAXIMUM_VERTICAL_RETREAT_RATIO
-                    )
-                    requested_target_ready = (
-                        target_ready
-                        and isinstance(detection, dict)
-                        and detection_label == target_fruit.casefold()
-                    )
-                    if requested_target_ready:
-                        tracking_confirmations = (
-                            self.config.pear_tracking_confirmations
-                        )
-                    elif tracking_candidate:
-                        tracking_confirmations += 1
-                    elif close_range_continuation:
-                        tracking_confirmations = max(
-                            tracking_confirmations,
-                            self.config.pear_tracking_confirmations,
-                        )
-                    else:
-                        tracking_confirmations = 0
-                    track_ready = (
-                        requested_target_ready
-                    ) or (
-                        tracking_candidate
-                        and tracking_confirmations
-                        >= self.config.pear_tracking_confirmations
-                    ) or close_range_continuation
-                    if not track_ready:
+                    try:
+                        track_decision = track.observe(status)
+                    except TrackIdentityChanged as exc:
+                        raise TargetLost(str(exc)) from exc
+                    if not track_decision.ready:
                         if not initial_centered:
                             initial_center_confirmations = 0
-                        target_still_visible = (
-                            isinstance(detection, dict)
-                            and detection_label == target_fruit.casefold()
-                        )
                         if (
-                            target_still_visible
+                            track_decision.target_visible
                             or near_at is None
                             or now - near_at > near_loss_grace_s
                         ):
@@ -855,42 +772,25 @@ class HardwareManager:
                                 self.config.pear_tracking_minimum_confidence
                             ),
                             "minimum_observed_tracking_confidence": (
-                                minimum_observed_tracking_confidence
+                                track.minimum_observed_confidence
                             ),
                             "close_range_tracking_confidence": (
                                 policy.close_range_tracking_confidence
                             ),
                             "close_range_continuation_samples": (
-                                close_range_continuation_samples
+                                track.close_range_continuation_samples
                             ),
                         }
                         break
 
                     assert isinstance(detection, dict)
-                    label = detection_label
-                    if label != target_fruit.casefold():
-                        raise TargetLost(
-                            f"qualified {target_fruit} track changed identity"
-                        )
-                    if detection_confidence is not None:
-                        minimum_observed_tracking_confidence = (
-                            detection_confidence
-                            if minimum_observed_tracking_confidence is None
-                            else min(
-                                minimum_observed_tracking_confidence,
-                                detection_confidence,
-                            )
-                        )
+                    center_x = track_decision.center_x_ratio
+                    center_y = track_decision.center_y_ratio
+                    bottom = track_decision.bottom_ratio
                     if center_x is None or center_y is None or bottom is None:
                         raise CameraFailure(
                             f"{target_fruit} geometry is missing from fresh evidence"
                         )
-                    track_acquired = True
-                    if close_range_continuation and not (
-                        requested_target_ready or tracking_candidate
-                    ):
-                        close_range_continuation_samples += 1
-                    last_track_geometry = (center_x, center_y, bottom)
                     if not initial_centered:
                         centered_sample = (
                             abs(center_x - 0.5) <= INITIAL_CENTER_TOLERANCE_RATIO
