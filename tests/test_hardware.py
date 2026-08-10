@@ -266,7 +266,7 @@ def test_measured_turn_stops_from_fresh_pose_progress() -> None:
             timeout_s=0.25,
         )
 
-        assert result["motion_path"] == "factory_avoidance"
+        assert result["motion_path"] == "sport_client"
         assert result["requested_angle_rad"] == pytest.approx(math.pi / 2.0)
         assert result["measured_yaw_change_rad"] == pytest.approx(1.52)
         assert len(motion.commands) >= 3
@@ -348,6 +348,7 @@ def test_find_target_turns_until_fresh_stable_perception_then_stops() -> None:
         )
 
         assert result["label"] == "pear"
+        assert result["motion_path"] == "sport_client"
         assert result["stable_detections"] == 5
         assert result["motion_commands_sent"] is True
         assert all(command.forward_mps == 0.0 for command in motion.commands)
@@ -910,7 +911,8 @@ def test_approach_may_combine_forward_and_yaw_after_initial_centering() -> None:
                 seen(0.53),
                 seen(0.52),
                 seen(0.51),
-                seen(0.70),
+                seen(0.68),
+                seen(0.72),
                 seen(0.52),
                 seen(0.51, near=True),
                 seen(0.50, near=True),
@@ -940,9 +942,17 @@ def test_approach_may_combine_forward_and_yaw_after_initial_centering() -> None:
         assert any(
             command.reason == "approach_target"
             and command.forward_mps == 1.0
-            and command.yaw_rps == pytest.approx(-0.60)
+            and command.yaw_rps == pytest.approx(-0.66)
             for command in motion.commands
         )
+        assert any(
+            command.reason == "approach_target"
+            and command.forward_mps == 1.0
+            and command.yaw_rps == 0.0
+            for command in motion.commands
+        )
+        assert result["moving_yaw_deadband_ratio"] == 0.20
+        assert result["stationary_recenter_error_ratio"] == 0.40
         first_forward = next(
             index
             for index, command in enumerate(motion.commands)

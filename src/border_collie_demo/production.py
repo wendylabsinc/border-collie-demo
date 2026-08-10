@@ -128,7 +128,7 @@ class ProductionStageExecutor:
                 }
             evidence = await self._hardware.turn_relative(
                 requested_rad,
-                yaw_rps=0.50,
+                yaw_rps=1.00,
                 tolerance_rad=min(math.radians(3.0), requested_rad / 2.0),
                 timeout_s=30.0,
             )
@@ -142,7 +142,7 @@ class ProductionStageExecutor:
             return await self._hardware.find_target(
                 self._perception_status,
                 context.target_fruit,
-                yaw_rps=0.50,
+                yaw_rps=1.00,
                 sweep_rad=2.0 * math.pi,
                 timeout_s=30.0,
             )

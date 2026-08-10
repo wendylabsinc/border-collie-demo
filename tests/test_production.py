@@ -88,7 +88,7 @@ def test_orient_for_run_uses_the_recorded_relative_angle() -> None:
         assert name == "turn_relative"
         assert angle_rad == pytest.approx(2.391101)
         assert options == {
-            "yaw_rps": 0.50,
+            "yaw_rps": 1.00,
             "tolerance_rad": pytest.approx(0.05235987756),
             "timeout_s": 30.0,
         }
@@ -132,7 +132,7 @@ def test_turn_to_fruit_rotates_until_the_pear_is_recognized() -> None:
             "pear",
         )
         assert options == {
-            "yaw_rps": 0.50,
+            "yaw_rps": 1.00,
             "sweep_rad": pytest.approx(2.0 * 3.141592653589793),
             "timeout_s": 30.0,
         }

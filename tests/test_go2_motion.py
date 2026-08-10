@@ -34,6 +34,7 @@ class FakeSport:
         self.stand_down_calls = 0
         self.stand_up_calls = 0
         self.balance_stand_calls = 0
+        self.moves: list[tuple[float, float, float]] = []
 
     def SetTimeout(self, value: float) -> None:
         self.timeout_s = value
@@ -44,6 +45,10 @@ class FakeSport:
     def StopMove(self) -> int:
         self.stop_calls += 1
         return self.stop_result
+
+    def Move(self, vx: float, vy: float, vyaw: float) -> int:
+        self.moves.append((vx, vy, vyaw))
+        return 0
 
     def StandDown(self) -> int:
         self.stand_down_calls += 1
@@ -108,6 +113,39 @@ def test_factory_avoidance_motion_is_exclusive_and_stops_on_release() -> None:
         assert avoidance.moves[-1] == (0.0, 0.0, 0.0)
         assert avoidance.remote is False
         assert avoidance.enabled is False
+        assert motion.armed is False
+        await motion.close()
+
+    asyncio.run(scenario())
+
+
+def test_yaw_only_authority_uses_sport_client_with_avoidance_disabled() -> None:
+    async def scenario() -> None:
+        sport, avoidance = FakeSport(), FakeAvoidance()
+        motion = Go2Motion(
+            sport,
+            avoidance,
+            MotionConfig(remote_api_settle_s=0.0),
+        )
+        await motion.initialize()
+
+        lease = await motion.arm(authority(forward=False))
+        sent = await motion.command(
+            lease,
+            VelocityCommand(0.0, 0.80, "search_for_target"),
+        )
+
+        assert sent == VelocityCommand(0.0, 0.80, "search_for_target")
+        assert sport.moves == [(0.0, 0.0, 0.80)]
+        assert avoidance.moves == []
+        assert avoidance.remote is False
+        assert avoidance.enabled is False
+        assert motion.status()["mode"] == "sport_client"
+        assert motion.armed is True
+
+        await motion.release(lease)
+
+        assert sport.stop_calls == 2
         assert motion.armed is False
         await motion.close()
 

@@ -371,7 +371,7 @@ def test_large_reacquisition_error_requires_stationary_recenter() -> None:
     decisions = [
         target.observe(
             observation(
-                center_x=0.80,
+                center_x=0.95,
                 center_y=0.50,
                 bottom=0.65,
                 area=0.04,
@@ -390,3 +390,4 @@ def test_large_reacquisition_error_requires_stationary_recenter() -> None:
     assert decisions[-1].reason == "large_tracking_error"
     assert decisions[-1].forward_scale == 0.0
     assert decisions[-1].evidence["stationary_recenter_samples"] == 1
+    assert decisions[-1].evidence["stationary_recenter_error_ratio"] == 0.40

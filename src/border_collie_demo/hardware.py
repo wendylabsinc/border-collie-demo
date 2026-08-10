@@ -44,7 +44,10 @@ INITIAL_CENTER_TOLERANCE_RATIO = 0.05
 INITIAL_CENTER_CONFIRMATIONS = 3
 INITIAL_CENTER_YAW_RPS = 1.00
 SEARCH_CROP_CANDIDATE_CONFIDENCE = 0.50
-APPROACH_CENTER_TOLERANCE_RATIO = 0.12
+# Once initial centering is complete, keep walking through the middle 40% of
+# the frame. Only steer while moving outside that corridor; the tracker owns a
+# still-wider outer gate before it may request a stationary recenter.
+APPROACH_CENTER_TOLERANCE_RATIO = 0.20
 APPROACH_YAW_GAIN = 3.0
 FORWARD_CAPABLE_OPERATIONS = frozenset(
     {"forward_pulse", "approach_target", "return_home"}
@@ -425,7 +428,7 @@ class HardwareManager:
             if release_error is not None:
                 raise HardwareUnavailable(f"measured turn stop failed: {release_error}")
             return {
-                "motion_path": "factory_avoidance",
+                "motion_path": "sport_client",
                 "requested_angle_rad": requested,
                 "measured_yaw_change_rad": progress,
                 "yaw_rps": direction * rate,
@@ -572,6 +575,7 @@ class HardwareManager:
                         label = str(detection.get("label") or "").casefold()
                         if label == target_fruit.casefold():
                             evidence = {
+                                "motion_path": "sport_client",
                                 "label": target_fruit,
                                 "confidence": detection.get("confidence"),
                                 "stable_detections": detection.get(
@@ -797,6 +801,12 @@ class HardwareManager:
                                 INITIAL_CENTER_TOLERANCE_RATIO
                             ),
                             "initial_center_yaw_rps": INITIAL_CENTER_YAW_RPS,
+                            "moving_yaw_deadband_ratio": (
+                                APPROACH_CENTER_TOLERANCE_RATIO
+                            ),
+                            "stationary_recenter_error_ratio": (
+                                tracker.config.stationary_recenter_error_ratio
+                            ),
                             "forward_pulse_count": forward_pulse_count,
                             "forward_pulse_period_s": self.config.command_heartbeat_s,
                             "motion_commands_sent": commands_sent,
@@ -876,7 +886,15 @@ class HardwareManager:
                 else:
                     raise TargetLost(
                         f"qualified {target_fruit} Arrival timed out",
-                        evidence=last_decision_evidence,
+                        evidence={
+                            **last_decision_evidence,
+                            "moving_yaw_deadband_ratio": (
+                                APPROACH_CENTER_TOLERANCE_RATIO
+                            ),
+                            "stationary_recenter_error_ratio": (
+                                tracker.config.stationary_recenter_error_ratio
+                            ),
+                        },
                     )
             except Exception as exc:  # noqa: BLE001 - always disarm below
                 operation_error = exc

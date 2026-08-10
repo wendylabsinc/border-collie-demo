@@ -1,9 +1,8 @@
 """Exclusive, watchdog-protected Unitree motion boundary.
 
-This is a deliberately reduced adaptation of the motion boundary physically
-tested in ``wendylabsinc/collie-demo``. The clean foundation exposes only the
-factory ``ObstaclesAvoidClient`` path. Direct SportClient translation remains
-out of scope until return-home owns a qualified collision-planning contract.
+Forward-capable leases use the factory ``ObstaclesAvoidClient`` path. Yaw-only
+leases use ``SportClient`` directly, while retaining the same exclusive lease,
+motion-authority, watchdog, and emergency-stop contract.
 """
 
 from __future__ import annotations
@@ -49,6 +48,8 @@ class SportClientProtocol(Protocol):
     def StandDown(self) -> int: ...
 
     def StopMove(self) -> int: ...
+
+    def Move(self, vx: float, vy: float, vyaw: float) -> int: ...
 
 
 class AvoidanceClientProtocol(Protocol):
@@ -120,6 +121,7 @@ class Go2Motion:
         self._closed = False
         self._fault: str | None = None
         self._lease: str | None = None
+        self._motion_path: str | None = None
         self._avoidance_enabled = False
         self._remote_api_enabled = False
         self._last_verify_at: float | None = None
@@ -130,13 +132,17 @@ class Go2Motion:
 
     @property
     def armed(self) -> bool:
+        path_ready = self._motion_path == "sport_client" or (
+            self._motion_path == "factory_avoidance"
+            and self._avoidance_enabled
+            and self._remote_api_enabled
+        )
         return bool(
             self._initialized
             and not self._closed
             and self._fault is None
             and self._lease
-            and self._avoidance_enabled
-            and self._remote_api_enabled
+            and path_ready
             and self._guardian.status()["active"] is True
         )
 
@@ -145,7 +151,7 @@ class Go2Motion:
             "initialized": self._initialized,
             "closed": self._closed,
             "armed": self.armed,
-            "mode": "factory_avoidance" if self._lease else None,
+            "mode": self._motion_path if self._lease else None,
             "fault": self._fault,
             "avoidance_enabled": self._avoidance_enabled,
             "remote_api_enabled": self._remote_api_enabled,
@@ -185,17 +191,23 @@ class Go2Motion:
             if self._lease is not None:
                 raise MotionNotReady("motion lease already active")
             try:
-                await self._success(self.avoidance.SwitchSet, True)
-                response = await self._call(self.avoidance.SwitchGet)
-                if response != (0, True):
-                    raise MotionError(f"avoidance not confirmed: {response!r}")
-                self._avoidance_enabled = True
-                self._last_verify_at = time.monotonic()
-                await self._success(self.avoidance.UseRemoteCommandFromApi, True)
-                self._remote_api_enabled = True
-                if self.config.remote_api_settle_s:
-                    await asyncio.sleep(self.config.remote_api_settle_s)
-                await self._success(self.avoidance.Move, 0.0, 0.0, 0.0)
+                if authority.allow_forward:
+                    self._motion_path = "factory_avoidance"
+                    await self._success(self.avoidance.SwitchSet, True)
+                    response = await self._call(self.avoidance.SwitchGet)
+                    if response != (0, True):
+                        raise MotionError(f"avoidance not confirmed: {response!r}")
+                    self._avoidance_enabled = True
+                    self._last_verify_at = time.monotonic()
+                    await self._success(self.avoidance.UseRemoteCommandFromApi, True)
+                    self._remote_api_enabled = True
+                    if self.config.remote_api_settle_s:
+                        await asyncio.sleep(self.config.remote_api_settle_s)
+                    await self._success(self.avoidance.Move, 0.0, 0.0, 0.0)
+                else:
+                    self._motion_path = "sport_client"
+                    await self._disable_avoidance_locked()
+                    await self._idle_stop()
             except Exception as exc:
                 await self._release_locked(use_stop=True)
                 raise MotionNotReady(f"arm failed: {exc}") from exc
@@ -221,9 +233,18 @@ class Go2Motion:
             yaw = self._bounded_yaw(guarded.yaw_rps)
             self._cancel_watchdog()
             try:
-                if forward != 0.0 or yaw != 0.0:
-                    await self._verify_avoidance_if_due()
-                await self._success(self.avoidance.Move, forward, 0.0, yaw)
+                if self._motion_path == "factory_avoidance":
+                    if forward != 0.0 or yaw != 0.0:
+                        await self._verify_avoidance_if_due()
+                    await self._success(self.avoidance.Move, forward, 0.0, yaw)
+                elif self._motion_path == "sport_client":
+                    if forward != 0.0:
+                        raise MotionError(
+                            "SportClient yaw-only lease rejected forward motion"
+                        )
+                    await self._success(self.sport.Move, 0.0, 0.0, yaw)
+                else:
+                    raise MotionNotReady("motion path is not armed")
             except Exception as exc:
                 self._fault = f"velocity command failed: {exc}"
                 await self._release_locked(use_stop=True)
@@ -378,6 +399,7 @@ class Go2Motion:
             except Exception as exc:  # noqa: BLE001 - best-effort safety release
                 errors.append(f"{label}: {exc}")
         self._lease = None
+        self._motion_path = None
         self._avoidance_enabled = False
         self._remote_api_enabled = False
         self._last_verify_at = None

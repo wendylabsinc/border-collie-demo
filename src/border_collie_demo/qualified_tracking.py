@@ -41,7 +41,7 @@ class QualifiedTrackingConfig:
     maximum_detection_age_s: float = 0.250
     close_bottom_ratio: float = 0.70
     maximum_center_delta_ratio: float = 0.20
-    stationary_recenter_error_ratio: float = 0.25
+    stationary_recenter_error_ratio: float = 0.40
     maximum_vertical_retreat_ratio: float = 0.08
     maximum_area_retreat_fraction: float = 0.35
     slow_speed_scale: float = 0.30
@@ -565,6 +565,9 @@ class QualifiedFruitTracker:
             "initial_centered": self._initial_centered,
             "approach_authorized": self._approach_authorized,
             "stationary_recenter_samples": self._stationary_recenter_samples,
+            "stationary_recenter_error_ratio": (
+                self.config.stationary_recenter_error_ratio
+            ),
             "acquisition_samples": self._acquisition_samples,
             "qualified_samples": self._qualified_samples,
             "close_range_samples": self._close_samples,
