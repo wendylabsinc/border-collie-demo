@@ -278,7 +278,7 @@ def test_approach_pins_full_and_close_range_speeds_independently() -> None:
             # Normal tracking retains the qualified profile; close-range
             # geometry selects its own explicit speed before Arrival stops it.
             "forward_mps": 1.0,
-            "maximum_yaw_rps": 1.0,
+            "maximum_yaw_rps": 0.5,
             "near_bottom_ratio": 0.86,
             "near_center_ratio": 0.72,
             "near_confirmations": 3,

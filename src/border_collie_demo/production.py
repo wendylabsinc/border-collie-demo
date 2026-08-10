@@ -163,7 +163,7 @@ class ProductionStageExecutor:
                 # Keep the qualified approach brisk while slowing explicitly
                 # for close-range geometry. Arrival qualification owns stop.
                 forward_mps=1.0,
-                maximum_yaw_rps=1.0,
+                maximum_yaw_rps=0.5,
                 near_bottom_ratio=0.86,
                 near_center_ratio=0.72,
                 near_confirmations=3,

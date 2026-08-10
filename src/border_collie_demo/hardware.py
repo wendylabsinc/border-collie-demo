@@ -42,7 +42,6 @@ from .return_home import (
 FORWARD_PULSE_CONFIRMATION = "PATH CLEAR - MOVE WOOF FORWARD"
 INITIAL_CENTER_TOLERANCE_RATIO = 0.05
 INITIAL_CENTER_CONFIRMATIONS = 3
-INITIAL_CENTER_YAW_RPS = 1.00
 SEARCH_CROP_CANDIDATE_CONFIDENCE = 0.50
 SEARCH_CANDIDATE_HOLD_S = 0.75
 SEARCH_CANDIDATE_YAW_RPS = 0.50
@@ -848,7 +847,7 @@ class HardwareManager:
                             "initial_center_tolerance_ratio": (
                                 INITIAL_CENTER_TOLERANCE_RATIO
                             ),
-                            "initial_center_yaw_rps": INITIAL_CENTER_YAW_RPS,
+                            "initial_center_yaw_rps": maximum_yaw_rps,
                             "moving_yaw_deadband_ratio": (
                                 APPROACH_CENTER_TOLERANCE_RATIO
                             ),
@@ -901,7 +900,7 @@ class HardwareManager:
                             0.0
                             if abs(horizontal_error) <= INITIAL_CENTER_TOLERANCE_RATIO
                             else -math.copysign(
-                                INITIAL_CENTER_YAW_RPS,
+                                maximum_yaw_rps,
                                 horizontal_error,
                             )
                         )

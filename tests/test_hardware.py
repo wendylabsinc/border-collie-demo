@@ -1256,15 +1256,15 @@ def test_approach_centers_pear_before_first_forward_command() -> None:
             for command in motion.commands[:first_forward]
         )
         assert [command.yaw_rps for command in motion.commands[:first_forward]] == [
-            -1.00,
-            -1.00,
-            -1.00,
+            -0.30,
+            -0.30,
+            -0.30,
             0.0,
             0.0,
         ]
         assert result["initial_center_confirmations"] == 3
         assert result["initial_center_tolerance_ratio"] == 0.05
-        assert result["initial_center_yaw_rps"] == 1.00
+        assert result["initial_center_yaw_rps"] == 0.30
         assert motion.armed is False
         await manager.close()
 
@@ -1393,7 +1393,7 @@ def test_approach_may_combine_forward_and_yaw_after_initial_centering() -> None:
             ),
             "pear",
             forward_mps=1.0,
-            maximum_yaw_rps=1.00,
+            maximum_yaw_rps=0.50,
             near_bottom_ratio=0.86,
             near_center_ratio=0.72,
             near_confirmations=3,
@@ -1408,7 +1408,7 @@ def test_approach_may_combine_forward_and_yaw_after_initial_centering() -> None:
         assert any(
             command.reason == "approach_target"
             and command.forward_mps == 1.0
-            and command.yaw_rps == pytest.approx(-0.66)
+            and command.yaw_rps == pytest.approx(-0.5)
             for command in motion.commands
         )
         assert any(
