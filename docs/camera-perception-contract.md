@@ -148,17 +148,17 @@ may be relaxed only after new acceptance evidence is recorded.
   lower threshold cannot acquire a pear, start a search result, or bypass any
   freshness, generation, geometry, or camera-health gate. A weaker or missing
   track commands zero motion until the approach contract either reacquires the
-  pear or performs its already-qualified lower-edge final push.
+  pear or confirms a bounded sight-lost-close Arrival.
 - A previously acquired red-apple track may continue below the normal tracking
   floor, down to 0.10 confidence, only after its lower edge or the prior lower
   edge reaches 0.70 of frame height and its geometry remains continuous. Its
   horizontal center may move at most 0.20 of frame width between accepted
   samples; its vertical center and lower edge may retreat by at most 0.08.
   This rule cannot acquire an apple or accept a label change.
-- Near-fruit geometry does not itself stop motion or confirm Arrival. It arms
-  the lower-edge disappearance gate while fresh, centered Target Fruit evidence
-  continues authorizing the bounded forward approach. Only a subsequent
-  qualified lower-edge disappearance permits the one bounded final push.
+- Near-fruit geometry slows motion and establishes close-range track memory.
+  Arrival requires either qualified visible geometry or disappearance of that
+  continuous close track within the bounded grace period. Disappearance sends
+  zero motion and never authorizes a blind final push.
 - Warm-up must finish before preflight passes. After preflight, detector
   execution time must be **no greater than 0.200 seconds**.
 - Detection age must be **no greater than 0.250 seconds**, measured with the

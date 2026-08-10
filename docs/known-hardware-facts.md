@@ -12,7 +12,7 @@ proof that this clean implementation works:
 - The same factory-avoidance calibration produced visible physical movement
   at 1.0 m/s. Production fruit approach therefore uses 1.0 m/s rather than
   operating exactly at the observed 0.50 m/s deadband edge; camera steering,
-  near-fruit geometry, the final-push gate, timeout, and automatic release
+  near-fruit geometry, slowed close approach, timeout, and automatic release
   remain mandatory.
 - Short travel should use a reliable velocity with bounded pulse duration,
   rather than reducing velocity below the movement deadband.
@@ -20,8 +20,9 @@ proof that this clean implementation works:
   after confirmed near-fruit evidence and lower-camera disappearance.
 - The first clean combined Arrival used that 0.4-second value but stopped too
   far from the pear. A later 1.0 m/s by 1.0-second final movement was too fast.
-  The current production candidate keeps the one-second bound but reduces only
-  this off-screen movement to 0.3 m/s; it requires supervised qualification.
+  The current production candidate removes off-screen movement entirely and
+  uses continuous close-track evidence plus zero-motion sight-lost Arrival; it
+  requires supervised qualification.
 - `SportClient.StandDown()` returns before the visible posture completes. The
   old application held the down posture for 5 seconds; the clean production
   sequence now restores that hold before stand-up.

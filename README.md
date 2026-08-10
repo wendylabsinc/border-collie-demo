@@ -27,14 +27,14 @@ reference, but it is not a runtime dependency.
 6. Confirm/reacquire and approach the requested fruit using fresh detections.
    No forward command is permitted before this stage. Once approach begins,
    forward and yaw inputs may be combined to steer toward the fruit.
-7. Near-fruit geometry arms the lower-edge Arrival gate but does not stop the
-   approach. While the requested fruit remains freshly visible, continue the
-   bounded forward approach. Only after it disappears through the lower camera
-   edge may Woof send the single bounded final movement.
+7. Near-fruit geometry slows the approach. Fresh continuous geometry may
+   confirm visible Arrival; a track already proven close may also confirm
+   Arrival when it disappears through the lower camera edge within the bounded
+   sight-loss grace period. Sight loss always commands zero motion.
 8. First turn at a fixed 0.50 rad/s until the Target Fruit is within the middle
    16% of the camera, then hold zero yaw for three fresh centered samples. After
-   qualified lower-edge disappearance, send one 0.3 m/s by
-   1.0-second final push, stop, lie down, bark, and remain down for 5 seconds.
+   qualified visible or sight-lost-close Arrival, stop without a blind final
+   push, lie down, bark, and remain down for 5 seconds.
 9. Stand, turn toward Home, replay the recorded number of outbound forward
    heartbeats at 1.0 m/s, and restore the original heading. Fresh pose remains
    the authority for the 10 cm Home success gate and recorded Home Distance.
@@ -149,7 +149,7 @@ evidence before sealing success. Loss of pose freshness during capture also fail
 **Stop Woof** seals an active run and permits another activation, while process
 restart seals unfinished work as `PROCESS_INTERRUPTED`. The production executor
 uses measured pose turns, bounded camera-guided search, geometry-gated approach,
-one 0.3 m/s by 1.0 s off-screen final push, Unitree posture actions, bark, and
+zero-motion sight-lost-close Arrival, Unitree posture actions, bark, and
 closed-loop odometry return through factory obstacle avoidance.
 The initial turn/search is explicitly **conditional**, not an unconditional
 part of every run. Target Fruit qualification may already be present when
