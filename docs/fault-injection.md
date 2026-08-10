@@ -18,7 +18,7 @@ Initial durability scenarios:
 | Stale source/detection timestamps | Camera readiness fails closed |
 | Connection generation replacement | Old tracking evidence cannot continue motion |
 | Media restart-budget exhaustion | Supervisor becomes explicit `failed` |
-| Pose or absolute Home evidence loss | Home estimate becomes unavailable; no inferred arrival |
+| Go2 pose loss or persistent visual disagreement | Home estimate becomes unavailable; no inferred arrival |
 | Partial flight-recorder write | Restart truncates the torn tail and continues the hash chain |
 | Process restart with an active run | Attempt stop, seal interrupted run, never resume motion |
 

@@ -4,38 +4,50 @@ import math
 import pytest
 
 from border_collie_demo.home_localization import (
-    AbsoluteHomeObservation,
     HomeEstimateState,
     HomeLocalizationConfig,
     HomeLocalizer,
+    VisualOdometryObservation,
 )
 from border_collie_demo.recovery import FailedRunHomeRecovery
 from border_collie_demo.return_home import Pose2D
 from border_collie_demo.run_results import RunResultStore
 
 
-class FixedAbsoluteAdapter:
-    def __init__(self, observation: AbsoluteHomeObservation | None) -> None:
+class FixedVisualAdapter:
+    def __init__(self, observation: VisualOdometryObservation | None) -> None:
         self.observation = observation
 
-    def observe_home(self, home: Pose2D) -> AbsoluteHomeObservation | None:
+    def observe_motion(self) -> VisualOdometryObservation | None:
         return self.observation
 
 
 def observation(
-    pose: Pose2D,
     *,
+    generation: str = "camera-1",
+    frame_sequence: int = 10,
+    motion_sequence: int = 8,
     captured_monotonic_s: float = 99.8,
-) -> AbsoluteHomeObservation:
-    return AbsoluteHomeObservation(
-        pose_from_home=pose,
+    x_px: float = 0.0,
+    y_px: float = 0.0,
+    yaw_rad: float = 0.0,
+    quality: float = 0.8,
+) -> VisualOdometryObservation:
+    return VisualOdometryObservation(
+        generation=generation,
+        frame_sequence=frame_sequence,
+        motion_sequence=motion_sequence,
         captured_monotonic_s=captured_monotonic_s,
-        source="apriltag-camera-adapter",
-        reference_id="home-tag-7",
+        trajectory_x_px=x_px,
+        trajectory_y_px=y_px,
+        trajectory_yaw_rad=yaw_rad,
+        motion_quality=quality,
+        tracked_features=100,
+        inliers=80,
     )
 
 
-def test_odometry_only_preserves_existing_home_distance_and_exposes_absence() -> None:
+def test_go2_only_preserves_metric_home_pose_and_exposes_uncertainty() -> None:
     localizer = HomeLocalizer(clock=lambda: 100.0)
 
     estimate = localizer.estimate(
@@ -45,83 +57,99 @@ def test_odometry_only_preserves_existing_home_distance_and_exposes_absence() ->
     )
 
     assert estimate.state is HomeEstimateState.TRUSTED
-    assert estimate.source == "odometry_only"
+    assert estimate.source == "go2_metric"
     assert estimate.pose_from_home is not None
     assert estimate.pose_from_home.x_m == pytest.approx(0.12)
     assert estimate.pose_from_home.y_m == pytest.approx(0.0)
-    assert estimate.pose_from_home.yaw_rad == pytest.approx(0.0)
     assert estimate.home_distance_m == pytest.approx(0.12)
-    assert estimate.evidence["absolute"] == {"state": "not_configured"}
+    assert estimate.evidence["visual"] == {"state": "not_configured"}
+    assert estimate.evidence["uncertainty"]["position_sigma_m"] > 0.03
 
 
-def test_fresh_fiducial_corrects_an_agreeing_odometry_estimate() -> None:
-    localizer = HomeLocalizer(
-        FixedAbsoluteAdapter(observation(Pose2D(0.08, 0.0, 0.02))),
-        clock=lambda: 100.0,
+def test_fresh_visual_motion_fuses_yaw_but_does_not_invent_metric_translation() -> None:
+    adapter = FixedVisualAdapter(observation())
+    localizer = HomeLocalizer(adapter, clock=lambda: 100.0)
+    assert localizer.capture_home()["state"] == "captured"
+    adapter.observation = observation(
+        frame_sequence=20,
+        motion_sequence=18,
+        x_px=48.0,
+        yaw_rad=-0.8,
     )
 
     estimate = localizer.estimate(
         Pose2D(0.0, 0.0, 0.0),
-        Pose2D(0.14, 0.0, 0.0),
+        Pose2D(1.25, -0.25, 1.0),
         odometry_age_s=0.03,
     )
 
     assert estimate.trusted is True
-    assert estimate.source == "odometry+absolute_fiducial"
-    assert estimate.home_distance_m == pytest.approx(0.095)
+    assert estimate.source == "go2_metric+visual_yaw"
     assert estimate.pose_from_home is not None
-    assert estimate.pose_from_home.yaw_rad == pytest.approx(0.015)
-    assert estimate.evidence["disagreement"]["position_m"] == pytest.approx(0.06)
+    assert estimate.pose_from_home.x_m == pytest.approx(1.25)
+    assert estimate.pose_from_home.y_m == pytest.approx(-0.25)
+    assert 0.8 < estimate.pose_from_home.yaw_rad < 1.0
+    assert estimate.evidence["visual"]["state"] == "fused"
+    assert estimate.evidence["visual"]["trajectory_image_space"]["x_px"] == 48.0
 
 
-def test_stale_fiducial_makes_home_unavailable_instead_of_falling_back() -> None:
-    localizer = HomeLocalizer(
-        FixedAbsoluteAdapter(
-            observation(Pose2D(0.08, 0.0, 0.0), captured_monotonic_s=98.0)
-        ),
-        clock=lambda: 100.0,
+def test_stale_or_restarted_visual_evidence_falls_back_to_fresh_go2_metric() -> None:
+    adapter = FixedVisualAdapter(observation())
+    localizer = HomeLocalizer(adapter, clock=lambda: 100.0)
+    localizer.capture_home()
+    adapter.observation = observation(
+        generation="camera-2",
+        captured_monotonic_s=98.0,
+        yaw_rad=-1.0,
     )
 
     estimate = localizer.estimate(
         Pose2D(0.0, 0.0, 0.0),
-        Pose2D(0.09, 0.0, 0.0),
+        Pose2D(0.4, 0.0, 0.5),
         odometry_age_s=0.02,
     )
 
-    assert estimate.state is HomeEstimateState.UNAVAILABLE
-    assert estimate.home_distance_m is None
-    assert "stale" in str(estimate.unavailable_reason)
-    assert estimate.evidence["absolute"]["age_s"] == pytest.approx(2.0)
+    assert estimate.trusted is True
+    assert estimate.source == "go2_metric"
+    assert estimate.evidence["visual"]["state"] == "generation_changed"
 
 
-def test_fiducial_disagreement_fails_closed_with_both_measurements() -> None:
+def test_persistent_qualified_visual_yaw_conflict_fails_closed() -> None:
+    adapter = FixedVisualAdapter(observation())
     localizer = HomeLocalizer(
-        FixedAbsoluteAdapter(observation(Pose2D(-0.8, 0.0, math.pi))),
+        adapter,
         config=HomeLocalizationConfig(
-            maximum_position_disagreement_m=0.30,
-            maximum_heading_disagreement_rad=math.radians(30.0),
+            maximum_visual_yaw_disagreement_rad=math.radians(10.0),
+            maximum_consecutive_visual_conflicts=3,
         ),
         clock=lambda: 100.0,
     )
+    localizer.capture_home()
+    adapter.observation = observation(frame_sequence=20, yaw_rad=-1.2)
 
-    estimate = localizer.estimate(
+    first = localizer.estimate(
         Pose2D(0.0, 0.0, 0.0),
-        Pose2D(0.10, 0.0, 0.0),
+        Pose2D(0.2, 0.0, 0.0),
+        odometry_age_s=0.02,
+    )
+    second = localizer.estimate(
+        Pose2D(0.0, 0.0, 0.0),
+        Pose2D(0.2, 0.0, 0.0),
+        odometry_age_s=0.02,
+    )
+    third = localizer.estimate(
+        Pose2D(0.0, 0.0, 0.0),
+        Pose2D(0.2, 0.0, 0.0),
         odometry_age_s=0.02,
     )
 
-    assert estimate.trusted is False
-    assert estimate.pose_from_home is None
-    assert "disagree" in str(estimate.unavailable_reason)
-    assert estimate.evidence["disagreement"]["position_m"] == pytest.approx(0.9)
-    assert estimate.evidence["disagreement"]["heading_rad"] == pytest.approx(
-        math.pi
-    )
+    assert first.trusted is True and second.trusted is True
+    assert third.state is HomeEstimateState.UNAVAILABLE
+    assert "persistently" in str(third.unavailable_reason)
+    assert third.evidence["visual"]["consecutive_conflicts"] == 3
 
 
 class CorrectedHomeRecoveryHardware:
-    """Raw odometry is outside the gate; the trusted fused estimate is inside."""
-
     def status(self) -> dict[str, object]:
         return {
             "configured": True,
@@ -132,7 +160,7 @@ class CorrectedHomeRecoveryHardware:
             "pose": {
                 "healthy": True,
                 "age_s": 0.02,
-                "pose": {"x_m": 0.14, "y_m": 0.0, "yaw_rad": 0.0},
+                "pose": {"x_m": 0.095, "y_m": 0.0, "yaw_rad": 0.0},
             },
             "motion": {"initialized": True, "armed": False, "fault": None},
         }
@@ -141,12 +169,12 @@ class CorrectedHomeRecoveryHardware:
         return {
             "state": "trusted",
             "trusted": True,
-            "source": "odometry+absolute_fiducial",
+            "source": "go2_metric+visual_yaw",
             "unavailable_reason": None,
             "home_distance_m": 0.095,
             "heading_error_rad": -0.015,
             "pose_from_home": {"x_m": 0.095, "y_m": 0.0, "yaw_rad": 0.015},
-            "evidence": {"absolute": {"reference_id": "home-tag-7"}},
+            "evidence": {"visual": {"state": "fused"}},
         }
 
     def start_motion_trace(self, phase: str) -> None:
@@ -192,5 +220,5 @@ def test_final_recovery_verification_uses_trusted_fused_point_one_meter_gate(
     assert completed["reason"] == "HOME_POSITION_ALREADY_RECOVERED"
     assert completed["final_evidence"]["home_distance_m"] == pytest.approx(0.095)
     assert completed["final_evidence"]["home_localization"]["source"] == (
-        "odometry+absolute_fiducial"
+        "go2_metric+visual_yaw"
     )

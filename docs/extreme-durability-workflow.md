@@ -64,18 +64,18 @@ Integration gate:
 - wrong identity, stale frames, and discontinuous geometry stop or fail closed;
 - pear close-range confidence collapse can reach Arrival without contact.
 
-### 4. Redundant Home localization
+### 4. Redundant relative-motion localization
 
-Fuse fresh Go2 odometry with an optional absolute Home observation. A stale or
-contradictory absolute observation is unavailable evidence, never an implicit
-position correction. The first deploy remains compatible with odometry-only
-operation until a qualified AprilTag or ArUco producer is connected.
+Fuse fresh Go2 metric pose with bounded CPU-only sparse visual motion. Visual
+translation remains image-space and cannot invent metres; qualified visual yaw
+and natural-scene loop closures independently check the Go2 trajectory.
 
 Integration gate:
 
-- odometry-only behavior remains regression compatible;
-- fresh agreeing fiducial evidence corrects accumulated drift;
-- stale and disagreeing evidence fail closed;
+- Go2-only behavior remains regression compatible;
+- fresh agreeing visual yaw reduces heading uncertainty;
+- stale visual evidence falls back explicitly and persistent disagreement fails closed;
+- visual processing stays within its CPU, latency, memory, and thermal budgets;
 - the final measured Home Distance remains at most `0.10 m`.
 
 ### 5. Isolated media supervision

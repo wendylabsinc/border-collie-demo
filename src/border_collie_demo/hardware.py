@@ -17,7 +17,13 @@ from .go2_motion import (
     initialize_dds,
 )
 from .go2_pose import Go2PoseProvider, PoseStatus
-from .home_localization import HomeEstimate, HomeLocalizationConfig, HomeLocalizer
+from .home_localization import (
+    HomeEstimate,
+    HomeLocalizationConfig,
+    HomeLocalizer,
+    VisualOdometryAdapter,
+    pose_to_world,
+)
 from .models import VelocityCommand
 from .motion_guardian import MotionAuthority
 from .qualified_tracking import (
@@ -129,6 +135,7 @@ class HardwareManager:
         motion_factory: MotionFactory | None = None,
         pose_factory: PoseFactory | None = None,
         home_localizer: HomeLocalizer | None = None,
+        visual_odometry: VisualOdometryAdapter | None = None,
     ) -> None:
         self.config = config or HardwareConfig()
         self._dds_initializer = dds_initializer
@@ -137,6 +144,7 @@ class HardwareManager:
             lambda maximum_age_s: Go2PoseProvider(maximum_age_s=maximum_age_s)
         )
         self._home_localizer = home_localizer or HomeLocalizer(
+            visual_odometry,
             config=HomeLocalizationConfig(
                 maximum_odometry_age_s=self.config.pose_maximum_age_s
             )
@@ -154,6 +162,8 @@ class HardwareManager:
         self._motion_run_epoch = str(uuid4())
         self._motion_authority_phase = "idle"
         self._flight_recorder: FlightRecorder | None = None
+        self._captured_home_pose: Pose2D | None = None
+        self._breadcrumbs: list[Pose2D] = []
 
     async def start(self) -> None:
         if not self.config.enabled or self._connected:
@@ -912,6 +922,10 @@ class HardwareManager:
             samples = 0
             replayed_forward_pulses = 0
             commands_sent = False
+            route_waypoints = list(reversed(self._breadcrumbs[1:]))
+            planned_breadcrumbs = len(route_waypoints)
+            reached_breadcrumbs = 0
+            active_target: Pose2D | None = None
             try:
                 assert self._motion is not None and self._pose is not None
                 lease = await self._motion.arm(self._authority_for_active_operation())
@@ -924,15 +938,13 @@ class HardwareManager:
                         operation="return Home",
                     )
                     assert estimate.pose_from_home is not None
-                    step = plan_return_step(
-                        Pose2D(0.0, 0.0, 0.0),
-                        estimate.pose_from_home,
-                        config,
-                    )
+                    current_world = pose_to_world(home_pose, estimate.pose_from_home)
+                    home_distance = estimate.home_distance_m
+                    assert home_distance is not None
                     samples += 1
-                    if step.distance_m <= arrival_tolerance_m:
+                    if home_distance <= arrival_tolerance_m:
                         evidence = {
-                            "home_distance_m": step.distance_m,
+                            "home_distance_m": home_distance,
                             "arrival_tolerance_m": arrival_tolerance_m,
                             "requested_forward_pulses": forward_pulse_count,
                             "replayed_forward_pulses": replayed_forward_pulses,
@@ -940,15 +952,38 @@ class HardwareManager:
                                 replayed_forward_pulses < forward_pulse_count
                             ),
                             "pose_samples": samples,
-                            "motion_path": "factory_avoidance",
+                            "motion_path": (
+                                "breadcrumb_closed_loop"
+                                if planned_breadcrumbs
+                                else "direct_fused_closed_loop"
+                            ),
+                            "planned_breadcrumbs": planned_breadcrumbs,
+                            "reached_breadcrumbs": reached_breadcrumbs,
                             "motion_commands_sent": commands_sent,
                             "home_localization": estimate.to_dict(),
                         }
                         break
+                    while route_waypoints:
+                        waypoint = route_waypoints[0]
+                        waypoint_distance = math.hypot(
+                            waypoint.x_m - current_world.x_m,
+                            waypoint.y_m - current_world.y_m,
+                        )
+                        if waypoint_distance > self.config.breadcrumb_reach_m:
+                            break
+                        route_waypoints.pop(0)
+                        reached_breadcrumbs += 1
+                        active_target = None
+                    target = route_waypoints[0] if route_waypoints else home_pose
+                    if active_target != target:
+                        active_target = target
+                        best_distance = math.inf
+                        progress_at = time.monotonic()
+                    step = plan_return_step(target, current_world, config)
                     if replayed_forward_pulses >= forward_pulse_count:
                         raise HardwareUnavailable(
                             "return pulse playback completed "
-                            f"{step.distance_m:.3f} m from Home"
+                            f"{home_distance:.3f} m from Home"
                         )
                     now = time.monotonic()
                     if step.distance_m <= best_distance - minimum_progress_m:
@@ -956,7 +991,8 @@ class HardwareManager:
                         progress_at = now
                     elif now - progress_at > stall_timeout_s:
                         raise HardwareUnavailable(
-                            f"return Home stalled at {step.distance_m:.3f} m"
+                            "return Home stalled "
+                            f"{step.distance_m:.3f} m from its active waypoint"
                         )
                     command = (
                         VelocityCommand(0.0, step.yaw_rps, "return_course_correction")
@@ -1152,6 +1188,10 @@ class HardwareManager:
         status = self._pose.status()
         if not status.healthy or status.pose is None or status.age_s is None:
             raise HardwareUnavailable(status.error or "fresh Go2 pose is unavailable")
+        home_pose = Pose2D(status.pose.x_m, status.pose.y_m, status.pose.yaw_rad)
+        self._captured_home_pose = home_pose
+        self._breadcrumbs = [home_pose]
+        visual_capture = self._home_localizer.capture_home()
         return {
             "x_m": status.pose.x_m,
             "y_m": status.pose.y_m,
@@ -1159,6 +1199,7 @@ class HardwareManager:
             "captured_monotonic_s": status.pose.captured_monotonic_s,
             "age_s": status.age_s,
             "source": "rt/sportmodestate",
+            "visual_odometry": visual_capture,
         }
 
     def estimate_home(self, home: dict[str, object]) -> dict[str, object]:
@@ -1308,6 +1349,8 @@ class HardwareManager:
             raise HardwareUnavailable(
                 "forward command blocked before approach or return motion"
             )
+        if command.forward_mps > 0.0 and self._active_operation != "return_home":
+            self._record_breadcrumb()
         sent = await self._motion.command(lease, command)
         self._motion_trace.append(
             {
@@ -1332,6 +1375,29 @@ class HardwareManager:
                 },
             )
         return sent
+
+    def _record_breadcrumb(self) -> None:
+        """Capture sparse outbound poses without making motion wait on vision."""
+        if self._captured_home_pose is None or self._pose is None:
+            return
+        sample = self._pose.status()
+        if not sample.healthy or sample.pose is None:
+            return
+        pose = Pose2D(sample.pose.x_m, sample.pose.y_m, sample.pose.yaw_rad)
+        if self._breadcrumbs:
+            previous = self._breadcrumbs[-1]
+            if math.hypot(pose.x_m - previous.x_m, pose.y_m - previous.y_m) < (
+                self.config.breadcrumb_spacing_m
+            ):
+                return
+        self._breadcrumbs.append(pose)
+        if len(self._breadcrumbs) > self.config.maximum_breadcrumbs:
+            # Preserve Home and the most recent path samples.
+            recent_count = self.config.maximum_breadcrumbs - 1
+            self._breadcrumbs = [
+                self._breadcrumbs[0],
+                *self._breadcrumbs[-recent_count:],
+            ]
 
     def _record_perception_sample(
         self,

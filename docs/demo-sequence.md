@@ -65,9 +65,9 @@ missing evidence commands zero motion.
 Arrival releases motion before `SIT_AND_BARK`; Woof barks while down and holds
 that posture for 5 seconds before `STAND` may begin. After the measured turn
 toward Home,
-`RETURN_HOME` replays the recorded number of forward heartbeats at the same
-1.0 m/s signal. Heading-only corrections do not consume a forward heartbeat;
-bounded course correction may accompany forward replay after approach.
+`RETURN_HOME` follows sparse outbound pose breadcrumbs in reverse. The recorded
+forward-heartbeat count remains a maximum translation budget rather than the
+route estimate. Heading-only corrections do not consume that budget.
 
 Return-to-Home must not use open-ended recovery. Loss of trustworthy pose or
 failure to make bounded progress must stop and disarm Woof, terminate the run

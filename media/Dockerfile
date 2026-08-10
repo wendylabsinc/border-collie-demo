@@ -20,7 +20,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 WORKDIR /app
 COPY model/model.engine /media/model.engine
 COPY model/banana-specialist.pt /media/banana-specialist.pt
-COPY __init__.py model_router.py perception_sidecar.py service_supervision.py ./media/
+COPY __init__.py model_router.py perception_sidecar.py service_supervision.py visual_odometry.py ./media/
 
 ENV UNITREE_ROBOT_IP=192.168.123.161 \
     PEAR_MODEL_PATH=/media/model.engine \

@@ -27,6 +27,9 @@ class HardwareConfig:
     client_timeout_s: float = 12.0
     remote_api_settle_s: float = 0.50
     pose_maximum_age_s: float = 0.50
+    breadcrumb_spacing_m: float = 0.20
+    breadcrumb_reach_m: float = 0.25
+    maximum_breadcrumbs: int = 128
     pear_tracking_minimum_confidence: float = 0.55
     pear_tracking_confirmations: int = 3
 
@@ -42,6 +45,8 @@ class HardwareConfig:
             "rpc_timeout_s",
             "client_timeout_s",
             "pose_maximum_age_s",
+            "breadcrumb_spacing_m",
+            "breadcrumb_reach_m",
         )
         for name in positive_values:
             value = float(getattr(self, name))
@@ -61,6 +66,8 @@ class HardwareConfig:
             )
         if self.pear_tracking_confirmations < 1:
             raise ValueError("pear_tracking_confirmations must be positive")
+        if self.maximum_breadcrumbs < 2:
+            raise ValueError("maximum_breadcrumbs must be at least two")
 
     @classmethod
     def from_env(cls) -> HardwareConfig:
@@ -98,6 +105,15 @@ class HardwareConfig:
             ),
             pose_maximum_age_s=float(
                 os.environ.get("BORDER_COLLIE_POSE_MAX_AGE_S", "0.50")
+            ),
+            breadcrumb_spacing_m=float(
+                os.environ.get("BORDER_COLLIE_BREADCRUMB_SPACING_M", "0.20")
+            ),
+            breadcrumb_reach_m=float(
+                os.environ.get("BORDER_COLLIE_BREADCRUMB_REACH_M", "0.25")
+            ),
+            maximum_breadcrumbs=int(
+                os.environ.get("BORDER_COLLIE_MAXIMUM_BREADCRUMBS", "128")
             ),
             pear_tracking_minimum_confidence=float(
                 os.environ.get(

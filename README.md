@@ -35,9 +35,10 @@ reference, but it is not a runtime dependency.
    16% of the camera, then hold zero yaw for three fresh centered samples. After
    qualified visible or sight-lost-close Arrival, stop without a blind final
    push, lie down, bark, and remain down for 5 seconds.
-9. Stand, turn toward Home, replay the recorded number of outbound forward
-   heartbeats at 1.0 m/s, and restore the original heading. Fresh pose remains
-   the authority for the 10 cm Home success gate and recorded Home Distance.
+9. Stand, turn toward Home, follow sparse outbound pose breadcrumbs in reverse,
+   and restore the original heading. The recorded heartbeat count remains a
+   translation budget. Fresh fused pose remains the authority for the 10 cm
+   Home success gate and recorded Home Distance.
 10. Stop all motion, record the result, and report completion.
 
 Arbitrary typed commands remain on the separate debug surface. The supervised
