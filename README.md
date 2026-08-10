@@ -192,20 +192,22 @@ runtime-neutral evidence contract rather than adding motion controls to the
 labeler.
 
 Pear acquisition remains fixed at 0.65 confidence for five consecutive fresh
-frames. Once that acquisition has succeeded, approach tracking may continue at
-0.55 confidence after three consecutive fresh pear detections. These values are
-separately configurable with
-`BORDER_COLLIE_PEAR_TRACKING_MIN_CONFIDENCE` and
-`BORDER_COLLIE_PEAR_TRACKING_CONFIRMATIONS`; changing them does not alter the
-acquisition rule.
+sidecar detections and three fresh application observations. Once that
+acquisition has succeeded, approach tracking may continue at the fruit-policy
+floor of 0.55 confidence. `BORDER_COLLIE_PEAR_TRACKING_MIN_CONFIDENCE` may make
+that tracking floor stricter but cannot lower it, while
+`BORDER_COLLIE_PEAR_TRACKING_CONFIRMATIONS` controls application-side temporal
+acquisition. Neither setting alters the sidecar acquisition rule.
 
 Red apple acquisition remains fixed at 0.70 confidence for five fresh frames.
 After acquisition, a close red-apple track may continue down to 0.10 confidence
-only when the box is already low in the image and remains spatially continuous:
-its horizontal center cannot jump by more than 0.20 of the frame and its lower
-edge or vertical center cannot retreat by more than 0.08. This close-range rule
-cannot acquire an apple and must be requalified if the fruit, model, camera, or
-stage setup changes.
+only while fresh observations remain spatially continuous: its horizontal
+center cannot jump by more than 0.20 of the frame, its lower edge or vertical
+center cannot retreat by more than 0.08, and its box area cannot collapse by
+more than 35 percent between samples. This rule cannot acquire an apple. The
+approach slows near the fruit and confirms Arrival without a blind final push;
+stale frames, duplicate frames, identity changes, or discontinuous geometry
+produce zero-motion recommendations.
 
 For a complete zero-motion base Demo Run, explicitly start with
 `BORDER_COLLIE_RUNTIME_MODE=simulation`. The audience UI shows a persistent

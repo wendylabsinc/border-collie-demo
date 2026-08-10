@@ -8,7 +8,6 @@ from typing import Protocol
 from uuid import uuid4
 
 from .config import HardwareConfig
-from .fruits import fruit_policy
 from .flight_recorder import FlightRecorder
 from .go2_motion import (
     MotionConfig,
@@ -21,7 +20,11 @@ from .go2_pose import Go2PoseProvider, PoseStatus
 from .home_localization import HomeEstimate, HomeLocalizationConfig, HomeLocalizer
 from .models import VelocityCommand
 from .motion_guardian import MotionAuthority
-from .qualified_track import QualifiedTrackGate, TrackIdentityChanged
+from .qualified_tracking import (
+    MotionRecommendation,
+    QualifiedFruitTracker,
+    QualifiedTrackingConfig,
+)
 from .return_home import (
     Pose2D,
     ReturnMode,
@@ -36,9 +39,6 @@ INITIAL_CENTER_CONFIRMATIONS = 3
 INITIAL_CENTER_YAW_RPS = 0.50
 SEARCH_CROP_CANDIDATE_CONFIDENCE = 0.50
 APPROACH_CENTER_TOLERANCE_RATIO = 0.08
-CLOSE_RANGE_MINIMUM_BOTTOM_RATIO = 0.70
-CLOSE_RANGE_MAXIMUM_CENTER_DELTA_RATIO = 0.20
-CLOSE_RANGE_MAXIMUM_VERTICAL_RETREAT_RATIO = 0.08
 FORWARD_CAPABLE_OPERATIONS = frozenset(
     {"forward_pulse", "approach_target", "return_home"}
 )
@@ -375,7 +375,11 @@ class HardwareManager:
             except Exception as exc:  # noqa: BLE001 - always disarm below
                 operation_error = exc
             finally:
-                if lease is not None and self._motion is not None and self._motion.armed:
+                if (
+                    lease is not None
+                    and self._motion is not None
+                    and self._motion.armed
+                ):
                     try:
                         await self._motion.release(lease)
                     except MotionError as exc:
@@ -467,7 +471,10 @@ class HardwareManager:
                     recognition["samples"] = int(recognition["samples"]) + 1
                     if not status.get("camera_healthy"):
                         raise CameraFailure(
-                            str(status.get("detail") or "camera evidence became unhealthy")
+                            str(
+                                status.get("detail")
+                                or "camera evidence became unhealthy"
+                            )
                         )
                     detection = status.get("detection")
                     if isinstance(detection, dict):
@@ -494,9 +501,7 @@ class HardwareManager:
                                 int(recognition["maximum_consecutive_detections"]),
                                 consecutive,
                             )
-                        area_ratio = _finite_float(
-                            detection.get("bbox_area_ratio")
-                        )
+                        area_ratio = _finite_float(detection.get("bbox_area_ratio"))
                         maximum_area = _finite_float(
                             recognition["maximum_bbox_area_ratio"]
                         )
@@ -537,9 +542,9 @@ class HardwareManager:
                                     )
                                     + 1
                                 )
-                                recognition[
-                                    "crop_candidate_confidence_threshold"
-                                ] = SEARCH_CROP_CANDIDATE_CONFIDENCE
+                                recognition["crop_candidate_confidence_threshold"] = (
+                                    SEARCH_CROP_CANDIDATE_CONFIDENCE
+                                )
                     if status.get("target_ready") and isinstance(detection, dict):
                         label = str(detection.get("label") or "").casefold()
                         if label == target_fruit.casefold():
@@ -624,7 +629,11 @@ class HardwareManager:
             except Exception as exc:  # noqa: BLE001 - always disarm below
                 operation_error = exc
             finally:
-                if lease is not None and self._motion is not None and self._motion.armed:
+                if (
+                    lease is not None
+                    and self._motion is not None
+                    and self._motion.armed
+                ):
                     try:
                         await self._motion.release(lease)
                     except MotionError as exc:
@@ -654,7 +663,7 @@ class HardwareManager:
         final_push_duration_s: float,
         timeout_s: float,
     ) -> dict[str, object]:
-        """Approach a fresh Target Fruit track and confirm lower-edge Arrival."""
+        """Follow temporal fruit recommendations and stop on qualified Arrival."""
         numeric = (
             forward_mps,
             maximum_yaw_rps,
@@ -675,7 +684,10 @@ class HardwareManager:
             raise ValueError("approach yaw is outside the configured limit")
         if not 0.0 < near_bottom_ratio <= 1.0 or not 0.0 < near_center_ratio <= 1.0:
             raise ValueError("near-fruit geometry thresholds are invalid")
-        if near_confirmations < 1 or min(near_loss_grace_s, final_push_duration_s, timeout_s) <= 0.0:
+        if (
+            near_confirmations < 1
+            or min(near_loss_grace_s, final_push_duration_s, timeout_s) <= 0.0
+        ):
             raise ValueError("approach timing or confirmation count is invalid")
         self._require_autonomy_ready()
 
@@ -689,22 +701,28 @@ class HardwareManager:
             release_error: str | None = None
             operation_error: Exception | None = None
             evidence: dict[str, object] | None = None
-            confirmations = 0
-            near_at: float | None = None
             commands_sent = False
             forward_pulse_count = 0
-            initial_centered = False
-            initial_center_confirmations = 0
-            policy = fruit_policy(target_fruit)
-            track = QualifiedTrackGate(
-                target_fruit=target_fruit,
-                acquisition_confidence=self.config.pear_tracking_minimum_confidence,
-                acquisition_confirmations=self.config.pear_tracking_confirmations,
-                close_range_confidence=policy.close_range_tracking_confidence,
-                close_range_minimum_bottom_ratio=CLOSE_RANGE_MINIMUM_BOTTOM_RATIO,
-                maximum_center_delta_ratio=CLOSE_RANGE_MAXIMUM_CENTER_DELTA_RATIO,
-                maximum_vertical_retreat_ratio=CLOSE_RANGE_MAXIMUM_VERTICAL_RETREAT_RATIO,
+            slow_speed_scale = min(1.0, final_push_mps / forward_mps)
+            tracker = QualifiedFruitTracker(
+                QualifiedTrackingConfig.for_fruit(
+                    target_fruit,
+                    acquisition_confirmations=(self.config.pear_tracking_confirmations),
+                    center_tolerance_ratio=INITIAL_CENTER_TOLERANCE_RATIO,
+                    center_confirmations=INITIAL_CENTER_CONFIRMATIONS,
+                    near_bottom_ratio=near_bottom_ratio,
+                    near_center_ratio=near_center_ratio,
+                    near_confirmations=near_confirmations,
+                    sight_loss_grace_s=near_loss_grace_s,
+                    slow_speed_scale=slow_speed_scale,
+                    minimum_tracking_confidence=(
+                        self.config.pear_tracking_minimum_confidence
+                        if target_fruit.casefold().strip() == "pear"
+                        else None
+                    ),
+                )
             )
+            last_decision_evidence: dict[str, object] = {}
             started = time.monotonic()
             try:
                 assert self._motion is not None
@@ -716,62 +734,31 @@ class HardwareManager:
                     self._record_perception_sample(status, target_fruit)
                     if not status.get("camera_healthy"):
                         raise CameraFailure(
-                            str(status.get("detail") or "camera evidence became unhealthy")
+                            str(
+                                status.get("detail")
+                                or "camera evidence became unhealthy"
+                            )
                         )
-                    detection = status.get("detection")
-                    try:
-                        track_decision = track.observe(status)
-                    except TrackIdentityChanged as exc:
-                        raise TargetLost(str(exc)) from exc
-                    if not track_decision.ready:
-                        if not initial_centered:
-                            initial_center_confirmations = 0
-                        if (
-                            track_decision.target_visible
-                            or near_at is None
-                            or now - near_at > near_loss_grace_s
-                        ):
-                            await self._send_motion_command(
-                                lease,
-                                VelocityCommand(reason="target_not_visible"),
-                            )
-                            await asyncio.sleep(self.config.command_heartbeat_s)
-                            continue
-                        push_deadline = now + final_push_duration_s
-                        while time.monotonic() < push_deadline:
-                            push_status = status_reader()
-                            self._record_perception_sample(push_status, target_fruit)
-                            if not push_status.get("camera_healthy"):
-                                raise CameraFailure(
-                                    str(
-                                        push_status.get("detail")
-                                        or "camera evidence failed during final push"
-                                    )
-                                )
-                            await self._send_motion_command(
-                                lease,
-                                VelocityCommand(
-                                    final_push_mps,
-                                    0.0,
-                                    "fruit_offscreen_final_push",
-                                ),
-                            )
-                            commands_sent = True
-                            forward_pulse_count += 1
-                            await asyncio.sleep(
-                                min(
-                                    self.config.command_heartbeat_s,
-                                    max(0.0, push_deadline - time.monotonic()),
-                                )
-                            )
+                    decision = tracker.observe(status, now_s=now)
+                    last_decision_evidence = dict(decision.evidence)
+                    if decision.recommendation is MotionRecommendation.ARRIVAL:
+                        await self._send_motion_command(
+                            lease,
+                            VelocityCommand(reason="qualified_arrival_stop"),
+                        )
                         evidence = {
+                            **last_decision_evidence,
                             "arrival_confirmed": True,
-                            "near_confirmations": confirmations,
+                            "near_confirmations": last_decision_evidence.get(
+                                "near_samples", 0
+                            ),
+                            # Kept for result-schema compatibility. Mature
+                            # tracking deliberately never moves after sight loss.
                             "final_push_mps": final_push_mps,
                             "final_push_duration_s": final_push_duration_s,
-                            "final_push_count": 1,
+                            "final_push_count": 0,
                             "initial_center_confirmations": (
-                                initial_center_confirmations
+                                INITIAL_CENTER_CONFIRMATIONS
                             ),
                             "initial_center_tolerance_ratio": (
                                 INITIAL_CENTER_TOLERANCE_RATIO
@@ -781,67 +768,51 @@ class HardwareManager:
                             "forward_pulse_period_s": self.config.command_heartbeat_s,
                             "motion_commands_sent": commands_sent,
                             "tracking_minimum_confidence": (
-                                self.config.pear_tracking_minimum_confidence
-                            ),
-                            "minimum_observed_tracking_confidence": (
-                                track.minimum_observed_confidence
-                            ),
-                            "close_range_tracking_confidence": (
-                                policy.close_range_tracking_confidence
+                                tracker.config.tracking_confidence
                             ),
                             "close_range_continuation_samples": (
-                                track.close_range_continuation_samples
+                                last_decision_evidence.get("close_range_samples", 0)
                             ),
                         }
                         break
+                    if decision.recommendation in {
+                        MotionRecommendation.SEARCH,
+                        MotionRecommendation.STOP,
+                    }:
+                        await self._send_motion_command(
+                            lease,
+                            VelocityCommand(
+                                reason=f"qualified_track_{decision.reason}"
+                            ),
+                        )
+                        await asyncio.sleep(self.config.command_heartbeat_s)
+                        continue
 
-                    assert isinstance(detection, dict)
-                    center_x = track_decision.center_x_ratio
-                    center_y = track_decision.center_y_ratio
-                    bottom = track_decision.bottom_ratio
-                    if center_x is None or center_y is None or bottom is None:
-                        raise CameraFailure(
-                            f"{target_fruit} geometry is missing from fresh evidence"
-                        )
-                    if not initial_centered:
-                        centered_sample = (
-                            abs(center_x - 0.5) <= INITIAL_CENTER_TOLERANCE_RATIO
-                        )
-                        if centered_sample:
-                            initial_center_confirmations += 1
-                        else:
-                            initial_center_confirmations = 0
-                        if initial_center_confirmations < INITIAL_CENTER_CONFIRMATIONS:
-                            yaw = (
-                                0.0
-                                if centered_sample
-                                else -math.copysign(
-                                    INITIAL_CENTER_YAW_RPS,
-                                    center_x - 0.5,
-                                )
+                    horizontal_error = decision.horizontal_error
+                    if decision.recommendation is MotionRecommendation.ALIGN:
+                        yaw = (
+                            0.0
+                            if abs(horizontal_error) <= INITIAL_CENTER_TOLERANCE_RATIO
+                            else -math.copysign(
+                                INITIAL_CENTER_YAW_RPS,
+                                horizontal_error,
                             )
-                            await self._send_motion_command(
-                                lease,
-                                VelocityCommand(
-                                    0.0,
-                                    yaw,
-                                    "center_target_before_approach",
-                                ),
-                            )
-                            commands_sent = commands_sent or yaw != 0.0
-                            await asyncio.sleep(self.config.command_heartbeat_s)
-                            continue
-                        initial_centered = True
-                    near = bottom >= near_bottom_ratio and center_y >= near_center_ratio
-                    confirmations = confirmations + 1 if near else 0
-                    near_confirmed = confirmations >= near_confirmations
-                    if near_confirmed:
-                        near_at = now
-                    horizontal_error = center_x - 0.5
+                        )
+                        await self._send_motion_command(
+                            lease,
+                            VelocityCommand(
+                                0.0,
+                                yaw,
+                                "center_target_before_approach",
+                            ),
+                        )
+                        commands_sent = commands_sent or yaw != 0.0
+                        await asyncio.sleep(self.config.command_heartbeat_s)
+                        continue
+
                     yaw = (
                         0.0
-                        if abs(horizontal_error)
-                        <= APPROACH_CENTER_TOLERANCE_RATIO
+                        if abs(horizontal_error) <= APPROACH_CENTER_TOLERANCE_RATIO
                         else -math.copysign(
                             maximum_yaw_rps,
                             horizontal_error,
@@ -850,11 +821,11 @@ class HardwareManager:
                     await self._send_motion_command(
                         lease,
                         VelocityCommand(
-                            forward_mps,
+                            forward_mps * decision.forward_scale,
                             yaw,
                             (
-                                "approach_target_near_visible"
-                                if near_confirmed
+                                "approach_target_slow"
+                                if decision.recommendation is MotionRecommendation.SLOW
                                 else "approach_target"
                             ),
                         ),
@@ -863,11 +834,18 @@ class HardwareManager:
                     commands_sent = True
                     await asyncio.sleep(self.config.command_heartbeat_s)
                 else:
-                    raise TargetLost(f"qualified {target_fruit} Arrival timed out")
+                    raise TargetLost(
+                        f"qualified {target_fruit} Arrival timed out",
+                        evidence=last_decision_evidence,
+                    )
             except Exception as exc:  # noqa: BLE001 - always disarm below
                 operation_error = exc
             finally:
-                if lease is not None and self._motion is not None and self._motion.armed:
+                if (
+                    lease is not None
+                    and self._motion is not None
+                    and self._motion.armed
+                ):
                     try:
                         await self._motion.release(lease)
                     except MotionError as exc:
@@ -999,7 +977,11 @@ class HardwareManager:
             except Exception as exc:  # noqa: BLE001 - always disarm below
                 operation_error = exc
             finally:
-                if lease is not None and self._motion is not None and self._motion.armed:
+                if (
+                    lease is not None
+                    and self._motion is not None
+                    and self._motion.armed
+                ):
                     try:
                         await self._motion.release(lease)
                     except MotionError as exc:
@@ -1415,7 +1397,9 @@ class HardwareManager:
                 )
             assert self._motion is not None
             if self._motion.armed:
-                raise HardwareUnavailable("motion must be disarmed before posture change")
+                raise HardwareUnavailable(
+                    "motion must be disarmed before posture change"
+                )
             self._active_operation = operation
             try:
                 if operation == "stand_down":
