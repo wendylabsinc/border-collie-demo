@@ -151,7 +151,10 @@ evidence before sealing success. Loss of pose freshness during capture also fail
 restart seals unfinished work as `PROCESS_INTERRUPTED`. The production executor
 uses measured pose turns, bounded camera-guided search, geometry-gated approach,
 zero-motion sight-lost-close Arrival, Unitree posture actions, bark, and
-closed-loop odometry return through factory obstacle avoidance.
+closed-loop fused-odometry return through factory obstacle avoidance. The
+planar estimator combines Go2 position/velocity, IMU yaw rate, loaded-foot
+zero-velocity updates, and bounded scale-free visual direction/yaw while the
+final 10 cm gate uses the farther of raw and filtered distance.
 The initial turn/search is explicitly **conditional**, not an unconditional
 part of every run. Target Fruit qualification may already be present when
 `TURN_TO_FRUIT` begins. Fresh qualified evidence for the selected Target Fruit

@@ -19,6 +19,10 @@ Initial durability scenarios:
 | Connection generation replacement | Old tracking evidence cannot continue motion |
 | Media restart-budget exhaustion | Supervisor becomes explicit `failed` |
 | Go2 pose loss or persistent visual disagreement | Home estimate becomes unavailable; no inferred arrival |
+| Go2 timestamp regression or changed duplicate | Sensor fusion fails closed before another motion command |
+| Repeated metric pose jump | Reject bounded outliers, then stop on persistent innovation |
+| Long fusion gap while moving | Fusion unavailable; only a qualified stationary stance may re-seed |
+| Visual direction opposite Go2 travel | Reject visual direction without replacing metric scale |
 | Partial flight-recorder write | Restart truncates the torn tail and continues the hash chain |
 | Process restart with an active run | Attempt stop, seal interrupted run, never resume motion |
 

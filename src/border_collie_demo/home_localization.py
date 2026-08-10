@@ -15,6 +15,13 @@ from enum import Enum
 from threading import Lock
 from typing import Protocol
 
+from .go2_pose import Go2MotionEvidence
+from .pose_fusion import (
+    PlanarFusionConfig,
+    PlanarFusionObservation,
+    PlanarSensorFusion,
+    VisualMotionCue,
+)
 from .return_home import Pose2D, normalize_angle
 
 
@@ -36,6 +43,10 @@ class VisualOdometryObservation:
     tracked_features: int
     inliers: int
     loop_closure: dict[str, object] | None = None
+    body_forward_direction: float | None = None
+    body_left_direction: float | None = None
+    body_yaw_delta_rad: float | None = None
+    motion_geometry: str | None = None
 
     def __post_init__(self) -> None:
         if not self.generation.strip():
@@ -55,6 +66,15 @@ class VisualOdometryObservation:
             raise ValueError("visual odometry quality must be in [0, 1]")
         if self.tracked_features < 0 or self.inliers < 0:
             raise ValueError("visual odometry feature counts must be non-negative")
+        direction = (self.body_forward_direction, self.body_left_direction)
+        if (direction[0] is None) != (direction[1] is None):
+            raise ValueError("visual body direction requires both axes")
+        if any(value is not None and not math.isfinite(value) for value in direction):
+            raise ValueError("visual body direction must be finite")
+        if self.body_yaw_delta_rad is not None and not math.isfinite(
+            self.body_yaw_delta_rad
+        ):
+            raise ValueError("visual body yaw must be finite")
 
 
 class VisualOdometryAdapter(Protocol):
@@ -104,6 +124,7 @@ class HomeEstimate:
     source: str | None
     unavailable_reason: str | None
     evidence: dict[str, object]
+    metric_gate_distance_m: float | None = None
 
     @property
     def trusted(self) -> bool:
@@ -111,6 +132,8 @@ class HomeEstimate:
 
     @property
     def home_distance_m(self) -> float | None:
+        if self.metric_gate_distance_m is not None:
+            return self.metric_gate_distance_m
         if self.pose_from_home is None:
             return None
         return math.hypot(self.pose_from_home.x_m, self.pose_from_home.y_m)
@@ -123,12 +146,16 @@ class HomeEstimate:
 
     def to_dict(self) -> dict[str, object]:
         pose = self.pose_from_home
+        filtered_distance = (
+            None if pose is None else math.hypot(pose.x_m, pose.y_m)
+        )
         return {
             "state": self.state.value,
             "trusted": self.trusted,
             "source": self.source,
             "unavailable_reason": self.unavailable_reason,
             "home_distance_m": self.home_distance_m,
+            "filtered_home_distance_m": filtered_distance,
             "heading_error_rad": self.heading_error_rad,
             "pose_from_home": (
                 None
@@ -160,6 +187,7 @@ class HomeLocalizer:
         visual_adapter: VisualOdometryAdapter | None = None,
         *,
         config: HomeLocalizationConfig | None = None,
+        fusion_config: PlanarFusionConfig | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._visual_adapter = visual_adapter
@@ -168,8 +196,21 @@ class HomeLocalizer:
         self._lock = Lock()
         self._visual_baseline: _VisualBaseline | None = None
         self._visual_conflict_count = 0
+        self._fusion = PlanarSensorFusion(fusion_config)
+        self._fusion_initialized = False
 
-    def capture_home(self) -> dict[str, object]:
+    @property
+    def fusion_initialized(self) -> bool:
+        with self._lock:
+            return self._fusion_initialized
+
+    def capture_home(
+        self,
+        current_odometry: Pose2D | None = None,
+        *,
+        captured_monotonic_s: float | None = None,
+        motion: Go2MotionEvidence | None = None,
+    ) -> dict[str, object]:
         """Capture a visual origin without making Home depend on vision."""
         observation, error = self._observe_visual()
         with self._lock:
@@ -185,6 +226,22 @@ class HomeLocalizer:
                     trajectory_yaw_rad=observation.trajectory_yaw_rad,
                 )
             )
+            self._fusion_initialized = False
+            if (
+                current_odometry is not None
+                and captured_monotonic_s is not None
+                and motion is not None
+            ):
+                self._fusion.reset(
+                    self._fusion_observation(
+                        Pose2D(0.0, 0.0, 0.0),
+                        captured_monotonic_s=captured_monotonic_s,
+                        motion=motion,
+                        visual=observation,
+                        baseline=self._visual_baseline,
+                    )
+                )
+                self._fusion_initialized = True
         return {
             "state": "captured" if observation is not None else "unavailable",
             "generation": None if observation is None else observation.generation,
@@ -192,6 +249,7 @@ class HomeLocalizer:
                 None if observation is None else observation.frame_sequence
             ),
             "error": error,
+            "sensor_fusion": "initialized" if self._fusion_initialized else "legacy",
         }
 
     def describe(self) -> dict[str, object]:
@@ -203,6 +261,9 @@ class HomeLocalizer:
             "visual_backend": "cpu_sparse_image_motion",
             "visual_metric_scale": False,
             "visual_home_baseline_captured": baseline is not None,
+            "stateful_planar_fusion_initialized": self._fusion_initialized,
+            "fusion_model": "diagonal_covariance_kalman",
+            "fusion_state": ["x", "y", "yaw", "vx", "vy", "yaw_bias"],
             "maximum_odometry_age_s": self.config.maximum_odometry_age_s,
             "maximum_visual_age_s": self.config.maximum_visual_age_s,
             "minimum_visual_quality": self.config.minimum_visual_quality,
@@ -211,12 +272,53 @@ class HomeLocalizer:
             ),
         }
 
+    def track_kinematics(
+        self,
+        home: Pose2D,
+        current_odometry: Pose2D,
+        *,
+        odometry_age_s: float,
+        captured_monotonic_s: float,
+        motion: Go2MotionEvidence,
+    ) -> dict[str, object]:
+        """Advance fusion between decisions without performing remote visual I/O."""
+        if (
+            not math.isfinite(odometry_age_s)
+            or odometry_age_s < 0.0
+            or odometry_age_s > self.config.maximum_odometry_age_s
+        ):
+            return {
+                "trusted": False,
+                "unavailable_reason": "odometry sample is stale or invalid",
+            }
+        with self._lock:
+            initialized = self._fusion_initialized
+        if not initialized:
+            return {"trusted": True, "state": "legacy"}
+        fused = self._fusion.update(
+            self._fusion_observation(
+                pose_from_home(home, current_odometry),
+                captured_monotonic_s=captured_monotonic_s,
+                motion=motion,
+                visual=None,
+                baseline=None,
+            )
+        )
+        return {
+            "trusted": fused.trusted,
+            "unavailable_reason": fused.unavailable_reason,
+            "covariance": fused.covariance,
+            "evidence": fused.evidence,
+        }
+
     def estimate(
         self,
         home: Pose2D,
         current_odometry: Pose2D,
         *,
         odometry_age_s: float,
+        captured_monotonic_s: float | None = None,
+        motion: Go2MotionEvidence | None = None,
     ) -> HomeEstimate:
         odometry_pose = pose_from_home(home, current_odometry)
         distance_m = math.hypot(odometry_pose.x_m, odometry_pose.y_m)
@@ -248,6 +350,67 @@ class HomeLocalizer:
         observation, adapter_error = self._observe_visual()
         with self._lock:
             baseline = self._visual_baseline
+            fusion_initialized = self._fusion_initialized
+        if (
+            fusion_initialized
+            and motion is not None
+            and captured_monotonic_s is not None
+        ):
+            fused = self._fusion.update(
+                self._fusion_observation(
+                    odometry_pose,
+                    captured_monotonic_s=captured_monotonic_s,
+                    motion=motion,
+                    visual=observation,
+                    baseline=baseline,
+                )
+            )
+            raw_distance_m = math.hypot(odometry_pose.x_m, odometry_pose.y_m)
+            filtered_distance_m = (
+                None
+                if fused.pose_from_home is None
+                else math.hypot(
+                    fused.pose_from_home.x_m,
+                    fused.pose_from_home.y_m,
+                )
+            )
+            metric_gate_distance_m = (
+                raw_distance_m
+                if filtered_distance_m is None
+                else max(raw_distance_m, filtered_distance_m)
+            )
+            fusion_evidence = {
+                **fused.evidence,
+                "covariance": fused.covariance,
+                "velocity_x_mps": fused.velocity_x_mps,
+                "velocity_y_mps": fused.velocity_y_mps,
+                "yaw_bias_rps": fused.yaw_bias_rps,
+                "raw_home_distance_m": raw_distance_m,
+                "filtered_home_distance_m": filtered_distance_m,
+                "metric_gate_policy": "max(raw_go2, filtered)",
+            }
+            if not fused.trusted:
+                return HomeEstimate(
+                    state=HomeEstimateState.UNAVAILABLE,
+                    pose_from_home=None,
+                    source=None,
+                    unavailable_reason=fused.unavailable_reason,
+                    evidence={
+                        "odometry": odometry_evidence,
+                        "fusion": fusion_evidence,
+                    },
+                )
+            return HomeEstimate(
+                state=HomeEstimateState.TRUSTED,
+                pose_from_home=fused.pose_from_home,
+                source="planar_sensor_fusion",
+                unavailable_reason=None,
+                evidence={
+                    "odometry": odometry_evidence,
+                    "fusion": fusion_evidence,
+                },
+                metric_gate_distance_m=metric_gate_distance_m,
+            )
         if self._visual_adapter is None:
             return self._trusted_odometry(
                 odometry_pose,
@@ -374,6 +537,48 @@ class HomeLocalizer:
             return self._visual_adapter.observe_motion(), None
         except Exception as exc:  # noqa: BLE001 - optional evidence must be contained
             return None, f"{type(exc).__name__}: {exc}"
+
+    def _fusion_observation(
+        self,
+        pose_from_home: Pose2D,
+        *,
+        captured_monotonic_s: float,
+        motion: Go2MotionEvidence,
+        visual: VisualOdometryObservation | None,
+        baseline: _VisualBaseline | None,
+    ) -> PlanarFusionObservation:
+        visual_cue = None
+        if visual is not None and baseline is not None:
+            age_s = self._clock() - visual.captured_monotonic_s
+            qualified = bool(
+                visual.generation == baseline.generation
+                and -self.config.maximum_future_skew_s
+                <= age_s
+                <= self.config.maximum_visual_age_s
+                and visual.motion_quality >= self.config.minimum_visual_quality
+                and visual.motion_geometry == "essential_matrix_scale_free"
+            )
+            if qualified:
+                visual_cue = VisualMotionCue(
+                    generation=visual.generation,
+                    sequence=visual.motion_sequence,
+                    forward_direction=visual.body_forward_direction,
+                    left_direction=visual.body_left_direction,
+                    yaw_delta_rad=visual.body_yaw_delta_rad,
+                    quality=visual.motion_quality,
+                )
+        return PlanarFusionObservation(
+            raw_pose_from_home=pose_from_home,
+            captured_monotonic_s=captured_monotonic_s,
+            source_timestamp_s=motion.source_timestamp_s,
+            velocity_forward_mps=motion.velocity_x_mps,
+            velocity_left_mps=motion.velocity_y_mps,
+            imu_yaw_rate_rps=motion.imu_yaw_rate_rps,
+            reported_yaw_rate_rps=motion.yaw_rate_rps,
+            contact_feet=motion.contact_feet,
+            stationary_stance=motion.stationary_stance,
+            visual=visual_cue,
+        )
 
     @staticmethod
     def _trusted_odometry(

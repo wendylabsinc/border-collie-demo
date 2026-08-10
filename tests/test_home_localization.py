@@ -3,6 +3,7 @@ import math
 
 import pytest
 
+from border_collie_demo.go2_pose import Go2MotionEvidence
 from border_collie_demo.home_localization import (
     HomeEstimateState,
     HomeLocalizationConfig,
@@ -32,6 +33,10 @@ def observation(
     y_px: float = 0.0,
     yaw_rad: float = 0.0,
     quality: float = 0.8,
+    body_forward: float | None = None,
+    body_left: float | None = None,
+    body_yaw: float | None = None,
+    motion_geometry: str | None = None,
 ) -> VisualOdometryObservation:
     return VisualOdometryObservation(
         generation=generation,
@@ -44,6 +49,32 @@ def observation(
         motion_quality=quality,
         tracked_features=100,
         inliers=80,
+        body_forward_direction=body_forward,
+        body_left_direction=body_left,
+        body_yaw_delta_rad=body_yaw,
+        motion_geometry=motion_geometry,
+    )
+
+
+def motion(
+    source_time_s: float,
+    *,
+    forward_mps: float = 0.0,
+    left_mps: float = 0.0,
+    yaw_rate_rps: float = 0.0,
+    stationary: bool = False,
+) -> Go2MotionEvidence:
+    return Go2MotionEvidence(
+        source_timestamp_s=source_time_s,
+        velocity_x_mps=forward_mps,
+        velocity_y_mps=left_mps,
+        yaw_rate_rps=yaw_rate_rps,
+        imu_yaw_rate_rps=yaw_rate_rps,
+        mode=1,
+        gait_type=0,
+        foot_force=(20.0, 20.0, 20.0, 20.0),
+        contact_feet=4,
+        stationary_stance=stationary,
     )
 
 
@@ -147,6 +178,72 @@ def test_persistent_qualified_visual_yaw_conflict_fails_closed() -> None:
     assert third.state is HomeEstimateState.UNAVAILABLE
     assert "persistently" in str(third.unavailable_reason)
     assert third.evidence["visual"]["consecutive_conflicts"] == 3
+
+
+def test_stateful_fusion_combines_go2_kinematics_imu_stance_and_visual_motion() -> None:
+    adapter = FixedVisualAdapter(
+        observation(
+            captured_monotonic_s=99.8,
+            body_forward=1.0,
+            body_left=0.0,
+            body_yaw=0.0,
+            motion_geometry="essential_matrix_scale_free",
+        )
+    )
+    localizer = HomeLocalizer(adapter, clock=lambda: 100.0)
+    captured = localizer.capture_home(
+        Pose2D(0.0, 0.0, 0.0),
+        captured_monotonic_s=10.0,
+        motion=motion(10.0, stationary=True),
+    )
+    adapter.observation = observation(
+        frame_sequence=20,
+        motion_sequence=9,
+        captured_monotonic_s=99.9,
+        body_forward=1.0,
+        body_left=0.0,
+        body_yaw=0.02,
+        motion_geometry="essential_matrix_scale_free",
+    )
+
+    estimate = localizer.estimate(
+        Pose2D(0.0, 0.0, 0.0),
+        Pose2D(0.10, 0.01, 0.02),
+        odometry_age_s=0.02,
+        captured_monotonic_s=10.1,
+        motion=motion(10.1, forward_mps=1.0, yaw_rate_rps=0.2),
+    )
+
+    assert captured["sensor_fusion"] == "initialized"
+    assert estimate.trusted is True
+    assert estimate.source == "planar_sensor_fusion"
+    assert estimate.evidence["fusion"]["visual"]["direction"] == "fused"
+    assert "go2_velocity" in estimate.evidence["fusion"]["sources"]
+    assert estimate.evidence["fusion"]["covariance"]["position_sigma_m"] < 0.1
+
+
+def test_metric_home_gate_uses_farther_raw_or_filtered_distance() -> None:
+    localizer = HomeLocalizer(clock=lambda: 100.0)
+    localizer.capture_home(
+        Pose2D(0.0, 0.0, 0.0),
+        captured_monotonic_s=10.0,
+        motion=motion(10.0, stationary=True),
+    )
+
+    estimate = localizer.estimate(
+        Pose2D(0.0, 0.0, 0.0),
+        Pose2D(0.12, 0.0, 0.0),
+        odometry_age_s=0.02,
+        captured_monotonic_s=10.1,
+        motion=motion(10.1),
+    )
+
+    assert estimate.trusted is True
+    assert estimate.home_distance_m == pytest.approx(0.12)
+    assert estimate.to_dict()["filtered_home_distance_m"] <= 0.12
+    assert estimate.evidence["fusion"]["metric_gate_policy"] == (
+        "max(raw_go2, filtered)"
+    )
 
 
 class CorrectedHomeRecoveryHardware:

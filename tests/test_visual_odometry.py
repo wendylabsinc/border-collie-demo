@@ -71,6 +71,17 @@ def test_sparse_visual_odometry_tracks_motion_without_gpu() -> None:
     assert motion["inliers"] >= 20
     assert abs(float(motion["image_dx_px"])) > 0.5
     assert abs(float(motion["image_yaw_rad"])) > 0.01
+    assert motion["metric_scale"] is False
+    assert motion["motion_geometry"] in {
+        "essential_matrix_scale_free",
+        "affine_image_only",
+    }
+    if motion["motion_geometry"] == "essential_matrix_scale_free":
+        direction_norm = (
+            float(motion["body_forward_direction"]) ** 2
+            + float(motion["body_left_direction"]) ** 2
+        ) ** 0.5
+        assert direction_norm == pytest.approx(1.0)
     assert status["resource"]["processing_width_px"] == 424
 
 

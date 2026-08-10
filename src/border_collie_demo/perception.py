@@ -124,6 +124,10 @@ class PerceptionStatusClient:
         motion_sequence = _whole_number(raw.get("motion_sequence"))
         tracked = _whole_number(motion.get("tracked_features"))
         inliers = _whole_number(motion.get("inliers"))
+        body_forward = _finite_number(motion.get("body_forward_direction"))
+        body_left = _finite_number(motion.get("body_left_direction"))
+        body_yaw = _finite_number(motion.get("body_yaw_rad"))
+        motion_geometry = motion.get("motion_geometry")
         if any(
             value is None
             for value in (
@@ -157,6 +161,12 @@ class PerceptionStatusClient:
             tracked_features=tracked,
             inliers=inliers,
             loop_closure=dict(loop) if isinstance(loop, dict) else None,
+            body_forward_direction=body_forward,
+            body_left_direction=body_left,
+            body_yaw_delta_rad=body_yaw,
+            motion_geometry=(
+                str(motion_geometry) if isinstance(motion_geometry, str) else None
+            ),
         )
 
 

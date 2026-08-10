@@ -141,7 +141,18 @@ class HardwareManager:
         self._dds_initializer = dds_initializer
         self._motion_factory = motion_factory or create_go2_motion
         self._pose_factory = pose_factory or (
-            lambda maximum_age_s: Go2PoseProvider(maximum_age_s=maximum_age_s)
+            lambda maximum_age_s: Go2PoseProvider(
+                maximum_age_s=maximum_age_s,
+                foot_contact_minimum_force=(
+                    self.config.foot_contact_minimum_force
+                ),
+                stationary_maximum_speed_mps=(
+                    self.config.stationary_maximum_speed_mps
+                ),
+                stationary_maximum_yaw_rate_rps=(
+                    self.config.stationary_maximum_yaw_rate_rps
+                ),
+            )
         )
         self._home_localizer = home_localizer or HomeLocalizer(
             visual_odometry,
@@ -1191,7 +1202,11 @@ class HardwareManager:
         home_pose = Pose2D(status.pose.x_m, status.pose.y_m, status.pose.yaw_rad)
         self._captured_home_pose = home_pose
         self._breadcrumbs = [home_pose]
-        visual_capture = self._home_localizer.capture_home()
+        visual_capture = self._home_localizer.capture_home(
+            home_pose,
+            captured_monotonic_s=status.pose.captured_monotonic_s,
+            motion=status.motion,
+        )
         return {
             "x_m": status.pose.x_m,
             "y_m": status.pose.y_m,
@@ -1219,6 +1234,8 @@ class HardwareManager:
             home_pose,
             Pose2D(sample.pose.x_m, sample.pose.y_m, sample.pose.yaw_rad),
             odometry_age_s=sample.age_s,
+            captured_monotonic_s=sample.pose.captured_monotonic_s,
+            motion=sample.motion,
         ).to_dict()
 
     async def close(self) -> list[str]:
@@ -1284,6 +1301,8 @@ class HardwareManager:
             home,
             Pose2D(sample.pose.x_m, sample.pose.y_m, sample.pose.yaw_rad),
             odometry_age_s=sample.age_s,
+            captured_monotonic_s=sample.pose.captured_monotonic_s,
+            motion=sample.motion,
         )
         if not estimate.trusted:
             raise HardwareUnavailable(
@@ -1349,6 +1368,33 @@ class HardwareManager:
             raise HardwareUnavailable(
                 "forward command blocked before approach or return motion"
             )
+        if (
+            self._home_localizer.fusion_initialized
+            and self._captured_home_pose is not None
+            and self._pose is not None
+        ):
+            sample = self._pose.status()
+            if (
+                not sample.healthy
+                or sample.pose is None
+                or sample.age_s is None
+                or sample.motion is None
+            ):
+                raise HardwareUnavailable(
+                    sample.error or "fresh fused pose evidence is required before motion"
+                )
+            tracked = self._home_localizer.track_kinematics(
+                self._captured_home_pose,
+                Pose2D(sample.pose.x_m, sample.pose.y_m, sample.pose.yaw_rad),
+                odometry_age_s=sample.age_s,
+                captured_monotonic_s=sample.pose.captured_monotonic_s,
+                motion=sample.motion,
+            )
+            if tracked.get("trusted") is not True:
+                raise HardwareUnavailable(
+                    "pose fusion unavailable before motion: "
+                    + str(tracked.get("unavailable_reason") or "unknown")
+                )
         if command.forward_mps > 0.0 and self._active_operation != "return_home":
             self._record_breadcrumb()
         sent = await self._motion.command(lease, command)

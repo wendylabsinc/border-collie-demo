@@ -66,14 +66,17 @@ Integration gate:
 
 ### 4. Redundant relative-motion localization
 
-Fuse fresh Go2 metric pose with bounded CPU-only sparse visual motion. Visual
-translation remains image-space and cannot invent metres; qualified visual yaw
-and natural-scene loop closures independently check the Go2 trajectory.
+Fuse Go2 metric pose, body velocity, IMU yaw rate, loaded-foot stationary
+updates, and bounded CPU-only sparse visual motion. Essential-matrix visual
+translation is direction-only and cannot invent metres; Go2 displacement
+supplies scale.
 
 Integration gate:
 
 - Go2-only behavior remains regression compatible;
-- fresh agreeing visual yaw reduces heading uncertainty;
+- fresh agreeing visual direction/yaw reduces pose uncertainty;
+- stationary foot contact drives velocity to zero and learns gyro bias;
+- timestamp regressions, sample gaps, and persistent innovations fail closed;
 - stale visual evidence falls back explicitly and persistent disagreement fails closed;
 - visual processing stays within its CPU, latency, memory, and thermal budgets;
 - the final measured Home Distance remains at most `0.10 m`.

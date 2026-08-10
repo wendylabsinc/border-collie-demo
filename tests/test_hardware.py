@@ -1381,9 +1381,10 @@ def test_home_capture_returns_one_fresh_disarmed_pose() -> None:
             "visual_odometry": {
                 "state": "unavailable",
                 "generation": None,
-                "frame_sequence": None,
-                "error": None,
-            },
+                    "frame_sequence": None,
+                    "error": None,
+                    "sensor_fusion": "legacy",
+                },
         }
         assert motion.armed is False
         assert motion.commands == []

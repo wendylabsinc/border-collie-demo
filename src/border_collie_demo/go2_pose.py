@@ -17,8 +17,12 @@ class Go2MotionEvidence:
     velocity_x_mps: float | None
     velocity_y_mps: float | None
     yaw_rate_rps: float | None
+    imu_yaw_rate_rps: float | None
     mode: int | None
     gait_type: int | None
+    foot_force: tuple[float, ...] | None
+    contact_feet: int | None
+    stationary_stance: bool
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -26,8 +30,15 @@ class Go2MotionEvidence:
             "velocity_x_mps": self.velocity_x_mps,
             "velocity_y_mps": self.velocity_y_mps,
             "yaw_rate_rps": self.yaw_rate_rps,
+            "imu_yaw_rate_rps": self.imu_yaw_rate_rps,
             "mode": self.mode,
             "gait_type": self.gait_type,
+            "foot_force": (
+                None if self.foot_force is None else list(self.foot_force)
+            ),
+            "contact_feet": self.contact_feet,
+            "stationary_stance": self.stationary_stance,
+            "velocity_frame": "body_forward_left",
         }
 
 
@@ -59,10 +70,28 @@ class PoseStatus:
 
 
 class Go2PoseProvider:
-    def __init__(self, *, maximum_age_s: float = 0.50) -> None:
-        if not math.isfinite(maximum_age_s) or maximum_age_s <= 0.0:
-            raise ValueError("maximum_age_s must be finite and positive")
+    def __init__(
+        self,
+        *,
+        maximum_age_s: float = 0.50,
+        foot_contact_minimum_force: float = 5.0,
+        stationary_maximum_speed_mps: float = 0.05,
+        stationary_maximum_yaw_rate_rps: float = 0.08,
+    ) -> None:
+        limits = (
+            maximum_age_s,
+            foot_contact_minimum_force,
+            stationary_maximum_speed_mps,
+            stationary_maximum_yaw_rate_rps,
+        )
+        if not all(math.isfinite(value) and value > 0.0 for value in limits):
+            raise ValueError("Go2 pose and stance limits must be finite and positive")
         self.maximum_age_s = float(maximum_age_s)
+        self.foot_contact_minimum_force = float(foot_contact_minimum_force)
+        self.stationary_maximum_speed_mps = float(stationary_maximum_speed_mps)
+        self.stationary_maximum_yaw_rate_rps = float(
+            stationary_maximum_yaw_rate_rps
+        )
         self._lock = Lock()
         self._pose: Pose | None = None
         self._motion: Go2MotionEvidence | None = None
@@ -128,8 +157,42 @@ class Go2PoseProvider:
             velocity_x_mps = _optional_sequence_float(velocity, 0)
             velocity_y_mps = _optional_sequence_float(velocity, 1)
             yaw_rate_rps = _optional_float(getattr(message, "yaw_speed", None))
+            gyroscope = getattr(
+                message.imu_state,
+                "gyroscope",
+                getattr(message.imu_state, "gyro", None),
+            )
+            imu_yaw_rate_rps = _optional_sequence_float(gyroscope, 2)
             mode = _optional_int(getattr(message, "mode", None))
             gait_type = _optional_int(getattr(message, "gait_type", None))
+            foot_force = _optional_float_tuple(getattr(message, "foot_force", None))
+            contact_feet = (
+                None
+                if foot_force is None
+                else sum(
+                    force >= self.foot_contact_minimum_force
+                    for force in foot_force[:4]
+                )
+            )
+            velocity_magnitude = (
+                None
+                if velocity_x_mps is None or velocity_y_mps is None
+                else math.hypot(velocity_x_mps, velocity_y_mps)
+            )
+            effective_yaw_rate = (
+                imu_yaw_rate_rps
+                if imu_yaw_rate_rps is not None
+                else yaw_rate_rps
+            )
+            stationary_stance = bool(
+                contact_feet is not None
+                and contact_feet >= 3
+                and velocity_magnitude is not None
+                and velocity_magnitude <= self.stationary_maximum_speed_mps
+                and effective_yaw_rate is not None
+                and abs(effective_yaw_rate)
+                <= self.stationary_maximum_yaw_rate_rps
+            )
             if not all(math.isfinite(value) for value in (x_m, y_m, yaw_rad)):
                 raise ValueError("non-finite local pose")
         except Exception as exc:  # noqa: BLE001 - DDS message types are dynamic
@@ -150,8 +213,12 @@ class Go2PoseProvider:
                 velocity_x_mps=velocity_x_mps,
                 velocity_y_mps=velocity_y_mps,
                 yaw_rate_rps=yaw_rate_rps,
+                imu_yaw_rate_rps=imu_yaw_rate_rps,
                 mode=mode,
                 gait_type=gait_type,
+                foot_force=foot_force,
+                contact_feet=contact_feet,
+                stationary_stance=stationary_stance,
             )
             if source_timestamp_s is not None:
                 self._source_timestamp_s = source_timestamp_s
@@ -197,3 +264,16 @@ def _optional_int(value: object) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int):
         return None
     return int(value)
+
+
+def _optional_float_tuple(value: object) -> tuple[float, ...] | None:
+    if value is None:
+        return None
+    try:
+        items = tuple(value)  # type: ignore[arg-type]
+    except TypeError:
+        return None
+    parsed = tuple(_optional_float(item) for item in items)
+    if not parsed or any(item is None for item in parsed):
+        return None
+    return tuple(float(item) for item in parsed if item is not None)

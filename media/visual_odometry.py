@@ -29,17 +29,24 @@ class VisualOdometryConfig:
     keyframe_interval: int = 10
     loop_exclusion_frames: int = 30
     minimum_loop_matches: int = 35
+    horizontal_fov_deg: float = 90.0
+    camera_to_body_yaw_rad: float = 0.0
 
     def __post_init__(self) -> None:
         positive_floats = (
             self.minimum_interval_s,
             self.maximum_interval_s,
             self.processing_budget_s,
+            self.horizontal_fov_deg,
         )
         if not all(math.isfinite(value) and value > 0.0 for value in positive_floats):
             raise ValueError("visual odometry timing values must be finite and positive")
         if self.minimum_interval_s > self.maximum_interval_s:
             raise ValueError("minimum visual interval exceeds maximum interval")
+        if not 20.0 <= self.horizontal_fov_deg <= 160.0:
+            raise ValueError("visual odometry horizontal FOV must be in [20, 160]")
+        if not math.isfinite(self.camera_to_body_yaw_rad):
+            raise ValueError("camera-to-body yaw must be finite")
         positive_ints = (
             self.processing_width_px,
             self.maximum_features,
@@ -87,6 +94,12 @@ class VisualOdometryConfig:
             ),
             minimum_loop_matches=int(
                 env.get("VISUAL_ODOMETRY_MIN_LOOP_MATCHES", "35")
+            ),
+            horizontal_fov_deg=float(
+                env.get("VISUAL_ODOMETRY_HORIZONTAL_FOV_DEG", "90.0")
+            ),
+            camera_to_body_yaw_rad=float(
+                env.get("VISUAL_ODOMETRY_CAMERA_TO_BODY_YAW_RAD", "0.0")
             ),
         )
 
@@ -342,6 +355,7 @@ class SparseVisualOdometry:
         # The image transform is the inverse sign of camera motion. Keep the
         # raw convention explicit; the mission estimator owns body-frame use.
         yaw_rad = math.atan2(float(affine[1, 0]), float(affine[0, 0]))
+        camera_motion = self._recover_scale_free_camera_motion(before, after, gray)
         return {
             "state": "tracked",
             "tracked": len(before),
@@ -349,6 +363,7 @@ class SparseVisualOdometry:
             "dx_px": float(affine[0, 2]),
             "dy_px": float(affine[1, 2]),
             "yaw_rad": yaw_rad,
+            **camera_motion,
             "quality": min(1.0, inliers / max(len(before), self.config.minimum_tracks)),
             "points": after.reshape(-1, 1, 2).astype("float32"),
         }
@@ -382,12 +397,16 @@ class SparseVisualOdometry:
         dx_px = float(result["dx_px"])
         dy_px = float(result["dy_px"])
         yaw_rad = float(result["yaw_rad"])
+        body_yaw_rad = result.get("body_yaw_rad")
         cosine = math.cos(self._trajectory_yaw_rad)
         sine = math.sin(self._trajectory_yaw_rad)
         self._trajectory_x_px += cosine * dx_px - sine * dy_px
         self._trajectory_y_px += sine * dx_px + cosine * dy_px
+        fused_yaw_delta = (
+            yaw_rad if body_yaw_rad is None else float(body_yaw_rad)
+        )
         self._trajectory_yaw_rad = _normalize_angle(
-            self._trajectory_yaw_rad + yaw_rad
+            self._trajectory_yaw_rad + fused_yaw_delta
         )
         self._motion_sequence += 1
         self._latest_motion = {
@@ -398,6 +417,11 @@ class SparseVisualOdometry:
             "image_dx_px": dx_px,
             "image_dy_px": dy_px,
             "image_yaw_rad": yaw_rad,
+            "body_forward_direction": result.get("body_forward_direction"),
+            "body_left_direction": result.get("body_left_direction"),
+            "body_yaw_rad": body_yaw_rad,
+            "motion_geometry": result.get("motion_geometry"),
+            "metric_scale": False,
             "tracked_features": int(result["tracked"]),
             "inliers": int(result["inliers"]),
             "quality": float(result["quality"]),
@@ -405,6 +429,82 @@ class SparseVisualOdometry:
         }
         if self._frame_sequence % self.config.keyframe_interval == 0:
             self._consider_keyframe(gray)
+
+    def _recover_scale_free_camera_motion(
+        self,
+        before: Any,
+        after: Any,
+        gray: Any,
+    ) -> dict[str, object]:
+        import cv2
+        import numpy as np
+
+        height, width = gray.shape[:2]
+        focal_px = width / (
+            2.0 * math.tan(math.radians(self.config.horizontal_fov_deg) / 2.0)
+        )
+        camera_matrix = np.asarray(
+            [
+                [focal_px, 0.0, width / 2.0],
+                [0.0, focal_px, height / 2.0],
+                [0.0, 0.0, 1.0],
+            ],
+            dtype="float64",
+        )
+        essential, mask = cv2.findEssentialMat(
+            before,
+            after,
+            camera_matrix,
+            method=cv2.RANSAC,
+            prob=0.999,
+            threshold=1.5,
+        )
+        if essential is None or mask is None:
+            return {
+                "body_forward_direction": None,
+                "body_left_direction": None,
+                "body_yaw_rad": None,
+                "motion_geometry": "affine_image_only",
+            }
+        if essential.shape[0] > 3:
+            essential = essential[:3, :]
+        recovered, rotation, translation, _pose_mask = cv2.recoverPose(
+            essential,
+            before,
+            after,
+            camera_matrix,
+            mask=mask,
+        )
+        if recovered < max(8, self.config.minimum_tracks // 2):
+            return {
+                "body_forward_direction": None,
+                "body_left_direction": None,
+                "body_yaw_rad": None,
+                "motion_geometry": "affine_image_only",
+            }
+        camera_forward = float(translation[2, 0])
+        camera_left = -float(translation[0, 0])
+        direction_norm = math.hypot(camera_forward, camera_left)
+        if direction_norm <= 1e-6:
+            return {
+                "body_forward_direction": None,
+                "body_left_direction": None,
+                "body_yaw_rad": None,
+                "motion_geometry": "affine_image_only",
+            }
+        camera_forward /= direction_norm
+        camera_left /= direction_norm
+        cosine = math.cos(self.config.camera_to_body_yaw_rad)
+        sine = math.sin(self.config.camera_to_body_yaw_rad)
+        body_forward = cosine * camera_forward - sine * camera_left
+        body_left = sine * camera_forward + cosine * camera_left
+        body_yaw = math.atan2(float(rotation[0, 2]), float(rotation[2, 2]))
+        return {
+            "body_forward_direction": body_forward,
+            "body_left_direction": body_left,
+            "body_yaw_rad": body_yaw,
+            "motion_geometry": "essential_matrix_scale_free",
+        }
 
     def _consider_keyframe(self, gray: Any) -> None:
         import cv2

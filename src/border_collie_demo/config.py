@@ -30,6 +30,9 @@ class HardwareConfig:
     breadcrumb_spacing_m: float = 0.20
     breadcrumb_reach_m: float = 0.25
     maximum_breadcrumbs: int = 128
+    foot_contact_minimum_force: float = 5.0
+    stationary_maximum_speed_mps: float = 0.05
+    stationary_maximum_yaw_rate_rps: float = 0.08
     pear_tracking_minimum_confidence: float = 0.55
     pear_tracking_confirmations: int = 3
 
@@ -47,6 +50,9 @@ class HardwareConfig:
             "pose_maximum_age_s",
             "breadcrumb_spacing_m",
             "breadcrumb_reach_m",
+            "foot_contact_minimum_force",
+            "stationary_maximum_speed_mps",
+            "stationary_maximum_yaw_rate_rps",
         )
         for name in positive_values:
             value = float(getattr(self, name))
@@ -114,6 +120,18 @@ class HardwareConfig:
             ),
             maximum_breadcrumbs=int(
                 os.environ.get("BORDER_COLLIE_MAXIMUM_BREADCRUMBS", "128")
+            ),
+            foot_contact_minimum_force=float(
+                os.environ.get("BORDER_COLLIE_FOOT_CONTACT_MIN_FORCE", "5.0")
+            ),
+            stationary_maximum_speed_mps=float(
+                os.environ.get("BORDER_COLLIE_STATIONARY_MAX_SPEED_MPS", "0.05")
+            ),
+            stationary_maximum_yaw_rate_rps=float(
+                os.environ.get(
+                    "BORDER_COLLIE_STATIONARY_MAX_YAW_RATE_RPS",
+                    "0.08",
+                )
             ),
             pear_tracking_minimum_confidence=float(
                 os.environ.get(

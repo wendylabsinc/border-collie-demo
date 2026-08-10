@@ -17,10 +17,10 @@ The executable, hardware-free design probe lives in
 - The recorded outbound forward-heartbeat count bounds return translation.
   It is a safety budget, not a route estimate. Heading-only corrections do not
   consume the count.
-- Fresh measured local pose remains the authority for course, progress, early
-  stop, the 0.10 m Home gate, and the reported Home Distance. Pulse count and
-  requested velocity never substitute for measured Home Distance or prove
-  arrival.
+- Fresh fused local pose remains the authority for course and progress. The
+  0.10 m gate conservatively uses the farther of fresh raw Go2 distance and
+  filtered distance. Pulse count and requested velocity never substitute for
+  measured Home Distance or prove arrival.
 - A pose is usable only when its age is at most **0.50 seconds**. This is the
   current clean-app freshness boundary and must be rechecked during hardware
   qualification.
@@ -29,11 +29,13 @@ The executable, hardware-free design probe lives in
 - When the pose is untrustworthy, Home Distance and heading error are recorded
   as unavailable rather than copied from the last estimate.
 
-The implementation combines richer Go2 motion evidence with bounded CPU-only
-sparse visual odometry through
+The implementation fuses Go2 position deltas, body velocity, IMU yaw rate,
+loaded-foot zero-velocity updates, and bounded CPU-only sparse visual motion
+through
 [`home-localization-adapter.md`](home-localization-adapter.md). Vision supplies
-relative yaw, continuity, and natural-scene revisit evidence. It does not claim
-metric monocular translation or replace the fresh Go2 pose requirement.
+scale-free direction/yaw, continuity, and natural-scene revisit evidence. It
+does not claim metric monocular translation or replace the fresh Go2 pose
+requirement.
 
 ## Bounded return sequence
 
