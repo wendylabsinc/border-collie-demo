@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Any, ClassVar, Protocol
@@ -18,6 +19,7 @@ class StageContext:
     run_id: str
     target_fruit: str
     home: dict[str, Any]
+    orientation_degrees: float = 0.0
     outbound_forward_pulses: int = 0
 
 
@@ -46,6 +48,7 @@ class StageFailure(RuntimeError):
 
 
 EXECUTED_STAGES = (
+    MissionPhase.ORIENT_FOR_RUN,
     MissionPhase.TURN_TO_FRUIT,
     MissionPhase.FIND_FRUIT,
     MissionPhase.APPROACH_FRUIT,
@@ -57,6 +60,7 @@ EXECUTED_STAGES = (
 )
 
 DEFAULT_STAGE_FAILURE_REASONS = {
+    MissionPhase.ORIENT_FOR_RUN: "ORIENTATION_FAILURE",
     MissionPhase.TURN_TO_FRUIT: "TARGET_RECOGNITION_FAILURE",
     MissionPhase.FIND_FRUIT: "TARGET_RECOGNITION_FAILURE",
     MissionPhase.APPROACH_FRUIT: "ARRIVAL_FAILURE",
@@ -103,6 +107,7 @@ class DemoOrchestrator:
             run_id=run_id,
             target_fruit=run["target_fruit"],
             home=run["home"],
+            orientation_degrees=float(run.get("orientation_degrees", 0.0)),
         )
         try:
             for phase in EXECUTED_STAGES:
@@ -137,7 +142,6 @@ class DemoOrchestrator:
             stop_errors = await self._stages.stop()
             if stop_errors:
                 raise RuntimeError("; ".join(stop_errors))
-            await self._capture_terminal_evidence(run_id)
             self._mission.advance("Demo Run completed and disarmed")
             return self._results.seal(
                 run_id,
@@ -190,6 +194,12 @@ class SimulatedStageExecutor:
     """Deterministic non-hardware adapter for the complete base Demo Run."""
 
     _EVIDENCE: ClassVar[dict[MissionPhase, dict[str, Any]]] = {
+        MissionPhase.ORIENT_FOR_RUN: {
+            "requested_angle_degrees": 0.0,
+            "requested_angle_rad": 0.0,
+            "measured_yaw_change_rad": 0.0,
+            "motion_commands_sent": False,
+        },
         MissionPhase.TURN_TO_FRUIT: {
             "measured_yaw_change_rad": 3.14,
             "motion_commands_sent": False,
@@ -259,6 +269,13 @@ class SimulatedStageExecutor:
                 self._failure_message,
             )
         evidence = dict(self._EVIDENCE[phase])
+        if phase is MissionPhase.ORIENT_FOR_RUN:
+            requested_rad = math.radians(context.orientation_degrees)
+            evidence.update(
+                requested_angle_degrees=context.orientation_degrees,
+                requested_angle_rad=requested_rad,
+                measured_yaw_change_rad=requested_rad,
+            )
         if phase is MissionPhase.FIND_FRUIT:
             evidence["label"] = context.target_fruit
         if phase is MissionPhase.RETURN_HOME:

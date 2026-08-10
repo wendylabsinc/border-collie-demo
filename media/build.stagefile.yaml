@@ -1,0 +1,43 @@
+version: 1
+stages:
+  - name: media
+    from: dustynv/pytorch:2.7-r36.4.0-cu128-24.04
+    workdir: /app
+    env:
+      PIP_INDEX_URL: https://pypi.org/simple
+      PIP_EXTRA_INDEX_URL: ""
+      PYTHONUNBUFFERED: "1"
+      UNITREE_ROBOT_IP: 192.168.123.161
+      PEAR_MODEL_PATH: /media/model.engine
+      BANANA_SPECIALIST_MODEL_PATH: /media/banana-specialist.pt
+      BANANA_SPECIALIST_MIN_CONFIDENCE: "0.55"
+      BANANA_SPECIALIST_MIN_IOU: "0.10"
+      BORDER_COLLIE_MEDIA_PORT: "8111"
+      BORDER_COLLIE_BARK_UUID: 161387de-21ab-4f0b-b4e9-97124b000d06
+    install:
+      apt:
+        packages:
+          - build-essential
+          - ca-certificates
+          - libffi8
+          - libgl1
+          - libglib2.0-0
+          - libportaudio2
+          - libsrtp2-1
+          - libssl3
+          - portaudio19-dev
+      pip:
+        - requirements: requirements.txt
+          index: https://pypi.org/simple
+    copy:
+      - from: local
+        paths: [model/model.engine]
+        dest: /media/model.engine
+      - from: local
+        paths: [model/banana-specialist.pt]
+        dest: /media/banana-specialist.pt
+      - from: local
+        paths: [__init__.py, model_router.py, perception_sidecar.py]
+        dest: /app/media/
+    user: root
+    cmd: [uvicorn, media.perception_sidecar:app, --host, 0.0.0.0, --port, "8111"]

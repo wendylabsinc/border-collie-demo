@@ -60,13 +60,61 @@ class FakeBark:
         return {"bark_played": True}
 
 
-def context(*, outbound_forward_pulses: int = 0) -> StageContext:
+def context(
+    *,
+    outbound_forward_pulses: int = 0,
+    orientation_degrees: float = 0.0,
+) -> StageContext:
     return StageContext(
         run_id="run-1",
         target_fruit="pear",
         home={"x_m": 0.0, "y_m": 0.0, "yaw_rad": 0.0},
+        orientation_degrees=orientation_degrees,
         outbound_forward_pulses=outbound_forward_pulses,
     )
+
+
+def test_orient_for_run_uses_the_recorded_relative_angle() -> None:
+    async def scenario() -> None:
+        hardware = FakeProductionHardware()
+        stages = ProductionStageExecutor(hardware, dict, FakeBark())
+
+        evidence = await stages.execute(
+            MissionPhase.ORIENT_FOR_RUN,
+            context(orientation_degrees=137.0),
+        )
+
+        name, angle_rad, options = hardware.calls[0]
+        assert name == "turn_relative"
+        assert angle_rad == pytest.approx(2.391101)
+        assert options == {
+            "yaw_rps": 0.50,
+            "tolerance_rad": pytest.approx(0.05235987756),
+            "timeout_s": 30.0,
+        }
+        assert evidence["requested_angle_degrees"] == 137.0
+        assert evidence["motion_commands_sent"] is True
+
+    asyncio.run(scenario())
+
+
+def test_zero_degree_orientation_is_recorded_without_motion() -> None:
+    async def scenario() -> None:
+        hardware = FakeProductionHardware()
+        stages = ProductionStageExecutor(hardware, dict, FakeBark())
+
+        evidence = await stages.execute(MissionPhase.ORIENT_FOR_RUN, context())
+
+        assert hardware.calls == []
+        assert evidence == {
+            "requested_angle_degrees": 0.0,
+            "requested_angle_rad": 0.0,
+            "measured_yaw_change_rad": 0.0,
+            "orientation_skipped": True,
+            "motion_commands_sent": False,
+        }
+
+    asyncio.run(scenario())
 
 
 def test_turn_to_fruit_rotates_until_the_pear_is_recognized() -> None:

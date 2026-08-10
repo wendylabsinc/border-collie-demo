@@ -112,6 +112,27 @@ class ProductionStageExecutor:
         phase: MissionPhase,
         context: StageContext,
     ) -> dict[str, Any]:
+        if phase is MissionPhase.ORIENT_FOR_RUN:
+            requested_degrees = float(context.orientation_degrees)
+            requested_rad = math.radians(requested_degrees)
+            if requested_degrees == 0.0:
+                return {
+                    "requested_angle_degrees": 0.0,
+                    "requested_angle_rad": 0.0,
+                    "measured_yaw_change_rad": 0.0,
+                    "orientation_skipped": True,
+                    "motion_commands_sent": False,
+                }
+            evidence = await self._hardware.turn_relative(
+                requested_rad,
+                yaw_rps=0.50,
+                tolerance_rad=min(math.radians(3.0), requested_rad / 2.0),
+                timeout_s=30.0,
+            )
+            return {
+                **evidence,
+                "requested_angle_degrees": requested_degrees,
+            }
         if phase is MissionPhase.TURN_TO_FRUIT:
             if visible := self._visible_target_evidence(context.target_fruit):
                 return visible

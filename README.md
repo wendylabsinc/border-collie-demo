@@ -296,6 +296,77 @@ legacy app on `8096` without replacing it.
 Run Results default to `artifacts/runs/`. A deployment must set
 `BORDER_COLLIE_RUNS_DIR` to durable mounted storage before stage use.
 
+## Ten-run randomized soak
+
+The supervised soak runs ten complete missions in a seeded, randomized order.
+It reads the deployed build's qualified fruits and balances the schedule before
+shuffling it, so three qualified fruits receive three or four attempts each.
+The same seed also assigns every run a relative orientation turn from 0 through
+359 degrees. Woof captures Home, completes and records that measured turn, and
+only then starts looking for the selected fruit.
+The result JSON is replaced atomically after every run and includes the exact
+sequence, per-stage telemetry, lighting frames, network observations, device
+temperatures, dongle checks, terminal measurements, and the records-only
+scorecard.
+
+Use an exact expected build label so an old or experimental deployment cannot
+be activated accidentally:
+
+```bash
+python3 scripts/fruit_soak.py \
+  --host 192.168.0.107 \
+  --agent 192.168.0.107:50052 \
+  --runs 10 \
+  --seed 20260810 \
+  --expected-build-label "base-soak-v3-recovery-retention (demo/base)" \
+  --expected-fruits apple banana pear \
+  --recover-failures \
+  --device-probes \
+  --dongle-match "DJI MIC MINI" \
+  --note "<fruit placements, lighting, and microphone setup>"
+```
+
+The build label and qualified-fruit set are checked before the first activation.
+An activation request with an ambiguous response aborts the session without an
+automatic retry. A restart-required application state also aborts immediately.
+Individual terminal run failures are recorded and the supervised soak continues
+only after their saved-Home recovery completes when `--recover-failures` is
+enabled. A rejected, failed, stopped, or timed-out recovery aborts the soak
+before another run can capture a displaced Home. Without that flag, failures
+retain the earlier records-only behavior and the harness does not issue recovery
+motion.
+Pass `--no-orientation-randomization` to run the original soak with a zero-degree
+pre-search turn on every mission.
+
+### Recover a failed run to its captured Home
+
+Failed-run recovery is a separate, position-only operation. It reuses the
+failed run's saved Home and recorded forward approach heartbeat count; it does
+not capture a new Home or change the original failed outcome.
+
+```bash
+curl -X POST \
+  http://woof.local:8110/api/results/RUN_ID/recover-home \
+  -H 'content-type: application/json' \
+  -d '{"confirmation":"RECOVER FAILED RUN TO CAPTURED HOME"}'
+```
+
+The endpoint returns `202 Accepted` with a recovery ID. Poll
+`/api/results/RUN_ID` and read `recovery_attempts`; the active recovery also
+appears in `/api/status`. One correction attempt is accepted only when the
+first recovery itself failed with a confirmed disarm; completed, stopped, or
+unconfirmed recoveries cannot be retried. `/api/stop` cancels and disarms an
+active recovery.
+
+Failed and stopped runs retain their full event, stage, failure, motion, and
+frame evidence. Completed runs retain one compact `result.json` with the key
+acceptance values and no frame archive or event journal.
+
+The root app and `media` service each have a committed `build.stagefile.yaml`
+and digest-pinned lockfile. A Stagefile-capable Wendy CLI selects both
+automatically for the multi-service deployment; generated Dockerfiles are build
+artifacts and are not committed.
+
 ## Local validation
 
 ```bash

@@ -187,7 +187,7 @@ failure preserves the last trustworthy frame and labels its actual age; it is
 never presented as current. If a required snapshot is unavailable, the Run
 Result retains an entry with `unavailable_reason`.
 
-Every orchestrated terminal run also attempts to persist a bounded rolling
+Every failed or operator-stopped run also attempts to persist a bounded rolling
 archive of raw, unannotated JPEGs for manual labeling. The default is 40 frames
 sampled at 0.5-second intervals, approximately the final 20 seconds. The archive
 contains a source/detection manifest and one annotated terminal comparison
@@ -195,10 +195,30 @@ frame. Evidence-capture failure is recorded with an `unavailable_reason` and
 must never mask the run's motion-safety result. Full continuous video and audio
 recording remain outside this contract.
 
-Every terminal record materializes `terminal_measurements.home_distance_m` and
+## Outcome-based retention
+
+Failed and stopped runs retain the complete materialized result, append-only
+event journal, completed-stage evidence, failed-stage motion trace, preflight,
+Home, terminal measurements, evidence descriptors, and captured frame archive.
+A post-failure Home recovery appends its full preflight, bounded pulse source,
+per-step evidence, every accepted recovery motion command, stop result, and
+terminal safety state to that same failed result.
+
+Completed runs retain only `result.json`. Its `record_type` is
+`success_summary`, and `key_values` contains the compact acceptance values:
+completed stages and durations, fruit-recognition result, orientation change,
+Arrival and outbound pulse count, bark result, return pulse accounting, Home
+Distance, heading error, and the position/heading tolerances. The detailed event
+journal and snapshot directory are removed only after the compact result has
+been atomically materialized. Successful runs do not request the rolling frame
+archive.
+
+Detailed failed and stopped records materialize
+`terminal_measurements.home_distance_m` and
 `terminal_measurements.heading_error_rad` from the latest completed
-return-stage evidence. A value is `null` when no trustworthy measurement was
-completed; requested speed and elapsed command time never substitute for pose.
+return-stage evidence. Compact success records carry the same values under
+`key_values`. A value is `null` when no trustworthy measurement was completed;
+requested speed and elapsed command time never substitute for pose.
 
 ## Read interfaces
 
@@ -210,8 +230,12 @@ The audience and diagnostic surfaces read the same persisted record:
 - retrieve snapshots or evidence archives only through paths referenced by
   that result.
 
-Result APIs are read-only. They cannot edit, delete, clear, resume, or relabel a
-run. Arbitrary filesystem paths and short IDs are rejected.
+Result APIs are read-only except for the explicit failed-run Home recovery
+endpoint. Recovery cannot change the original terminal outcome, resume its
+mission stages, clear evidence, or relabel the run. It appends one separately
+identified recovery attempt after exact operator confirmation and may append
+one correction only when the first recovery failed with a confirmed disarm.
+Arbitrary filesystem paths and short IDs are rejected.
 
 ## Acceptance requirements
 
@@ -224,5 +248,6 @@ Before the recorder can support a stage-ready run, automated tests must prove:
 - camera, motion, return, operator-stop, and Remote Takeover failures retain
   the required reason and safety evidence;
 - unavailable pose produces null Home measurements with a reason;
-- terminal results cannot be resumed or mutated; and
+- terminal mission outcomes cannot be resumed or relabeled, while a confirmed
+  failed-run recovery can only append its separate attempt record; and
 - APIs cannot escape the configured run directory or alter evidence.

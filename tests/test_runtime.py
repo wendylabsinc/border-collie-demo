@@ -29,10 +29,8 @@ def test_explicit_simulation_runtime_completes_activate_demo(
 
         assert run["outcome"] == "COMPLETED"
         assert run["reason"] == "SUCCESS"
-        assert all(
-            evidence["motion_commands_sent"] is False
-            for evidence in run["stage_results"].values()
-        )
+        assert run["record_type"] == "success_summary"
+        assert run["key_values"]["motion_commands_sent"] is False
 
 
 def test_production_runtime_wires_the_real_stage_executor(

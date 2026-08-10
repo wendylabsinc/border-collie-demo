@@ -17,6 +17,7 @@ def test_happy_path_has_one_explicit_order() -> None:
         MissionPhase.PREFLIGHT,
         MissionPhase.CAPTURE_HOME,
         MissionPhase.WAIT_FOR_COMMAND,
+        MissionPhase.ORIENT_FOR_RUN,
         MissionPhase.TURN_TO_FRUIT,
         MissionPhase.FIND_FRUIT,
         MissionPhase.APPROACH_FRUIT,
