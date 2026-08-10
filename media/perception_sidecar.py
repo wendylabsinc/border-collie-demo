@@ -514,14 +514,17 @@ class PerceptionRuntime:
                 frame_stall_timeout_s=float(
                     os.environ.get("MEDIA_FRAME_STALL_TIMEOUT_S", "0.75")
                 ),
+                first_frame_timeout_s=float(
+                    os.environ.get("MEDIA_FIRST_FRAME_TIMEOUT_S", "3.0")
+                ),
                 restart_budget=int(
                     os.environ.get("MEDIA_RESTART_BUDGET", "5")
                 ),
                 initial_backoff_s=float(
-                    os.environ.get("MEDIA_INITIAL_BACKOFF_S", "0.5")
+                    os.environ.get("MEDIA_INITIAL_BACKOFF_S", "8.0")
                 ),
                 maximum_backoff_s=float(
-                    os.environ.get("MEDIA_MAXIMUM_BACKOFF_S", "8.0")
+                    os.environ.get("MEDIA_MAXIMUM_BACKOFF_S", "30.0")
                 ),
             )
         )
@@ -712,6 +715,7 @@ class PerceptionRuntime:
                     self._open_session(generation),
                     timeout=self._connect_timeout_s,
                 )
+                self._supervision.session_connected(generation)
                 LOGGER.info("media WebRTC session connected generation=%s", generation)
                 while not self._closing:
                     await asyncio.sleep(self._monitor_interval_s)

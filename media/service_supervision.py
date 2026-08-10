@@ -25,9 +25,10 @@ class ServiceState(str, Enum):
 class ServiceSupervisionConfig:
     stable_frame_count: int = 10
     frame_stall_timeout_s: float = 0.75
+    first_frame_timeout_s: float = 3.0
     restart_budget: int = 5
-    initial_backoff_s: float = 0.5
-    maximum_backoff_s: float = 8.0
+    initial_backoff_s: float = 8.0
+    maximum_backoff_s: float = 30.0
 
     def __post_init__(self) -> None:
         if self.stable_frame_count < 1:
@@ -36,6 +37,7 @@ class ServiceSupervisionConfig:
             raise ValueError("restart budget must be non-negative")
         for name in (
             "frame_stall_timeout_s",
+            "first_frame_timeout_s",
             "initial_backoff_s",
             "maximum_backoff_s",
         ):
@@ -65,6 +67,7 @@ class ServiceSupervisor:
         self._stable_frames = 0
         self._last_pts: int | None = None
         self._session_started_s: float | None = None
+        self._session_connected_s: float | None = None
         self._last_frame_s: float | None = None
         self._next_retry_s: float | None = None
         self._last_error: str | None = "media session has not connected"
@@ -99,6 +102,7 @@ class ServiceSupervisor:
         self._stable_frames = 0
         self._last_pts = None
         self._session_started_s = None
+        self._session_connected_s = None
         self._last_frame_s = None
         self._restart_required = False
         self._next_retry_s = None
@@ -120,9 +124,25 @@ class ServiceSupervisor:
         self._stable_frames = 0
         self._last_pts = None
         self._session_started_s = now
+        self._session_connected_s = None
         self._last_frame_s = None
         self._restart_required = False
         self._last_error = "waiting for a stable advancing frame generation"
+
+    def session_connected(
+        self,
+        generation: str,
+        *,
+        now_s: float | None = None,
+    ) -> None:
+        """Start the first-frame grace period after transport setup completes."""
+        if generation != self._generation:
+            raise ValueError("connected media generation does not match active attempt")
+        if self._state is ServiceState.FAILED or self._restart_required:
+            return
+        self._session_connected_s = self._now(now_s)
+        if self._last_frame_s is None:
+            self._last_error = "waiting for the first camera frame"
 
     def note_frame(
         self,
@@ -163,14 +183,19 @@ class ServiceSupervisor:
         if self._state is ServiceState.FAILED or self._restart_required:
             return False
         now = self._now(now_s)
-        reference = self._last_frame_s or self._session_started_s
-        if reference is None or now - reference <= self.config.frame_stall_timeout_s:
+        if self._last_frame_s is not None:
+            if now - self._last_frame_s <= self.config.frame_stall_timeout_s:
+                return self.ready
+            self.session_failed("media camera frame progress stalled", now_s=now)
+            return False
+        if self._session_connected_s is None:
             return self.ready
-        if self._last_frame_s is None:
-            error = "media session produced no camera frames before the stall timeout"
-        else:
-            error = "media camera frame progress stalled"
-        self.session_failed(error, now_s=now)
+        if now - self._session_connected_s <= self.config.first_frame_timeout_s:
+            return self.ready
+        self.session_failed(
+            "media session produced no camera frames before the first-frame timeout",
+            now_s=now,
+        )
         return False
 
     def session_failed(
@@ -183,6 +208,7 @@ class ServiceSupervisor:
         self._stable_frames = 0
         self._last_pts = None
         self._session_started_s = None
+        self._session_connected_s = None
         self._last_frame_s = None
         self._failures_since_ready += 1
         self._last_error = str(error).strip() or type(error).__name__
@@ -214,6 +240,12 @@ class ServiceSupervisor:
             "failures_since_ready": self._failures_since_ready,
             "restart_budget": self.config.restart_budget,
             "restart_required": self._restart_required,
+            "session_connected": self._session_connected_s is not None,
+            "first_frame_age_s": (
+                None
+                if self._session_connected_s is None or self._last_frame_s is not None
+                else max(0.0, now - self._session_connected_s)
+            ),
             "last_frame_age_s": (
                 None if self._last_frame_s is None else max(0.0, now - self._last_frame_s)
             ),

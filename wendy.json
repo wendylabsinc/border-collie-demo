@@ -1,13 +1,13 @@
 {
   "appId": "border-collie-demo",
-  "version": "1.0.4-base-recovery-reserve",
+  "version": "1.0.5-durability",
   "services": {
     "app": {
       "context": ".",
       "env": {
         "BORDER_COLLIE_PORT": "8110",
-        "BORDER_COLLIE_BUILD_LABEL": "base-soak-v4-recovery-reserve (demo/base)",
-        "BORDER_COLLIE_RELEASE_ID": "durability-foundation-v1",
+        "BORDER_COLLIE_BUILD_LABEL": "durability-foundation-v2 (codex/extreme-durability-foundation)",
+        "BORDER_COLLIE_RELEASE_ID": "durability-foundation-v2",
         "BORDER_COLLIE_CONFIG_SCHEMA": "1",
         "BORDER_COLLIE_RUNTIME_MODE": "production",
         "BORDER_COLLIE_HARDWARE_ENABLED": "1",
@@ -43,7 +43,7 @@
       "context": "./media",
       "env": {
         "UNITREE_ROBOT_IP": "192.168.123.161",
-        "BORDER_COLLIE_RELEASE_ID": "durability-foundation-v1",
+        "BORDER_COLLIE_RELEASE_ID": "durability-foundation-v2",
         "BORDER_COLLIE_CONFIG_SCHEMA": "1",
         "PEAR_MODEL_PATH": "/media/model.engine",
         "BANANA_SPECIALIST_MODEL_PATH": "/media/banana-specialist.pt",
@@ -55,9 +55,10 @@
         "MEDIA_SUPERVISION_INTERVAL_S": "0.10",
         "MEDIA_STABLE_FRAME_COUNT": "10",
         "MEDIA_FRAME_STALL_TIMEOUT_S": "0.75",
+        "MEDIA_FIRST_FRAME_TIMEOUT_S": "3.0",
         "MEDIA_RESTART_BUDGET": "5",
-        "MEDIA_INITIAL_BACKOFF_S": "0.5",
-        "MEDIA_MAXIMUM_BACKOFF_S": "8.0",
+        "MEDIA_INITIAL_BACKOFF_S": "8.0",
+        "MEDIA_MAXIMUM_BACKOFF_S": "30.0",
         "EVIDENCE_MAXIMUM_FRAMES": "40",
         "EVIDENCE_FRAME_INTERVAL_S": "0.5"
       },

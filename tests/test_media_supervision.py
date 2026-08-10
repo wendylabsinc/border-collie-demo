@@ -13,6 +13,7 @@ def config(**changes) -> ServiceSupervisionConfig:
     values = {
         "stable_frame_count": 3,
         "frame_stall_timeout_s": 0.5,
+        "first_frame_timeout_s": 1.0,
         "restart_budget": 3,
         "initial_backoff_s": 0.25,
         "maximum_backoff_s": 1.0,
@@ -58,10 +59,23 @@ def test_two_data_channel_startup_failures_back_off_then_recover() -> None:
     assert status["failures_since_ready"] == 0
 
 
+def test_production_retry_backoff_respects_robot_signaling_cooldown() -> None:
+    supervisor = ServiceSupervisor()
+
+    assert supervisor.begin_attempt(now_s=0.0) is True
+    supervisor.session_started("generation-1", now_s=0.0)
+    supervisor.session_failed("robot signaling rejected the request", now_s=0.0)
+
+    assert supervisor.status(now_s=0.0)["next_retry_in_s"] == 8.0
+    assert supervisor.begin_attempt(now_s=7.99) is False
+    assert supervisor.begin_attempt(now_s=8.0) is True
+
+
 def test_ready_session_degrades_and_requests_cleanup_on_frame_stall() -> None:
     supervisor = ServiceSupervisor(config(stable_frame_count=2))
     supervisor.begin_attempt(now_s=1.0)
     supervisor.session_started("generation-1", now_s=1.0)
+    supervisor.session_connected("generation-1", now_s=1.0)
     supervisor.note_frame("generation-1", 10, now_s=1.10)
     supervisor.note_frame("generation-1", 11, now_s=1.20)
 
@@ -135,5 +149,7 @@ def test_supervision_config_rejects_unbounded_or_invalid_values() -> None:
         config(stable_frame_count=0)
     with pytest.raises(ValueError, match="restart budget"):
         config(restart_budget=-1)
+    with pytest.raises(ValueError, match="first_frame_timeout_s"):
+        config(first_frame_timeout_s=0.0)
     with pytest.raises(ValueError, match="maximum backoff"):
         config(initial_backoff_s=2.0, maximum_backoff_s=1.0)

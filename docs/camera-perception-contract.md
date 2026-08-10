@@ -96,6 +96,13 @@ adapter requires the supervisor generation to match the camera generation and
 still validates all source and detection evidence independently; the
 supervisor's `ready` flag never authorizes motion by itself.
 
+Connection setup and camera progress have separate deadlines. The 15-second
+transport timeout bounds WebRTC and DataChannel setup. Only after the video
+channel is enabled does the 3-second first-frame grace period begin. Once the
+first frame arrives, the 0.75-second frame-stall timeout applies. Recovery uses
+an 8-second initial robot-signaling cooldown with bounded exponential backoff;
+this prevents rapid reconnects from overrunning the Go2 signaling endpoint.
+
 ## Qualified thresholds
 
 These thresholds apply to the current pear-qualified Operating Envelope. They

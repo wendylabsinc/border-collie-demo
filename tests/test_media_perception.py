@@ -125,6 +125,57 @@ def test_runtime_supervisor_cleans_failed_sessions_and_recovers_in_process() -> 
     asyncio.run(scenario())
 
 
+def test_runtime_first_frame_grace_starts_after_connection_is_open() -> None:
+    async def scenario() -> None:
+        runtime = perception_sidecar.PerceptionRuntime()
+        runtime._monitor_interval_s = 0.001
+        runtime._supervision = ServiceSupervisor(
+            ServiceSupervisionConfig(
+                stable_frame_count=2,
+                frame_stall_timeout_s=0.01,
+                first_frame_timeout_s=0.05,
+                restart_budget=1,
+                initial_backoff_s=0.001,
+                maximum_backoff_s=0.001,
+            )
+        )
+        publisher_tasks: list[asyncio.Task[None]] = []
+
+        async def delayed_open(generation: str) -> None:
+            # The real connection handshake took almost the entire 0.75 second
+            # stall window before video activation. First-frame health must not
+            # include that handshake time.
+            await asyncio.sleep(0.03)
+
+            async def publish_frames() -> None:
+                await asyncio.sleep(0.005)
+                runtime._supervision.note_frame(generation, 1)
+                await asyncio.sleep(0.005)
+                runtime._supervision.note_frame(generation, 2)
+
+            publisher_tasks.append(asyncio.create_task(publish_frames()))
+
+        runtime._open_session = delayed_open
+        runtime._cleanup_session = lambda: asyncio.sleep(0)
+        runtime._supervisor_task = asyncio.create_task(runtime._supervise_sessions())
+        try:
+            deadline = asyncio.get_running_loop().time() + 0.25
+            while not runtime._supervision.ready:
+                if asyncio.get_running_loop().time() >= deadline:
+                    raise AssertionError(
+                        f"supervisor did not become ready: {runtime._supervision.status()}"
+                    )
+                await asyncio.sleep(0.001)
+            status = runtime._supervision.status()
+            assert status["attempts"] == 1
+            assert status["total_restarts"] == 0
+        finally:
+            await runtime.close()
+            await asyncio.gather(*publisher_tasks, return_exceptions=True)
+
+    asyncio.run(scenario())
+
+
 def test_media_status_publishes_its_release_cohort(monkeypatch) -> None:
     monkeypatch.setenv("BORDER_COLLIE_RELEASE_ID", "release-9")
     monkeypatch.setenv("BORDER_COLLIE_CONFIG_SCHEMA", "4")
