@@ -327,6 +327,8 @@ An activation request with an ambiguous response aborts the session without an
 automatic retry. A restart-required application state also aborts immediately.
 Individual terminal run failures are recorded and the supervised soak continues
 unless the deployed application's safety state prevents another activation.
+Pass `--no-orientation-randomization` to run the original soak with a zero-degree
+pre-search turn on every mission.
 
 The root app and `media` service each have a committed `build.stagefile.yaml`
 and digest-pinned lockfile. A Stagefile-capable Wendy CLI selects both
