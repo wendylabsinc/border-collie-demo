@@ -191,7 +191,10 @@ def test_status_is_explicitly_non_operational() -> None:
 
 def test_activate_fails_closed_when_preflight_is_not_ready(tmp_path) -> None:
     with TestClient(create_app(runs_root=tmp_path)) as client:
-        response = client.post("/api/run", json={"target_fruit": "pear"})
+        response = client.post(
+            "/api/run",
+            json={"target_fruit": "pear", "orientation_degrees": 137},
+        )
 
         assert response.status_code == 201
         created = response.json()["run"]
@@ -293,7 +296,10 @@ def test_activate_demo_completes_every_stage_with_simulated_adapters(tmp_path) -
             stage_executor=SimulatedStageExecutor(),
         )
     ) as client:
-        response = client.post("/api/run", json={"target_fruit": "pear"})
+        response = client.post(
+            "/api/run",
+            json={"target_fruit": "pear", "orientation_degrees": 137},
+        )
         run_id = response.json()["run"]["run_id"]
 
         deadline = time.monotonic() + 1.0
@@ -308,6 +314,7 @@ def test_activate_demo_completes_every_stage_with_simulated_adapters(tmp_path) -
         assert run["current_phase"] == "complete"
         assert run["final_safety_state"] == "DISARMED_CONFIRMED"
         assert list(run["stage_results"]) == [
+            "orient_for_run",
             "turn_to_fruit",
             "find_fruit",
             "approach_fruit",
@@ -317,6 +324,13 @@ def test_activate_demo_completes_every_stage_with_simulated_adapters(tmp_path) -
             "return_home",
             "restore_heading",
         ]
+        assert run["orientation_degrees"] == 137.0
+        assert run["stage_results"]["orient_for_run"] == {
+            "requested_angle_degrees": 137.0,
+            "requested_angle_rad": pytest.approx(2.391101),
+            "measured_yaw_change_rad": pytest.approx(2.391101),
+            "motion_commands_sent": False,
+        }
         assert run["stage_results"]["return_home"]["home_distance_m"] == 0.08
         assert run["stage_results"]["approach_fruit"]["forward_pulse_count"] == 7
         assert run["stage_results"]["approach_fruit"]["final_push_mps"] == 0.3
@@ -403,7 +417,7 @@ def test_camera_failure_identifies_find_fruit_as_the_broken_stage(tmp_path) -> N
         assert run["failed_phase"] == "find_fruit"
         assert run["final_safety_state"] == "DISARMED_CONFIRMED"
         assert run["message"] == "source PTS stopped advancing"
-        assert list(run["stage_results"]) == ["turn_to_fruit"]
+        assert list(run["stage_results"]) == ["orient_for_run", "turn_to_fruit"]
 
 
 def test_failed_search_persists_downloadable_fieldmark_evidence(tmp_path) -> None:
@@ -600,6 +614,7 @@ def test_diagnostics_identifies_completed_failed_and_unreached_stages(
             },
         }
         assert [stage["phase"] for stage in body["stages"]] == [
+            "orient_for_run",
             "turn_to_fruit",
             "find_fruit",
             "approach_fruit",
@@ -616,14 +631,15 @@ def test_diagnostics_identifies_completed_failed_and_unreached_stages(
             "COMPLETED",
             "COMPLETED",
             "COMPLETED",
+            "COMPLETED",
             "FAILED",
             "NOT_RUN",
         ]
-        assert body["stages"][5]["evidence"] == {
+        assert body["stages"][6]["evidence"] == {
             "home_bearing_error_rad": 0.03,
             "motion_commands_sent": False,
         }
-        assert body["stages"][6]["evidence"] is None
+        assert body["stages"][7]["evidence"] is None
 
 
 def test_home_capture_fails_closed_if_pose_freshness_is_lost(tmp_path) -> None:
@@ -755,6 +771,23 @@ def test_activate_accepts_specialist_gated_banana(tmp_path) -> None:
 
         assert response.status_code == 201
         assert response.json()["run"]["target_fruit"] == "banana"
+
+
+@pytest.mark.parametrize("orientation_degrees", [-1, 360])
+def test_activate_rejects_orientation_outside_one_revolution(
+    tmp_path,
+    orientation_degrees,
+) -> None:
+    with TestClient(create_app(runs_root=tmp_path)) as client:
+        response = client.post(
+            "/api/run",
+            json={
+                "target_fruit": "pear",
+                "orientation_degrees": orientation_degrees,
+            },
+        )
+
+    assert response.status_code == 422
 
 
 def test_activate_rejects_an_unsupported_target_fruit(tmp_path) -> None:

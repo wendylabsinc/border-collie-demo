@@ -9,7 +9,7 @@ from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .evidence import EvidenceArtifact
 from .fruits import QUALIFIED_FRUITS, SUPPORTED_FRUITS
@@ -37,6 +37,7 @@ class ForwardPulseRequest(BaseModel):
 class RunRequest(BaseModel):
     target_fruit: Literal["apple", "banana", "pear"] = "pear"
     activation_source: Literal["audience_ui", "voice"] = "audience_ui"
+    orientation_degrees: float = Field(default=0.0, ge=0.0, lt=360.0)
 
 
 class FruitPreviewRequest(BaseModel):
@@ -219,6 +220,7 @@ def create_app(
             run = results.start_run(
                 target_fruit=request.target_fruit,
                 activation_source=request.activation_source,
+                orientation_degrees=request.orientation_degrees,
             )
         except ActiveRunError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc

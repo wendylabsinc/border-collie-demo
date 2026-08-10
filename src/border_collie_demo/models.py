@@ -10,6 +10,7 @@ class MissionPhase(str, Enum):
     PREFLIGHT = "preflight"
     CAPTURE_HOME = "capture_home"
     WAIT_FOR_COMMAND = "wait_for_command"
+    ORIENT_FOR_RUN = "orient_for_run"
     TURN_TO_FRUIT = "turn_to_fruit"
     FIND_FRUIT = "find_fruit"
     APPROACH_FRUIT = "approach_fruit"

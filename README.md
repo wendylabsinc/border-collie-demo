@@ -301,6 +301,9 @@ Run Results default to `artifacts/runs/`. A deployment must set
 The supervised soak runs ten complete missions in a seeded, randomized order.
 It reads the deployed build's qualified fruits and balances the schedule before
 shuffling it, so three qualified fruits receive three or four attempts each.
+The same seed also assigns every run a relative orientation turn from 0 through
+359 degrees. Woof captures Home, completes and records that measured turn, and
+only then starts looking for the selected fruit.
 The result JSON is replaced atomically after every run and includes the exact
 sequence, per-stage telemetry, lighting frames, network observations, device
 temperatures, dongle checks, terminal measurements, and the records-only
@@ -315,7 +318,7 @@ python3 scripts/fruit_soak.py \
   --agent 192.168.0.107:50052 \
   --runs 10 \
   --seed 20260810 \
-  --expected-build-label "base-soak-v1 (demo/base)" \
+  --expected-build-label "base-soak-v2-orientation (demo/base)" \
   --expected-fruits apple banana pear \
   --device-probes \
   --dongle-match "DJI MIC MINI" \

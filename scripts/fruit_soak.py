@@ -23,7 +23,7 @@ restart-required state aborts the session immediately.
 
 Usage:
     python3 scripts/fruit_soak.py --host 192.168.0.107 --runs 10 --seed 20260810 \
-        --expected-build-label "base-soak-v1 (demo/base)" \
+        --expected-build-label "base-soak-v2-orientation (demo/base)" \
         --expected-fruits apple banana pear \
         --note "apple at 94in; banana and pear at 84in" \
         --dongle-match "DJI MIC MINI" --device-probes
@@ -50,7 +50,7 @@ try:  # package import (tests) or direct script execution
 except ImportError:  # pragma: no cover - script-invocation path
     from stage_scorecard import score_session
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 POLL_INTERVAL_S = 1.5
 READY_TIMEOUT_S = 90.0
 RUN_TIMEOUT_S = 180.0
@@ -98,8 +98,15 @@ class ApiClient:
     def fruits(self) -> dict:
         return self._request(f"{self.base_url}/api/fruits")
 
-    def activate(self, fruit: str) -> dict:
-        return self._request(f"{self.base_url}/api/run", "POST", {"target_fruit": fruit})
+    def activate(self, fruit: str, orientation_degrees: float = 0.0) -> dict:
+        return self._request(
+            f"{self.base_url}/api/run",
+            "POST",
+            {
+                "target_fruit": fruit,
+                "orientation_degrees": orientation_degrees,
+            },
+        )
 
     def result(self, run_id: str) -> dict:
         return self._request(f"{self.base_url}/api/results/{run_id}")
@@ -303,6 +310,14 @@ def draw_fruit_sequence(qualified: list[str], runs: int, seed: int) -> list[str]
     return sequence
 
 
+def draw_orientation_sequence(runs: int, seed: int) -> list[int]:
+    """Draw reproducible integer headings spanning the full [0, 360) circle."""
+    if runs <= 0:
+        raise HarnessAbort("run count must be greater than zero")
+    rng = random.Random(seed ^ 0xC0111E)
+    return [rng.randrange(360) for _ in range(runs)]
+
+
 def take_sample(
     client: ApiClient,
     target_fruit: str,
@@ -452,11 +467,19 @@ def capture_lighting_frame(
     return {"path": str(path), "bytes": len(payload)}
 
 
-def summarize_run(run: dict, fruit: str, number: int) -> dict:
+def summarize_run(
+    run: dict,
+    fruit: str,
+    number: int,
+    orientation_degrees: float = 0.0,
+) -> dict:
     terminal = run.get("terminal_measurements") or {}
     return {
         "number": number,
         "target_fruit": fruit,
+        "orientation_degrees": float(
+            run.get("orientation_degrees", orientation_degrees)
+        ),
         "run_id": run.get("run_id"),
         "started_at_utc": run.get("started_at_utc"),
         "ended_at_utc": run.get("ended_at_utc"),
@@ -568,9 +591,14 @@ def run_session(
                 "no run was activated"
             )
     sequence = draw_fruit_sequence(qualified, runs, seed)
+    orientation_sequence = draw_orientation_sequence(runs, seed)
     log(f"build: {build_label}")
     log(f"qualified fruits: {', '.join(qualified)}")
     log(f"seed {seed} -> sequence: {', '.join(sequence)}")
+    log(
+        "orientations: "
+        + ", ".join(f"{angle}\N{DEGREE SIGN}" for angle in orientation_sequence)
+    )
 
     session: dict = {
         "schema_version": SCHEMA_VERSION,
@@ -581,6 +609,7 @@ def run_session(
         "target_runs": runs,
         "seed": seed,
         "fruit_sequence": sequence,
+        "orientation_sequence_degrees": orientation_sequence,
         "temperature_source": (
             temp_sampler.source.url
             or temp_sampler.source.command
@@ -606,7 +635,10 @@ def run_session(
     persist()
     temp_sampler.start()
     try:
-        for number, fruit in enumerate(sequence, start=1):
+        for number, (fruit, orientation_degrees) in enumerate(
+            zip(sequence, orientation_sequence, strict=True),
+            start=1,
+        ):
             if number > 1:
                 sleep(cooldown_s)
             wait_for_ready(client)
@@ -621,9 +653,12 @@ def run_session(
                 )
                 preflight["wifi_before"] = device_probe.wifi_status()
             lighting_frame = capture_lighting_frame(client, frames_dir, number)
-            log(f"run {number}/{runs}: activating {fruit}")
+            log(
+                f"run {number}/{runs}: activating {fruit} "
+                f"after {orientation_degrees}\N{DEGREE SIGN} orientation turn"
+            )
             try:
-                run_id = client.activate(fruit)["run"]["run_id"]
+                run_id = client.activate(fruit, orientation_degrees)["run"]["run_id"]
             except Exception as exc:
                 raise HarnessAbort(
                     f"run {number} activation outcome is ambiguous; "
@@ -632,7 +667,7 @@ def run_session(
             run, samples, harness_note = wait_for_terminal(
                 client, run_id, target_fruit=fruit, temp_sampler=temp_sampler
             )
-            record = summarize_run(run, fruit, number)
+            record = summarize_run(run, fruit, number, orientation_degrees)
             record["lighting_frame"] = lighting_frame
             record["stage_telemetry"] = aggregate_stage_telemetry(samples)
             record["network"] = summarize_network(samples)

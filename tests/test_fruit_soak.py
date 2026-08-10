@@ -11,6 +11,7 @@ from scripts.fruit_soak import (
     aggregate_stage_telemetry,
     dongle_check,
     draw_fruit_sequence,
+    draw_orientation_sequence,
     run_session,
     summarize_network,
     summarize_run,
@@ -34,6 +35,7 @@ class FakeClient:
         self._qualified = list(qualified)
         self._sidecar = sidecar
         self.activated: list[str] = []
+        self.orientation_degrees: list[float] = []
         self.stop_calls = 0
 
     def status(self):
@@ -53,8 +55,9 @@ class FakeClient:
     def fruits(self):
         return {"qualified_fruits": self._qualified}
 
-    def activate(self, fruit):
+    def activate(self, fruit, orientation_degrees=0.0):
         self.activated.append(fruit)
+        self.orientation_degrees.append(orientation_degrees)
         run_id = f"run-{len(self.activated)}"
         return {"run": {"run_id": run_id}}
 
@@ -71,13 +74,13 @@ class FakeClient:
 
 
 READY = {
-    "build_label": "base-soak-v1 (demo/base)",
+    "build_label": "base-soak-v2-orientation (demo/base)",
     "mission": {"restart_required": False, "phase": "idle"},
     "activation": {"ready": True, "blockers": []},
     "active_run_id": None,
 }
 LATCHED = {
-    "build_label": "base-soak-v1 (demo/base)",
+    "build_label": "base-soak-v2-orientation (demo/base)",
     "mission": {"restart_required": True, "reason": "REMOTE_TAKEOVER"},
     "activation": {"ready": False, "blockers": []},
     "active_run_id": None,
@@ -130,6 +133,17 @@ def test_sequence_requires_qualified_fruits():
 def test_sequence_requires_a_positive_run_count():
     with pytest.raises(HarnessAbort, match="greater than zero"):
         draw_fruit_sequence(["pear"], 0, seed=7)
+
+
+def test_orientation_sequence_is_seeded_and_covers_the_full_heading_range():
+    first = draw_orientation_sequence(10, seed=20260810)
+    second = draw_orientation_sequence(10, seed=20260810)
+
+    assert first == second
+    assert len(first) == 10
+    assert all(isinstance(angle, int) and 0 <= angle < 360 for angle in first)
+    assert len(set(first)) > 1
+    assert first != draw_orientation_sequence(10, seed=20260811)
 
 
 def test_wait_for_ready_aborts_on_restart_required():
@@ -307,9 +321,11 @@ def test_session_records_every_run_and_build_label(tmp_path: Path):
         client, runs=2, seed=7, output_path=output, sleep=lambda _: None, log=lambda *_: None
     )
     saved = json.loads(output.read_text())
-    assert saved["build_label"] == "base-soak-v1 (demo/base)"
+    assert saved["build_label"] == "base-soak-v2-orientation (demo/base)"
     assert saved["seed"] == 7
     assert saved["fruit_sequence"] == client.activated
+    assert saved["orientation_sequence_degrees"] == client.orientation_degrees
+    assert [r["orientation_degrees"] for r in saved["runs"]] == client.orientation_degrees
     assert [r["outcome"] for r in saved["runs"]] == ["COMPLETED", "FAILED"]
     assert saved["runs"][1]["home_distance_m"] == 0.3
     assert saved["runs"][0]["stage_results"] == {"approach_fruit": {"forward_pulse_count": 12}}
@@ -362,7 +378,7 @@ def test_session_rejects_the_wrong_qualified_fruits_before_activation(tmp_path: 
             runs=10,
             seed=7,
             output_path=tmp_path / "soak.json",
-            expected_build_label="base-soak-v1 (demo/base)",
+            expected_build_label="base-soak-v2-orientation (demo/base)",
             expected_fruits=["apple", "banana", "pear"],
             sleep=lambda _: None,
             log=lambda *_: None,
@@ -372,8 +388,9 @@ def test_session_rejects_the_wrong_qualified_fruits_before_activation(tmp_path: 
 
 def test_ambiguous_activation_aborts_and_persists_without_retry(tmp_path: Path):
     class AmbiguousClient(FakeClient):
-        def activate(self, fruit):
+        def activate(self, fruit, orientation_degrees=0.0):
             self.activated.append(fruit)
+            self.orientation_degrees.append(orientation_degrees)
             raise TimeoutError("request timed out")
 
     client = AmbiguousClient([READY], sidecar=SIDECAR)
@@ -383,13 +400,14 @@ def test_ambiguous_activation_aborts_and_persists_without_retry(tmp_path: Path):
         runs=10,
         seed=7,
         output_path=output,
-        expected_build_label="base-soak-v1 (demo/base)",
+        expected_build_label="base-soak-v2-orientation (demo/base)",
         expected_fruits=["apple", "banana", "pear"],
         sleep=lambda _: None,
         log=lambda *_: None,
     )
     saved = json.loads(output.read_text())
     assert len(client.activated) == 1
+    assert len(client.orientation_degrees) == 1
     assert saved["runs"] == []
     assert "ambiguous" in saved["aborted"]
     assert "no automatic retry" in session["aborted"]
@@ -407,7 +425,7 @@ def test_complete_ten_run_soak_is_balanced_and_scores_cleanly(tmp_path: Path):
         runs=10,
         seed=20260810,
         output_path=output,
-        expected_build_label="base-soak-v1 (demo/base)",
+        expected_build_label="base-soak-v2-orientation (demo/base)",
         sleep=lambda _: None,
         log=lambda *_: None,
     )
