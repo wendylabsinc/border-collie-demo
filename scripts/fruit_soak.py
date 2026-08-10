@@ -712,6 +712,7 @@ def run_session(
 
     def persist() -> None:
         session["scorecard"] = score_session(session)
+        session["failure_counts"] = session["scorecard"]["failure_counts"]
         output_path.parent.mkdir(parents=True, exist_ok=True)
         temporary_path = output_path.with_suffix(output_path.suffix + ".tmp")
         with temporary_path.open("w", encoding="utf-8") as handle:

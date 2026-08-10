@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections import Counter
 from pathlib import Path
 
 HOME_GATE_M = 0.10
@@ -34,6 +35,63 @@ FRUIT_CONFIDENCE_FLOORS = {"apple": 0.70, "banana": 0.55, "pear": 0.65}
 
 APPROACH_STAGES = ("approach_fruit",)
 ACQUISITION_STAGES = ("turn_to_fruit", "search_fruit", "search")
+
+
+def _failure_category(run: dict) -> str:
+    """Map a failed mission to one operator-actionable primary cause."""
+    reason = str(run.get("reason") or "").upper()
+    failed_phase = str(run.get("failed_phase") or "").lower()
+
+    if reason == "ARRIVAL_FAILURE" and failed_phase == "approach_fruit":
+        return "close_range_tracking_arrival"
+    return {
+        "TARGET_RECOGNITION_FAILURE": "target_recognition_search",
+        "ARRIVAL_FAILURE": "arrival_other",
+        "RETURN_HOME_FAILURE": "return_home",
+        "ORIENTATION_FAILURE": "orientation",
+        "CAMERA_FAILURE": "camera",
+        "ACTION_FAILURE": "action",
+        "PREFLIGHT_FAILURE": "preflight",
+        "REMOTE_TAKEOVER": "remote_takeover",
+        "OPERATOR_STOP": "operator_stop",
+        "INTERNAL_ERROR": "internal",
+        "PROCESS_INTERRUPTED": "internal",
+    }.get(reason, "other")
+
+
+def _failure_counts(runs: list[dict]) -> dict:
+    """Count mission causes without misattributing telemetry observations."""
+    failed = [run for run in runs if run.get("outcome") == "FAILED"]
+    by_reason = Counter(str(run.get("reason") or "UNKNOWN") for run in failed)
+    by_phase = Counter(str(run.get("failed_phase") or "unknown") for run in failed)
+    by_category = Counter(_failure_category(run) for run in failed)
+    by_category_and_fruit = Counter(
+        f"{_failure_category(run)}:{run.get('target_fruit') or 'unknown'}"
+        for run in failed
+    )
+    network_poll_errors = sum(
+        int((run.get("network") or {}).get("error_count") or 0)
+        + int(run.get("recovery_poll_errors") or 0)
+        for run in runs
+    )
+    zero_degree_runs = sum(
+        1 for run in runs if float(run.get("orientation_degrees") or 0.0) == 0.0
+    )
+    return {
+        "total_failed_runs": len(failed),
+        "by_reason": dict(sorted(by_reason.items())),
+        "by_failed_phase": dict(sorted(by_phase.items())),
+        "by_category": dict(sorted(by_category.items())),
+        "by_category_and_fruit": dict(sorted(by_category_and_fruit.items())),
+        "observations_not_failure_causes": {
+            "network_poll_errors": network_poll_errors,
+            "zero_degree_orientation_runs": zero_degree_runs,
+        },
+        "attribution_note": (
+            "network polling errors and the 0-degree orientation setting are "
+            "observations, not attributed mission failure causes"
+        ),
+    }
 
 
 def _criterion(passed: bool | None, **details) -> dict:
@@ -243,6 +301,7 @@ def score_session(session: dict) -> dict:
             "thermal_trend": _score_thermal(runs),
             "dongle_visible": _score_dongle(runs),
         },
+        "failure_counts": _failure_counts(runs),
         "observations": _observations(runs),
     }
 

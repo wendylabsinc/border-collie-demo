@@ -146,3 +146,35 @@ def test_observations_capture_lighting_signals():
     assert obs["approach_min_confidence_by_fruit"]["pear"]["runs"] == 1
     assert obs["acquisition_seconds_by_fruit"] == {"pear": [4.2], "apple": [9.8]}
     assert obs["lighting_frames"] == ["f/run-01.jpg"]
+
+
+def test_pear_approach_arrival_failure_counts_as_close_range_error():
+    close_range = make_run(1, "pear", outcome="FAILED", errors=2)
+    close_range.update(
+        reason="ARRIVAL_FAILURE",
+        failed_phase="approach_fruit",
+        orientation_degrees=0,
+        recovery_poll_errors=1,
+    )
+    other_arrival = make_run(2, "apple", outcome="FAILED")
+    other_arrival.update(
+        reason="ARRIVAL_FAILURE",
+        failed_phase="search_fruit",
+        orientation_degrees=0,
+    )
+
+    counts = score_session(
+        {"target_runs": 2, "runs": [close_range, other_arrival]}
+    )["failure_counts"]
+
+    assert counts["total_failed_runs"] == 2
+    assert counts["by_reason"] == {"ARRIVAL_FAILURE": 2}
+    assert counts["by_category"]["close_range_tracking_arrival"] == 1
+    assert counts["by_category_and_fruit"][
+        "close_range_tracking_arrival:pear"
+    ] == 1
+    assert counts["by_category"]["arrival_other"] == 1
+    assert counts["observations_not_failure_causes"] == {
+        "network_poll_errors": 3,
+        "zero_degree_orientation_runs": 2,
+    }
