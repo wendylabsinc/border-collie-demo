@@ -80,11 +80,15 @@ def evaluate_preflight(
         checks.append(
             {
                 "name": "metric_arrival_calibrated",
-                "ready": bool(metric_arrival.get("configured")),
+                "ready": bool(
+                    metric_arrival.get("configured")
+                    and metric_arrival.get("ready", True)
+                ),
                 "detail": (
-                    "forward range calibration is configured"
+                    "metric range calibration and live source are ready"
                     if metric_arrival.get("configured")
-                    else "stationary forward range calibration is required"
+                    and metric_arrival.get("ready", True)
+                    else "metric range calibration and a fresh source are required"
                 ),
             }
         )

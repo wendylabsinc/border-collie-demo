@@ -7,6 +7,7 @@ from itertools import pairwise
 import pytest
 
 from border_collie_demo.config import HardwareConfig
+from border_collie_demo.go2_lidar import LidarHandoffObservation
 from border_collie_demo.go2_motion import MotionConfig
 from border_collie_demo.go2_pose import Go2MotionEvidence, PoseStatus
 from border_collie_demo.hardware import (
@@ -130,6 +131,42 @@ class MetricRangePose(FakePose):
                 contact_feet=4,
                 stationary_stance=not moving,
             ),
+        )
+
+
+class ScriptedLidarHandoff:
+    def __init__(self, clearances_m: tuple[float, ...]) -> None:
+        self._clearances = iter(clearances_m)
+        self._last = clearances_m[-1]
+        self.started = False
+
+    def start(self) -> None:
+        self.started = True
+
+    def close(self) -> None:
+        self.started = False
+
+    def status(self) -> dict[str, object]:
+        return {"configured": True, "ready": self.started, "fresh": self.started}
+
+    def observe(
+        self,
+        *,
+        visual_close_authorized: bool,
+        visual_center_error_ratio: float | None,
+        allow_handoff: bool,
+    ) -> LidarHandoffObservation:
+        self._last = next(self._clearances, self._last)
+        mode = "lidar_handoff" if allow_handoff else "lidar_visual_association"
+        return LidarHandoffObservation(
+            available=True,
+            reason="scripted_lidar",
+            front_clearance_m=self._last,
+            age_s=0.01,
+            confidence=0.80,
+            association_valid=True,
+            association_mode=mode,
+            handoff_active=allow_handoff,
         )
 
 
@@ -1177,6 +1214,99 @@ def test_metric_arrival_cannot_fall_back_to_visual_geometry() -> None:
                 metric_arrival_required=True,
             )
         assert motion.commands[-1].reason == "metric_range_unavailable"
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_close_visual_track_hands_off_to_lidar_until_stopped_18_inch_arrival() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        pose = MetricRangePose(motion, (0.0,))
+        lidar = ScriptedLidarHandoff((0.90, 0.80, 0.70, 0.60, 0.48))
+        gate = MetricArrivalGate(
+            RangeCalibration(
+                forward_index=0,
+                sensor_to_front_envelope_m=0.0,
+                sensor_latency_s=0.20,
+                braking_distance_m=0.02,
+                noise_m=0.02,
+                target_clearance_m=0.4572,
+                tolerance_m=0.0508,
+                maximum_age_s=0.30,
+            )
+        )
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: pose,
+            metric_arrival_gate=gate,
+            metric_range_provider=lidar,
+        )
+        await manager.start()
+        pts = 0
+
+        def visible() -> dict[str, object]:
+            nonlocal pts
+            pts += 1
+            return {
+                "camera_healthy": True,
+                "target_ready": True,
+                "generation": "camera-1",
+                "detection": {
+                    "label": "pear",
+                    "generation": "camera-1",
+                    "confidence": 0.81,
+                    "center_x_ratio": 0.50,
+                    "center_y_ratio": 0.76,
+                    "bottom_ratio": 0.90,
+                    "bbox_area_ratio": 0.10,
+                    "age_s": 0.01,
+                    "source_pts": pts,
+                },
+            }
+
+        statuses = iter(
+            (
+                visible(),
+                visible(),
+                visible(),
+                {"camera_healthy": True, "target_ready": False},
+                {"camera_healthy": True, "target_ready": False},
+                {"camera_healthy": True, "target_ready": False},
+                {"camera_healthy": True, "target_ready": False},
+            )
+        )
+        result = await manager.approach_target(
+            lambda: next(statuses),
+            "pear",
+            forward_mps=1.0,
+            maximum_yaw_rps=0.50,
+            near_bottom_ratio=0.98,
+            near_center_ratio=0.95,
+            near_confirmations=10,
+            near_loss_grace_s=0.75,
+            close_range_mps=0.55,
+            final_push_mps=0.55,
+            final_push_duration_s=0.001,
+            timeout_s=0.5,
+            metric_arrival_required=True,
+        )
+
+        assert result["arrival_confirmed"] is True
+        assert result["range_association_mode"] == "lidar_handoff"
+        assert result["front_clearance_m"] == pytest.approx(0.48)
+        assert any(
+            command.reason == "metric_lidar_handoff"
+            and command.forward_mps == 0.55
+            and command.yaw_rps == 0.0
+            for command in motion.commands
+        )
+        assert any(
+            command.reason == "metric_arrival_predicted_stop"
+            for command in motion.commands
+        )
         await manager.close()
 
     asyncio.run(scenario())
@@ -2257,10 +2387,10 @@ def test_home_capture_returns_one_fresh_disarmed_pose() -> None:
             "visual_odometry": {
                 "state": "unavailable",
                 "generation": None,
-                    "frame_sequence": None,
-                    "error": None,
-                    "sensor_fusion": "legacy",
-                },
+                "frame_sequence": None,
+                "error": None,
+                "sensor_fusion": "legacy",
+            },
         }
         assert motion.armed is False
         assert motion.commands == []

@@ -229,14 +229,14 @@ def test_status_is_explicitly_non_operational() -> None:
                 "name": "fresh_pose",
                 "detail": "fresh Go2 pose is unavailable",
             },
-                {
-                    "name": "camera_perception_ready",
-                    "detail": "production camera/perception adapter is not connected",
-                },
-                {
-                    "name": "metric_arrival_calibrated",
-                    "detail": "stationary forward range calibration is required",
-                },
+            {
+                "name": "camera_perception_ready",
+                "detail": "production camera/perception adapter is not connected",
+            },
+            {
+                "name": "metric_arrival_calibrated",
+                "detail": "metric range calibration and a fresh source are required",
+            },
         ],
     }
 
@@ -266,9 +266,9 @@ def test_activate_fails_closed_when_preflight_is_not_ready(tmp_path) -> None:
             "autonomy_enabled": False,
             "fresh_pose": False,
             "motion_disarmed": True,
-                "camera_perception_ready": False,
-                "metric_arrival_calibrated": False,
-            }
+            "camera_perception_ready": False,
+            "metric_arrival_calibrated": False,
+        }
         assert client.get("/api/status").json()["active_run_id"] is None
 
         readback = client.get(f"/api/results/{created['run_id']}")
@@ -477,9 +477,9 @@ def test_success_does_not_capture_terminal_frame_archive(tmp_path) -> None:
             terminal_evidence=capture_terminal_evidence,
         )
     ) as client:
-        run_id = client.post("/api/run", json={"target_fruit": "pear"}).json()[
-            "run"
-        ]["run_id"]
+        run_id = client.post("/api/run", json={"target_fruit": "pear"}).json()["run"][
+            "run_id"
+        ]
         deadline = time.monotonic() + 1.0
         while time.monotonic() < deadline:
             run = client.get(f"/api/results/{run_id}").json()["run"]
@@ -633,9 +633,9 @@ def test_failed_run_recovery_uses_saved_home_and_failed_approach_trace(
             stage_executor=FailedApproachStages(),
         )
     ) as client:
-        run_id = client.post("/api/run", json={"target_fruit": "pear"}).json()[
-            "run"
-        ]["run_id"]
+        run_id = client.post("/api/run", json={"target_fruit": "pear"}).json()["run"][
+            "run_id"
+        ]
         deadline = time.monotonic() + 1.0
         while time.monotonic() < deadline:
             failed = client.get(f"/api/results/{run_id}").json()["run"]
@@ -690,9 +690,10 @@ def test_failed_run_recovery_uses_saved_home_and_failed_approach_trace(
     assert attempt["steps"][0]["evidence"]["outbound_forward_pulses"] == 3
     assert attempt["steps"][0]["evidence"]["maximum_forward_pulses"] == 5
     assert attempt["steps"][2]["evidence"]["requested_forward_pulses"] == 5
-    assert attempt["steps"][2]["evidence"]["motion_commands"][0][
-        "phase"
-    ] == "recovery_return_home"
+    assert (
+        attempt["steps"][2]["evidence"]["motion_commands"][0]["phase"]
+        == "recovery_return_home"
+    )
     assert hardware.calls[0][0] == "turn_toward_home"
     assert hardware.calls[0][1] == failed["home"]
     assert hardware.calls[1][0] == "return_home"
@@ -735,9 +736,9 @@ def test_active_recovery_blocks_activation_and_operator_stop_seals_it(
             stage_executor=FailedApproachStages(),
         )
     ) as client:
-        run_id = client.post("/api/run", json={"target_fruit": "pear"}).json()[
-            "run"
-        ]["run_id"]
+        run_id = client.post("/api/run", json={"target_fruit": "pear"}).json()["run"][
+            "run_id"
+        ]
         deadline = time.monotonic() + 1.0
         while time.monotonic() < deadline:
             failed = client.get(f"/api/results/{run_id}").json()["run"]

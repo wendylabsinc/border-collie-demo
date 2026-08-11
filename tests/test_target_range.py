@@ -84,10 +84,87 @@ def test_unavailable_or_unassociated_range_fails_closed(
 
 
 def test_stopped_clearance_outside_tolerance_cannot_arrive() -> None:
-    decision = MetricArrivalGate(calibration()).observe(
-        observed(0.28, stopped=True)
-    )
+    decision = MetricArrivalGate(calibration()).observe(observed(0.28, stopped=True))
 
     assert decision.action is MetricArrivalAction.UNAVAILABLE
     assert decision.reason == "clearance_overshoot"
     assert decision.clearance_m == pytest.approx(0.08)
+
+
+def test_projected_lidar_clearance_requires_confident_bbox_association() -> None:
+    gate = MetricArrivalGate(
+        RangeCalibration(
+            forward_index=0,
+            sensor_to_front_envelope_m=0.0,
+            sensor_latency_s=0.10,
+            braking_distance_m=0.04,
+            noise_m=0.01,
+        )
+    )
+    confident = observed(None)
+    confident = RangeObservation(
+        **{
+            **confident.__dict__,
+            "ranges_m": None,
+            "associated_range_m": 0.35,
+            "association_confidence": 0.75,
+            "association_valid": True,
+            "association_mode": "lidar_handoff",
+            "range_source": "lidar_temporal_pear_handoff",
+        }
+    )
+    weak = RangeObservation(**{**confident.__dict__, "association_confidence": 0.49})
+
+    assert gate.observe(confident).action is MetricArrivalAction.ADVANCE
+    assert gate.observe(weak).reason == "pear_range_association_confidence_low"
+
+
+def test_temporal_lidar_handoff_does_not_require_current_visual_evidence() -> None:
+    gate = MetricArrivalGate(calibration())
+    handoff = RangeObservation(
+        ranges_m=None,
+        age_s=0.05,
+        pear_center_error_ratio=None,
+        visual_evidence_fresh=False,
+        robot_stopped=False,
+        close_speed_mps=0.55,
+        associated_range_m=0.70,
+        association_confidence=0.80,
+        association_valid=True,
+        association_mode="lidar_handoff",
+        range_source="lidar_temporal_pear_handoff",
+    )
+    unassociated = RangeObservation(**{**handoff.__dict__, "association_valid": False})
+
+    assert gate.observe(handoff).action is MetricArrivalAction.ADVANCE
+    assert gate.observe(unassociated).reason == "pear_range_not_associated"
+
+
+def test_18_inch_target_accepts_only_16_to_20_inches_when_stopped() -> None:
+    gate = MetricArrivalGate(
+        RangeCalibration(
+            forward_index=0,
+            sensor_to_front_envelope_m=0.0,
+            sensor_latency_s=0.20,
+            braking_distance_m=0.02,
+            noise_m=0.02,
+            target_clearance_m=0.4572,
+            tolerance_m=0.0508,
+            maximum_age_s=0.30,
+        )
+    )
+
+    for inches in (16.0, 18.0, 20.0):
+        sample = RangeObservation(
+            ranges_m=None,
+            age_s=0.01,
+            pear_center_error_ratio=None,
+            visual_evidence_fresh=False,
+            robot_stopped=True,
+            close_speed_mps=0.55,
+            associated_range_m=inches * 0.0254,
+            association_confidence=0.75,
+            association_valid=True,
+            association_mode="lidar_handoff",
+        )
+        assert gate.observe(sample).action is MetricArrivalAction.ARRIVAL

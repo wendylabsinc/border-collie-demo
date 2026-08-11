@@ -61,6 +61,14 @@ APPROACH_YAW_SLEW_RPS_PER_S = 2.0
 FORWARD_CAPABLE_OPERATIONS = frozenset(
     {"forward_pulse", "approach_target", "return_home"}
 )
+LIDAR_HANDOFF_TRACKING_REASONS = frozenset(
+    {
+        "qualified_close_track_lost",
+        "qualified_close_track_confidence_collapsed",
+        "detection_missing",
+        "tracking_confidence_low",
+    }
+)
 
 
 def _finite_float(value: object) -> float | None:
@@ -145,6 +153,22 @@ class PoseProviderProtocol(Protocol):
     def status(self) -> PoseStatus: ...
 
 
+class MetricRangeProviderProtocol(Protocol):
+    def start(self) -> None: ...
+
+    def close(self) -> None: ...
+
+    def status(self) -> dict[str, object]: ...
+
+    def observe(
+        self,
+        *,
+        visual_close_authorized: bool,
+        visual_center_error_ratio: float | None,
+        allow_handoff: bool,
+    ) -> object: ...
+
+
 MotionFactory = Callable[[MotionConfig], MotionAdapterProtocol]
 PoseFactory = Callable[[float], PoseProviderProtocol]
 DdsInitializer = Callable[[str | None], None]
@@ -161,6 +185,7 @@ class HardwareManager:
         home_localizer: HomeLocalizer | None = None,
         visual_odometry: VisualOdometryAdapter | None = None,
         metric_arrival_gate: MetricArrivalGate | None = None,
+        metric_range_provider: MetricRangeProviderProtocol | None = None,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self.config = config or HardwareConfig()
@@ -169,12 +194,8 @@ class HardwareManager:
         self._pose_factory = pose_factory or (
             lambda maximum_age_s: Go2PoseProvider(
                 maximum_age_s=maximum_age_s,
-                foot_contact_minimum_force=(
-                    self.config.foot_contact_minimum_force
-                ),
-                stationary_maximum_speed_mps=(
-                    self.config.stationary_maximum_speed_mps
-                ),
+                foot_contact_minimum_force=(self.config.foot_contact_minimum_force),
+                stationary_maximum_speed_mps=(self.config.stationary_maximum_speed_mps),
                 stationary_maximum_yaw_rate_rps=(
                     self.config.stationary_maximum_yaw_rate_rps
                 ),
@@ -184,9 +205,10 @@ class HardwareManager:
             visual_odometry,
             config=HomeLocalizationConfig(
                 maximum_odometry_age_s=self.config.pose_maximum_age_s
-            )
+            ),
         )
         self._metric_arrival_gate = metric_arrival_gate or self._configured_range_gate()
+        self._metric_range_provider = metric_range_provider
         self._monotonic = monotonic
         self._motion: MotionAdapterProtocol | None = None
         self._pose: PoseProviderProtocol | None = None
@@ -215,6 +237,8 @@ class HardwareManager:
             self._dds_initializer(self.config.network_interface)
             self._pose = self._pose_factory(self.config.pose_maximum_age_s)
             self._pose.start()
+            if self._metric_range_provider is not None:
+                self._metric_range_provider.start()
             self._motion = self._motion_factory(
                 MotionConfig(
                     minimum_forward_mps=self.config.minimum_forward_mps,
@@ -546,8 +570,7 @@ class HardwareManager:
                             and confidence is not None
                             and confidence >= SEARCH_CROP_CANDIDATE_CONFIDENCE
                             and detection_age_s is not None
-                            and 0.0 <= detection_age_s
-                            <= SEARCH_CANDIDATE_MAXIMUM_AGE_S
+                            and 0.0 <= detection_age_s <= SEARCH_CANDIDATE_MAXIMUM_AGE_S
                         )
                         if confidence is not None:
                             current_maximum = _finite_float(
@@ -655,9 +678,9 @@ class HardwareManager:
                         if not candidate_lock_active:
                             candidate_lock_active = True
                             candidate_hold_until = now + SEARCH_CANDIDATE_HOLD_S
-                            recognition["candidate_lock_count"] = int(
-                                recognition.get("candidate_lock_count", 0)
-                            ) + 1
+                            recognition["candidate_lock_count"] = (
+                                int(recognition.get("candidate_lock_count", 0)) + 1
+                            )
                             recognition["candidate_lock_confidence_threshold"] = (
                                 SEARCH_CROP_CANDIDATE_CONFIDENCE
                             )
@@ -674,15 +697,14 @@ class HardwareManager:
                     elif (
                         candidate_lock_active
                         and candidate_last_seen_at is not None
-                        and now - candidate_last_seen_at
-                        > SEARCH_CANDIDATE_LOSS_GRACE_S
+                        and now - candidate_last_seen_at > SEARCH_CANDIDATE_LOSS_GRACE_S
                     ):
                         candidate_lock_active = False
                         candidate_hold_until = None
                         candidate_last_seen_at = None
-                        recognition["candidate_lock_losses"] = int(
-                            recognition.get("candidate_lock_losses", 0)
-                        ) + 1
+                        recognition["candidate_lock_losses"] = (
+                            int(recognition.get("candidate_lock_losses", 0)) + 1
+                        )
                     command_rate = rate
                     command_reason = "find_target"
                     if candidate_lock_active:
@@ -690,15 +712,17 @@ class HardwareManager:
                         if now < candidate_hold_until:
                             command_rate = 0.0
                             command_reason = "crop_confirm_hold"
-                            recognition["crop_slowdown_hold_samples"] = int(
-                                recognition.get("crop_slowdown_hold_samples", 0)
-                            ) + 1
+                            recognition["crop_slowdown_hold_samples"] = (
+                                int(recognition.get("crop_slowdown_hold_samples", 0))
+                                + 1
+                            )
                         else:
                             command_rate = min(rate, SEARCH_CANDIDATE_YAW_RPS)
                             command_reason = "crop_confirm_slow_turn"
-                            recognition["crop_slowdown_turn_samples"] = int(
-                                recognition.get("crop_slowdown_turn_samples", 0)
-                            ) + 1
+                            recognition["crop_slowdown_turn_samples"] = (
+                                int(recognition.get("crop_slowdown_turn_samples", 0))
+                                + 1
+                            )
                     await self._send_motion_command(
                         lease,
                         VelocityCommand(0.0, command_rate, command_reason),
@@ -856,24 +880,69 @@ class HardwareManager:
                     decision = tracker.observe(status, now_s=now)
                     last_decision_evidence = dict(decision.evidence)
                     metric_decision = None
-                    if metric_arrival_required and decision.recommendation in {
-                        MotionRecommendation.SLOW,
-                        MotionRecommendation.ARRIVAL,
-                    }:
+                    close_samples = int(
+                        last_decision_evidence.get("close_range_samples", 0)
+                    )
+                    allow_lidar_handoff = bool(
+                        self._metric_range_provider is not None
+                        and close_samples >= 2
+                        and decision.reason in LIDAR_HANDOFF_TRACKING_REASONS
+                    )
+                    metric_path_active = bool(
+                        decision.recommendation
+                        in {MotionRecommendation.SLOW, MotionRecommendation.ARRIVAL}
+                        or allow_lidar_handoff
+                    )
+                    if metric_arrival_required and metric_path_active:
                         assert self._metric_arrival_gate is not None
+                        range_observation = self._range_observation(
+                            status,
+                            target_fruit=target_fruit,
+                            filtered_center_x=last_decision_evidence.get(
+                                "filtered_center_x_ratio"
+                            ),
+                            last_command=last_authorized_command,
+                            close_speed_mps=close_range_mps,
+                            visual_close_authorized=(
+                                decision.recommendation
+                                in {
+                                    MotionRecommendation.SLOW,
+                                    MotionRecommendation.ARRIVAL,
+                                }
+                            ),
+                            allow_lidar_handoff=allow_lidar_handoff,
+                        )
                         metric_decision = self._metric_arrival_gate.observe(
-                            self._range_observation(
-                                status,
-                                target_fruit=target_fruit,
-                                filtered_center_x=last_decision_evidence.get(
-                                    "filtered_center_x_ratio"
-                                ),
-                                last_command=last_authorized_command,
-                                close_speed_mps=close_range_mps,
-                            )
+                            range_observation
                         )
                         last_decision_evidence.update(metric_decision.evidence)
+                        last_decision_evidence.update(
+                            {
+                                "range_source": range_observation.range_source,
+                                "range_association_mode": (
+                                    range_observation.association_mode
+                                ),
+                                "range_association_valid": (
+                                    range_observation.association_valid
+                                ),
+                            }
+                        )
                         if metric_decision.action is MetricArrivalAction.UNAVAILABLE:
+                            if (
+                                metric_decision.reason
+                                == "pear_lidar_visual_association_pending"
+                            ):
+                                last_authorized_command = (
+                                    await self._send_motion_command(
+                                        lease,
+                                        VelocityCommand(
+                                            reason="metric_lidar_association_pending"
+                                        ),
+                                    )
+                                )
+                                last_moving_yaw_rps = 0.0
+                                await asyncio.sleep(self.config.command_heartbeat_s)
+                                continue
                             last_authorized_command = await self._send_motion_command(
                                 lease,
                                 VelocityCommand(reason="metric_range_unavailable"),
@@ -891,6 +960,13 @@ class HardwareManager:
                             last_moving_yaw_rps = 0.0
                             await asyncio.sleep(self.config.command_heartbeat_s)
                             continue
+
+                    lidar_handoff_advance = bool(
+                        metric_decision is not None
+                        and metric_decision.action is MetricArrivalAction.ADVANCE
+                        and last_decision_evidence.get("range_association_mode")
+                        == "lidar_handoff"
+                    )
 
                     arrival_confirmed = (
                         decision.recommendation is MotionRecommendation.ARRIVAL
@@ -945,9 +1021,7 @@ class HardwareManager:
                                 maximum_yaw_rps,
                                 APPROACH_MOVING_MAX_YAW_RPS,
                             ),
-                            "moving_yaw_slew_rps_per_s": (
-                                APPROACH_YAW_SLEW_RPS_PER_S
-                            ),
+                            "moving_yaw_slew_rps_per_s": (APPROACH_YAW_SLEW_RPS_PER_S),
                             "stationary_recenter_error_ratio": (
                                 tracker.config.stationary_recenter_error_ratio
                             ),
@@ -976,6 +1050,21 @@ class HardwareManager:
                             last_authorized_command.forward_mps != 0.0
                             or last_authorized_command.yaw_rps != 0.0
                         )
+                        await asyncio.sleep(self.config.command_heartbeat_s)
+                        continue
+                    if lidar_handoff_advance:
+                        last_authorized_command = await self._send_motion_command(
+                            lease,
+                            VelocityCommand(
+                                close_range_mps,
+                                0.0,
+                                "metric_lidar_handoff",
+                            ),
+                        )
+                        last_moving_yaw_rps = 0.0
+                        forward_pulse_count += 1
+                        metric_final_approach_pulses += 1
+                        commands_sent = True
                         await asyncio.sleep(self.config.command_heartbeat_s)
                         continue
                     if decision.recommendation in {
@@ -1031,8 +1120,7 @@ class HardwareManager:
                         ),
                     )
                     maximum_yaw_delta = (
-                        APPROACH_YAW_SLEW_RPS_PER_S
-                        * self.config.command_heartbeat_s
+                        APPROACH_YAW_SLEW_RPS_PER_S * self.config.command_heartbeat_s
                     )
                     yaw = max(
                         last_moving_yaw_rps - maximum_yaw_delta,
@@ -1145,6 +1233,8 @@ class HardwareManager:
         filtered_center_x: object,
         last_command: VelocityCommand | None,
         close_speed_mps: float,
+        visual_close_authorized: bool = False,
+        allow_lidar_handoff: bool = False,
     ) -> RangeObservation:
         pose_status = None if self._pose is None else self._pose.status()
         motion = None if pose_status is None else pose_status.motion
@@ -1190,16 +1280,55 @@ class HardwareManager:
                 robot_stopped = bool(
                     math.hypot(velocity_x, velocity_y)
                     <= self.config.stationary_maximum_speed_mps
-                    and abs(yaw_rate)
-                    <= self.config.stationary_maximum_yaw_rate_rps
+                    and abs(yaw_rate) <= self.config.stationary_maximum_yaw_rate_rps
+                )
+        associated_range_m = None
+        association_confidence = None
+        association_valid = False
+        association_mode = "directional"
+        range_source = "directional"
+        unavailable_reason = None
+        range_age_s = None if pose_status is None else pose_status.age_s
+        ranges_m = None if motion is None else motion.obstacle_ranges_m
+        if self._metric_range_provider is not None:
+            range_source = "lidar_temporal_pear_handoff"
+            ranges_m = None
+            projected = self._metric_range_provider.observe(
+                visual_close_authorized=visual_close_authorized,
+                visual_center_error_ratio=(
+                    None if center_x is None else center_x - 0.5
+                ),
+                allow_handoff=allow_lidar_handoff,
+            )
+            range_age_s = _finite_float(getattr(projected, "age_s", None))
+            if getattr(projected, "available", False) is True:
+                associated_range_m = _finite_float(
+                    getattr(projected, "front_clearance_m", None)
+                )
+                association_confidence = _finite_float(
+                    getattr(projected, "confidence", None)
+                )
+                association_valid = bool(getattr(projected, "association_valid", False))
+                association_mode = str(
+                    getattr(projected, "association_mode", "unavailable")
+                )
+            else:
+                unavailable_reason = str(
+                    getattr(projected, "reason", "pear_lidar_cloud_unavailable")
                 )
         return RangeObservation(
-            ranges_m=None if motion is None else motion.obstacle_ranges_m,
-            age_s=None if pose_status is None else pose_status.age_s,
+            ranges_m=ranges_m,
+            age_s=range_age_s,
             pear_center_error_ratio=(None if center_x is None else center_x - 0.5),
             visual_evidence_fresh=visual_fresh,
             robot_stopped=robot_stopped,
             close_speed_mps=close_speed_mps,
+            associated_range_m=associated_range_m,
+            association_confidence=association_confidence,
+            association_valid=association_valid,
+            association_mode=association_mode,
+            range_source=range_source,
+            unavailable_reason=unavailable_reason,
         )
 
     async def return_home(
@@ -1409,9 +1538,7 @@ class HardwareManager:
                     "motion_commands_sent": False,
                     "home_localization": estimate.to_dict(),
                 }
-            bearing_error = normalize_angle(
-                math.atan2(dy, dx) - current.yaw_rad
-            )
+            bearing_error = normalize_angle(math.atan2(dy, dx) - current.yaw_rad)
             if abs(bearing_error) <= tolerance_rad:
                 return {
                     "home_distance_m": distance,
@@ -1648,8 +1775,7 @@ class HardwareManager:
             raise HardwareUnavailable(
                 f"continuous Home fusion is not ready to {operation}: "
                 + str(
-                    latest.get("unavailable_reason")
-                    or "three trusted samples required"
+                    latest.get("unavailable_reason") or "three trusted samples required"
                 )
             )
 
@@ -1666,6 +1792,8 @@ class HardwareManager:
             errors.extend(await self._motion.close())
         if self._pose is not None:
             self._pose.close()
+        if self._metric_range_provider is not None:
+            self._metric_range_provider.close()
         self._connected = False
         return errors
 
@@ -1687,6 +1815,25 @@ class HardwareManager:
             and motion.get("initialized")
             and not motion.get("armed")
         )
+        metric_arrival = (
+            {"configured": False, "ready": False}
+            if self._metric_arrival_gate is None
+            else self._metric_arrival_gate.describe()
+        )
+        if self._metric_arrival_gate is not None:
+            range_provider = (
+                None
+                if self._metric_range_provider is None
+                else self._metric_range_provider.status()
+            )
+            metric_arrival = {
+                **metric_arrival,
+                "configured": bool(
+                    range_provider is None or range_provider.get("configured")
+                ),
+                "ready": bool(range_provider is None or range_provider.get("ready")),
+                "range_provider": range_provider,
+            }
         return {
             "configured": self.config.enabled,
             "autonomy_enabled": self.config.autonomy_enabled,
@@ -1716,11 +1863,7 @@ class HardwareManager:
                 ),
                 "latest": self._continuous_fusion_latest,
             },
-            "metric_arrival": (
-                {"configured": False}
-                if self._metric_arrival_gate is None
-                else self._metric_arrival_gate.describe()
-            ),
+            "metric_arrival": metric_arrival,
             "last_pulse": self._last_pulse,
         }
 
@@ -1824,7 +1967,8 @@ class HardwareManager:
                 or sample.motion is None
             ):
                 raise HardwareUnavailable(
-                    sample.error or "fresh fused pose evidence is required before motion"
+                    sample.error
+                    or "fresh fused pose evidence is required before motion"
                 )
             tracked = self._home_localizer.track_kinematics(
                 self._captured_home_pose,

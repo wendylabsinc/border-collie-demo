@@ -1,13 +1,13 @@
 {
   "appId": "border-collie-demo",
-  "version": "1.0.13-durability",
+  "version": "1.0.14-durability",
   "services": {
     "app": {
       "context": ".",
       "env": {
         "BORDER_COLLIE_PORT": "8110",
-        "BORDER_COLLIE_BUILD_LABEL": "durability-foundation-v10-safety-contracts (codex/durability-approach-cadence)",
-        "BORDER_COLLIE_RELEASE_ID": "durability-foundation-v10-safety-contracts",
+        "BORDER_COLLIE_BUILD_LABEL": "durability-foundation-v11-lidar-handoff (codex/durability-approach-cadence)",
+        "BORDER_COLLIE_RELEASE_ID": "durability-foundation-v11-lidar-handoff",
         "BORDER_COLLIE_CONFIG_SCHEMA": "2",
         "BORDER_COLLIE_RUNTIME_MODE": "production",
         "BORDER_COLLIE_HARDWARE_ENABLED": "1",
@@ -35,6 +35,18 @@
         "BORDER_COLLIE_FOOT_CONTACT_MIN_FORCE": "5.0",
         "BORDER_COLLIE_STATIONARY_MAX_SPEED_MPS": "0.05",
         "BORDER_COLLIE_STATIONARY_MAX_YAW_RATE_RPS": "0.08",
+        "BORDER_COLLIE_FORWARD_RANGE_INDEX": "0",
+        "BORDER_COLLIE_RANGE_SENSOR_TO_FRONT_ENVELOPE_M": "0.0",
+        "BORDER_COLLIE_RANGE_SENSOR_LATENCY_S": "0.20",
+        "BORDER_COLLIE_RANGE_BRAKING_DISTANCE_M": "0.02",
+        "BORDER_COLLIE_RANGE_NOISE_M": "0.02",
+        "BORDER_COLLIE_ARRIVAL_CLEARANCE_M": "0.4572",
+        "BORDER_COLLIE_ARRIVAL_CLEARANCE_TOLERANCE_M": "0.0508",
+        "BORDER_COLLIE_RANGE_MAXIMUM_AGE_S": "0.30",
+        "BORDER_COLLIE_LIDAR_HANDOFF_ENABLED": "1",
+        "BORDER_COLLIE_LIDAR_FRONT_ENVELOPE_M": "0.30",
+        "BORDER_COLLIE_LIDAR_MAXIMUM_AGE_S": "0.30",
+        "BORDER_COLLIE_LIDAR_MAXIMUM_HANDOFF_S": "2.0",
         "GO2_NETWORK_INTERFACE": "enP8p1s0"
       },
       "entitlements": [
@@ -50,7 +62,7 @@
       "context": "./media",
       "env": {
         "UNITREE_ROBOT_IP": "192.168.123.161",
-        "BORDER_COLLIE_RELEASE_ID": "durability-foundation-v10-safety-contracts",
+        "BORDER_COLLIE_RELEASE_ID": "durability-foundation-v11-lidar-handoff",
         "BORDER_COLLIE_CONFIG_SCHEMA": "2",
         "PEAR_MODEL_PATH": "/media/model.engine",
         "BANANA_SPECIALIST_MODEL_PATH": "/media/banana-specialist.pt",
