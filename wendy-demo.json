@@ -1,0 +1,20 @@
+{
+  "title": "Border Collie Fruit Demo",
+  "description": "Operator view for Woof's camera-guided fruit-finding demonstration.",
+  "category": "Robot",
+  "safety": "control",
+  "links": [
+    {
+      "label": "Open operator UI",
+      "port": 8110,
+      "path": "/",
+      "kind": "control"
+    },
+    {
+      "label": "Open diagnostics",
+      "port": 8110,
+      "path": "/debug",
+      "kind": "debug"
+    }
+  ]
+}
