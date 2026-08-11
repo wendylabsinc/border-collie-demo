@@ -452,3 +452,33 @@ requested Home recovery path. Both issues block a consecutive soak.
 
 Compact evidence:
 `benchmarks/results/stage-camera-v15-pear-run-2-2026-08-11.json`.
+
+## STAGE-CAMERA-V16-FINAL-APPROACH-LATCH-2026-08-11 — deployed, not physically run
+
+- Build: `codex/stage-camera-final-approach-latch` at `11319d1`, with runtime
+  label `stage-camera-v16-final-approach-latch`
+- Deterministic replay: the evidence sequence from run
+  `bce852b0-8645-46b4-9d26-dedcb6cb81a4` now latches Final Approach after
+  three fresh centered near samples, stops on the first weak sample, ignores a
+  stale frame for loss confirmation, and authorizes exactly one bounded final
+  push after the second fresh, advancing, camera-healthy missing detection
+- Negative coverage: stale-only, frozen/duplicate, wrong-label,
+  wrong-generation, off-axis, invalid-geometry, unhealthy-camera, and expired
+  latch cases all remain fail-closed and never authorize the final push
+- Local validation: 292 tests passed; Ruff and `git diff --check` passed
+- Deployment: complete root and media Stagefiles through `wendy run --detach`;
+  140.498 seconds; both installed services report release
+  `stage-camera-v16-final-approach-latch` with configuration schema 2
+- Runtime readiness: app activation is ready with no blockers; media supervision
+  is ready with zero restarts; one stable generation advanced source PTS from
+  32640 to 38940; bark is ready
+- Safety: mission idle, no active run or recovery, no Remote Takeover, no active
+  hardware operation, guardian inactive, motion disarmed, and final command zero
+- Thermal boundary: the front-left thigh reported 78 degrees Celsius, above the
+  configured motor warning threshold; no run was activated and no motion was
+  sent
+
+Meaning: the first repair is implemented, regression-tested, installed, and
+ready for a later supervised acceptance run. It has not been physically
+executed, does not qualify fruit clearance or repeatability, and does not include
+the separate failed-run Home-recovery or heading-restoration repairs.
