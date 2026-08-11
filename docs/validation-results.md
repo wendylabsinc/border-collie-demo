@@ -504,6 +504,20 @@ the separate failed-run Home-recovery or heading-restoration repairs.
   changed Python file and `git diff --check` passed. Repository-wide Ruff still
   reports 24 pre-existing violations under `lab/` and `scripts/`, outside this
   change
+- Deployment: complete root and media Stagefiles through the exact underlying
+  `wendy run --detach`, wrapped by DLO recording; 142.587 seconds. Both services
+  report release `stage-camera-v17-bottom-clip-closeout` with configuration
+  schema 3, and the installed app group reports version `1.0.20-stage-camera`
+- Runtime readiness: app activation is ready with no blockers; media supervision
+  is ready with zero restarts; one stable camera generation advanced source PTS
+  from 44520 to 47940; bark and the banana specialist are ready
+- Safety after deployment: mission idle, no active run or recovery, no Remote
+  Takeover, no active hardware operation, guardian inactive, motion disarmed,
+  factory avoidance inactive, and the final command is zero. Every other listed
+  Go2 motion app is stopped
+- Device boundary after deployment: battery 52% and discharging; host CPU 22.4%,
+  memory 3.59/16.42 GB, GPU 0%; IMU 79 degrees Celsius and maximum observed
+  motor temperature 62 degrees Celsius
 - Physical status: no Demo Run has exercised this checkpoint; clearance,
   detector cadence between the replayed samples, and three-fruit repeatability
   remain unqualified
