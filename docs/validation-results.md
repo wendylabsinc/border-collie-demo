@@ -482,3 +482,33 @@ Meaning: the first repair is implemented, regression-tested, installed, and
 ready for a later supervised acceptance run. It has not been physically
 executed, does not qualify fruit clearance or repeatability, and does not include
 the separate failed-run Home-recovery or heading-restoration repairs.
+
+## STAGE-CAMERA-ARRIVAL-FAILURE-HOME-RECOVERY-2026-08-11 — implementation checkpoint
+
+- Source: `codex/stage-camera-arrival-failure-home-recovery`, derived from the
+  v16 evidence commit `e433145`
+- Automatic scope: approach-phase `ARRIVAL_FAILURE` now joins
+  `TARGET_LOST_OFF_AXIS` in the existing one-shot failure choreography: stop,
+  lie down without bark, hold, stand, turn toward captured Home, and perform a
+  bounded position-only return inside the existing 0.10 m gate
+- Motion authority: the automatic path requires `DISARMED_CONFIRMED`, fresh
+  captured Home metadata, fresh healthy pose, a trusted Home estimate, enabled
+  autonomy, no hardware fault or active operation, released motion, no Remote
+  Takeover, and 1–200 recorded outbound forward heartbeats
+- Posture-to-return gate: down and stand evidence must confirm the expected
+  postures, then at least three fresh trusted continuous-fusion samples must be
+  present before the Home turn
+- Durable failure behavior: unsafe candidates record
+  `AUTOMATIC_RECOVERY_SKIPPED`; stop, posture, or controller failures record
+  `RECOVERY_FAILURE`; all retain the original failed Run Result and reissue the
+  stop/disarm boundary
+- Deterministic coverage: Arrival recovery reaches a terminal trusted Home
+  estimate of 0.08 m; the prior off-axis path remains supported; camera failure,
+  Remote Takeover, stale/untrusted Home or pose, missing/excessive pulse
+  evidence, faults, active operations, disabled autonomy, armed motion,
+  insufficient fusion, bad posture evidence, and stop failures do not translate;
+  a failed recovery is disarmed and cannot start a second automatic attempt
+- Status: locally implemented and tested only. It has not been Wendy-built,
+  deployed to Woof, or physically exercised. Integrate this commit after the
+  separate bottom-clipping closeout fix and assign the combined candidate a new
+  release identity before deployment.

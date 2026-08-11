@@ -365,6 +365,14 @@ Failed-run recovery is a separate, position-only operation. It reuses the
 failed run's saved Home and recorded forward approach heartbeat count; it does
 not capture a new Home or change the original failed outcome.
 
+Eligible `ARRIVAL_FAILURE` and `TARGET_LOST_OFF_AXIS` approach failures start
+one automatic no-bark recovery after confirmed disarm. That path requires a
+fresh captured Home, fresh trusted pose and continuous fusion, released motion,
+no fault, operation, or Remote Takeover, and a bounded recorded outbound pulse
+count. An unsafe candidate is recorded as `AUTOMATIC_RECOVERY_SKIPPED` and does
+not translate. The explicit endpoint below remains available for supervised
+recovery of older failed records that did not receive an automatic attempt.
+
 ```bash
 curl -X POST \
   http://woof.local:8110/api/results/RUN_ID/recover-home \

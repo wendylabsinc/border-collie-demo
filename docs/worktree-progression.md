@@ -27,6 +27,8 @@ main (clean scaffold)
   -> codex/durability-approach-cadence       PR #5
   -> codex/stage-camera-three-fruit          PR #6
   -> codex/stage-camera-final-approach-latch
+       -> codex/stage-camera-bottom-clip-closeout
+       -> codex/stage-camera-arrival-failure-home-recovery
 ```
 
 | Checkpoint | Purpose | Evidence status |
@@ -40,6 +42,8 @@ main (clean scaffold)
 | `codex/durability-approach-cadence` | Integrated durability foundation, supervision, qualified tracking, Home fusion, fault injection, smoother approach control, and the later metric/LiDAR experiments. | Open PR #5. Deployed and physically iterated, but the LiDAR Arrival path did not achieve repeatable stage success. |
 | `codex/stage-camera-three-fruit` | Keeps PR #5's durability/recovery work while restoring a base-compatible camera closeout shared by apple, banana, and pear. | Open stacked PR #6. Commit `7a4686f` supplied the runtime change and `c6f70eb` added this lineage map; the latter was deployed with the same `stage-camera-v15-base-compatible-arrival` runtime identity. Two supervised pear runs have executed: run one completed the fruit/audience path but failed heading restoration after Home distance grew from 0.079 m to 0.124 m; run two reached centered close geometry but weak/stale/missing evidence prevented final-push authorization and timed out without automatic Home recovery. It is physically executed but not qualified. |
 | `codex/stage-camera-final-approach-latch` | Repairs the v15 closeout state-transition hole with a bounded, one-way Final Approach latch while leaving the metric/LiDAR profile unchanged. | Deterministic replay of run `bce852b0-8645-46b4-9d26-dedcb6cb81a4` reaches one terminal camera final-push authorization instead of waiting for the overall timeout. Negative tests keep stale/frozen, wrong-label/generation, off-axis, invalid, unhealthy, and expired evidence fail-closed. This checkpoint is not physically qualified. |
+| `codex/stage-camera-bottom-clip-closeout` | Treats a centered pear shrinking while clipped by the lower image edge as expected Final Approach evidence rather than a track discontinuity. | Parallel derived implementation lane. Integrate and validate its final commit before adding the recovery checkpoint below. |
+| `codex/stage-camera-arrival-failure-home-recovery` | Extends the existing one-shot, no-bark failed-run recovery to eligible `ARRIVAL_FAILURE` outcomes with fresh Home, pose, fusion, disarm, motion-release, pulse-budget, posture, and takeover gates. | Derived independently from `e433145` so it can be reviewed without the bottom-clip change. Deterministic API and recovery-adapter tests pass locally; it has not been built, deployed, or physically exercised. Cherry-pick its implementation commit onto the bottom-clip head, resolve only release-note lineage text, rerun the complete suite, and create one combined release identity before any deployment. |
 
 PR #6 is based on PR #5, and PR #5 is based on `demo/base`. This keeps each
 review focused without pretending the latest stage candidate is already merged

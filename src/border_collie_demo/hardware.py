@@ -2006,6 +2006,19 @@ class HardwareManager:
                 "consecutive_trusted_samples": (
                     self._continuous_fusion_consecutive_trusted
                 ),
+                "latest_age_s": (
+                    None
+                    if self._continuous_fusion_latest is None
+                    else max(
+                        0.0,
+                        self._monotonic()
+                        - float(
+                            self._continuous_fusion_latest[
+                                "recorded_monotonic_s"
+                            ]
+                        ),
+                    )
+                ),
                 "latest": self._continuous_fusion_latest,
             },
             "metric_arrival_required": self.config.metric_arrival_required,
