@@ -48,6 +48,10 @@ class QualifiedTrackingConfig:
     moving_steering_enter_confirmations: int = 2
     stationary_recenter_error_ratio: float = 0.40
     stationary_recenter_confirmations: int = 2
+    close_handoff_center_ratio: float = 0.08
+    close_handoff_center_confirmations: int = 3
+    close_recenter_enter_ratio: float = 0.12
+    close_recenter_confirmations: int = 2
     maximum_vertical_retreat_ratio: float = 0.08
     maximum_area_retreat_fraction: float = 0.35
     slow_speed_scale: float = 0.30
@@ -111,6 +115,8 @@ class QualifiedTrackingConfig:
             self.moving_steering_enter_ratio,
             self.moving_steering_exit_ratio,
             self.stationary_recenter_error_ratio,
+            self.close_handoff_center_ratio,
+            self.close_recenter_enter_ratio,
             self.maximum_vertical_retreat_ratio,
             self.maximum_area_retreat_fraction,
             self.slow_speed_scale,
@@ -124,6 +130,8 @@ class QualifiedTrackingConfig:
                 self.near_confirmations,
                 self.moving_steering_enter_confirmations,
                 self.stationary_recenter_confirmations,
+                self.close_handoff_center_confirmations,
+                self.close_recenter_confirmations,
             )
             < 1
         ):
@@ -139,6 +147,10 @@ class QualifiedTrackingConfig:
         ):
             raise ValueError(
                 "steering thresholds must satisfy exit < enter < stationary recenter"
+            )
+        if self.close_recenter_enter_ratio <= self.close_handoff_center_ratio:
+            raise ValueError(
+                "close recenter entry must exceed the handoff center corridor"
             )
         if (
             not math.isfinite(self.sight_loss_grace_s)
@@ -188,6 +200,9 @@ class QualifiedFruitTracker:
         self._near_samples = 0
         self._qualified_samples = 0
         self._close_samples = 0
+        self._close_handoff_centered_samples = 0
+        self._close_recenter_samples = 0
+        self._close_recenter_active = False
         self._weak_samples = 0
         self._stale_samples = 0
         self._duplicate_samples = 0
@@ -397,6 +412,39 @@ class QualifiedFruitTracker:
         now: float,
     ) -> TrackDecision:
         horizontal_error = self._filtered_horizontal_error(observation)
+        close_geometry = (
+            observation.bottom >= self.config.close_bottom_ratio
+            or self._close_samples >= 2
+        )
+        if self.config.target_fruit == "pear" and self._close_recenter_active:
+            if abs(horizontal_error) <= self.config.close_handoff_center_ratio:
+                self._close_recenter_active = False
+                self._close_recenter_samples = 0
+            else:
+                return self._decision(
+                    MotionRecommendation.ALIGN,
+                    "close_tracking_recenter",
+                    observation,
+                    horizontal_error=horizontal_error,
+                )
+        elif self.config.target_fruit == "pear" and close_geometry:
+            self._close_recenter_samples = (
+                self._close_recenter_samples + 1
+                if abs(observation.center_x - 0.5)
+                > self.config.close_recenter_enter_ratio
+                else 0
+            )
+            if (
+                self._close_recenter_samples
+                >= self.config.close_recenter_confirmations
+            ):
+                self._close_recenter_active = True
+                return self._decision(
+                    MotionRecommendation.ALIGN,
+                    "close_tracking_recenter",
+                    observation,
+                    horizontal_error=horizontal_error,
+                )
         if self._approach_authorized and (
             self._extreme_error_samples
             >= self.config.stationary_recenter_confirmations
@@ -473,6 +521,13 @@ class QualifiedFruitTracker:
                 "qualified_close_track_confidence_collapsed",
                 observation,
             )
+        if self._close_loss_is_off_axis(now):
+            self._arrival_mode = None
+            return self._decision(
+                MotionRecommendation.STOP,
+                "target_lost_off_axis",
+                observation,
+            )
         self._invalidate_close_loss()
         return self._decision(MotionRecommendation.STOP, "tracking_confidence_low")
 
@@ -482,6 +537,12 @@ class QualifiedFruitTracker:
             return self._decision(
                 MotionRecommendation.ARRIVAL,
                 "qualified_close_track_lost",
+            )
+        if self._close_loss_is_off_axis(now):
+            self._arrival_mode = None
+            return self._decision(
+                MotionRecommendation.STOP,
+                "target_lost_off_axis",
             )
         recommendation = (
             MotionRecommendation.STOP
@@ -496,20 +557,13 @@ class QualifiedFruitTracker:
         *,
         corroborating: _Observation | None = None,
     ) -> bool:
-        previous = self._last_observation
-        if (
-            not self._track_acquired
-            or previous is None
-            or self._last_qualified_at is None
-            or now - self._last_qualified_at > self.config.sight_loss_grace_s
-            or self._close_samples < 2
-        ):
+        previous = self._close_loss_candidate(now)
+        if previous is None:
             return False
-        close_enough = (
-            previous.bottom >= self.config.near_bottom_ratio - 0.05
-            and previous.center_y >= self.config.near_center_ratio - 0.05
-        )
-        if not close_enough:
+        if self.config.target_fruit == "pear" and (
+            self._close_handoff_centered_samples
+            < self.config.close_handoff_center_confirmations
+        ):
             return False
         if corroborating is None:
             return True
@@ -522,6 +576,30 @@ class QualifiedFruitTracker:
                 or corroborating.area >= previous.area
             )
         )
+
+    def _close_loss_is_off_axis(self, now: float) -> bool:
+        return (
+            self.config.target_fruit == "pear"
+            and self._close_loss_candidate(now) is not None
+            and self._close_handoff_centered_samples
+            < self.config.close_handoff_center_confirmations
+        )
+
+    def _close_loss_candidate(self, now: float) -> _Observation | None:
+        previous = self._last_observation
+        if (
+            not self._track_acquired
+            or previous is None
+            or self._last_qualified_at is None
+            or now - self._last_qualified_at > self.config.sight_loss_grace_s
+            or self._close_samples < 2
+        ):
+            return None
+        close_enough = (
+            previous.bottom >= self.config.near_bottom_ratio - 0.05
+            and previous.center_y >= self.config.near_center_ratio - 0.05
+        )
+        return previous if close_enough else None
 
     def _accept_observation(self, observation: _Observation, now: float) -> None:
         previous = self._last_observation
@@ -562,6 +640,12 @@ class QualifiedFruitTracker:
             if self._filtered_center_x is None
             else self.config.center_filter_alpha * observation.center_x
             + (1.0 - self.config.center_filter_alpha) * self._filtered_center_x
+        )
+        self._close_handoff_centered_samples = (
+            self._close_handoff_centered_samples + 1
+            if abs(self._filtered_center_x - 0.5)
+            <= self.config.close_handoff_center_ratio
+            else 0
         )
         self._last_source_pts = observation.source_pts
         self._last_qualified_at = now
@@ -657,6 +741,9 @@ class QualifiedFruitTracker:
         self._centered_samples = 0
         self._near_samples = 0
         self._close_samples = 0
+        self._close_handoff_centered_samples = 0
+        self._close_recenter_samples = 0
+        self._close_recenter_active = False
         self._track_acquired = False
         self._approach_authorized = approach_authorized
         self._initial_centered = approach_authorized
@@ -710,6 +797,19 @@ class QualifiedFruitTracker:
             "acquisition_samples": self._acquisition_samples,
             "qualified_samples": self._qualified_samples,
             "close_range_samples": self._close_samples,
+            "close_handoff_centered_samples": (
+                self._close_handoff_centered_samples
+            ),
+            "close_handoff_center_ratio": self.config.close_handoff_center_ratio,
+            "close_handoff_center_confirmations": (
+                self.config.close_handoff_center_confirmations
+            ),
+            "close_recenter_active": self._close_recenter_active,
+            "close_recenter_samples": self._close_recenter_samples,
+            "close_recenter_enter_ratio": self.config.close_recenter_enter_ratio,
+            "close_recenter_confirmations": (
+                self.config.close_recenter_confirmations
+            ),
             "near_samples": self._near_samples,
             "weak_samples": self._weak_samples,
             "stale_samples": self._stale_samples,

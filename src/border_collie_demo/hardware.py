@@ -65,8 +65,6 @@ LIDAR_HANDOFF_TRACKING_REASONS = frozenset(
     {
         "qualified_close_track_lost",
         "qualified_close_track_confidence_collapsed",
-        "detection_missing",
-        "tracking_confidence_low",
     }
 )
 
@@ -114,6 +112,10 @@ class TargetLost(HardwareUnavailable):
     ) -> None:
         super().__init__(message)
         self.evidence = dict(evidence or {})
+
+
+class TargetLostOffAxis(TargetLost):
+    """A close qualified track left the camera corridor before handoff."""
 
 
 class TurnNoResponse(HardwareUnavailable):
@@ -879,6 +881,47 @@ class HardwareManager:
                         )
                     decision = tracker.observe(status, now_s=now)
                     last_decision_evidence = dict(decision.evidence)
+                    note_visual_track = getattr(
+                        self._metric_range_provider,
+                        "note_visual_track",
+                        None,
+                    )
+                    visible_detection = status.get("detection")
+                    if (
+                        callable(note_visual_track)
+                        and target_fruit.casefold().strip() == "pear"
+                        and isinstance(visible_detection, dict)
+                        and str(visible_detection.get("label") or "")
+                        .casefold()
+                        .strip()
+                        == target_fruit.casefold().strip()
+                        and decision.reason
+                        in {
+                            "confirming_target_identity",
+                            "confirming_target_reacquisition",
+                            "centering_acquired_target",
+                            "qualified_track",
+                            "close_range_track",
+                            "qualified_visible_arrival",
+                            "large_tracking_error",
+                            "close_tracking_recenter",
+                        }
+                        and int(
+                            last_decision_evidence.get("close_range_samples", 0)
+                        )
+                        > 0
+                    ):
+                        filtered_center = _finite_float(
+                            last_decision_evidence.get("filtered_center_x_ratio")
+                        )
+                        note_visual_track(
+                            center_error_ratio=(
+                                None
+                                if filtered_center is None
+                                else filtered_center - 0.5
+                            ),
+                            close_authorized=True,
+                        )
                     metric_decision = None
                     close_samples = int(
                         last_decision_evidence.get("close_range_samples", 0)
@@ -1078,6 +1121,12 @@ class HardwareManager:
                             ),
                         )
                         last_moving_yaw_rps = 0.0
+                        if decision.reason == "target_lost_off_axis":
+                            raise TargetLostOffAxis(
+                                f"qualified {target_fruit} left the centered "
+                                "close-range handoff corridor",
+                                evidence=dict(last_decision_evidence),
+                            )
                         await asyncio.sleep(self.config.command_heartbeat_s)
                         continue
 
@@ -1099,7 +1148,12 @@ class HardwareManager:
                                 (
                                     "recenter_target_large_error"
                                     if decision.reason == "large_tracking_error"
-                                    else "center_target_before_approach"
+                                    else (
+                                        "recenter_close_target"
+                                        if decision.reason
+                                        == "close_tracking_recenter"
+                                        else "center_target_before_approach"
+                                    )
                                 ),
                             ),
                         )

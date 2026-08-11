@@ -140,6 +140,7 @@ class ScriptedLidarHandoff:
         self._last = clearances_m[-1]
         self.started = False
         self.calls: list[dict[str, object]] = []
+        self.visual_calls: list[dict[str, object]] = []
 
     def start(self) -> None:
         self.started = True
@@ -149,6 +150,19 @@ class ScriptedLidarHandoff:
 
     def status(self) -> dict[str, object]:
         return {"configured": True, "ready": self.started, "fresh": self.started}
+
+    def note_visual_track(
+        self,
+        *,
+        center_error_ratio: float | None,
+        close_authorized: bool,
+    ) -> None:
+        self.visual_calls.append(
+            {
+                "center_error_ratio": center_error_ratio,
+                "close_authorized": close_authorized,
+            }
+        )
 
     def observe(
         self,
@@ -1307,6 +1321,8 @@ def test_close_visual_track_hands_off_to_lidar_until_stopped_18_inch_arrival() -
         assert result["range_association_mode"] == "lidar_handoff"
         assert result["front_clearance_m"] == pytest.approx(0.48)
         assert lidar.calls
+        assert len(lidar.visual_calls) == 4
+        assert all(call["close_authorized"] is True for call in lidar.visual_calls)
         assert all(call["allow_handoff"] is True for call in lidar.calls)
         assert all(call["visual_close_authorized"] is False for call in lidar.calls)
         assert any(

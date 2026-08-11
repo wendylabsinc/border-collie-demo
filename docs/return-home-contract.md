@@ -102,6 +102,14 @@ The recovery is separate from the terminal mission: the original run remains
 `FAILED`, no new Home is captured, and the failed mission stages are not
 resumed.
 
+`TARGET_LOST_OFF_AXIS` starts this recovery automatically after terminal
+evidence and confirmed disarm. The recovery record is persisted before the
+failure action. Woof lies down without barking, holds for five seconds, stands,
+and requires the existing continuous-fusion readiness gate before turning
+toward Home. Pose, motion, posture, or stop failures remain fail-closed and do
+not attempt translation. Other failed-run reasons retain the explicit recovery
+endpoint.
+
 The API persists the recovery record before motion, returns `202 Accepted`, and
 runs recovery asynchronously so a client disconnect cannot cause an ambiguous
 second activation. Recovery turns toward the saved Home and uses 1.5 times the

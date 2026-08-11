@@ -378,6 +378,73 @@ def test_sight_lost_close_arrival_is_bounded_by_time_and_geometry() -> None:
     assert stopped.evidence["arrival_mode"] is None
 
 
+def test_off_axis_close_loss_cannot_authorize_lidar_handoff() -> None:
+    target = tracker()
+    pts = acquire(target)
+    target.observe(
+        observation(
+            center_x=0.64,
+            center_y=0.69,
+            bottom=0.74,
+            area=0.07,
+            source_pts=pts,
+        ),
+        now_s=0.4,
+    )
+    target.observe(
+        observation(
+            center_x=0.66,
+            center_y=0.75,
+            bottom=0.83,
+            area=0.12,
+            source_pts=pts + 1,
+        ),
+        now_s=0.5,
+    )
+
+    lost = target.observe(
+        {"camera_healthy": True, "target_ready": False},
+        now_s=0.6,
+    )
+
+    assert lost.recommendation is MotionRecommendation.STOP
+    assert lost.reason == "target_lost_off_axis"
+    assert lost.evidence["close_handoff_centered_samples"] == 0
+    assert lost.evidence["arrival_mode"] is None
+
+
+def test_two_fresh_close_off_center_samples_stop_forward_to_recenter() -> None:
+    target = tracker()
+    pts = acquire(target)
+
+    first = target.observe(
+        observation(
+            center_x=0.64,
+            center_y=0.69,
+            bottom=0.74,
+            area=0.07,
+            source_pts=pts,
+        ),
+        now_s=0.4,
+    )
+    second = target.observe(
+        observation(
+            center_x=0.66,
+            center_y=0.75,
+            bottom=0.83,
+            area=0.12,
+            source_pts=pts + 1,
+        ),
+        now_s=0.5,
+    )
+
+    assert first.recommendation is MotionRecommendation.APPROACH
+    assert second.recommendation is MotionRecommendation.ALIGN
+    assert second.reason == "close_tracking_recenter"
+    assert second.forward_scale == 0.0
+    assert second.evidence["close_recenter_active"] is True
+
+
 def test_bbox_retreat_breaks_continuity_and_stops_forward_motion() -> None:
     target = tracker()
     pts = acquire(target)

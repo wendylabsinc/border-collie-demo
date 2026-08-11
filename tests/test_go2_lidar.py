@@ -99,6 +99,11 @@ def provider(now: list[float]) -> PearLidarHandoffProvider:
         subscriber_factory=lambda _callback: object(),
     )
     result.start()
+    for _ in range(3):
+        result.note_visual_track(
+            center_error_ratio=0.0,
+            close_authorized=True,
+        )
     return result
 
 
@@ -126,6 +131,43 @@ def test_two_fresh_lidar_frames_are_required_after_camera_disappears() -> None:
     assert second.handoff_active is True
     assert second.association_mode == "lidar_handoff"
     assert second.front_clearance_m == pytest.approx(0.70, abs=0.02)
+
+
+def test_camera_bearing_rejects_nearer_cluster_on_wrong_side() -> None:
+    now = [10.0]
+    subject = provider(now)
+    for _ in range(3):
+        subject.note_visual_track(
+            center_error_ratio=0.06,
+            close_authorized=True,
+        )
+    points = (*pear_points(0.45, 0.06), *pear_points(0.80, -0.07))
+
+    subject.ingest(PointCloud(points))
+    first = observe_loss(subject)
+    now[0] += 0.20
+    subject.ingest(PointCloud(points))
+    second = observe_loss(subject)
+
+    assert first.reason == "pear_lidar_loss_association_pending"
+    assert second.available is True
+    assert second.body_x_m == pytest.approx(0.803, abs=0.01)
+    assert second.body_y_m == pytest.approx(-0.07, abs=0.02)
+
+
+def test_handoff_rejects_missing_centered_camera_bearing() -> None:
+    now = [10.0]
+    subject = provider(now)
+    subject.note_visual_track(
+        center_error_ratio=0.16,
+        close_authorized=True,
+    )
+    subject.ingest(PointCloud(pear_points(0.80)))
+
+    result = observe_loss(subject)
+
+    assert result.available is False
+    assert result.reason == "pear_lidar_camera_bearing_unqualified"
 
 
 def test_one_missing_cloud_holds_but_persistent_loss_fails_closed() -> None:

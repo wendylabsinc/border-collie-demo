@@ -34,6 +34,10 @@ class PearLidarHandoffConfig:
     minimum_nearest_separation_m: float = 0.20
     visual_association_window_s: float = 0.80
     visual_association_confirmations: int = 2
+    camera_horizontal_fov_deg: float = 90.0
+    maximum_camera_bearing_error_rad: float = math.radians(6.0)
+    camera_centered_ratio: float = 0.08
+    camera_centered_confirmations: int = 3
     maximum_handoff_s: float = 2.0
     topic: str = "rt/utlidar/cloud_base"
 
@@ -52,6 +56,9 @@ class PearLidarHandoffConfig:
             self.maximum_range_jump_m,
             self.minimum_nearest_separation_m,
             self.visual_association_window_s,
+            self.camera_horizontal_fov_deg,
+            self.maximum_camera_bearing_error_rad,
+            self.camera_centered_ratio,
             self.maximum_handoff_s,
         )
         if not all(math.isfinite(value) for value in values):
@@ -73,6 +80,8 @@ class PearLidarHandoffConfig:
                 self.maximum_range_jump_m,
                 self.minimum_nearest_separation_m,
                 self.visual_association_window_s,
+                self.maximum_camera_bearing_error_rad,
+                self.camera_centered_ratio,
                 self.maximum_handoff_s,
             )
         ):
@@ -81,6 +90,10 @@ class PearLidarHandoffConfig:
             raise ValueError("pear association requires at least three LiDAR points")
         if self.visual_association_confirmations < 2:
             raise ValueError("pear handoff requires at least two visual associations")
+        if not 0.0 < self.camera_horizontal_fov_deg < 180.0:
+            raise ValueError("camera horizontal field of view is invalid")
+        if self.camera_centered_confirmations < 3:
+            raise ValueError("pear handoff requires three centered camera samples")
         if not self.topic.startswith("rt/"):
             raise ValueError("LiDAR topic must use the Unitree rt/ DDS name")
 
@@ -102,6 +115,17 @@ class PearLidarHandoffConfig:
             ),
             minimum_nearest_separation_m=float(
                 os.environ.get("BORDER_COLLIE_LIDAR_MIN_NEAREST_SEPARATION_M", "0.20")
+            ),
+            camera_horizontal_fov_deg=float(
+                os.environ.get("BORDER_COLLIE_CAMERA_HORIZONTAL_FOV_DEG", "90.0")
+            ),
+            maximum_camera_bearing_error_rad=math.radians(
+                float(
+                    os.environ.get(
+                        "BORDER_COLLIE_LIDAR_CAMERA_BEARING_TOLERANCE_DEG",
+                        "6.0",
+                    )
+                )
             ),
         )
 
@@ -136,6 +160,14 @@ def detect_centered_pear_cluster(
     calibration: PearLidarHandoffConfig,
 ) -> tuple[PearCluster | None, str]:
     """Find one pear-sized vertical return in the centered body corridor."""
+    clusters = _detect_pear_clusters(points_body_xyz, calibration)
+    return _select_pear_cluster(clusters, calibration)
+
+
+def _detect_pear_clusters(
+    points_body_xyz: Iterable[Sequence[float]],
+    calibration: PearLidarHandoffConfig,
+) -> tuple[PearCluster, ...]:
     bins: dict[int, list[tuple[float, float, float]]] = {}
     for point in points_body_xyz:
         if len(point) < 3:
@@ -184,8 +216,8 @@ def detect_centered_pear_cluster(
         groups[-1].update(points)
         previous_center = center
     if not groups:
-        return None, "pear_lidar_cluster_unavailable"
-    clusters = []
+        return ()
+    clusters: list[PearCluster] = []
     for group in groups:
         points = tuple(group)
         height = max(point[2] for point in points) - min(point[2] for point in points)
@@ -200,18 +232,47 @@ def detect_centered_pear_cluster(
             )
         )
     clusters.sort(key=lambda candidate: candidate.body_x_m)
+    return tuple(clusters)
+
+
+def _select_pear_cluster(
+    clusters: Sequence[PearCluster],
+    calibration: PearLidarHandoffConfig,
+    *,
+    expected_bearing_rad: float | None = None,
+) -> tuple[PearCluster | None, str]:
+    candidates = list(clusters)
+    if not candidates:
+        return None, "pear_lidar_cluster_unavailable"
+    if expected_bearing_rad is not None:
+        candidates = [
+            candidate
+            for candidate in candidates
+            if abs(
+                math.atan2(candidate.body_y_m, candidate.body_x_m)
+                - expected_bearing_rad
+            )
+            <= calibration.maximum_camera_bearing_error_rad
+        ]
+        if not candidates:
+            return None, "pear_lidar_camera_bearing_mismatch"
+    candidates.sort(key=lambda candidate: candidate.body_x_m)
     if (
-        len(clusters) > 1
-        and clusters[1].body_x_m - clusters[0].body_x_m
+        len(candidates) > 1
+        and candidates[1].body_x_m - candidates[0].body_x_m
         < calibration.minimum_nearest_separation_m
     ):
         return None, "pear_lidar_cluster_ambiguous"
     return (
-        clusters[0],
+        candidates[0],
         (
-            "pear_lidar_nearest_cluster_separated"
-            if len(clusters) > 1
-            else "pear_lidar_cluster_centered"
+            "pear_lidar_camera_bearing_matched"
+            if expected_bearing_rad is not None
+            else (
+                "pear_lidar_nearest_cluster_separated"
+                if len(candidates) > 1
+                else "pear_lidar_cluster_centered"
+            )
         ),
     )
 
@@ -234,6 +295,7 @@ class PearLidarHandoffProvider:
         self._frame_sequence = 0
         self._captured_at: float | None = None
         self._cluster: PearCluster | None = None
+        self._clusters: tuple[PearCluster, ...] = ()
         self._cluster_reason = "waiting for body-frame LiDAR"
         self._frame_id: str | None = None
         self._last_observed_sequence = -1
@@ -243,6 +305,9 @@ class PearLidarHandoffProvider:
         self._visual_pending_started_at: float | None = None
         self._association_armed_at: float | None = None
         self._handoff_started_at: float | None = None
+        self._last_camera_bearing_rad: float | None = None
+        self._last_centered_camera_at: float | None = None
+        self._centered_camera_samples = 0
 
     def start(self) -> None:
         if self._subscriber is not None or not self.calibration.enabled:
@@ -276,15 +341,48 @@ class PearLidarHandoffProvider:
             if frame_id != "base_link":
                 raise ValueError(f"expected base_link cloud, got {frame_id!r}")
             points = _parse_pointcloud2(message)
-            cluster, reason = detect_centered_pear_cluster(points, self.calibration)
+            clusters = _detect_pear_clusters(points, self.calibration)
+            cluster, reason = _select_pear_cluster(clusters, self.calibration)
         except Exception as exc:  # noqa: BLE001 - DDS message is dynamic
+            clusters = ()
             cluster, reason, frame_id = None, f"invalid body-frame LiDAR: {exc}", None
         with self._lock:
             self._frame_sequence += 1
             self._captured_at = self._monotonic()
             self._cluster = cluster
+            self._clusters = clusters
             self._cluster_reason = reason
             self._frame_id = frame_id
+
+    def note_visual_track(
+        self,
+        *,
+        center_error_ratio: float | None,
+        close_authorized: bool,
+    ) -> None:
+        """Remember only centered camera bearing; never gate visible motion."""
+        now = self._monotonic()
+        error = (
+            float(center_error_ratio)
+            if center_error_ratio is not None
+            and math.isfinite(float(center_error_ratio))
+            else None
+        )
+        if (
+            not close_authorized
+            or error is None
+            or abs(error) > self.calibration.camera_centered_ratio
+        ):
+            self._last_camera_bearing_rad = None
+            self._last_centered_camera_at = None
+            self._centered_camera_samples = 0
+            return
+        half_fov_rad = math.radians(self.calibration.camera_horizontal_fov_deg) / 2.0
+        self._last_camera_bearing_rad = -math.atan(
+            2.0 * error * math.tan(half_fov_rad)
+        )
+        self._last_centered_camera_at = now
+        self._centered_camera_samples += 1
 
     def observe(
         self,
@@ -297,6 +395,7 @@ class PearLidarHandoffProvider:
         with self._lock:
             sequence = self._frame_sequence
             captured_at = self._captured_at
+            clusters = self._clusters
             cluster = self._cluster
             reason = self._cluster_reason
         if not self.calibration.enabled:
@@ -307,6 +406,37 @@ class PearLidarHandoffProvider:
         if cloud_age > self.calibration.maximum_age_s:
             self._disarm()
             return self._unavailable("pear_lidar_cloud_stale", age_s=cloud_age)
+
+        if allow_handoff and self._handoff_started_at is None:
+            camera_age = (
+                None
+                if self._last_centered_camera_at is None
+                else max(0.0, now - self._last_centered_camera_at)
+            )
+            if (
+                self._last_camera_bearing_rad is None
+                or camera_age is None
+                or camera_age > self.calibration.visual_association_window_s
+                or self._centered_camera_samples
+                < self.calibration.camera_centered_confirmations
+            ):
+                self._disarm()
+                return self._unavailable(
+                    "pear_lidar_camera_bearing_unqualified",
+                    age_s=cloud_age,
+                )
+        if allow_handoff and self._last_camera_bearing_rad is not None:
+            cluster, reason = _select_pear_cluster(
+                clusters,
+                self.calibration,
+                expected_bearing_rad=self._last_camera_bearing_rad,
+            )
+            if cluster is None and reason in {
+                "pear_lidar_camera_bearing_mismatch",
+                "pear_lidar_cluster_ambiguous",
+            }:
+                self._disarm()
+                return self._unavailable(reason, age_s=cloud_age)
 
         centered_visual = bool(
             visual_close_authorized
@@ -436,6 +566,11 @@ class PearLidarHandoffProvider:
             reason = self._cluster_reason
         age_s = None if captured_at is None else max(0.0, now - captured_at)
         fresh = age_s is not None and age_s <= self.calibration.maximum_age_s
+        camera_bearing_age_s = (
+            None
+            if self._last_centered_camera_at is None
+            else max(0.0, now - self._last_centered_camera_at)
+        )
         return {
             "configured": self.calibration.enabled,
             "ready": bool(self.calibration.enabled and fresh),
@@ -449,6 +584,15 @@ class PearLidarHandoffProvider:
             "handoff_active": self._handoff_started_at is not None,
             "front_envelope_x_m": self.calibration.front_envelope_x_m,
             "maximum_handoff_s": self.calibration.maximum_handoff_s,
+            "camera_bearing_rad": self._last_camera_bearing_rad,
+            "camera_bearing_age_s": camera_bearing_age_s,
+            "camera_centered_samples": self._centered_camera_samples,
+            "camera_centered_required": (
+                self.calibration.camera_centered_confirmations
+            ),
+            "maximum_camera_bearing_error_rad": (
+                self.calibration.maximum_camera_bearing_error_rad
+            ),
         }
 
     def _available(

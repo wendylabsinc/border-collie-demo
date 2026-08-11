@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
 from .hardware import HardwareUnavailable
@@ -14,6 +15,10 @@ from .run_results import RunResultStore
 RECOVERY_CONFIRMATION = "RECOVER FAILED RUN TO CAPTURED HOME"
 HOME_POSITION_TOLERANCE_M = 0.10
 RECOVERY_PULSE_RESERVE_FACTOR = 1.5
+FAILURE_DOWN_HOLD_S = 5.0
+FAILURE_STAND_SETTLE_S = 1.0
+AUTOMATIC_FAILURE_RECOVERY_REASONS = frozenset({"TARGET_LOST_OFF_AXIS"})
+AUTOMATIC_RECOVERY_CONFIRMATION = "AUTOMATIC RECOVERABLE FAILURE TO CAPTURED HOME"
 
 
 def recovery_forward_pulse_budget(outbound_pulses: int) -> int:
@@ -39,6 +44,10 @@ class RecoveryHardware(Protocol):
     ) -> dict[str, object]: ...
 
     async def emergency_stop(self) -> list[str]: ...
+
+    async def stand_down(self) -> dict[str, object]: ...
+
+    async def stand_up(self, *, settle_s: float = 1.0) -> dict[str, object]: ...
 
 
 def recoverable_forward_pulses(run: dict[str, Any]) -> tuple[int, str]:
@@ -178,9 +187,101 @@ class FailedRunHomeRecovery:
     attempt gets its own durable outcome.
     """
 
-    def __init__(self, hardware: RecoveryHardware, results: RunResultStore) -> None:
+    def __init__(
+        self,
+        hardware: RecoveryHardware,
+        results: RunResultStore,
+        *,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    ) -> None:
         self._hardware = hardware
         self._results = results
+        self._sleep = sleep
+
+    async def recover_automatically(self, run_id: str) -> dict[str, Any] | None:
+        """Run the failure posture and Home correction for eligible failures."""
+        run = self._results.get(run_id)
+        if run.get("reason") not in AUTOMATIC_FAILURE_RECOVERY_REASONS:
+            return None
+        attempt = self._results.start_recovery(
+            run_id,
+            confirmation=AUTOMATIC_RECOVERY_CONFIRMATION,
+        )
+        recovery_id = str(attempt["recovery_id"])
+        try:
+            self.validate(run)
+            stop_errors = await self._hardware.emergency_stop()
+            if stop_errors:
+                raise HardwareUnavailable(
+                    "failure posture stop failed: " + "; ".join(stop_errors)
+                )
+            down = await self._hardware.stand_down()
+            self._results.record_recovery_step(
+                run_id,
+                recovery_id,
+                "failure_posture_down",
+                {**down, "bark_played": False},
+            )
+            await self._sleep(FAILURE_DOWN_HOLD_S)
+            self._results.record_recovery_step(
+                run_id,
+                recovery_id,
+                "failure_posture_hold",
+                {"down_hold_s": FAILURE_DOWN_HOLD_S, "bark_played": False},
+            )
+            stood = await self._hardware.stand_up(settle_s=FAILURE_STAND_SETTLE_S)
+            self._results.record_recovery_step(
+                run_id,
+                recovery_id,
+                "failure_posture_stand",
+                {
+                    **stood,
+                    "stand_settle_s": FAILURE_STAND_SETTLE_S,
+                    "home_fusion": self._hardware.status().get(
+                        "continuous_home_fusion"
+                    ),
+                },
+            )
+        except asyncio.CancelledError:
+            stop_errors = await self._hardware.emergency_stop()
+            self._results.seal_recovery(
+                run_id,
+                recovery_id,
+                outcome="STOPPED",
+                reason="OPERATOR_STOP",
+                message="operator stopped automatic failed-run recovery",
+                final_safety_state=(
+                    "DISARMED_CONFIRMED"
+                    if not stop_errors
+                    else "STOP_REQUESTED_UNCONFIRMED"
+                ),
+                final_evidence={
+                    "hardware": self._hardware.status(),
+                    "stop_errors": stop_errors,
+                },
+            )
+            raise
+        except Exception as exc:  # noqa: BLE001 - posture must fail closed
+            stop_errors = await self._hardware.emergency_stop()
+            return self._results.seal_recovery(
+                run_id,
+                recovery_id,
+                outcome="FAILED",
+                reason="RECOVERY_FAILURE",
+                message=str(exc),
+                final_safety_state=(
+                    "DISARMED_CONFIRMED"
+                    if not stop_errors
+                    else "STOP_REQUESTED_UNCONFIRMED"
+                ),
+                final_evidence={
+                    "hardware": self._hardware.status(),
+                    "stop_errors": stop_errors,
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                },
+            )
+        return await self.run(run_id, recovery_id)
 
     def validate(self, run: dict[str, Any]) -> tuple[int, str]:
         if run.get("outcome") != "FAILED":

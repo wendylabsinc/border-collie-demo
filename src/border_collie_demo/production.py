@@ -12,6 +12,7 @@ from .hardware import (
     HardwareUnavailable,
     RangeUnavailable,
     TargetLost,
+    TargetLostOffAxis,
 )
 from .media import BarkFailure
 from .models import MissionPhase
@@ -72,6 +73,14 @@ class ProductionStageExecutor:
                 str(exc),
                 details=self._failure_details(
                     {"metric_arrival": exc.evidence} if exc.evidence else None
+                ),
+            ) from exc
+        except TargetLostOffAxis as exc:
+            raise StageFailure(
+                "TARGET_LOST_OFF_AXIS",
+                str(exc),
+                details=self._failure_details(
+                    {"recognition": exc.evidence} if exc.evidence else None
                 ),
             ) from exc
         except TargetLost as exc:

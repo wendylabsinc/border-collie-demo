@@ -94,6 +94,16 @@ class RecoveryHardwareBoundary(ReadyHardwareBoundary):
         }
 
 
+class FailureChoreographyHardwareBoundary(RecoveryHardwareBoundary):
+    async def stand_down(self):
+        self.calls.append(("stand_down", {}, {}))
+        return {"posture": "stand_down", "motion_commands_sent": False}
+
+    async def stand_up(self, *, settle_s=1.0):
+        self.calls.append(("stand_up", {}, {"settle_s": settle_s}))
+        return {"posture": "balance_stand", "motion_commands_sent": False}
+
+
 def ready_camera_perception() -> dict[str, object]:
     return {
         "ready": True,
@@ -698,6 +708,77 @@ def test_failed_run_recovery_uses_saved_home_and_failed_approach_trace(
     assert hardware.calls[0][1] == failed["home"]
     assert hardware.calls[1][0] == "return_home"
     assert hardware.calls[1][2]["forward_pulse_count"] == 5
+    assert status["active_recovery"] is None
+    assert status["hardware"]["motion"]["armed"] is False
+
+
+def test_off_axis_failure_lies_down_then_returns_home_automatically(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    class OffAxisApproachStages(SimulatedStageExecutor):
+        async def execute(self, phase, context):
+            if phase is MissionPhase.APPROACH_FRUIT:
+                raise StageFailure(
+                    "TARGET_LOST_OFF_AXIS",
+                    "qualified pear left the close handoff corridor",
+                    details={
+                        "motion_commands": [
+                            {
+                                "sequence": sequence,
+                                "phase": "approach_fruit",
+                                "forward_mps": 0.55,
+                                "yaw_rps": -0.2,
+                                "reason": "visual_close_until_sight_loss",
+                            }
+                            for sequence in range(1, 4)
+                        ]
+                    },
+                )
+            return await super().execute(phase, context)
+
+    monkeypatch.setattr("border_collie_demo.recovery.FAILURE_DOWN_HOLD_S", 0.0)
+    hardware = FailureChoreographyHardwareBoundary()
+    with TestClient(
+        create_app(
+            runs_root=tmp_path,
+            hardware=hardware,
+            camera_perception_status=ready_camera_perception,
+            stage_executor=OffAxisApproachStages(),
+        )
+    ) as client:
+        run_id = client.post("/api/run", json={"target_fruit": "pear"}).json()[
+            "run"
+        ]["run_id"]
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            run = client.get(f"/api/results/{run_id}").json()["run"]
+            attempts = run.get("recovery_attempts") or []
+            if attempts and attempts[0]["outcome"] is not None:
+                break
+            time.sleep(0.01)
+        status = client.get("/api/status").json()
+
+    assert run["outcome"] == "FAILED"
+    assert run["reason"] == "TARGET_LOST_OFF_AXIS"
+    assert run["final_safety_state"] == "DISARMED_CONFIRMED"
+    attempt = run["recovery_attempts"][0]
+    assert attempt["outcome"] == "COMPLETED"
+    assert attempt["reason"] == "HOME_POSITION_RECOVERED"
+    assert [step["step"] for step in attempt["steps"]] == [
+        "failure_posture_down",
+        "failure_posture_hold",
+        "failure_posture_stand",
+        "preflight",
+        "turn_toward_home",
+        "return_home",
+    ]
+    assert [call[0] for call in hardware.calls] == [
+        "stand_down",
+        "stand_up",
+        "turn_toward_home",
+        "return_home",
+    ]
     assert status["active_recovery"] is None
     assert status["hardware"]["motion"]["armed"] is False
 

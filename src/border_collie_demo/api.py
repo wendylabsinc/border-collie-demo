@@ -107,6 +107,7 @@ def create_app(
             }
 
     active_tasks: set[asyncio.Task[dict[str, object]]] = set()
+    recovery = FailedRunHomeRecovery(robot, results)
     def capture_terminal_bundle() -> list[EvidenceArtifact]:
         return terminal_evidence_bundle(recorder, terminal_evidence)
     orchestrator = (
@@ -117,9 +118,9 @@ def create_app(
             results,
             stage_executor,
             terminal_evidence=capture_terminal_bundle,
+            automatic_failure_recovery=recovery,
         )
     )
-    recovery = FailedRunHomeRecovery(robot, results)
 
     async def capture_failed_evidence(run_id: str) -> None:
         try:

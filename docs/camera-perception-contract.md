@@ -163,9 +163,14 @@ may be relaxed only after new acceptance evidence is recorded.
   samples; its vertical center and lower edge may retreat by at most 0.08.
   This rule cannot acquire an apple or accept a label change.
 - Near-fruit geometry slows motion and establishes close-range track memory.
-  Arrival requires either qualified visible geometry or disappearance of that
-  continuous close track within the bounded grace period. Disappearance sends
-  zero motion and never authorizes a blind final push.
+  Image geometry enters Final Approach but cannot establish metric Arrival.
+  Camera-to-LiDAR handoff requires the last three fresh filtered centers to
+  remain within 0.08 of frame center. The final camera center is converted to a
+  body-frame bearing using the calibrated horizontal field of view; post-loss
+  LiDAR candidates must remain within six degrees of that bearing and satisfy
+  temporal continuity. A nearer cluster on the wrong side is not the Target
+  Fruit. Off-axis disappearance sends zero motion, terminates as
+  `TARGET_LOST_OFF_AXIS`, and never arms LiDAR or authorizes a blind push.
 - Warm-up must finish before preflight passes. After preflight, detector
   execution time must be **no greater than 0.200 seconds**.
 - Detection age must be **no greater than 0.250 seconds**, measured with the
@@ -197,6 +202,12 @@ camera failure. Search motion must stop. During approach, only the bounded
 tracking hysteresis above may extend an already-acquired track; otherwise
 camera-guided motion stops and the approach contract decides whether bounded
 reacquisition is allowed or the run terminates as target loss.
+
+`TARGET_LOST_OFF_AXIS` is a Recoverable Failure only after zero motion and
+disarm are confirmed. Its automatic correction preserves the original Home,
+records terminal perception evidence, lies down without barking, stands, waits
+for trusted continuous Home fusion, and performs the bounded position-only
+Home recovery. It does not convert the failed fruit attempt into success.
 
 ## Evidence and remaining qualification
 

@@ -34,6 +34,10 @@ class StageExecutor(Protocol):
     async def stop(self) -> list[str]: ...
 
 
+class AutomaticFailureRecovery(Protocol):
+    async def recover_automatically(self, run_id: str) -> dict[str, Any] | None: ...
+
+
 class StageFailure(RuntimeError):
     def __init__(
         self,
@@ -80,11 +84,13 @@ class DemoOrchestrator:
         results: RunResultStore,
         stages: StageExecutor,
         terminal_evidence: Callable[[], list[EvidenceArtifact]] | None = None,
+        automatic_failure_recovery: AutomaticFailureRecovery | None = None,
     ) -> None:
         self._coordinator = coordinator
         self._results = results
         self._stages = stages
         self._terminal_evidence = terminal_evidence
+        self._automatic_failure_recovery = automatic_failure_recovery
 
     async def _capture_terminal_evidence(self, run_id: str) -> None:
         if self._terminal_evidence is None:
@@ -154,7 +160,7 @@ class DemoOrchestrator:
             failed_phase = self._results.get(run_id)["current_phase"]
             stop_errors = await self._stages.stop()
             await self._capture_terminal_evidence(run_id)
-            return self._coordinator.finish(
+            failed = self._coordinator.finish(
                 run_id,
                 terminal_phase=MissionPhase.FAILED,
                 outcome="FAILED",
@@ -168,6 +174,10 @@ class DemoOrchestrator:
                 failed_phase=failed_phase,
                 failure_details=exc.details,
             )
+            if self._automatic_failure_recovery is not None:
+                await self._automatic_failure_recovery.recover_automatically(run_id)
+                return self._results.get(run_id)
+            return failed
         except Exception as exc:  # noqa: BLE001 - terminal safety boundary
             failed_phase = self._results.get(run_id)["current_phase"]
             stop_errors = await self._stages.stop()
