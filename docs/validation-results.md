@@ -9,6 +9,27 @@ Takeover is process-latched, activation is recorder-backed, and production code
 does not import the legacy project. They do not qualify physical motion or the
 autonomous routine.
 
+## V22-BLACK-BOX-DEPLOY-2026-08-11 — deployed and ready, no motion
+
+- Direct whole-project Stagefile deployment completed with
+  `wendy run --detach`; Docker Layer Optimizer was not used.
+- The first two build attempts failed before device replacement because the
+  dedicated `wendy-mtls` BuildKit filesystem had reached 100% usage. Truncated
+  Ubuntu `InRelease` downloads surfaced misleadingly as invalid-signature
+  errors. Removing only unused Wendy builder cache and unused local Border
+  Collie media images restored 36.8 GB of build-host free space.
+- The successful deployment installed matching app and media identity
+  `stage-camera-v22-black-box`, configuration schema 6. The app exposed the
+  per-run trace route, and media reached ready with zero restarts.
+- Three post-deploy media samples advanced source PTS from `3780` to `8100` to
+  `12480` on one stable generation. Bark and the banana specialist were ready.
+- Final safety state: mission idle, no active run or recovery, no Remote
+  Takeover, no active hardware operation, guardian inactive, motion disarmed,
+  and last command exactly zero.
+- The seeded, balanced random fruit order and per-run A/B/C search-policy
+  selector are unchanged. No physical run was activated, so this validates
+  deployment/readiness and not search-policy performance.
+
 ## HOME-RETURN-DIAGNOSIS-2026-08-11 — failed safely, cause isolated
 
 - Physical run `7098b433-23db-4c2d-9811-59dd8d2019c5` completed fruit search,
