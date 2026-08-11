@@ -396,13 +396,16 @@ acceptance values and no frame archive or event journal.
 Run the multi-service deployment directly from the repository root:
 
 ```bash
-cd /Users/olivertaylor/Documents/Wendy/border-collie-demo-stage-camera
-wendy run --detach --device 192.168.0.107
+cd /Users/olivertaylor/Documents/Wendy/border-collie-demo-stage-camera-v18-closeout-recovery
+wendy run --detach
 ```
 
-This is the current stage-candidate deployment command for Woof. Confirm the
-branch and commit against [the progression map](docs/worktree-progression.md)
-before running it. Do not use `docker build` or pass `--dockerfile`.
+The exact underlying whole-project command is `wendy run --detach`; a device
+flag is needed only when Woof is not already the selected Wendy target. The v18
+candidate identity is `stage-camera-v18-closeout-recovery`, schema `4`, app
+version `1.0.21-stage-camera`. Confirm the branch and commit against
+[the progression map](docs/worktree-progression.md) before running it. Do not
+use `--service`, `docker build`, or pass `--dockerfile`.
 
 The root app and `media` service each have a committed `build.stagefile.yaml`
 and digest-pinned lockfile. A Stagefile-capable Wendy CLI selects both

@@ -551,3 +551,21 @@ the separate failed-run Home-recovery or heading-restoration repairs.
   deployed to Woof, or physically exercised. Integrate this commit after the
   separate bottom-clipping closeout fix and assign the combined candidate a new
   release identity before deployment.
+
+## STAGE-CAMERA-V18-CLOSEOUT-RECOVERY-2026-08-11 — combined candidate
+
+- Lineage: v17 bottom-clipping closeout at `a2e545f`, plus the recovery
+  implementation from `5882aeb`, integrated on
+  `codex/stage-camera-v18-closeout-recovery`
+- Release identity: `stage-camera-v18-closeout-recovery`, configuration schema
+  4, app version `1.0.21-stage-camera`; the root descriptor, media descriptor,
+  root Stagefile, media Stagefile, documentation, and release regression test
+  use the same values
+- Combined behavior: centered lower-edge area retreat can complete the
+  camera-only Final Approach closeout, while an eligible approach
+  `ARRIVAL_FAILURE` can perform one no-bark, bounded, position-only recovery to
+  the original Home after all recovery authority gates pass
+- Qualification boundary: deterministic closeout and simulated recovery tests
+  do not prove physical clearance, posture execution, fused return accuracy, or
+  repeatability. Record build, deployment, readiness, thermal, and battery
+  evidence separately before any supervised motion run.

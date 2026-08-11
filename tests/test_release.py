@@ -1,3 +1,7 @@
+import json
+from hashlib import sha256
+from pathlib import Path
+
 import pytest
 
 from border_collie_demo.release import (
@@ -84,3 +88,36 @@ def test_atomic_release_store_promotes_only_verified_pair_and_rolls_back(tmp_pat
     assert store.current() == second
     assert store.rollback() == first
     assert store.current() == first
+
+
+def test_v18_release_identity_matches_root_media_and_stagefiles() -> None:
+    root = Path(__file__).resolve().parents[1]
+    descriptor = json.loads((root / "wendy.json").read_text(encoding="utf-8"))
+    release_id = "stage-camera-v18-closeout-recovery"
+    build_label = (
+        "stage-camera-v18-closeout-recovery "
+        "(codex/stage-camera-v18-closeout-recovery)"
+    )
+
+    assert descriptor["version"] == "1.0.21-stage-camera"
+    app_env = descriptor["services"]["app"]["env"]
+    media_env = descriptor["services"]["media"]["env"]
+    assert app_env["BORDER_COLLIE_BUILD_LABEL"] == build_label
+    for environment in (app_env, media_env):
+        assert environment["BORDER_COLLIE_RELEASE_ID"] == release_id
+        assert environment["BORDER_COLLIE_CONFIG_SCHEMA"] == "4"
+
+    root_stagefile_path = root / "build.stagefile.yaml"
+    media_stagefile_path = root / "media/build.stagefile.yaml"
+    root_stagefile = root_stagefile_path.read_text(encoding="utf-8")
+    media_stagefile = media_stagefile_path.read_text(encoding="utf-8")
+    assert f"BORDER_COLLIE_BUILD_LABEL: {build_label}" in root_stagefile
+    for stagefile in (root_stagefile, media_stagefile):
+        assert f"BORDER_COLLIE_RELEASE_ID: {release_id}" in stagefile
+        assert 'BORDER_COLLIE_CONFIG_SCHEMA: "4"' in stagefile
+    for stagefile_path in (root_stagefile_path, media_stagefile_path):
+        digest = sha256(stagefile_path.read_bytes()).hexdigest()
+        lockfile = stagefile_path.with_name("build.stagefile.lock.yaml").read_text(
+            encoding="utf-8"
+        )
+        assert f"sourceHash: sha256:{digest}" in lockfile

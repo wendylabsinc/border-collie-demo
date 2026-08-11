@@ -1,14 +1,14 @@
 {
   "appId": "border-collie-demo",
-  "version": "1.0.20-stage-camera",
+  "version": "1.0.21-stage-camera",
   "services": {
     "app": {
       "context": ".",
       "env": {
         "BORDER_COLLIE_PORT": "8110",
-        "BORDER_COLLIE_BUILD_LABEL": "stage-camera-v17-bottom-clip-closeout (codex/stage-camera-bottom-clip-closeout)",
-        "BORDER_COLLIE_RELEASE_ID": "stage-camera-v17-bottom-clip-closeout",
-        "BORDER_COLLIE_CONFIG_SCHEMA": "3",
+        "BORDER_COLLIE_BUILD_LABEL": "stage-camera-v18-closeout-recovery (codex/stage-camera-v18-closeout-recovery)",
+        "BORDER_COLLIE_RELEASE_ID": "stage-camera-v18-closeout-recovery",
+        "BORDER_COLLIE_CONFIG_SCHEMA": "4",
         "BORDER_COLLIE_RUNTIME_MODE": "production",
         "BORDER_COLLIE_HARDWARE_ENABLED": "1",
         "BORDER_COLLIE_AUTONOMY_ENABLED": "1",
@@ -66,8 +66,8 @@
       "context": "./media",
       "env": {
         "UNITREE_ROBOT_IP": "192.168.123.161",
-        "BORDER_COLLIE_RELEASE_ID": "stage-camera-v17-bottom-clip-closeout",
-        "BORDER_COLLIE_CONFIG_SCHEMA": "3",
+        "BORDER_COLLIE_RELEASE_ID": "stage-camera-v18-closeout-recovery",
+        "BORDER_COLLIE_CONFIG_SCHEMA": "4",
         "PEAR_MODEL_PATH": "/media/model.engine",
         "BANANA_SPECIALIST_MODEL_PATH": "/media/banana-specialist.pt",
         "BANANA_SPECIALIST_MIN_CONFIDENCE": "0.55",
