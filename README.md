@@ -374,10 +374,24 @@ Failed and stopped runs retain their full event, stage, failure, motion, and
 frame evidence. Completed runs retain one compact `result.json` with the key
 acceptance values and no frame archive or event journal.
 
+## Deploy with Wendy Stagefiles
+
+Run the multi-service deployment directly from the repository root:
+
+```bash
+cd /Users/olivertaylor/Documents/Wendy/border-collie-demo-durability-cadence
+wendy run --detach --device 192.168.0.107
+```
+
+This is the canonical deployment command for Woof. Do not use `docker build`,
+pass `--dockerfile`, or wrap the command with DLO for a normal deployment.
+
 The root app and `media` service each have a committed `build.stagefile.yaml`
 and digest-pinned lockfile. A Stagefile-capable Wendy CLI selects both
 automatically for the multi-service deployment; generated Dockerfiles are build
-artifacts and are not committed.
+artifacts, not deployment inputs selected by the operator. The root context
+resolves `build.stagefile.yaml`, and the `media` context independently resolves
+`media/build.stagefile.yaml`.
 
 ## Local validation
 
