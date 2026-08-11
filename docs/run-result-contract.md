@@ -212,6 +212,14 @@ perception events. Failed and stopped runs freeze the current window into
 remove this application-side evidence; capture warnings are persisted beside
 the snapshot.
 
+Every terminal run additionally freezes a run-filtered `run-trace.ndjson` beside
+`result.json`, including successful runs. It retains original recorder sequence
+and hash fields, contains the terminal event, and is refreshed after failed-run
+Home recovery. Continuous Home-fusion samples and return-planner decisions are
+included so raw odometry, filtered Home pose, covariance, waypoint choice,
+progress timers, and active thresholds can be inspected without reconstructing
+them from command timing. See `docs/black-box-trace.md`.
+
 ## Outcome-based retention
 
 Failed and stopped runs retain the complete materialized result, append-only
@@ -221,7 +229,7 @@ A post-failure Home recovery appends its full preflight, bounded pulse source,
 per-step evidence, every accepted recovery motion command, stop result, and
 terminal safety state to that same failed result.
 
-Completed runs retain only `result.json`. Its `record_type` is
+Completed runs retain `result.json` plus the bounded `run-trace.ndjson`. Its `record_type` is
 `success_summary`, and `key_values` contains the compact acceptance values:
 completed stages and durations, fruit-recognition result, orientation change,
 Arrival and outbound pulse count, bark result, return pulse accounting, Home
@@ -244,6 +252,7 @@ The audience and diagnostic surfaces read the same persisted record:
 - current status exposes the active `run_id` or `null`;
 - list results newest first with outcome, reason, final phase, and times;
 - retrieve one complete Run Result by full `run_id`; and
+- download its black-box trace through `GET /api/results/{run_id}/trace`; and
 - retrieve snapshots or evidence archives only through paths referenced by
   that result.
 

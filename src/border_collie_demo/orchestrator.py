@@ -197,6 +197,7 @@ class DemoOrchestrator:
             )
             if self._automatic_failure_recovery is not None:
                 await self._automatic_failure_recovery.recover_automatically(run_id)
+                self._coordinator.refresh_black_box(run_id)
                 return self._results.get(run_id)
             return failed
         except Exception as exc:  # noqa: BLE001 - terminal safety boundary

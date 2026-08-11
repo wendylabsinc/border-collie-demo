@@ -133,3 +133,34 @@ def test_journal_events_form_a_hash_chain(tmp_path) -> None:
     assert events[0]["previous_event_sha256"] is None
     assert events[1]["previous_event_sha256"] == events[0]["event_sha256"]
     assert len({event["event_id"] for event in events}) == len(events)
+
+
+def test_black_box_storage_failure_does_not_mask_terminal_safety(tmp_path) -> None:
+    class FailingBlackBoxStore(RunResultStore):
+        def record_black_box_unavailable(
+            self,
+            run_id: str,
+            message: str,
+        ) -> dict[str, object]:
+            raise OSError("result volume unavailable")
+
+    machine = MissionMachine()
+    results = FailingBlackBoxStore(tmp_path)
+    coordinator = RunCoordinator(machine, results)
+    run = coordinator.activate(
+        RunActivation(target_fruit="pear", activation_source="audience_ui")
+    ).run
+
+    terminal = coordinator.finish(
+        run["run_id"],
+        terminal_phase=MissionPhase.FAILED,
+        outcome="FAILED",
+        reason="TEST_FAILURE",
+        message="test failure was safely stopped",
+        final_safety_state="DISARMED_CONFIRMED",
+        failed_phase="preflight",
+    )
+
+    assert terminal["outcome"] == "FAILED"
+    assert terminal["final_safety_state"] == "DISARMED_CONFIRMED"
+    assert machine.phase is MissionPhase.FAILED

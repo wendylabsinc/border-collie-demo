@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import math
 import time
 from itertools import pairwise
@@ -8,6 +9,7 @@ from itertools import pairwise
 import pytest
 
 from border_collie_demo.config import HardwareConfig
+from border_collie_demo.flight_recorder import FlightRecorder
 from border_collie_demo.go2_lidar import LidarHandoffObservation
 from border_collie_demo.go2_motion import MotionConfig
 from border_collie_demo.go2_pose import Go2MotionEvidence, PoseStatus
@@ -265,6 +267,25 @@ class ReturningPose(FakePose):
         )
 
 
+class CommandDrivenReturningPose(FakePose):
+    """Return trace fixture whose pose cadence is independent of instrumentation."""
+
+    def __init__(self, motion: FakeMotion) -> None:
+        super().__init__()
+        self._motion = motion
+
+    def status(self) -> PoseStatus:
+        positions = (0.8, 0.5, 0.2, 0.09)
+        index = min(len(self._motion.commands), len(positions) - 1)
+        x_m = positions[index]
+        return PoseStatus(
+            Pose(x_m, 0.0, math.pi, 1.0 + index * 0.1),
+            0.0,
+            self.started,
+            None if self.started else "pose unavailable",
+        )
+
+
 class BreadcrumbPose(FakePose):
     def __init__(self) -> None:
         super().__init__()
@@ -436,6 +457,46 @@ def test_continuous_fusion_adapter_failure_is_recorded_untrusted() -> None:
                 "continuous fusion ingestion failed: pose reader failed"
             ),
         }
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_continuous_home_fusion_is_written_to_the_run_black_box(tmp_path) -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        pose = ContinuousFusionPose()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: pose,
+        )
+        recorder = FlightRecorder(tmp_path)
+        manager.set_flight_recorder(recorder)
+        manager.set_motion_authority("run-1", "epoch-1", "capture_home")
+        await manager.start()
+        manager.capture_home()
+
+        manager.ingest_home_fusion_sample()
+        trace = recorder.snapshot_run("run-1")
+        events = [json.loads(line) for line in trace.artifact.content.splitlines()]
+
+        fusion_events = [
+            event for event in events if event["kind"] == "home_fusion_sample"
+        ]
+        assert len(fusion_events) == 1
+        payload = fusion_events[0]["payload"]
+        assert payload["epoch"] == "epoch-1"
+        assert payload["phase"] == "capture_home"
+        assert payload["raw_pose"]["pose"] == {
+            "x_m": 0.0,
+            "y_m": 0.0,
+            "yaw_rad": 0.0,
+            "captured_monotonic_s": 0.4,
+        }
+        assert payload["estimate"]["trusted"] is True
+        assert "covariance" in payload["estimate"]
         await manager.close()
 
     asyncio.run(scenario())
@@ -3109,15 +3170,20 @@ def test_camera_failure_during_final_push_stops_and_fails() -> None:
     asyncio.run(scenario())
 
 
-def test_return_home_replays_outbound_pulses_and_logs_measured_home_distance() -> None:
+def test_return_home_replays_outbound_pulses_and_logs_measured_home_distance(
+    tmp_path,
+) -> None:
     async def scenario() -> None:
         motion = FakeMotion()
         manager = HardwareManager(
             live_config(),
             dds_initializer=lambda _interface: None,
             motion_factory=lambda _config: motion,
-            pose_factory=lambda _age: ReturningPose(),
+            pose_factory=lambda _age: CommandDrivenReturningPose(motion),
         )
+        recorder = FlightRecorder(tmp_path)
+        manager.set_flight_recorder(recorder)
+        manager.set_motion_authority("run-1", "epoch-1", "return_home")
         await manager.start()
 
         result = await manager.return_home(
@@ -3141,6 +3207,28 @@ def test_return_home_replays_outbound_pulses_and_logs_measured_home_distance() -
         assert len(motion.commands) == 3
         assert all(command.forward_mps == 1.0 for command in motion.commands)
         assert motion.armed is False
+        events = [
+            json.loads(line)
+            for line in recorder.snapshot_run("run-1").artifact.content.splitlines()
+        ]
+        decisions = [
+            event["payload"]
+            for event in events
+            if event["kind"] == "home_navigation_sample"
+        ]
+        assert len(decisions) == 4
+        assert decisions[0]["home_localization"]["home_distance_m"] == 0.8
+        assert decisions[0]["plan"] == {
+            "mode": "drive_to_home",
+            "distance_m": 0.8,
+            "heading_error_rad": 0.0,
+            "forward_mps": 1.0,
+            "yaw_rps": 0.0,
+        }
+        assert decisions[0]["thresholds"]["arrival_tolerance_m"] == 0.10
+        assert decisions[0]["thresholds"]["heading_gate_rad"] == pytest.approx(
+            math.radians(20.0)
+        )
         await manager.close()
 
     asyncio.run(scenario())

@@ -13,6 +13,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from .evidence import EvidenceArtifact
+from .flight_recorder import RunTrace
 
 
 class ActiveRunError(RuntimeError):
@@ -445,6 +446,48 @@ class RunResultStore:
         self._write_result(result)
         return deepcopy(result)
 
+    def record_black_box_trace(
+        self,
+        run_id: str,
+        trace: RunTrace,
+    ) -> dict[str, Any]:
+        """Atomically retain the diagnostic trace for one run, terminal or active."""
+        result = self.get(run_id)
+        run_dir = self.root / str(UUID(run_id))
+        destination = run_dir / trace.artifact.filename
+        temporary = run_dir / f".{trace.artifact.filename}.tmp"
+        with temporary.open("wb") as output:
+            output.write(trace.artifact.content)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, destination)
+        result["black_box_trace"] = {
+            "filename": trace.artifact.filename,
+            "content_type": trace.artifact.content_type,
+            "size_bytes": len(trace.artifact.content),
+            "sha256": sha256(trace.artifact.content).hexdigest(),
+            "event_count": trace.event_count,
+            "first_sequence": trace.first_sequence,
+            "last_sequence": trace.last_sequence,
+            "captured_at_utc": _utc_now(),
+        }
+        self._write_result(result)
+        return deepcopy(result)
+
+    def record_black_box_unavailable(
+        self,
+        run_id: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        result = self.get(run_id)
+        result["black_box_trace"] = {
+            "available": False,
+            "unavailable_reason": reason,
+            "captured_at_utc": _utc_now(),
+        }
+        self._write_result(result)
+        return deepcopy(result)
+
     def seal(
         self,
         run_id: str,
@@ -568,6 +611,21 @@ class RunResultStore:
         path = (run_dir / relative_path).resolve()
         if path.parent != (run_dir / "snapshots").resolve() or not path.is_file():
             raise RunResultNotFound(filename)
+        return path, content_type
+
+    def black_box_trace_path(self, run_id: str) -> tuple[Path, str]:
+        result = self.get(run_id)
+        descriptor = result.get("black_box_trace")
+        if not isinstance(descriptor, dict):
+            raise RunResultNotFound("black-box trace")
+        filename = descriptor.get("filename")
+        content_type = descriptor.get("content_type")
+        if not isinstance(filename, str) or not isinstance(content_type, str):
+            raise RunResultNotFound("black-box trace")
+        run_dir = (self.root / str(UUID(run_id))).resolve()
+        path = (run_dir / filename).resolve()
+        if path.parent != run_dir or not path.is_file():
+            raise RunResultNotFound("black-box trace")
         return path, content_type
 
     def _append_event(
@@ -704,6 +762,7 @@ class RunResultStore:
             "message": result["message"],
             "failed_phase": None,
             "final_safety_state": result["final_safety_state"],
+            "black_box_trace": result.get("black_box_trace"),
             "key_values": key_values,
         }
 

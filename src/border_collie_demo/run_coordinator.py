@@ -106,6 +106,14 @@ class RunCoordinator:
         failed_phase: str | None = None,
         failure_details: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        terminal_payload = {
+            "outcome": outcome,
+            "reason": reason,
+            "phase": terminal_phase.value,
+            "final_safety_state": final_safety_state,
+        }
+        self._record("run_terminal", terminal_payload, run_id=run_id)
+        self.refresh_black_box(run_id)
         run = self._results.seal(
             run_id,
             phase=terminal_phase.value,
@@ -116,16 +124,6 @@ class RunCoordinator:
             failed_phase=failed_phase,
             failure_details=failure_details,
         )
-        self._record(
-            "run_terminal",
-            {
-                "outcome": outcome,
-                "reason": reason,
-                "phase": terminal_phase.value,
-                "final_safety_state": final_safety_state,
-            },
-            run_id=run_id,
-        )
         if terminal_phase is MissionPhase.COMPLETE:
             self._mission.advance(message)
         elif terminal_phase is MissionPhase.STOPPED:
@@ -135,6 +133,26 @@ class RunCoordinator:
         else:
             raise ValueError(f"unsupported terminal phase: {terminal_phase.value}")
         return run
+
+    def refresh_black_box(self, run_id: str) -> dict[str, Any] | None:
+        """Freeze the current per-run recorder tail without masking safety."""
+        try:
+            if self._recorder is None:
+                return self._results.record_black_box_unavailable(
+                    run_id, "flight recorder is not configured"
+                )
+            return self._results.record_black_box_trace(
+                run_id,
+                self._recorder.snapshot_run(run_id),
+            )
+        except Exception as exc:  # noqa: BLE001 - diagnostics cannot mask safety
+            try:
+                return self._results.record_black_box_unavailable(
+                    run_id,
+                    f"black-box trace capture failed: {exc}",
+                )
+            except Exception:  # noqa: BLE001 - terminal safety remains authoritative
+                return None
 
     def recover_interrupted(self, *, final_safety_state: str) -> list[dict[str, Any]]:
         sealed = self._results.seal_interrupted_runs(

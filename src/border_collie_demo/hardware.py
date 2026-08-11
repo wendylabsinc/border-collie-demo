@@ -37,6 +37,7 @@ from .return_home import (
     Pose2D,
     ReturnMode,
     ReturnPlannerConfig,
+    ReturnStep,
     normalize_angle,
     plan_return_step,
 )
@@ -90,6 +91,20 @@ def _home_pose(home: dict[str, object]) -> Pose2D:
         raise ValueError("captured Home pose is missing or invalid")
     x_m, y_m, yaw_rad = (float(value) for value in values if value is not None)
     return Pose2D(x_m, y_m, yaw_rad)
+
+
+def _pose_payload(pose: Pose2D) -> dict[str, float]:
+    return {"x_m": pose.x_m, "y_m": pose.y_m, "yaw_rad": pose.yaw_rad}
+
+
+def _return_step_payload(step: ReturnStep) -> dict[str, object]:
+    return {
+        "mode": step.mode.value,
+        "distance_m": step.distance_m,
+        "heading_error_rad": step.heading_error_rad,
+        "forward_mps": step.forward_mps,
+        "yaw_rps": step.yaw_rps,
+    }
 
 
 class HardwareUnavailable(RuntimeError):
@@ -1640,6 +1655,41 @@ class HardwareManager:
                     assert home_distance is not None
                     samples += 1
                     if home_distance <= arrival_tolerance_m:
+                        terminal_step = plan_return_step(home_pose, current_world, config)
+                        self._record_flight(
+                            "home_navigation_sample",
+                            {
+                                "epoch": self._motion_run_epoch,
+                                "phase": self._motion_authority_phase,
+                                "raw_pose": sample.to_dict(),
+                                "home_localization": estimate.to_dict(),
+                                "current_world": _pose_payload(current_world),
+                                "target": _pose_payload(home_pose),
+                                "target_kind": "home",
+                                "plan": _return_step_payload(terminal_step),
+                                "progress": {
+                                    "samples": samples,
+                                    "best_target_distance_m": (
+                                        None if math.isinf(best_distance) else best_distance
+                                    ),
+                                    "seconds_since_progress": (
+                                        time.monotonic() - progress_at
+                                    ),
+                                    "requested_forward_pulses": forward_pulse_count,
+                                    "replayed_forward_pulses": replayed_forward_pulses,
+                                    "planned_breadcrumbs": planned_breadcrumbs,
+                                    "reached_breadcrumbs": reached_breadcrumbs,
+                                },
+                                "thresholds": {
+                                    "arrival_tolerance_m": arrival_tolerance_m,
+                                    "heading_gate_rad": heading_gate_rad,
+                                    "heading_tolerance_rad": config.heading_tolerance_rad,
+                                    "minimum_progress_m": minimum_progress_m,
+                                    "stall_timeout_s": stall_timeout_s,
+                                    "timeout_s": timeout_s,
+                                },
+                            },
+                        )
                         evidence = {
                             "home_distance_m": home_distance,
                             "arrival_tolerance_m": arrival_tolerance_m,
@@ -1683,10 +1733,43 @@ class HardwareManager:
                             f"{home_distance:.3f} m from Home"
                         )
                     now = time.monotonic()
-                    if step.distance_m <= best_distance - minimum_progress_m:
+                    progressed = step.distance_m <= best_distance - minimum_progress_m
+                    if progressed:
                         best_distance = step.distance_m
                         progress_at = now
-                    elif now - progress_at > stall_timeout_s:
+                    self._record_flight(
+                        "home_navigation_sample",
+                        {
+                            "epoch": self._motion_run_epoch,
+                            "phase": self._motion_authority_phase,
+                            "raw_pose": sample.to_dict(),
+                            "home_localization": estimate.to_dict(),
+                            "current_world": _pose_payload(current_world),
+                            "target": _pose_payload(target),
+                            "target_kind": (
+                                "breadcrumb" if route_waypoints else "home"
+                            ),
+                            "plan": _return_step_payload(step),
+                            "progress": {
+                                "samples": samples,
+                                "best_target_distance_m": best_distance,
+                                "seconds_since_progress": now - progress_at,
+                                "requested_forward_pulses": forward_pulse_count,
+                                "replayed_forward_pulses": replayed_forward_pulses,
+                                "planned_breadcrumbs": planned_breadcrumbs,
+                                "reached_breadcrumbs": reached_breadcrumbs,
+                            },
+                            "thresholds": {
+                                "arrival_tolerance_m": arrival_tolerance_m,
+                                "heading_gate_rad": heading_gate_rad,
+                                "heading_tolerance_rad": config.heading_tolerance_rad,
+                                "minimum_progress_m": minimum_progress_m,
+                                "stall_timeout_s": stall_timeout_s,
+                                "timeout_s": timeout_s,
+                            },
+                        },
+                    )
+                    if not progressed and now - progress_at > stall_timeout_s:
                         raise HardwareUnavailable(
                             "return Home stalled "
                             f"{step.distance_m:.3f} m from its active waypoint"
@@ -1928,6 +2011,7 @@ class HardwareManager:
 
     def ingest_home_fusion_sample(self) -> dict[str, object]:
         """Advance captured-Home fusion independently of motion commands."""
+        raw_pose: dict[str, object] | None = None
         try:
             if self._captured_home_pose is None or self._pose is None:
                 result: dict[str, object] = {
@@ -1936,6 +2020,7 @@ class HardwareManager:
                 }
             else:
                 sample = self._pose.status()
+                raw_pose = sample.to_dict()
                 if (
                     not sample.healthy
                     or sample.pose is None
@@ -1970,6 +2055,24 @@ class HardwareManager:
             **result,
             "recorded_monotonic_s": self._monotonic(),
         }
+        self._record_flight(
+            "home_fusion_sample",
+            {
+                "epoch": self._motion_run_epoch,
+                "phase": self._motion_authority_phase,
+                "captured_home": (
+                    None
+                    if self._captured_home_pose is None
+                    else {
+                        "x_m": self._captured_home_pose.x_m,
+                        "y_m": self._captured_home_pose.y_m,
+                        "yaw_rad": self._captured_home_pose.yaw_rad,
+                    }
+                ),
+                "raw_pose": raw_pose,
+                "estimate": dict(self._continuous_fusion_latest),
+            },
+        )
         return dict(result)
 
     def _start_continuous_fusion_ingestion(self) -> None:

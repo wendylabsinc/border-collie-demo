@@ -432,9 +432,13 @@ def create_app(
         except (ActiveRunError, HardwareUnavailable) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-        task = asyncio.create_task(
-            recovery.run(run_id, str(attempt["recovery_id"]))
-        )
+        async def recover_and_refresh() -> dict[str, object]:
+            try:
+                return await recovery.run(run_id, str(attempt["recovery_id"]))
+            finally:
+                coordinator.refresh_black_box(run_id)
+
+        task = asyncio.create_task(recover_and_refresh())
         active_tasks.add(task)
         task.add_done_callback(active_tasks.discard)
         return {
@@ -463,6 +467,20 @@ def create_app(
             path,
             media_type=content_type,
             filename=filename,
+        )
+
+    @app.get("/api/results/{run_id}/trace")
+    async def get_result_trace(run_id: str) -> FileResponse:
+        try:
+            path, content_type = results.black_box_trace_path(run_id)
+        except RunResultNotFound as exc:
+            raise HTTPException(
+                status_code=404, detail="Run black-box trace not found"
+            ) from exc
+        return FileResponse(
+            path,
+            media_type=content_type,
+            filename="run-trace.ndjson",
         )
 
     @app.get("/api/results")

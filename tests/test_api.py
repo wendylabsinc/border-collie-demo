@@ -1,4 +1,5 @@
 import asyncio
+import json
 import time
 from time import monotonic
 
@@ -447,7 +448,8 @@ def test_activate_demo_completes_every_stage_with_simulated_adapters(tmp_path) -
         assert "stage_results" not in run
         assert "events" not in run
         assert sorted(path.name for path in (tmp_path / run_id).iterdir()) == [
-            "result.json"
+            "result.json",
+            "run-trace.ndjson",
         ]
 
 
@@ -595,6 +597,48 @@ def test_success_does_not_capture_terminal_frame_archive(tmp_path) -> None:
 
     assert captures == 0
     assert run["record_type"] == "success_summary"
+
+
+def test_every_terminal_run_exposes_a_run_filtered_black_box_trace(tmp_path) -> None:
+    with TestClient(
+        create_app(
+            runs_root=tmp_path,
+            hardware=ReadyHardwareBoundary(),
+            camera_perception_status=ready_camera_perception,
+            stage_executor=SimulatedStageExecutor(),
+        )
+    ) as client:
+        first_run_id = client.post(
+            "/api/run", json={"target_fruit": "pear"}
+        ).json()["run"]["run_id"]
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            first = client.get(f"/api/results/{first_run_id}").json()["run"]
+            if first["outcome"] is not None:
+                break
+            time.sleep(0.01)
+
+        second_run_id = client.post(
+            "/api/run", json={"target_fruit": "apple"}
+        ).json()["run"]["run_id"]
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            second = client.get(f"/api/results/{second_run_id}").json()["run"]
+            if second["outcome"] is not None:
+                break
+            time.sleep(0.01)
+
+        trace_response = client.get(f"/api/results/{first_run_id}/trace")
+
+    assert first["outcome"] == "COMPLETED"
+    assert first["black_box_trace"]["event_count"] > 0
+    assert first["black_box_trace"]["content_type"] == "application/x-ndjson"
+    assert trace_response.status_code == 200
+    events = [json.loads(line) for line in trace_response.text.splitlines()]
+    assert {event["run_id"] for event in events} == {first_run_id}
+    assert events[0]["kind"] == "run_activated"
+    assert events[-1]["kind"] == "run_terminal"
+    assert all(event["run_id"] != second_run_id for event in events)
 
 
 def test_orchestrator_carries_search_qualification_into_approach(tmp_path) -> None:

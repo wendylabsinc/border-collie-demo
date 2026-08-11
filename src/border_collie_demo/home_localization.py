@@ -304,9 +304,21 @@ class HomeLocalizer:
                 baseline=None,
             )
         )
+        fused_pose = fused.pose_from_home
         return {
             "trusted": fused.trusted,
             "unavailable_reason": fused.unavailable_reason,
+            "pose_from_home": (
+                None if fused_pose is None else _pose_dict(fused_pose)
+            ),
+            "home_distance_m": (
+                None
+                if fused_pose is None
+                else math.hypot(fused_pose.x_m, fused_pose.y_m)
+            ),
+            "velocity_x_mps": fused.velocity_x_mps,
+            "velocity_y_mps": fused.velocity_y_mps,
+            "yaw_bias_rps": fused.yaw_bias_rps,
             "covariance": fused.covariance,
             "evidence": fused.evidence,
         }
