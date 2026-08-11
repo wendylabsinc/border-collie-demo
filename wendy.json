@@ -54,6 +54,7 @@
       },
       "entitlements": [
         {"type": "network", "mode": "host"},
+        {"type": "http", "port": 8110},
         {
           "type": "persist",
           "name": "border-collie-demo-runs",

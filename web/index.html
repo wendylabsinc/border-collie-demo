@@ -2,37 +2,81 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Border Collie Demo</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+    <meta name="theme-color" content="#f1eee7">
+    <title>Border Collie Fruit Demo · Wendy</title>
     <style>
       :root {
-        color-scheme: light dark;
-        font-family: system-ui, sans-serif;
+        --wendy-cream: #f1eee7;
+        --wendy-slate: #171c23;
+        --wendy-seafoam: #9fe2bf;
+        --wendy-green: #2a7050;
+        --wendy-border: #d7d5cf;
+        --wendy-danger: #a63c2d;
+        font-family: "Geist", ui-sans-serif, system-ui, sans-serif;
+        background: var(--wendy-cream);
+        color: var(--wendy-slate);
       }
+      * { box-sizing: border-box; }
       body {
         margin: 0;
         min-height: 100vh;
-        display: grid;
-        place-items: center;
+        background: var(--wendy-cream);
       }
       main {
-        width: calc(100% - 2rem);
-        max-width: 48rem;
-        text-align: center;
+        width: min(100%, 64rem);
+        margin: 0 auto;
+        padding: max(1.25rem, env(safe-area-inset-top)) max(1.25rem, env(safe-area-inset-right)) max(2rem, env(safe-area-inset-bottom)) max(1.25rem, env(safe-area-inset-left));
+      }
+      .suite-header {
+        align-items: center;
+        border-bottom: 1px solid var(--wendy-border);
+        display: flex;
+        gap: 0.75rem;
+        min-width: 0;
+        padding-bottom: 1rem;
+      }
+      .brand { font-size: 1rem; font-weight: 750; letter-spacing: 0.12em; }
+      .mark { border: 4px solid var(--wendy-slate); display: inline-block; height: 1.3rem; transform: rotate(45deg); width: 1.3rem; }
+      .room-home {
+        align-items: center;
+        border: 1px solid var(--wendy-border);
+        color: var(--wendy-slate);
+        display: inline-flex;
+        font-weight: 700;
+        justify-content: center;
+        margin-left: auto;
+        min-height: 48px;
+        padding: 0.65rem 1rem;
+        text-decoration: none;
+      }
+      h1 {
+        font-size: clamp(2.5rem, 8vw, 5rem);
+        font-weight: 560;
+        letter-spacing: -0.055em;
+        line-height: 0.96;
+        margin: 2rem 0 0.75rem;
+      }
+      .lede { color: #5b5a56; font-size: clamp(1rem, 2.5vw, 1.25rem); }
+      .safety {
+        border-left: 5px solid var(--wendy-danger);
+        font-weight: 650;
+        margin: 1rem 0;
+        padding: 0.7rem 0.9rem;
       }
       .camera-panel {
         margin: 1.25rem 0;
-        padding: 0.75rem;
-        border: 1px solid currentColor;
-        border-radius: 0.75rem;
+        padding: 1rem;
+        border: 1px solid var(--wendy-border);
+        background: #fffdf8;
       }
+      .workspace, .operator-panel { min-width: 0; }
       #camera-feed {
         display: block;
         width: 100%;
         aspect-ratio: 16 / 9;
         object-fit: contain;
         background: #111;
-        border-radius: 0.5rem;
       }
       #camera-state {
         margin: 0.65rem 0 0;
@@ -40,20 +84,32 @@
       }
       .controls {
         display: grid;
-        gap: 0.75rem;
-        margin: 2rem 0;
+        gap: 0.8rem;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        margin: 1.5rem 0;
+      }
+      .field { display: grid; gap: 0.45rem; grid-column: 1 / -1; }
+      label { font-weight: 700; }
+      button, select {
+        border: 1px solid var(--wendy-slate);
+        border-radius: 0;
+        color: var(--wendy-slate);
+        min-width: 0;
       }
       button {
-        min-height: 4rem;
+        min-height: 56px;
         font: inherit;
         font-weight: 700;
         cursor: pointer;
       }
+      #activate { background: var(--wendy-seafoam); }
+      #stop { background: var(--wendy-danger); color: white; }
       button:disabled {
         cursor: not-allowed;
       }
       select {
-        min-height: 3rem;
+        background: white;
+        min-height: 52px;
         padding: 0 0.75rem;
         font: inherit;
       }
@@ -71,34 +127,66 @@
         color: #3d2b00;
         font-weight: 700;
       }
+      @media (max-width: 600px) {
+        .controls { grid-template-columns: minmax(0, 1fr); }
+        h1 { margin-top: 1.5rem; }
+      }
+      @media (min-width: 900px) {
+        .workspace {
+          align-items: start;
+          display: grid;
+          gap: 1.25rem;
+          grid-template-columns: minmax(0, 1.6fr) minmax(17rem, 0.8fr);
+          margin-top: 1.25rem;
+        }
+        .camera-panel, .controls { margin: 0; }
+        .operator-panel {
+          border: 1px solid var(--wendy-border);
+          background: #fffdf8;
+          padding: 1rem;
+        }
+        .controls { grid-template-columns: minmax(0, 1fr); }
+      }
     </style>
   </head>
   <body>
     <main>
+      <header class="suite-header">
+        <span class="mark" aria-hidden="true"></span>
+        <span class="brand">WENDY</span>
+        <a class="room-home" href="http://127.0.0.1:8088/">← Home</a>
+      </header>
       <h1>Border Collie Demo</h1>
-      <p>Choose a qualified Target Fruit, then activate the demo.</p>
+      <p class="lede">Choose a qualified target fruit, then activate the demo.</p>
+      <p class="safety">Robot control · forward translation uses factory obstacle avoidance; keep the supervised stop path clear.</p>
       <p id="build-label" hidden></p>
       <p id="runtime-mode" hidden></p>
-      <section class="camera-panel" aria-labelledby="camera-title">
-        <h2 id="camera-title">Woof's camera</h2>
-        <img
-          id="camera-feed"
-          alt="Live Woof camera with the YOLO fruit model overlay"
-        >
-        <p id="camera-state" role="status">Connecting to camera…</p>
-      </section>
-      <div class="controls">
-        <label for="target-fruit">Target Fruit</label>
-        <select id="target-fruit">
-          <option value="pear" selected>Pear</option>
-          <option value="apple">Red apple</option>
-          <option value="banana">Banana</option>
-        </select>
-        <button id="activate" type="button" disabled>Activate Demo</button>
-        <button id="stop" type="button">Stop Woof</button>
+      <div class="workspace">
+        <section class="camera-panel" aria-labelledby="camera-title">
+          <h2 id="camera-title">Woof's camera</h2>
+          <img
+            id="camera-feed"
+            alt="Live Woof camera with the YOLO fruit model overlay"
+          >
+          <p id="camera-state" role="status">Connecting to camera…</p>
+        </section>
+        <section class="operator-panel" aria-label="Demo controls">
+          <div class="controls">
+            <div class="field">
+              <label for="target-fruit">Target Fruit</label>
+              <select id="target-fruit">
+                <option value="pear" selected>Pear</option>
+                <option value="apple">Red apple</option>
+                <option value="banana">Banana</option>
+              </select>
+            </div>
+            <button id="activate" type="button" disabled>Activate Demo</button>
+            <button id="stop" type="button">Stop Woof</button>
+          </div>
+          <p id="status" role="status" aria-live="polite">Checking readiness…</p>
+          <p id="run-id"></p>
+        </section>
       </div>
-      <p id="status" role="status" aria-live="polite">Checking readiness…</p>
-      <p id="run-id"></p>
     </main>
     <script>
       const activate = document.querySelector('#activate');
