@@ -656,6 +656,7 @@ def run_session(
     dongle_match: str | None = None,
     note: str | None = None,
     expected_build_label: str | None = None,
+    expected_search_policy: str | None = None,
     expected_fruits: list[str] | None = None,
     randomize_orientation: bool = True,
     recover_failures: bool = False,
@@ -671,6 +672,15 @@ def run_session(
             f"expected build {expected_build_label!r}, got {build_label!r}; "
             "no run was activated"
         )
+    search_policy = status.get("search_policy")
+    if (
+        expected_search_policy is not None
+        and search_policy != expected_search_policy
+    ):
+        raise HarnessAbort(
+            f"expected search policy {expected_search_policy!r}, "
+            f"got {search_policy!r}; no run was activated"
+        )
     qualified = list(client.fruits().get("qualified_fruits", []))
     if expected_fruits is not None:
         expected = sorted(set(expected_fruits))
@@ -685,6 +695,7 @@ def run_session(
         draw_orientation_sequence(runs, seed) if randomize_orientation else [0] * runs
     )
     log(f"build: {build_label}")
+    log(f"search policy: {search_policy or 'unreported'}")
     log(f"qualified fruits: {', '.join(qualified)}")
     log(f"seed {seed} -> sequence: {', '.join(sequence)}")
     log(
@@ -697,6 +708,7 @@ def run_session(
         "schema_version": SCHEMA_VERSION,
         "session": session_id,
         "build_label": build_label,
+        "search_policy": search_policy,
         "note": note,
         "qualified_fruits": qualified,
         "target_runs": runs,
@@ -868,6 +880,15 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--expected-search-policy",
+        choices=("fast-lock", "slow-sweep", "double-back"),
+        default=None,
+        help=(
+            "abort before activation unless /api/status reports this exact "
+            "search policy"
+        ),
+    )
+    parser.add_argument(
         "--expected-fruits",
         nargs="+",
         default=None,
@@ -919,6 +940,7 @@ def main(argv: list[str] | None = None) -> int:
             dongle_match=args.dongle_match,
             note=args.note,
             expected_build_label=args.expected_build_label,
+            expected_search_policy=args.expected_search_policy,
             expected_fruits=args.expected_fruits,
             randomize_orientation=not args.no_orientation_randomization,
             recover_failures=args.recover_failures,

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import argparse
 import os
+from collections.abc import Sequence
 
 import uvicorn
 from fastapi import FastAPI
@@ -15,10 +17,12 @@ from .orchestrator import SimulatedStageExecutor
 from .perception import PerceptionStatusClient
 from .production import ProductionStageExecutor
 from .release import ReleaseCohort
+from .search_policy import SEARCH_POLICY_NAMES, SearchPolicy
 from .simulation import SimulatedHardware, simulated_camera_perception
 
 
-def build_app_from_env() -> FastAPI:
+def build_app_from_env(*, search_policy: SearchPolicy | None = None) -> FastAPI:
+    selected_search_policy = search_policy or SearchPolicy.configured()
     runtime_mode = (
         os.environ.get("BORDER_COLLIE_RUNTIME_MODE", "production").strip().lower()
     )
@@ -28,6 +32,7 @@ def build_app_from_env() -> FastAPI:
             camera_perception_status=simulated_camera_perception,
             media_status=lambda: {"ready": True, "detail": "simulated bark is ready"},
             stage_executor=SimulatedStageExecutor(),
+            search_policy=selected_search_policy,
             runtime_mode="simulation",
         )
     if runtime_mode != "production":
@@ -64,14 +69,19 @@ def build_app_from_env() -> FastAPI:
         ),
         terminal_evidence=terminal_evidence.capture,
         release_cohort=release_cohort,
+        search_policy=selected_search_policy,
         runtime_mode="production",
     )
 
 
-def main() -> None:
+def main(argv: Sequence[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description="Run the Border Collie demo app")
+    parser.add_argument("--search-policy", choices=SEARCH_POLICY_NAMES)
+    args = parser.parse_args(argv)
+    search_policy = SearchPolicy.configured(cli_name=args.search_policy)
     port = int(os.environ.get("BORDER_COLLIE_PORT", "8110"))
     uvicorn.run(
-        build_app_from_env(),
+        build_app_from_env(search_policy=search_policy),
         host="0.0.0.0",
         port=port,
     )

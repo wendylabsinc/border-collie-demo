@@ -27,6 +27,7 @@ from .recovery import (
 from .release import ReleaseCohort
 from .run_coordinator import RunActivation, RunCoordinator
 from .run_results import ActiveRunError, RunResultNotFound, RunResultStore
+from .search_policy import SearchPolicy
 
 
 def build_label() -> str:
@@ -71,8 +72,10 @@ def create_app(
     terminal_evidence: Callable[[], list[EvidenceArtifact]] | None = None,
     flight_recorder: FlightRecorder | None = None,
     release_cohort: ReleaseCohort | None = None,
+    search_policy: SearchPolicy | None = None,
     runtime_mode: Literal["production", "simulation"] = "production",
 ) -> FastAPI:
+    selected_search_policy = search_policy or SearchPolicy.configured()
     machine = mission or MissionMachine()
     robot = hardware or HardwareManager()
     root = web_root or Path(os.environ.get("BORDER_COLLIE_WEB_ROOT", "web")).resolve()
@@ -150,7 +153,13 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         await robot.start()
-        recorder.record("application_started", {"runtime_mode": runtime_mode})
+        recorder.record(
+            "application_started",
+            {
+                "runtime_mode": runtime_mode,
+                "search_policy": selected_search_policy.name,
+            },
+        )
         if results.has_interrupted_work():
             startup_stop_errors = await robot.emergency_stop()
             motion = robot.status().get("motion")
@@ -261,6 +270,7 @@ def create_app(
         preflight = evaluate_preflight(robot.status(), camera_perception, media)
         return {
             "build_label": build_label(),
+            "search_policy": selected_search_policy.name,
             "runtime_mode": runtime_mode,
             "release": None if release_cohort is None else release_cohort.to_dict(),
             "mission": machine.status(),

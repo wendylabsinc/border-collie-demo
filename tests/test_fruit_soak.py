@@ -405,6 +405,45 @@ def test_session_records_every_run_and_build_label(tmp_path: Path):
     assert session["aborted"] is None
 
 
+def test_session_requires_and_records_expected_search_policy(tmp_path: Path):
+    status = {**READY, "search_policy": "double-back"}
+    client = FakeClient(
+        [status],
+        results_by_id={"run-1": [terminal("run-1")]},
+        sidecar=SIDECAR,
+    )
+
+    session = run_session(
+        client,
+        runs=1,
+        seed=3,
+        output_path=tmp_path / "double-back.json",
+        expected_search_policy="double-back",
+        sleep=lambda _: None,
+        log=lambda *_: None,
+    )
+
+    assert session["search_policy"] == "double-back"
+
+
+def test_session_rejects_unexpected_search_policy_before_motion(tmp_path: Path):
+    status = {**READY, "search_policy": "slow-sweep"}
+    client = FakeClient([status], sidecar=SIDECAR)
+
+    with pytest.raises(HarnessAbort, match="expected search policy"):
+        run_session(
+            client,
+            runs=1,
+            seed=3,
+            output_path=tmp_path / "wrong-policy.json",
+            expected_search_policy="fast-lock",
+            sleep=lambda _: None,
+            log=lambda *_: None,
+        )
+
+    assert client.activated == []
+
+
 def test_session_can_run_the_regular_soak_without_orientation_turns(tmp_path: Path):
     client = FakeClient(
         [READY],

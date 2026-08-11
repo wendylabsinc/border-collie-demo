@@ -11,6 +11,7 @@ from border_collie_demo.mission import MissionMachine
 from border_collie_demo.models import MissionPhase, RemoteInput
 from border_collie_demo.orchestrator import SimulatedStageExecutor, StageFailure
 from border_collie_demo.recovery import RECOVERY_CONFIRMATION
+from border_collie_demo.search_policy import SearchPolicy
 
 
 class ReadyHardwareBoundary:
@@ -140,6 +141,20 @@ def ready_app(runs_root):
         hardware=ReadyHardwareBoundary(),
         camera_perception_status=ready_camera_perception,
     )
+
+
+def test_status_attributes_the_selected_search_policy(tmp_path) -> None:
+    app = create_app(
+        runs_root=tmp_path,
+        hardware=ReadyHardwareBoundary(),
+        camera_perception_status=ready_camera_perception,
+        search_policy=SearchPolicy.named("double-back"),
+    )
+
+    response = TestClient(app).get("/api/status")
+
+    assert response.status_code == 200
+    assert response.json()["search_policy"] == "double-back"
 
 
 class PoseLostAtHomeBoundary(ReadyHardwareBoundary):
