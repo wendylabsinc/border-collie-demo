@@ -636,3 +636,36 @@ the separate failed-run Home-recovery or heading-restoration repairs.
   steering, no in-place pause, centered closeout, and final disarm. Physical yaw
   response, final clearance, and five-run randomized repeatability remain to be
   qualified after whole-app Stagefile deployment.
+
+### Five-attempt v19 characterization before v20 deployment
+
+- Seed `2026081103` produced `apple, apple, banana, banana, pear`, all with the
+  requested zero-degree pre-search orientation. The session intentionally
+  recorded all five outcomes instead of resetting or stopping on mission
+  failure.
+- Both apple runs failed `TARGET_RECOGNITION_FAILURE` during the bounded search.
+  The detector produced maximum confidences `0.8069` and `0.7677`, but only four
+  and one consecutive detections while broad search commanded `1.0 rad/s`.
+  Neither candidate remained stable for the configured `0.75 s` lock hold.
+- The first banana run completed camera approach and arrival, then failed
+  `RETURN_HOME_FAILURE` because the measured heading-restoration turn timed out.
+  Bounded recovery completed inside the Home gate at `0.0995 m`.
+- The second banana run completed the entire routine and ended `0.0234 m` from
+  Home with `-2.89 degrees` heading error.
+- The pear run completed camera approach, bottom-edge closeout, and exactly one
+  bounded final push. Heading restoration then moved the position estimate from
+  `0.0418 m` to `0.102 m`, correctly failing the Home gate. Bounded recovery
+  completed at `0.0650 m`.
+- Summary: one success, two target-search failures, and two return-Home failures.
+  One operator-side status poll failed but no mission failure was attributed to
+  networking. Every attempt ended `DISARMED_CONFIRMED`; every failed attempt
+  completed bounded recovery before the next activation. Post-session motion
+  was disarmed with exact zero velocity, the guardian inactive, camera/media
+  ready, and battery `50%`.
+- Consequence: the next candidate should compare search acquisition policies
+  against this identical evidence stream, and separately make heading restore
+  position-aware. This is physical evidence from deployed v19, not v20
+  qualification.
+
+Full evidence:
+`benchmarks/results/fruit-soak-v19-five-attempt-characterization-2026081103.json`.
