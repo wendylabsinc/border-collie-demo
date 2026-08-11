@@ -29,6 +29,7 @@ main (clean scaffold)
   -> codex/stage-camera-final-approach-latch
   -> codex/stage-camera-bottom-clip-closeout
   -> codex/stage-camera-v18-closeout-recovery
+  -> codex/stage-camera-v19-search-handoff
 ```
 
 | Checkpoint | Purpose | Evidence status |
@@ -45,6 +46,7 @@ main (clean scaffold)
 | `codex/stage-camera-bottom-clip-closeout` | Specializes the latched camera closeout for a centered pear box shrinking as it clips out through the lower image edge. | Deterministic tracker and hardware replays of run `acfdb493-0afd-46e9-bff5-ee6caf8f152e` stop on the first qualifying area retreat and authorize one configured final push only after a second fresh advancing loss sample. The global 35% continuity limit remains unchanged, and non-bottom, off-axis, stale, duplicate, wrong-label/generation, invalid, unhealthy, and expired evidence remain fail-closed. This checkpoint is not physically qualified. |
 | `codex/stage-camera-arrival-failure-home-recovery` | Extends the existing one-shot, no-bark failed-run recovery to eligible `ARRIVAL_FAILURE` outcomes with fresh Home, pose, fusion, disarm, motion-release, pulse-budget, posture, and takeover gates. | Parallel source lane derived from v16 at `5882aeb`; its implementation is integrated into the combined v18 checkpoint rather than merged independently into the progression. |
 | `codex/stage-camera-v18-closeout-recovery` | Combines the bottom-clipped Final Approach closeout and automatic eligible Arrival-failure Home recovery under release `stage-camera-v18-closeout-recovery`, schema 4, app version `1.0.21-stage-camera`. | Integration checkpoint derived from the deployed/readiness-verified v17 branch. Software and deployment evidence are recorded separately; physical closeout and recovery behavior remain unqualified until supervised execution. |
+| `codex/stage-camera-v19-search-handoff` | Preserves v18 closeout/recovery and adds an explicit bounded search-to-approach qualification handoff without lowering ordinary fruit acquisition thresholds. Release `stage-camera-v19-search-handoff`, schema 4, app version `1.0.22-stage-camera`. | Derived from v18 after physical apple run `5e2dc136` qualified search at 0.7106289 but approach saw 165 sub-0.70 same-label frames and never acquired. Deterministic replay proves the handoff seeds identity only; current tracking-floor geometry and three fresh centered approach samples remain mandatory. Physical repeatability is not yet qualified. |
 
 PR #6 is based on PR #5, and PR #5 is based on `demo/base`. This keeps each
 review focused without pretending the latest stage candidate is already merged

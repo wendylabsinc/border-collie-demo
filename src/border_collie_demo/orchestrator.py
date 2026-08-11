@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from typing import Any, ClassVar, Protocol
 
 from .evidence import EvidenceArtifact
 from .models import MissionPhase
+from .qualified_tracking import SearchQualificationHandoff
 from .run_coordinator import RunCoordinator
 from .run_results import RunResultStore
 
@@ -22,6 +23,7 @@ class StageContext:
     run_epoch: str = "simulation"
     orientation_degrees: float = 0.0
     outbound_forward_pulses: int = 0
+    search_qualification_handoff: SearchQualificationHandoff | None = None
 
 
 class StageExecutor(Protocol):
@@ -127,6 +129,23 @@ class DemoOrchestrator:
                 )
                 evidence = await self._stages.execute(phase, context)
                 self._results.record_stage(run_id, phase.value, evidence)
+                if phase in (
+                    MissionPhase.TURN_TO_FRUIT,
+                    MissionPhase.FIND_FRUIT,
+                ):
+                    raw_handoff = evidence.get("search_qualification")
+                    handoff = None
+                    if isinstance(raw_handoff, Mapping):
+                        try:
+                            handoff = SearchQualificationHandoff.from_evidence(
+                                raw_handoff
+                            )
+                        except (TypeError, ValueError):
+                            handoff = None
+                    context = replace(
+                        context,
+                        search_qualification_handoff=handoff,
+                    )
                 if phase is MissionPhase.APPROACH_FRUIT:
                     pulse_count = evidence.get("forward_pulse_count")
                     if not isinstance(pulse_count, int) or pulse_count < 1:

@@ -27,6 +27,9 @@ class MotionRecommendation(str, Enum):
     STOP = "stop"
 
 
+SEARCH_QUALIFICATION_MINIMUM_DETECTIONS = 5
+
+
 @dataclass(frozen=True)
 class QualifiedTrackingConfig:
     target_fruit: str
@@ -180,6 +183,197 @@ class TrackDecision:
 
 
 @dataclass(frozen=True)
+class SearchQualificationHandoff:
+    """Narrow authority to carry a qualified search identity into approach.
+
+    The handoff is evidence, not a motion command.  A tracker must match it to
+    a current fresh observation and independently earn initial centering before
+    it may recommend translation.
+    """
+
+    search_qualified: bool
+    target_fruit: str
+    generation: str
+    source_pts: int
+    source_time_base: str
+    qualified_monotonic_s: float
+    stable_detections: int
+    confidence: float
+    center_x_ratio: float
+    center_y_ratio: float
+    bottom_ratio: float
+    bbox_area_ratio: float
+
+    def __post_init__(self) -> None:
+        if not self.target_fruit.casefold().strip():
+            raise ValueError("handoff target_fruit must be non-empty")
+        if not self.generation.strip() or not self.source_time_base.strip():
+            raise ValueError("handoff generation and time base must be non-empty")
+        if (
+            isinstance(self.source_pts, bool)
+            or not isinstance(self.source_pts, int)
+            or self.source_pts < 0
+        ):
+            raise ValueError("handoff source PTS must be a non-negative integer")
+        if (
+            isinstance(self.stable_detections, bool)
+            or not isinstance(self.stable_detections, int)
+            or self.stable_detections < 1
+        ):
+            raise ValueError("handoff stable detections must be positive")
+        if not math.isfinite(self.qualified_monotonic_s):
+            raise ValueError("handoff qualification time must be finite")
+        ratios = (
+            self.confidence,
+            self.center_x_ratio,
+            self.center_y_ratio,
+            self.bottom_ratio,
+        )
+        if not all(math.isfinite(value) and 0.0 <= value <= 1.0 for value in ratios):
+            raise ValueError("handoff confidence and geometry must be normalized")
+        if self.bottom_ratio < self.center_y_ratio:
+            raise ValueError("handoff bottom must not precede its vertical center")
+        if not (
+            math.isfinite(self.bbox_area_ratio) and 0.0 < self.bbox_area_ratio <= 1.0
+        ):
+            raise ValueError("handoff area must be normalized")
+
+    def to_evidence(self) -> dict[str, object]:
+        return {
+            "search_qualified": self.search_qualified,
+            "target_fruit": self.target_fruit,
+            "generation": self.generation,
+            "source_pts": self.source_pts,
+            "source_time_base": self.source_time_base,
+            "qualified_monotonic_s": self.qualified_monotonic_s,
+            "stable_detections": self.stable_detections,
+            "confidence": self.confidence,
+            "center_x_ratio": self.center_x_ratio,
+            "center_y_ratio": self.center_y_ratio,
+            "bottom_ratio": self.bottom_ratio,
+            "bbox_area_ratio": self.bbox_area_ratio,
+        }
+
+    @classmethod
+    def from_evidence(
+        cls,
+        evidence: Mapping[str, object],
+    ) -> SearchQualificationHandoff:
+        return cls(
+            search_qualified=evidence.get("search_qualified") is True,
+            target_fruit=str(evidence.get("target_fruit") or ""),
+            generation=str(evidence.get("generation") or ""),
+            source_pts=_required_int(evidence.get("source_pts"), "source_pts"),
+            source_time_base=str(evidence.get("source_time_base") or ""),
+            qualified_monotonic_s=_required_number(
+                evidence.get("qualified_monotonic_s"),
+                "qualified_monotonic_s",
+            ),
+            stable_detections=_required_int(
+                evidence.get("stable_detections"),
+                "stable_detections",
+            ),
+            confidence=_required_number(evidence.get("confidence"), "confidence"),
+            center_x_ratio=_required_number(
+                evidence.get("center_x_ratio"),
+                "center_x_ratio",
+            ),
+            center_y_ratio=_required_number(
+                evidence.get("center_y_ratio"),
+                "center_y_ratio",
+            ),
+            bottom_ratio=_required_number(
+                evidence.get("bottom_ratio"),
+                "bottom_ratio",
+            ),
+            bbox_area_ratio=_required_number(
+                evidence.get("bbox_area_ratio"),
+                "bbox_area_ratio",
+            ),
+        )
+
+
+def search_handoff_from_status(
+    status: Mapping[str, object],
+    target_fruit: str,
+    *,
+    qualified_monotonic_s: float,
+) -> SearchQualificationHandoff | None:
+    """Capture only a complete, motion-qualified search observation."""
+    target = target_fruit.casefold().strip()
+    detection = status.get("detection")
+    source = status.get("source")
+    if not (
+        target
+        and status.get("camera_healthy") is True
+        and status.get("target_ready") is True
+        and isinstance(detection, Mapping)
+        and isinstance(source, Mapping)
+        and str(detection.get("label") or "").casefold().strip() == target
+    ):
+        return None
+    generation = status.get("generation")
+    detection_generation = detection.get("generation")
+    source_time_base = source.get("time_base")
+    detection_time_base = detection.get("source_time_base")
+    source_pts = detection.get("source_pts")
+    current_source_pts = source.get("pts")
+    stable_detections = detection.get("consecutive_detections")
+    if (
+        not isinstance(generation, str)
+        or not generation
+        or detection_generation != generation
+        or not isinstance(source_time_base, str)
+        or not source_time_base
+        or detection_time_base != source_time_base
+        or not isinstance(source_pts, int)
+        or isinstance(source_pts, bool)
+        or not isinstance(current_source_pts, int)
+        or isinstance(current_source_pts, bool)
+        or source_pts > current_source_pts
+        or not isinstance(stable_detections, int)
+        or isinstance(stable_detections, bool)
+    ):
+        return None
+    try:
+        handoff = SearchQualificationHandoff(
+            search_qualified=True,
+            target_fruit=target,
+            generation=generation,
+            source_pts=source_pts,
+            source_time_base=source_time_base,
+            qualified_monotonic_s=float(qualified_monotonic_s),
+            stable_detections=stable_detections,
+            confidence=_required_number(detection.get("confidence"), "confidence"),
+            center_x_ratio=_required_number(
+                detection.get("center_x_ratio"),
+                "center_x_ratio",
+            ),
+            center_y_ratio=_required_number(
+                detection.get("center_y_ratio"),
+                "center_y_ratio",
+            ),
+            bottom_ratio=_required_number(
+                detection.get("bottom_ratio"),
+                "bottom_ratio",
+            ),
+            bbox_area_ratio=_required_number(
+                detection.get("bbox_area_ratio"),
+                "bbox_area_ratio",
+            ),
+        )
+    except (TypeError, ValueError):
+        return None
+    policy = fruit_policy(target)
+    if (
+        handoff.confidence < policy.acquisition_confidence
+        or handoff.stable_detections < SEARCH_QUALIFICATION_MINIMUM_DETECTIONS
+    ):
+        return None
+    return handoff
+
+
+@dataclass(frozen=True)
 class _Observation:
     confidence: float | None
     center_x: float
@@ -196,6 +390,7 @@ class QualifiedFruitTracker:
         self,
         config: QualifiedTrackingConfig,
         *,
+        search_handoff: SearchQualificationHandoff | None = None,
         clock=time.monotonic,
     ) -> None:
         self.config = config
@@ -239,6 +434,9 @@ class QualifiedFruitTracker:
         self._final_approach_cancelled_reason: str | None = None
         self._final_approach_completed = False
         self._current_generation: str | None = None
+        self._search_handoff = search_handoff
+        self._search_handoff_accepted = False
+        self._search_handoff_rejection_reason: str | None = None
 
     def observe(
         self,
@@ -251,6 +449,7 @@ class QualifiedFruitTracker:
         if not math.isfinite(now):
             raise ValueError("observation time must be finite")
         if status.get("camera_healthy") is not True:
+            self._reject_search_handoff("camera_unhealthy")
             self._cancel_final_approach("camera_unhealthy")
             self._invalidate_close_loss()
             return self._decision(MotionRecommendation.STOP, "camera_unhealthy")
@@ -282,12 +481,14 @@ class QualifiedFruitTracker:
 
         detection = status.get("detection")
         if not isinstance(detection, Mapping):
+            self._reject_search_handoff("detection_missing")
             if self._final_approach_latched_at is not None:
                 return self._confirm_final_approach_loss(status, now)
             return self._handle_loss(now, "detection_missing")
         label = str(detection.get("label") or "").casefold().strip()
         if label != self.config.target_fruit:
             if label:
+                self._reject_search_handoff("target_mismatch")
                 self._cancel_final_approach("target_identity_changed")
                 self._identity_resets += 1
                 self._reset_track()
@@ -297,11 +498,13 @@ class QualifiedFruitTracker:
                 )
             if self._final_approach_latched_at is not None:
                 return self._confirm_final_approach_loss(status, now)
+            self._reject_search_handoff("detection_missing")
             return self._handle_loss(now, "detection_missing")
 
         age_s = _finite_number(detection.get("age_s"))
         freshness_attested = status.get("target_ready") is True
         if age_s is None:
+            self._reject_search_handoff("detection_age_missing")
             self._stale_samples += 1
             self._note_final_approach_frame(detection.get("source_pts"))
             self._invalidate_close_loss()
@@ -309,6 +512,7 @@ class QualifiedFruitTracker:
         if age_s is not None and (
             age_s < 0.0 or age_s > self.config.maximum_detection_age_s
         ):
+            self._reject_search_handoff("detection_stale")
             self._stale_samples += 1
             self._note_final_approach_frame(detection.get("source_pts"))
             self._invalidate_close_loss()
@@ -321,6 +525,7 @@ class QualifiedFruitTracker:
             and detection_generation is not None
             and detection_generation != generation
         ):
+            self._reject_search_handoff("generation_mismatch")
             self._stale_samples += 1
             self._cancel_final_approach("generation_mismatch")
             self._invalidate_close_loss()
@@ -328,6 +533,7 @@ class QualifiedFruitTracker:
 
         observation = self._parse_observation(detection)
         if observation is None:
+            self._reject_search_handoff("geometry_invalid")
             self._cancel_final_approach("geometry_invalid")
             self._invalidate_close_loss()
             return self._decision(MotionRecommendation.STOP, "geometry_invalid")
@@ -356,6 +562,25 @@ class QualifiedFruitTracker:
             )
 
         if not self._track_acquired:
+            if self._search_handoff is not None:
+                accepted, rejection_reason = self._consume_search_handoff(
+                    status,
+                    detection,
+                    observation,
+                    now,
+                    tracking_qualified=tracking_qualified,
+                )
+                if accepted:
+                    self._accept_observation(observation, now)
+                    self._track_acquired = True
+                    self._update_centering(observation)
+                    return self._decision(
+                        MotionRecommendation.ALIGN,
+                        "confirming_search_handoff_centering",
+                        observation,
+                        horizontal_error=self._filtered_horizontal_error(observation),
+                    )
+                self._search_handoff_rejection_reason = rejection_reason
             if not acquisition_qualified:
                 self._weak_samples += 1
                 self._acquisition_samples = 0
@@ -466,6 +691,101 @@ class QualifiedFruitTracker:
                 )
             self._initial_centered = True
         return self._recommend_visible(observation, now)
+
+    def _consume_search_handoff(
+        self,
+        status: Mapping[str, object],
+        detection: Mapping[str, object],
+        observation: _Observation,
+        now: float,
+        *,
+        tracking_qualified: bool,
+    ) -> tuple[bool, str | None]:
+        handoff = self._search_handoff
+        self._search_handoff = None
+        assert handoff is not None
+        target = self.config.target_fruit
+        if not handoff.search_qualified:
+            return False, "search_not_qualified"
+        if handoff.target_fruit.casefold().strip() != target:
+            return False, "target_mismatch"
+        if handoff.confidence < self.config.acquisition_confidence:
+            return False, "handoff_confidence_low"
+        if handoff.stable_detections < self.config.acquisition_confirmations:
+            return False, "handoff_stability_low"
+        age_s = now - handoff.qualified_monotonic_s
+        if age_s < 0.0:
+            return False, "handoff_time_invalid"
+        if age_s > self.config.maximum_detection_age_s:
+            return False, "handoff_stale"
+        generation = status.get("generation")
+        if (
+            generation != handoff.generation
+            or detection.get("generation") != handoff.generation
+        ):
+            return False, "generation_mismatch"
+        source = status.get("source")
+        if not isinstance(source, Mapping):
+            return False, "source_evidence_missing"
+        source_time_base = source.get("time_base")
+        detection_time_base = detection.get("source_time_base")
+        if (
+            source_time_base != handoff.source_time_base
+            or detection_time_base != handoff.source_time_base
+        ):
+            return False, "time_base_mismatch"
+        source_age_s = _finite_number(source.get("age_s"))
+        if (
+            source_age_s is None
+            or source_age_s < 0.0
+            or source_age_s > self.config.maximum_detection_age_s
+        ):
+            return False, "source_stale"
+        if (
+            observation.source_pts is None
+            or observation.source_pts < handoff.source_pts
+        ):
+            return False, "source_regressed"
+        source_pts = source.get("pts")
+        if (
+            not isinstance(source_pts, int)
+            or isinstance(source_pts, bool)
+            or observation.source_pts > source_pts
+        ):
+            return False, "source_identity_invalid"
+        if not tracking_qualified:
+            return False, "tracking_confidence_low"
+        if observation.area is None:
+            return False, "geometry_invalid"
+        if (
+            abs(observation.center_x - 0.5)
+            > self.config.moving_steering_enter_ratio
+        ):
+            return False, "geometry_off_axis"
+        if (
+            abs(observation.center_x - handoff.center_x_ratio)
+            > self.config.maximum_center_delta_ratio
+            or observation.center_y
+            < handoff.center_y_ratio - self.config.maximum_vertical_retreat_ratio
+            or observation.bottom
+            < handoff.bottom_ratio - self.config.maximum_vertical_retreat_ratio
+            or (
+                observation.area is not None
+                and observation.area
+                < handoff.bbox_area_ratio
+                * (1.0 - self.config.maximum_area_retreat_fraction)
+            )
+        ):
+            return False, "geometry_discontinuous"
+        self._search_handoff_accepted = True
+        self._search_handoff_rejection_reason = None
+        return True, None
+
+    def _reject_search_handoff(self, reason: str) -> None:
+        if self._search_handoff is None:
+            return
+        self._search_handoff = None
+        self._search_handoff_rejection_reason = reason
 
     def _recommend_visible(
         self,
@@ -1090,6 +1410,10 @@ class QualifiedFruitTracker:
             "acquisition_confidence": self.config.acquisition_confidence,
             "close_range_tracking_confidence": self.config.tracking_confidence,
             "detection_maximum_age_s": self.config.maximum_detection_age_s,
+            "search_handoff_accepted": self._search_handoff_accepted,
+            "search_handoff_rejection_reason": (
+                self._search_handoff_rejection_reason
+            ),
         }
         return TrackDecision(
             recommendation=recommendation,
@@ -1105,3 +1429,16 @@ def _finite_number(value: object) -> float | None:
         return None
     number = float(value)
     return number if math.isfinite(number) else None
+
+
+def _required_number(value: object, field: str) -> float:
+    number = _finite_number(value)
+    if number is None:
+        raise ValueError(f"handoff {field} must be finite")
+    return number
+
+
+def _required_int(value: object, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"handoff {field} must be an integer")
+    return value

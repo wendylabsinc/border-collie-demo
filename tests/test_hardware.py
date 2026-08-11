@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import time
 from itertools import pairwise
 
 import pytest
@@ -19,6 +20,7 @@ from border_collie_demo.hardware import (
     TargetLost,
 )
 from border_collie_demo.models import Pose, VelocityCommand
+from border_collie_demo.qualified_tracking import SearchQualificationHandoff
 from border_collie_demo.target_range import MetricArrivalGate, RangeCalibration
 
 
@@ -517,10 +519,19 @@ def test_find_target_turns_until_fresh_stable_perception_then_stops() -> None:
                 {
                     "camera_healthy": True,
                     "target_ready": True,
+                    "generation": "camera-1",
+                    "source": {"pts": 123, "time_base": "1/90000"},
                     "detection": {
                         "label": "pear",
+                        "generation": "camera-1",
+                        "source_pts": 123,
+                        "source_time_base": "1/90000",
                         "confidence": 0.81,
                         "consecutive_detections": 5,
+                        "center_x_ratio": 0.50,
+                        "center_y_ratio": 0.50,
+                        "bottom_ratio": 0.65,
+                        "bbox_area_ratio": 0.04,
                     },
                 },
             )
@@ -541,6 +552,8 @@ def test_find_target_turns_until_fresh_stable_perception_then_stops() -> None:
         assert result["motion_path"] == "sport_client"
         assert result["stable_detections"] == 5
         assert result["motion_commands_sent"] is True
+        assert result["search_qualification"]["target_fruit"] == "pear"
+        assert result["search_qualification"]["source_pts"] == 123
         assert all(command.forward_mps == 0.0 for command in motion.commands)
         assert all(
             command["phase"] == "turn_to_fruit" and command["forward_mps"] == 0.0
@@ -1858,6 +1871,140 @@ def test_approach_holds_authorized_command_between_fresh_inference_frames() -> N
         assert result["forward_pulse_count"] >= 7
         assert result["final_push_count"] == 1
         assert result["close_range_mps"] == 0.55
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_approach_replays_search_qualified_apple_confidence_drop() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+
+        def seen(
+            source_pts: int,
+            confidence: float,
+            *,
+            near: bool = False,
+        ) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": confidence >= 0.70,
+                "generation": "camera-1",
+                "source": {
+                    "pts": source_pts,
+                    "time_base": "1/90000",
+                    "age_s": 0.01,
+                },
+                "detection": {
+                    "label": "apple",
+                    "generation": "camera-1",
+                    "source_pts": source_pts,
+                    "source_time_base": "1/90000",
+                    "confidence": confidence,
+                    "consecutive_detections": 5,
+                    "center_x_ratio": 0.50,
+                    "center_y_ratio": 0.76 if near else 0.50,
+                    "bottom_ratio": 0.91 if near else 0.65,
+                    "bbox_area_ratio": 0.12 if near else 0.04,
+                    "age_s": 0.01,
+                },
+            }
+
+        qualified_at = time.monotonic()
+        handoff = SearchQualificationHandoff(
+            search_qualified=True,
+            target_fruit="apple",
+            generation="camera-1",
+            source_pts=100,
+            source_time_base="1/90000",
+            qualified_monotonic_s=qualified_at,
+            stable_detections=5,
+            confidence=0.710628867149353,
+            center_x_ratio=0.50,
+            center_y_ratio=0.50,
+            bottom_ratio=0.65,
+            bbox_area_ratio=0.04,
+        )
+        statuses = iter(
+            (
+                seen(101, 0.6477978),
+                seen(102, 0.60),
+                seen(103, 0.59),
+                seen(104, 0.58, near=True),
+                seen(105, 0.57, near=True),
+                seen(106, 0.56, near=True),
+                {
+                    "camera_healthy": True,
+                    "target_ready": False,
+                    "generation": "camera-1",
+                    "source": {
+                        "pts": 107,
+                        "time_base": "1/90000",
+                        "age_s": 0.01,
+                    },
+                    "detection": {},
+                },
+                {
+                    "camera_healthy": True,
+                    "target_ready": False,
+                    "generation": "camera-1",
+                    "source": {
+                        "pts": 108,
+                        "time_base": "1/90000",
+                        "age_s": 0.01,
+                    },
+                    "detection": {},
+                },
+            )
+        )
+
+        result = await manager.approach_target(
+            lambda: next(
+                statuses,
+                {
+                    "camera_healthy": True,
+                    "target_ready": False,
+                    "generation": "camera-1",
+                    "source": {
+                        "pts": 109,
+                        "time_base": "1/90000",
+                        "age_s": 0.01,
+                    },
+                    "detection": {},
+                },
+            ),
+            "apple",
+            forward_mps=1.0,
+            maximum_yaw_rps=0.50,
+            near_bottom_ratio=0.86,
+            near_center_ratio=0.72,
+            near_confirmations=3,
+            near_loss_grace_s=0.75,
+            close_range_mps=0.55,
+            final_push_mps=0.6,
+            final_push_duration_s=0.001,
+            timeout_s=1.0,
+            search_handoff=handoff,
+        )
+
+        assert [command.forward_mps for command in motion.commands[:3]] == [
+            0.0,
+            0.0,
+            1.0,
+        ]
+        assert motion.commands[0].reason == "center_target_before_approach"
+        assert result["search_handoff_accepted"] is True
+        assert result["acquisition_samples"] == 0
+        assert result["qualified_samples"] == 6
+        assert result["forward_pulse_count"] >= 4
+        assert motion.armed is False
         await manager.close()
 
     asyncio.run(scenario())

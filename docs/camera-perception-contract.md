@@ -156,6 +156,19 @@ may be relaxed only after new acceptance evidence is recorded.
   freshness, generation, geometry, or camera-health gate. A weaker or missing
   track commands zero motion until the approach contract either reacquires the
   pear or confirms a bounded sight-lost-close Arrival.
+- Search qualification crosses into approach through one explicit, immutable
+  handoff. It records the requested fruit, camera generation, source PTS and
+  time base, qualification monotonic time, five-frame stability count,
+  acquisition-grade confidence, and normalized geometry. Approach consumes
+  that handoff at most once and only within 0.250 seconds when a current fresh
+  same-fruit sample matches generation/time base, has non-regressed source
+  identity, remains geometrically continuous and inside the broad centering
+  corridor, and meets the fruit's existing tracking floor. The handoff seeds
+  identity only: the current sample commands zero/centering, and three current
+  fresh centered samples are still required before forward motion. A stale,
+  mismatched, regressed, weak, invalid, discontinuous, or off-axis handoff is
+  discarded and ordinary acquisition resumes at the unchanged per-fruit
+  acquisition threshold.
 - A previously acquired red-apple track may continue below the normal tracking
   floor, down to 0.10 confidence, only after its lower edge or the prior lower
   edge reaches 0.70 of frame height and its geometry remains continuous. Its

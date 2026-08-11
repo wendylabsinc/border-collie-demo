@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import time
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
@@ -21,6 +22,7 @@ from .orchestrator import (
     StageContext,
     StageFailure,
 )
+from .qualified_tracking import search_handoff_from_status
 
 
 class BarkPort(Protocol):
@@ -43,12 +45,14 @@ class ProductionStageExecutor:
         *,
         metric_arrival_required: bool = True,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._hardware = hardware
         self._perception_status = perception_status
         self._bark = bark
         self._metric_arrival_required = metric_arrival_required
         self._sleep = sleep
+        self._clock = clock
 
     async def execute(
         self,
@@ -197,6 +201,7 @@ class ProductionStageExecutor:
                 final_push_duration_s=1.0,
                 timeout_s=20.0,
                 metric_arrival_required=self._metric_arrival_required,
+                search_handoff=context.search_qualification_handoff,
             )
         if phase is MissionPhase.SIT_AND_BARK:
             stop_errors = await self._hardware.emergency_stop()
@@ -268,6 +273,13 @@ class ProductionStageExecutor:
             and isinstance(detection, dict)
         ):
             return None
+        handoff = search_handoff_from_status(
+            status,
+            target_fruit,
+            qualified_monotonic_s=self._clock(),
+        )
+        if handoff is None:
+            return None
         return {
             "label": target_fruit,
             "confidence": detection.get("confidence"),
@@ -276,6 +288,12 @@ class ProductionStageExecutor:
             "center_x_ratio": detection.get("center_x_ratio"),
             "center_y_ratio": detection.get("center_y_ratio"),
             "bottom_ratio": detection.get("bottom_ratio"),
+            "bbox_area_ratio": detection.get("bbox_area_ratio"),
+            "generation": status.get("generation"),
+            "source_pts": detection.get("source_pts"),
+            "source_time_base": detection.get("source_time_base"),
+            "qualified_monotonic_s": handoff.qualified_monotonic_s,
+            "search_qualification": handoff.to_evidence(),
             "search_progress_rad": 0.0,
             "search_skipped": True,
             "skip_reason": "target_already_visible",

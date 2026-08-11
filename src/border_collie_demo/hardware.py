@@ -30,6 +30,8 @@ from .qualified_tracking import (
     MotionRecommendation,
     QualifiedFruitTracker,
     QualifiedTrackingConfig,
+    SearchQualificationHandoff,
+    search_handoff_from_status,
 )
 from .return_home import (
     Pose2D,
@@ -549,6 +551,7 @@ class HardwareManager:
                 deadline = started + timeout
                 while self._monotonic() < deadline:
                     status = status_reader()
+                    sampled_at = self._monotonic()
                     self._record_perception_sample(status, target_fruit)
                     plausible_candidate = False
                     recognition["samples"] = int(recognition["samples"]) + 1
@@ -639,6 +642,11 @@ class HardwareManager:
                     if status.get("target_ready") and isinstance(detection, dict):
                         label = str(detection.get("label") or "").casefold()
                         if label == target_fruit.casefold():
+                            handoff = search_handoff_from_status(
+                                status,
+                                target_fruit,
+                                qualified_monotonic_s=sampled_at,
+                            )
                             evidence = {
                                 "motion_path": "sport_client",
                                 "label": target_fruit,
@@ -653,6 +661,20 @@ class HardwareManager:
                                 },
                                 "motion_commands_sent": commands_sent,
                             }
+                            if handoff is not None:
+                                evidence.update(
+                                    generation=handoff.generation,
+                                    source_pts=handoff.source_pts,
+                                    source_time_base=handoff.source_time_base,
+                                    qualified_monotonic_s=(
+                                        handoff.qualified_monotonic_s
+                                    ),
+                                    center_x_ratio=handoff.center_x_ratio,
+                                    center_y_ratio=handoff.center_y_ratio,
+                                    bottom_ratio=handoff.bottom_ratio,
+                                    bbox_area_ratio=handoff.bbox_area_ratio,
+                                    search_qualification=handoff.to_evidence(),
+                                )
                             break
                     sample = self._pose.status()
                     if not sample.healthy or sample.pose is None:
@@ -778,6 +800,7 @@ class HardwareManager:
         final_push_duration_s: float,
         timeout_s: float,
         metric_arrival_required: bool = False,
+        search_handoff: SearchQualificationHandoff | None = None,
     ) -> dict[str, object]:
         """Follow temporal fruit recommendations and stop on qualified Arrival."""
         numeric = (
@@ -856,7 +879,8 @@ class HardwareManager:
                         else None
                     ),
                     final_approach_latch_enabled=not metric_arrival_required,
-                )
+                ),
+                search_handoff=search_handoff,
             )
             last_decision_evidence: dict[str, object] = {}
             last_authorized_command: VelocityCommand | None = None

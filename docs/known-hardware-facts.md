@@ -44,6 +44,14 @@ proof that this clean implementation works:
   Treat this geometry as stopped loss evidence only inside Final Approach; do
   not relax the global continuity threshold or permit off-axis/non-bottom
   shrinkage to authorize a final push.
+- **Observed on Woof (2026-08-11, run `5e2dc136`):** search qualified an apple
+  after five detections at 0.7106289 confidence, then approach created a new
+  tracker and observed 165 fresh same-label apple samples whose confidence
+  peaked at 0.6477978. The unchanged 0.70 acquisition gate therefore produced
+  zero qualified approach samples, zero forward pulses, and an Arrival timeout.
+  Preserve the 0.70 ordinary apple gate; transfer the completed search identity
+  through the bounded search-to-approach handoff and require current tracking-
+  floor geometry plus fresh centering before translation.
 - Return success must include measured position, restored heading, and a final
   disarmed state.
 

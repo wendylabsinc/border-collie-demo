@@ -511,6 +511,58 @@ def test_success_does_not_capture_terminal_frame_archive(tmp_path) -> None:
     assert run["record_type"] == "success_summary"
 
 
+def test_orchestrator_carries_search_qualification_into_approach(tmp_path) -> None:
+    class HandoffStages(SimulatedStageExecutor):
+        approach_handoff = None
+
+        async def execute(self, phase, context):
+            if phase is MissionPhase.FIND_FRUIT:
+                evidence = await super().execute(phase, context)
+                evidence["search_qualification"] = {
+                    "search_qualified": True,
+                    "target_fruit": "apple",
+                    "generation": "camera-1",
+                    "source_pts": 100,
+                    "source_time_base": "1/90000",
+                    "qualified_monotonic_s": 10.0,
+                    "stable_detections": 5,
+                    "confidence": 0.710628867149353,
+                    "center_x_ratio": 0.5,
+                    "center_y_ratio": 0.5,
+                    "bottom_ratio": 0.65,
+                    "bbox_area_ratio": 0.04,
+                }
+                return evidence
+            if phase is MissionPhase.APPROACH_FRUIT:
+                self.approach_handoff = context.search_qualification_handoff
+            return await super().execute(phase, context)
+
+    stages = HandoffStages()
+    with TestClient(
+        create_app(
+            runs_root=tmp_path,
+            hardware=ReadyHardwareBoundary(),
+            camera_perception_status=ready_camera_perception,
+            stage_executor=stages,
+        )
+    ) as client:
+        run_id = client.post(
+            "/api/run",
+            json={"target_fruit": "apple"},
+        ).json()["run"]["run_id"]
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            run = client.get(f"/api/results/{run_id}").json()["run"]
+            if run["outcome"] is not None:
+                break
+            time.sleep(0.01)
+
+    assert run["outcome"] == "COMPLETED"
+    assert stages.approach_handoff is not None
+    assert stages.approach_handoff.target_fruit == "apple"
+    assert stages.approach_handoff.confidence == pytest.approx(0.710628867149353)
+
+
 def test_camera_failure_identifies_find_fruit_as_the_broken_stage(tmp_path) -> None:
     with TestClient(
         create_app(

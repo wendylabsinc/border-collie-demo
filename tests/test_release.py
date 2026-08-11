@@ -90,16 +90,16 @@ def test_atomic_release_store_promotes_only_verified_pair_and_rolls_back(tmp_pat
     assert store.current() == first
 
 
-def test_v18_release_identity_matches_root_media_and_stagefiles() -> None:
+def test_v19_release_identity_matches_root_media_and_stagefiles() -> None:
     root = Path(__file__).resolve().parents[1]
     descriptor = json.loads((root / "wendy.json").read_text(encoding="utf-8"))
-    release_id = "stage-camera-v18-closeout-recovery"
+    release_id = "stage-camera-v19-search-handoff"
     build_label = (
-        "stage-camera-v18-closeout-recovery "
-        "(codex/stage-camera-v18-closeout-recovery)"
+        "stage-camera-v19-search-handoff "
+        "(codex/stage-camera-v19-search-handoff)"
     )
 
-    assert descriptor["version"] == "1.0.21-stage-camera"
+    assert descriptor["version"] == "1.0.22-stage-camera"
     app_env = descriptor["services"]["app"]["env"]
     media_env = descriptor["services"]["media"]["env"]
     assert app_env["BORDER_COLLIE_BUILD_LABEL"] == build_label

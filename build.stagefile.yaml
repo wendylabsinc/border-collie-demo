@@ -34,8 +34,8 @@ stages:
       PYTHONPATH: /app/src
       PYTHONUNBUFFERED: "1"
       BORDER_COLLIE_PORT: "8110"
-      BORDER_COLLIE_BUILD_LABEL: stage-camera-v18-closeout-recovery (codex/stage-camera-v18-closeout-recovery)
-      BORDER_COLLIE_RELEASE_ID: stage-camera-v18-closeout-recovery
+      BORDER_COLLIE_BUILD_LABEL: stage-camera-v19-search-handoff (codex/stage-camera-v19-search-handoff)
+      BORDER_COLLIE_RELEASE_ID: stage-camera-v19-search-handoff
       BORDER_COLLIE_CONFIG_SCHEMA: "4"
       BORDER_COLLIE_HARDWARE_ENABLED: "0"
       BORDER_COLLIE_LAB_MOTION_ENABLED: "0"

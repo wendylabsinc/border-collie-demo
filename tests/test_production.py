@@ -8,6 +8,7 @@ from border_collie_demo.hardware import CameraFailure, TargetLost
 from border_collie_demo.models import MissionPhase
 from border_collie_demo.orchestrator import StageContext, StageFailure
 from border_collie_demo.production import ProductionStageExecutor
+from border_collie_demo.qualified_tracking import SearchQualificationHandoff
 
 
 class FakeProductionHardware:
@@ -65,6 +66,7 @@ def context(
     outbound_forward_pulses: int = 0,
     orientation_degrees: float = 0.0,
     target_fruit: str = "pear",
+    search_handoff: SearchQualificationHandoff | None = None,
 ) -> StageContext:
     return StageContext(
         run_id="run-1",
@@ -72,6 +74,7 @@ def context(
         home={"x_m": 0.0, "y_m": 0.0, "yaw_rad": 0.0},
         orientation_degrees=orientation_degrees,
         outbound_forward_pulses=outbound_forward_pulses,
+        search_qualification_handoff=search_handoff,
     )
 
 
@@ -174,17 +177,28 @@ def test_search_stage_skips_motion_when_target_is_already_visible(
             "camera_healthy": True,
             "target_ready": True,
             "target_fruit": "pear",
+            "generation": "camera-1",
+            "source": {"pts": 123, "time_base": "1/90000"},
             "detection": {
                 "label": "pear",
+                "generation": "camera-1",
+                "source_pts": 123,
+                "source_time_base": "1/90000",
                 "confidence": 0.82,
                 "consecutive_detections": 7,
                 "age_s": 0.04,
                 "center_x_ratio": 0.54,
                 "center_y_ratio": 0.61,
                 "bottom_ratio": 0.70,
+                "bbox_area_ratio": 0.04,
             },
         }
-        stages = ProductionStageExecutor(hardware, status_reader, FakeBark())
+        stages = ProductionStageExecutor(
+            hardware,
+            status_reader,
+            FakeBark(),
+            clock=lambda: 10.0,
+        )
 
         evidence = await stages.execute(phase, context())
 
@@ -197,6 +211,25 @@ def test_search_stage_skips_motion_when_target_is_already_visible(
             "center_x_ratio": 0.54,
             "center_y_ratio": 0.61,
             "bottom_ratio": 0.70,
+            "bbox_area_ratio": 0.04,
+            "generation": "camera-1",
+            "source_pts": 123,
+            "source_time_base": "1/90000",
+            "qualified_monotonic_s": 10.0,
+            "search_qualification": {
+                "search_qualified": True,
+                "target_fruit": "pear",
+                "generation": "camera-1",
+                "source_pts": 123,
+                "source_time_base": "1/90000",
+                "qualified_monotonic_s": 10.0,
+                "stable_detections": 7,
+                "confidence": 0.82,
+                "center_x_ratio": 0.54,
+                "center_y_ratio": 0.61,
+                "bottom_ratio": 0.70,
+                "bbox_area_ratio": 0.04,
+            },
             "search_progress_rad": 0.0,
             "search_skipped": True,
             "skip_reason": "target_already_visible",
@@ -289,8 +322,39 @@ def test_approach_pins_full_and_close_range_speeds_independently() -> None:
             "final_push_duration_s": 1.0,
             "timeout_s": 20.0,
             "metric_arrival_required": True,
+            "search_handoff": None,
         }
         assert evidence["arrival_confirmed"] is True
+
+    asyncio.run(scenario())
+
+
+def test_approach_receives_the_explicit_search_qualification_handoff() -> None:
+    async def scenario() -> None:
+        hardware = FakeProductionHardware()
+        handoff = SearchQualificationHandoff(
+            search_qualified=True,
+            target_fruit="apple",
+            generation="camera-1",
+            source_pts=100,
+            source_time_base="1/90000",
+            qualified_monotonic_s=10.0,
+            stable_detections=5,
+            confidence=0.710628867149353,
+            center_x_ratio=0.5,
+            center_y_ratio=0.5,
+            bottom_ratio=0.65,
+            bbox_area_ratio=0.04,
+        )
+        stages = ProductionStageExecutor(hardware, dict, FakeBark())
+
+        await stages.execute(
+            MissionPhase.APPROACH_FRUIT,
+            context(target_fruit="apple", search_handoff=handoff),
+        )
+
+        options = hardware.calls[0][3]
+        assert options["search_handoff"] is handoff
 
     asyncio.run(scenario())
 
@@ -320,6 +384,7 @@ def test_stage_camera_profile_uses_one_shared_arrival_contract() -> None:
             assert options["final_push_mps"] == 0.6
             assert options["final_push_duration_s"] == 1.0
             assert options["metric_arrival_required"] is False
+            assert options["search_handoff"] is None
 
     asyncio.run(scenario())
 

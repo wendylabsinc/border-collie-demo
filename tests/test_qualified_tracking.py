@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import pytest
+
 from border_collie_demo.qualified_tracking import (
     MotionRecommendation,
     QualifiedFruitTracker,
     QualifiedTrackingConfig,
+    SearchQualificationHandoff,
 )
 
 
@@ -77,6 +80,155 @@ def observation(
             "source_pts": source_pts,
         },
     }
+
+
+def apple_tracker(
+    handoff: SearchQualificationHandoff | None = None,
+) -> QualifiedFruitTracker:
+    return QualifiedFruitTracker(
+        QualifiedTrackingConfig.for_fruit(
+            "apple",
+            acquisition_confirmations=3,
+            center_tolerance_ratio=0.08,
+            center_confirmations=3,
+            near_bottom_ratio=0.86,
+            near_center_ratio=0.72,
+            near_confirmations=3,
+            sight_loss_grace_s=0.75,
+            slow_speed_scale=0.55,
+        ),
+        search_handoff=handoff,
+    )
+
+
+def apple_observation(
+    *,
+    confidence: float,
+    source_pts: int,
+    generation: str = "camera-1",
+    source_time_base: str = "1/90000",
+    center_x: float = 0.50,
+    center_y: float = 0.50,
+    bottom: float = 0.65,
+    area: float = 0.04,
+    age_s: float = 0.01,
+) -> dict[str, object]:
+    return {
+        "camera_healthy": True,
+        "target_ready": confidence >= 0.70,
+        "generation": generation,
+        "source": {
+            "pts": source_pts,
+            "time_base": source_time_base,
+            "age_s": age_s,
+        },
+        "detection": {
+            "label": "apple",
+            "generation": generation,
+            "source_pts": source_pts,
+            "source_time_base": source_time_base,
+            "confidence": confidence,
+            "consecutive_detections": 5,
+            "center_x_ratio": center_x,
+            "center_y_ratio": center_y,
+            "bottom_ratio": bottom,
+            "bbox_area_ratio": area,
+            "age_s": age_s,
+        },
+    }
+
+
+def apple_handoff(**changes: object) -> SearchQualificationHandoff:
+    values: dict[str, object] = {
+        "search_qualified": True,
+        "target_fruit": "apple",
+        "generation": "camera-1",
+        "source_pts": 100,
+        "source_time_base": "1/90000",
+        "qualified_monotonic_s": 10.0,
+        "stable_detections": 5,
+        "confidence": 0.710628867149353,
+        "center_x_ratio": 0.50,
+        "center_y_ratio": 0.50,
+        "bottom_ratio": 0.65,
+        "bbox_area_ratio": 0.04,
+    }
+    values.update(changes)
+    return SearchQualificationHandoff(**values)
+
+
+def test_search_handoff_replays_real_apple_confidence_drop_without_lowering_acquisition() -> None:
+    target = apple_tracker(apple_handoff())
+
+    decisions = [
+        target.observe(
+            apple_observation(confidence=confidence, source_pts=source_pts),
+            now_s=now_s,
+        )
+        for confidence, source_pts, now_s in (
+            (0.6477978, 101, 10.05),
+            (0.60, 102, 10.10),
+            (0.59, 103, 10.15),
+        )
+    ]
+
+    assert target.config.acquisition_confidence == 0.70
+    assert [decision.recommendation for decision in decisions] == [
+        MotionRecommendation.ALIGN,
+        MotionRecommendation.ALIGN,
+        MotionRecommendation.APPROACH,
+    ]
+    assert decisions[0].reason == "confirming_search_handoff_centering"
+    assert decisions[0].forward_scale == 0.0
+    assert decisions[-1].evidence["search_handoff_accepted"] is True
+    assert decisions[-1].evidence["acquisition_samples"] == 0
+    assert decisions[-1].evidence["qualified_samples"] == 3
+
+
+@pytest.mark.parametrize(
+    ("handoff_changes", "status_changes", "now_s", "rejection_reason"),
+    [
+        ({"qualified_monotonic_s": 9.70}, {}, 10.01, "handoff_stale"),
+        ({"target_fruit": "pear"}, {}, 10.01, "target_mismatch"),
+        ({"generation": "camera-2"}, {}, 10.01, "generation_mismatch"),
+        ({"source_time_base": "1/1000"}, {}, 10.01, "time_base_mismatch"),
+        ({}, {"source_pts": 99}, 10.01, "source_regressed"),
+        ({"center_x_ratio": 0.20}, {"center_x": 0.70}, 10.01, "geometry_discontinuous"),
+        ({}, {"center_x": 0.80}, 10.01, "geometry_off_axis"),
+        ({}, {"confidence": 0.09}, 10.01, "tracking_confidence_low"),
+    ],
+)
+def test_invalid_search_handoff_falls_back_to_ordinary_acquisition(
+    handoff_changes: dict[str, object],
+    status_changes: dict[str, object],
+    now_s: float,
+    rejection_reason: str,
+) -> None:
+    target = apple_tracker(apple_handoff(**handoff_changes))
+    status_options = {
+        "confidence": 0.6477978,
+        "source_pts": 101,
+        **status_changes,
+    }
+
+    decision = target.observe(apple_observation(**status_options), now_s=now_s)
+
+    assert decision.recommendation is MotionRecommendation.SEARCH
+    assert decision.reason == "target_unqualified"
+    assert decision.evidence["search_handoff_accepted"] is False
+    assert decision.evidence["search_handoff_rejection_reason"] == rejection_reason
+    assert decision.forward_scale == 0.0
+
+
+def test_search_handoff_rejects_missing_current_geometry() -> None:
+    target = apple_tracker(apple_handoff())
+    status = apple_observation(confidence=0.6477978, source_pts=101)
+    del status["detection"]["bbox_area_ratio"]
+
+    decision = target.observe(status, now_s=10.01)
+
+    assert decision.recommendation is MotionRecommendation.SEARCH
+    assert decision.evidence["search_handoff_rejection_reason"] == "geometry_invalid"
 
 
 def acquire(target: QualifiedFruitTracker, *, start_pts: int = 1) -> int:

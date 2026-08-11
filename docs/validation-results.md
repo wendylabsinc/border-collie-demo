@@ -569,3 +569,30 @@ the separate failed-run Home-recovery or heading-restoration repairs.
   do not prove physical clearance, posture execution, fused return accuracy, or
   repeatability. Record build, deployment, readiness, thermal, and battery
   evidence separately before any supervised motion run.
+
+## STAGE-CAMERA-V19-SEARCH-HANDOFF-2026-08-11 — implementation checkpoint
+
+- Lineage: clean pushed v18 commit `e00c50f`, extended on
+  `codex/stage-camera-v19-search-handoff`
+- Release identity: `stage-camera-v19-search-handoff`, configuration schema 4,
+  app version `1.0.22-stage-camera`; root/media descriptors and Stagefiles use
+  one cohort
+- Triggering evidence: physical run `5e2dc136` qualified apple search at
+  0.7106289 confidence over five detections, but the new approach tracker saw
+  165 fresh apple samples (maximum 0.6477978) and never met the unchanged 0.70
+  ordinary acquisition gate; it sent no forward pulse and timed out
+- Repair: the completed search stage now carries a single-use identity token
+  containing fruit, generation, PTS/time base, qualification time, stability,
+  confidence, and geometry. Approach accepts it only against a current fresh,
+  same-generation, tracking-floor, continuous and non-regressed observation.
+  The first current sample remains zero-motion and three fresh centered current
+  samples are required before translation.
+- Negative boundary: stale/cross-fruit/generation/timebase/regressed/weak/
+  missing-geometry/discontinuous/off-axis tokens fall back to ordinary
+  acquisition; no global confidence threshold changed.
+- Software validation: 329 tests passed, including the real confidence-trace
+  hardware replay, v18 bottom-clip closeout, and automatic failure recovery;
+  changed-file Ruff and `git diff --check` passed.
+- Qualification boundary: deterministic software evidence is not a supervised
+  physical apple/banana/pear repeatability result. Deployment and live safety
+  evidence must be recorded separately before activation.
