@@ -12,17 +12,59 @@ from .models import Pose
 
 
 @dataclass(frozen=True)
+class Go2MotionEvidence:
+    source_timestamp_s: float | None
+    velocity_x_mps: float | None
+    velocity_y_mps: float | None
+    yaw_rate_rps: float | None
+    imu_yaw_rate_rps: float | None
+    mode: int | None
+    gait_type: int | None
+    obstacle_ranges_m: tuple[float, ...] | None
+    foot_force: tuple[float, ...] | None
+    contact_feet: int | None
+    stationary_stance: bool
+    stationary_evidence_source: str | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "source_timestamp_s": self.source_timestamp_s,
+            "velocity_x_mps": self.velocity_x_mps,
+            "velocity_y_mps": self.velocity_y_mps,
+            "yaw_rate_rps": self.yaw_rate_rps,
+            "imu_yaw_rate_rps": self.imu_yaw_rate_rps,
+            "mode": self.mode,
+            "gait_type": self.gait_type,
+            "obstacle_ranges_m": (
+                None
+                if self.obstacle_ranges_m is None
+                else list(self.obstacle_ranges_m)
+            ),
+            "foot_force": (
+                None if self.foot_force is None else list(self.foot_force)
+            ),
+            "contact_feet": self.contact_feet,
+            "stationary_stance": self.stationary_stance,
+            "stationary_evidence_source": self.stationary_evidence_source,
+            "velocity_frame": "body_forward_left",
+        }
+
+
+@dataclass(frozen=True)
 class PoseStatus:
     pose: Pose | None
     age_s: float | None
     healthy: bool
     error: str | None
+    motion: Go2MotionEvidence | None = None
+    sample_rejection: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
             "healthy": self.healthy,
             "age_s": None if self.age_s is None else round(self.age_s, 3),
             "error": self.error,
+            "sample_rejection": self.sample_rejection,
             "pose": None
             if self.pose is None
             else {
@@ -31,16 +73,37 @@ class PoseStatus:
                 "yaw_rad": round(self.pose.yaw_rad, 4),
                 "captured_monotonic_s": self.pose.captured_monotonic_s,
             },
+            "motion": None if self.motion is None else self.motion.to_dict(),
         }
 
 
 class Go2PoseProvider:
-    def __init__(self, *, maximum_age_s: float = 0.50) -> None:
-        if not math.isfinite(maximum_age_s) or maximum_age_s <= 0.0:
-            raise ValueError("maximum_age_s must be finite and positive")
+    def __init__(
+        self,
+        *,
+        maximum_age_s: float = 0.50,
+        foot_contact_minimum_force: float = 5.0,
+        stationary_maximum_speed_mps: float = 0.05,
+        stationary_maximum_yaw_rate_rps: float = 0.08,
+    ) -> None:
+        limits = (
+            maximum_age_s,
+            foot_contact_minimum_force,
+            stationary_maximum_speed_mps,
+            stationary_maximum_yaw_rate_rps,
+        )
+        if not all(math.isfinite(value) and value > 0.0 for value in limits):
+            raise ValueError("Go2 pose and stance limits must be finite and positive")
         self.maximum_age_s = float(maximum_age_s)
+        self.foot_contact_minimum_force = float(foot_contact_minimum_force)
+        self.stationary_maximum_speed_mps = float(stationary_maximum_speed_mps)
+        self.stationary_maximum_yaw_rate_rps = float(
+            stationary_maximum_yaw_rate_rps
+        )
         self._lock = Lock()
         self._pose: Pose | None = None
+        self._motion: Go2MotionEvidence | None = None
+        self._source_timestamp_s: float | None = None
         self._error: str | None = "waiting for rt/sportmodestate"
         self._subscriber = None
 
@@ -68,12 +131,15 @@ class Go2PoseProvider:
                 close_error = f"pose subscriber close failed: {exc}"
         with self._lock:
             self._pose = None
+            self._motion = None
+            self._source_timestamp_s = None
             self._error = close_error or "pose provider closed"
 
     def status(self) -> PoseStatus:
         now = time.monotonic()
         with self._lock:
             pose = self._pose
+            motion = self._motion
             error = self._error
         age = None if pose is None else max(0.0, now - pose.captured_monotonic_s)
         healthy = bool(
@@ -84,6 +150,8 @@ class Go2PoseProvider:
             age,
             healthy,
             None if healthy else error or "pose sample is stale",
+            motion,
+            error if healthy else None,
         )
 
     def _on_state(self, message: Any) -> None:
@@ -92,6 +160,67 @@ class Go2PoseProvider:
             position = message.position
             x_m = float(position[0])
             y_m = float(position[1])
+            source_timestamp_s = _source_timestamp(message)
+            velocity = getattr(message, "velocity", None)
+            velocity_x_mps = _optional_sequence_float(velocity, 0)
+            velocity_y_mps = _optional_sequence_float(velocity, 1)
+            yaw_rate_rps = _optional_float(getattr(message, "yaw_speed", None))
+            gyroscope = getattr(
+                message.imu_state,
+                "gyroscope",
+                getattr(message.imu_state, "gyro", None),
+            )
+            imu_yaw_rate_rps = _optional_sequence_float(gyroscope, 2)
+            mode = _optional_int(getattr(message, "mode", None))
+            gait_type = _optional_int(getattr(message, "gait_type", None))
+            obstacle_ranges_m = _optional_float_tuple(
+                getattr(message, "range_obstacle", None)
+            )
+            foot_force = _optional_float_tuple(getattr(message, "foot_force", None))
+            contact_feet = (
+                None
+                if foot_force is None
+                else sum(
+                    force >= self.foot_contact_minimum_force
+                    for force in foot_force[:4]
+                )
+            )
+            velocity_magnitude = (
+                None
+                if velocity_x_mps is None or velocity_y_mps is None
+                else math.hypot(velocity_x_mps, velocity_y_mps)
+            )
+            effective_yaw_rate = (
+                imu_yaw_rate_rps
+                if imu_yaw_rate_rps is not None
+                else yaw_rate_rps
+            )
+            kinematically_stationary = bool(
+                velocity_magnitude is not None
+                and velocity_magnitude <= self.stationary_maximum_speed_mps
+                and effective_yaw_rate is not None
+                and abs(effective_yaw_rate)
+                <= self.stationary_maximum_yaw_rate_rps
+            )
+            contact_stationary = bool(
+                contact_feet is not None
+                and contact_feet >= 3
+                and kinematically_stationary
+            )
+            posture_stationary = bool(
+                contact_feet in {None, 0}
+                and mode in {0, 1, 5, 10}
+                and gait_type in {None, 0}
+                and kinematically_stationary
+            )
+            stationary_stance = contact_stationary or posture_stationary
+            stationary_evidence_source = (
+                "foot_contact"
+                if contact_stationary
+                else "verified_posture_kinematics"
+                if posture_stationary
+                else None
+            )
             if not all(math.isfinite(value) for value in (x_m, y_m, yaw_rad)):
                 raise ValueError("non-finite local pose")
         except Exception as exc:  # noqa: BLE001 - DDS message types are dynamic
@@ -99,9 +228,82 @@ class Go2PoseProvider:
                 self._error = f"invalid pose sample: {exc}"
             return
         with self._lock:
+            if (
+                source_timestamp_s is not None
+                and self._source_timestamp_s is not None
+                and source_timestamp_s + 1e-6 < self._source_timestamp_s
+            ):
+                self._error = "invalid pose sample: source timestamp regressed"
+                return
             self._pose = Pose(x_m, y_m, yaw_rad, time.monotonic())
+            self._motion = Go2MotionEvidence(
+                source_timestamp_s=source_timestamp_s,
+                velocity_x_mps=velocity_x_mps,
+                velocity_y_mps=velocity_y_mps,
+                yaw_rate_rps=yaw_rate_rps,
+                imu_yaw_rate_rps=imu_yaw_rate_rps,
+                mode=mode,
+                gait_type=gait_type,
+                obstacle_ranges_m=obstacle_ranges_m,
+                foot_force=foot_force,
+                contact_feet=contact_feet,
+                stationary_stance=stationary_stance,
+                stationary_evidence_source=stationary_evidence_source,
+            )
+            if source_timestamp_s is not None:
+                self._source_timestamp_s = source_timestamp_s
             self._error = None
 
 
 def normalize_angle(angle_rad: float) -> float:
     return math.atan2(math.sin(angle_rad), math.cos(angle_rad))
+
+
+def _source_timestamp(message: Any) -> float | None:
+    stamp = getattr(message, "stamp", None)
+    if stamp is None:
+        return None
+    seconds = _optional_float(
+        getattr(stamp, "sec", getattr(stamp, "tv_sec", None))
+    )
+    nanoseconds = _optional_float(
+        getattr(stamp, "nanosec", getattr(stamp, "tv_nsec", None))
+    )
+    if seconds is None:
+        return None
+    timestamp = seconds + (0.0 if nanoseconds is None else nanoseconds * 1e-9)
+    return timestamp if math.isfinite(timestamp) and timestamp >= 0.0 else None
+
+
+def _optional_sequence_float(value: object, index: int) -> float | None:
+    try:
+        item = value[index]  # type: ignore[index]
+    except (TypeError, IndexError, KeyError):
+        return None
+    return _optional_float(item)
+
+
+def _optional_float(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    return number if math.isfinite(number) else None
+
+
+def _optional_int(value: object) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return int(value)
+
+
+def _optional_float_tuple(value: object) -> tuple[float, ...] | None:
+    if value is None:
+        return None
+    try:
+        items = tuple(value)  # type: ignore[arg-type]
+    except TypeError:
+        return None
+    parsed = tuple(_optional_float(item) for item in items)
+    if not parsed or any(item is None for item in parsed):
+        return None
+    return tuple(float(item) for item in parsed if item is not None)

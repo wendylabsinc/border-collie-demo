@@ -1,0 +1,4 @@
+version: 1
+sourceHash: sha256:6088983b4e9509689d182ac0cb9a3589ffc255e87cb2f67f5be8b23257df0b28
+images:
+    dustynv/pytorch:2.7-r36.4.0-cu128-24.04: sha256:4bb7f0a3852f86629ed271aaf6c4aa000305cc4e4673b8e9f334668ee1b22bc8

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from copy import deepcopy
 from datetime import datetime, timezone
 from hashlib import sha256
+from itertools import pairwise
 from pathlib import Path
 from time import monotonic
 from typing import Any
@@ -31,12 +33,37 @@ class RunResultStore:
     def __init__(self, root: Path) -> None:
         self.root = root.resolve()
         self._active_run_id: str | None = None
+        self._active_recovery: tuple[str, str] | None = None
 
     @property
     def active_run_id(self) -> str | None:
         return self._active_run_id
 
-    def seal_interrupted_runs(self) -> list[dict[str, Any]]:
+    @property
+    def active_recovery(self) -> dict[str, str] | None:
+        if self._active_recovery is None:
+            return None
+        run_id, recovery_id = self._active_recovery
+        return {"run_id": run_id, "recovery_id": recovery_id}
+
+    def has_interrupted_work(self) -> bool:
+        if not self.root.exists():
+            return False
+        for result in self.list_results():
+            if result.get("outcome") is None:
+                return True
+            if any(
+                isinstance(recovery, dict) and recovery.get("outcome") is None
+                for recovery in result.get("recovery_attempts", [])
+            ):
+                return True
+        return False
+
+    def seal_interrupted_runs(
+        self,
+        *,
+        final_safety_state: str = "UNKNOWN",
+    ) -> list[dict[str, Any]]:
         if not self.root.exists():
             return []
         sealed: list[dict[str, Any]] = []
@@ -46,19 +73,36 @@ class RunResultStore:
                 run_id = str(UUID(result["run_id"]))
             except (KeyError, ValueError, json.JSONDecodeError, OSError):
                 continue
-            if result.get("outcome") is not None:
-                continue
-            sealed.append(
-                self.seal(
-                    run_id,
-                    phase="failed",
-                    outcome="FAILED",
-                    reason="PROCESS_INTERRUPTED",
-                    message="prior process ended before the Demo Run was sealed",
-                    final_safety_state="UNKNOWN",
+            if result.get("outcome") is None:
+                sealed.append(
+                    self.seal(
+                        run_id,
+                        phase="failed",
+                        outcome="FAILED",
+                        reason="PROCESS_INTERRUPTED",
+                        message="prior process ended before the Demo Run was sealed",
+                        final_safety_state=final_safety_state,
+                    )
                 )
-            )
+                continue
+            changed = False
+            for recovery in result.get("recovery_attempts", []):
+                if not isinstance(recovery, dict) or recovery.get("outcome") is not None:
+                    continue
+                recovery["outcome"] = "FAILED"
+                recovery["reason"] = "PROCESS_INTERRUPTED"
+                recovery["message"] = (
+                    "prior process ended before failed-run Home recovery was sealed"
+                )
+                recovery["final_safety_state"] = final_safety_state
+                recovery["ended_at_utc"] = _utc_now()
+                recovery["duration_s"] = None
+                changed = True
+            if changed:
+                self._write_result(result)
+                sealed.append(deepcopy(result))
         self._active_run_id = None
+        self._active_recovery = None
         return sealed
 
     def start_run(
@@ -66,9 +110,13 @@ class RunResultStore:
         *,
         target_fruit: str,
         activation_source: str,
+        orientation_degrees: float = 0.0,
+        idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         if self._active_run_id is not None:
             raise ActiveRunError("a Demo Run is already active")
+        if self._active_recovery is not None:
+            raise ActiveRunError("failed-run Home recovery is active")
 
         run_id = str(uuid4())
         started_utc = _utc_now()
@@ -78,6 +126,9 @@ class RunResultStore:
             "run_id": run_id,
             "target_fruit": target_fruit,
             "activation_source": activation_source,
+            "idempotency_key": idempotency_key,
+            "run_epoch": str(uuid4()),
+            "orientation_degrees": float(orientation_degrees),
             "started_at_utc": started_utc,
             "started_monotonic_s": started_monotonic_s,
             "ended_at_utc": None,
@@ -94,6 +145,8 @@ class RunResultStore:
         run_dir = self.root / run_id
         run_dir.mkdir()
         (run_dir / "snapshots").mkdir()
+        self._fsync_directory(self.root)
+        self._fsync_directory(run_dir)
         self._append_event(
             result,
             phase="idle",
@@ -104,6 +157,149 @@ class RunResultStore:
         self._active_run_id = run_id
         return deepcopy(result)
 
+    def start_or_reuse_run(
+        self,
+        *,
+        target_fruit: str,
+        activation_source: str,
+        orientation_degrees: float = 0.0,
+        idempotency_key: str | None = None,
+    ) -> tuple[dict[str, Any], bool]:
+        key = None if idempotency_key is None else idempotency_key.strip()
+        if idempotency_key is not None and not key:
+            raise ValueError("idempotency key cannot be empty")
+        if key is not None:
+            existing = self._find_by_idempotency_key(key)
+            if existing is not None:
+                expected = (
+                    target_fruit,
+                    activation_source,
+                    float(orientation_degrees),
+                )
+                actual = (
+                    existing.get("target_fruit"),
+                    existing.get("activation_source"),
+                    float(existing.get("orientation_degrees", 0.0)),
+                )
+                if actual != expected:
+                    raise ActiveRunError(
+                        "idempotency key was already used for a different Demo Run"
+                    )
+                if existing.get("outcome") is None:
+                    self._active_run_id = existing["run_id"]
+                return deepcopy(existing), False
+        return (
+            self.start_run(
+                target_fruit=target_fruit,
+                activation_source=activation_source,
+                orientation_degrees=orientation_degrees,
+                idempotency_key=key,
+            ),
+            True,
+        )
+
+    def start_recovery(
+        self,
+        run_id: str,
+        *,
+        confirmation: str,
+    ) -> dict[str, Any]:
+        if self._active_run_id is not None:
+            raise ActiveRunError("a Demo Run is active")
+        if self._active_recovery is not None:
+            raise ActiveRunError("failed-run Home recovery is already active")
+        result = self.get(run_id)
+        if result.get("outcome") != "FAILED":
+            raise ActiveRunError("only failed Demo Runs can be recovered")
+        attempts = result.get("recovery_attempts") or []
+        if len(attempts) >= 2:
+            raise ActiveRunError("failed Demo Run exhausted its recovery attempts")
+        if attempts:
+            previous = attempts[-1]
+            if (
+                previous.get("outcome") != "FAILED"
+                or previous.get("final_safety_state") != "DISARMED_CONFIRMED"
+            ):
+                raise ActiveRunError(
+                    "failed Demo Run already has a non-retryable recovery attempt"
+                )
+
+        recovery_id = str(uuid4())
+        recovery = {
+            "schema_version": 1,
+            "recovery_id": recovery_id,
+            "run_id": run_id,
+            "confirmation": confirmation,
+            "started_at_utc": _utc_now(),
+            "started_monotonic_s": monotonic(),
+            "ended_at_utc": None,
+            "duration_s": None,
+            "outcome": None,
+            "reason": None,
+            "message": "failed-run Home recovery accepted",
+            "final_safety_state": None,
+            "steps": [],
+            "attempt_number": len(attempts) + 1,
+        }
+        result.setdefault("recovery_attempts", []).append(recovery)
+        self._write_result(result)
+        self._active_recovery = (run_id, recovery_id)
+        return deepcopy(recovery)
+
+    def record_recovery_step(
+        self,
+        run_id: str,
+        recovery_id: str,
+        step: str,
+        evidence: dict[str, Any],
+    ) -> dict[str, Any]:
+        result = self.get(run_id)
+        recovery = self._find_recovery(result, recovery_id)
+        if recovery.get("outcome") is not None:
+            raise ActiveRunError("terminal Home recovery cannot be changed")
+        recovery["steps"].append(
+            {
+                "sequence": len(recovery["steps"]) + 1,
+                "step": step,
+                "recorded_at_utc": _utc_now(),
+                "seconds_since_start": monotonic()
+                - float(recovery["started_monotonic_s"]),
+                "evidence": deepcopy(evidence),
+            }
+        )
+        recovery["message"] = f"{step} completed"
+        self._write_result(result)
+        return deepcopy(recovery)
+
+    def seal_recovery(
+        self,
+        run_id: str,
+        recovery_id: str,
+        *,
+        outcome: str,
+        reason: str,
+        message: str,
+        final_safety_state: str,
+        final_evidence: dict[str, Any],
+    ) -> dict[str, Any]:
+        result = self.get(run_id)
+        recovery = self._find_recovery(result, recovery_id)
+        if recovery.get("outcome") is not None:
+            return deepcopy(recovery)
+        recovery["outcome"] = outcome
+        recovery["reason"] = reason
+        recovery["message"] = message
+        recovery["final_safety_state"] = final_safety_state
+        recovery["final_evidence"] = deepcopy(final_evidence)
+        recovery["ended_at_utc"] = _utc_now()
+        recovery["duration_s"] = monotonic() - float(
+            recovery["started_monotonic_s"]
+        )
+        self._write_result(result)
+        if self._active_recovery == (run_id, recovery_id):
+            self._active_recovery = None
+        return deepcopy(recovery)
+
     def enter_phase(
         self,
         run_id: str,
@@ -111,10 +307,16 @@ class RunResultStore:
         phase: str,
         reason: str,
         message: str,
+        expected_phase: str | None = None,
     ) -> dict[str, Any]:
         result = self.get(run_id)
         if result["outcome"] is not None:
             raise ActiveRunError("terminal Demo Runs cannot be resumed")
+        if expected_phase is not None and result["current_phase"] != expected_phase:
+            raise ActiveRunError(
+                "Demo Run phase changed: expected "
+                f"{expected_phase}, found {result['current_phase']}"
+            )
         self._append_event(
             result,
             phase=phase,
@@ -292,7 +494,18 @@ class RunResultStore:
         }
         result["ended_at_utc"] = _utc_now()
         result["duration_s"] = monotonic() - result["started_monotonic_s"]
-        self._write_result(result)
+        if outcome == "COMPLETED":
+            result = self._compact_success(result)
+            self._write_result(result)
+            cleanup_errors = self._discard_success_details(run_id)
+            if cleanup_errors:
+                result["retention_cleanup"] = {
+                    "complete": False,
+                    "errors": cleanup_errors,
+                }
+                self._write_result(result)
+        else:
+            self._write_result(result)
         if self._active_run_id == run_id:
             self._active_run_id = None
         return deepcopy(result)
@@ -359,7 +572,11 @@ class RunResultStore:
         reason: str,
         message: str,
     ) -> None:
+        previous_hash = (
+            result["events"][-1].get("event_sha256") if result["events"] else None
+        )
         event = {
+            "event_id": str(uuid4()),
             "sequence": len(result["events"]) + 1,
             "phase": phase,
             "previous_phase": (
@@ -369,13 +586,130 @@ class RunResultStore:
             "seconds_since_start": monotonic() - result["started_monotonic_s"],
             "reason": reason,
             "message": message,
+            "previous_event_sha256": previous_hash,
         }
+        canonical = json.dumps(event, sort_keys=True, separators=(",", ":")).encode()
+        event["event_sha256"] = sha256(canonical).hexdigest()
         run_dir = self.root / result["run_id"]
         with (run_dir / "events.ndjson").open("a", encoding="utf-8") as journal:
             journal.write(json.dumps(event, separators=(",", ":")) + "\n")
             journal.flush()
             os.fsync(journal.fileno())
+        self._fsync_directory(run_dir)
         result["events"].append(event)
+
+    def _find_by_idempotency_key(self, key: str) -> dict[str, Any] | None:
+        for result in self.list_results():
+            if result.get("idempotency_key") == key:
+                return result
+        return None
+
+    def _find_recovery(
+        self, result: dict[str, Any], recovery_id: str
+    ) -> dict[str, Any]:
+        try:
+            normalized = str(UUID(recovery_id))
+        except (ValueError, AttributeError) as exc:
+            raise RunResultNotFound(recovery_id) from exc
+        recovery = next(
+            (
+                item
+                for item in result.get("recovery_attempts", [])
+                if isinstance(item, dict) and item.get("recovery_id") == normalized
+            ),
+            None,
+        )
+        if recovery is None:
+            raise RunResultNotFound(recovery_id)
+        return recovery
+
+    def _compact_success(self, result: dict[str, Any]) -> dict[str, Any]:
+        stages = result.get("stage_results") or {}
+        orientation = stages.get("orient_for_run") or {}
+        recognition = stages.get("find_fruit") or {}
+        approach = stages.get("approach_fruit") or {}
+        action = stages.get("sit_and_bark") or {}
+        returned = stages.get("return_home") or {}
+        restored = stages.get("restore_heading") or {}
+        terminal = result.get("terminal_measurements") or {}
+
+        durations: dict[str, float] = {}
+        transitions = [
+            (event.get("phase"), event.get("seconds_since_start"))
+            for event in result.get("events", [])
+            if event.get("phase") is not None
+            and isinstance(event.get("seconds_since_start"), (int, float))
+        ]
+        for (phase, started), (_, ended) in pairwise(transitions):
+            durations[str(phase)] = round(
+                durations.get(str(phase), 0.0) + float(ended) - float(started),
+                3,
+            )
+
+        key_values = {
+            "completed_stages": list(stages),
+            "stage_durations_s": durations,
+            "motion_commands_sent": any(
+                isinstance(evidence, dict)
+                and evidence.get("motion_commands_sent") is True
+                for evidence in stages.values()
+            ),
+            "measured_orientation_change_rad": orientation.get(
+                "measured_yaw_change_rad"
+            ),
+            "recognition_label": recognition.get("label"),
+            "recognition_confidence": recognition.get("confidence"),
+            "recognition_stable_detections": recognition.get("stable_detections"),
+            "arrival_confirmed": approach.get("arrival_confirmed"),
+            "outbound_forward_pulses": approach.get("forward_pulse_count"),
+            "close_range_mps": approach.get("close_range_mps"),
+            "final_push_mps": approach.get("final_push_mps"),
+            "final_push_duration_s": approach.get("final_push_duration_s"),
+            "bark_played": action.get("bark_played"),
+            "requested_return_pulses": returned.get("requested_forward_pulses"),
+            "replayed_return_pulses": returned.get("replayed_forward_pulses"),
+            "home_distance_m": terminal.get("home_distance_m"),
+            "heading_error_rad": terminal.get("heading_error_rad"),
+            "position_tolerance_m": restored.get("position_tolerance_m"),
+            "heading_tolerance_rad": restored.get("heading_tolerance_rad"),
+        }
+        return {
+            "schema_version": 2,
+            "record_type": "success_summary",
+            "run_id": result["run_id"],
+            "target_fruit": result["target_fruit"],
+            "activation_source": result["activation_source"],
+            "idempotency_key": result.get("idempotency_key"),
+            "run_epoch": result.get("run_epoch"),
+            "orientation_degrees": result.get("orientation_degrees", 0.0),
+            "started_at_utc": result["started_at_utc"],
+            "ended_at_utc": result["ended_at_utc"],
+            "duration_s": result["duration_s"],
+            "outcome": "COMPLETED",
+            "reason": result["reason"],
+            "current_phase": result["current_phase"],
+            "message": result["message"],
+            "failed_phase": None,
+            "final_safety_state": result["final_safety_state"],
+            "key_values": key_values,
+        }
+
+    def _discard_success_details(self, run_id: str) -> list[str]:
+        run_dir = self.root / str(UUID(run_id))
+        errors: list[str] = []
+        events = run_dir / "events.ndjson"
+        if events.is_file():
+            try:
+                events.unlink()
+            except OSError as exc:
+                errors.append(f"events.ndjson: {exc}")
+        snapshots = run_dir / "snapshots"
+        if snapshots.is_dir():
+            try:
+                shutil.rmtree(snapshots)
+            except OSError as exc:
+                errors.append(f"snapshots: {exc}")
+        return errors
 
     def _write_result(self, result: dict[str, Any]) -> None:
         run_dir = self.root / result["run_id"]
@@ -387,3 +721,12 @@ class RunResultStore:
             output.flush()
             os.fsync(output.fileno())
         os.replace(temporary, destination)
+        self._fsync_directory(run_dir)
+
+    @staticmethod
+    def _fsync_directory(path: Path) -> None:
+        descriptor = os.open(path, os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)

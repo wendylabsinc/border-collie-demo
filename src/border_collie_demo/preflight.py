@@ -75,6 +75,23 @@ def evaluate_preflight(
                 "detail": str(media.get("detail") or "bark readiness unavailable"),
             }
         )
+    metric_arrival = hardware.get("metric_arrival")
+    if isinstance(metric_arrival, dict):
+        checks.append(
+            {
+                "name": "metric_arrival_calibrated",
+                "ready": bool(
+                    metric_arrival.get("configured")
+                    and metric_arrival.get("ready", True)
+                ),
+                "detail": (
+                    "metric range calibration and live source are ready"
+                    if metric_arrival.get("configured")
+                    and metric_arrival.get("ready", True)
+                    else "metric range calibration and a fresh source are required"
+                ),
+            }
+        )
     return {
         "ready": all(check["ready"] for check in checks),
         "checks": checks,

@@ -60,13 +60,61 @@ class FakeBark:
         return {"bark_played": True}
 
 
-def context(*, outbound_forward_pulses: int = 0) -> StageContext:
+def context(
+    *,
+    outbound_forward_pulses: int = 0,
+    orientation_degrees: float = 0.0,
+) -> StageContext:
     return StageContext(
         run_id="run-1",
         target_fruit="pear",
         home={"x_m": 0.0, "y_m": 0.0, "yaw_rad": 0.0},
+        orientation_degrees=orientation_degrees,
         outbound_forward_pulses=outbound_forward_pulses,
     )
+
+
+def test_orient_for_run_uses_the_recorded_relative_angle() -> None:
+    async def scenario() -> None:
+        hardware = FakeProductionHardware()
+        stages = ProductionStageExecutor(hardware, dict, FakeBark())
+
+        evidence = await stages.execute(
+            MissionPhase.ORIENT_FOR_RUN,
+            context(orientation_degrees=137.0),
+        )
+
+        name, angle_rad, options = hardware.calls[0]
+        assert name == "turn_relative"
+        assert angle_rad == pytest.approx(2.391101)
+        assert options == {
+            "yaw_rps": 1.00,
+            "tolerance_rad": pytest.approx(0.05235987756),
+            "timeout_s": 30.0,
+        }
+        assert evidence["requested_angle_degrees"] == 137.0
+        assert evidence["motion_commands_sent"] is True
+
+    asyncio.run(scenario())
+
+
+def test_zero_degree_orientation_is_recorded_without_motion() -> None:
+    async def scenario() -> None:
+        hardware = FakeProductionHardware()
+        stages = ProductionStageExecutor(hardware, dict, FakeBark())
+
+        evidence = await stages.execute(MissionPhase.ORIENT_FOR_RUN, context())
+
+        assert hardware.calls == []
+        assert evidence == {
+            "requested_angle_degrees": 0.0,
+            "requested_angle_rad": 0.0,
+            "measured_yaw_change_rad": 0.0,
+            "orientation_skipped": True,
+            "motion_commands_sent": False,
+        }
+
+    asyncio.run(scenario())
 
 
 def test_turn_to_fruit_rotates_until_the_pear_is_recognized() -> None:
@@ -84,7 +132,7 @@ def test_turn_to_fruit_rotates_until_the_pear_is_recognized() -> None:
             "pear",
         )
         assert options == {
-            "yaw_rps": 0.50,
+            "yaw_rps": 1.00,
             "sweep_rad": pytest.approx(2.0 * 3.141592653589793),
             "timeout_s": 30.0,
         }
@@ -216,7 +264,7 @@ def test_stage_result_records_the_exact_velocity_commands() -> None:
     asyncio.run(scenario())
 
 
-def test_approach_uses_measured_factory_motion_and_one_final_push() -> None:
+def test_approach_pins_full_and_close_range_speeds_independently() -> None:
     async def scenario() -> None:
         hardware = FakeProductionHardware()
         status_reader = lambda: {"ready": True}
@@ -227,20 +275,19 @@ def test_approach_uses_measured_factory_motion_and_one_final_push() -> None:
         name, reader, fruit, options = hardware.calls[0]
         assert (name, reader, fruit) == ("approach_target", status_reader, "pear")
         assert options == {
-            # The factory-avoidance calibration established 0.50 m/s as the
-            # deadband edge, not a production value with usable margin. The
-            # camera-guided approach uses the separately verified 1.0 m/s
-            # signal, while the final off-screen movement is softened to
-            # 0.3 m/s before the explicit stop-and-lie-down sequence.
+            # Normal tracking retains the qualified profile; close-range
+            # geometry selects its own explicit speed before Arrival stops it.
             "forward_mps": 1.0,
-            "maximum_yaw_rps": 0.30,
+            "maximum_yaw_rps": 0.5,
             "near_bottom_ratio": 0.86,
             "near_center_ratio": 0.72,
             "near_confirmations": 3,
             "near_loss_grace_s": 0.75,
-            "final_push_mps": 0.3,
+            "close_range_mps": 0.55,
+            "final_push_mps": 1.0,
             "final_push_duration_s": 1.0,
             "timeout_s": 20.0,
+            "metric_arrival_required": True,
         }
         assert evidence["arrival_confirmed"] is True
 

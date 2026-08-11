@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import math
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Any, ClassVar, Protocol
 
 from .evidence import EvidenceArtifact
-from .mission import MissionMachine
 from .models import MissionPhase
+from .run_coordinator import RunCoordinator
 from .run_results import RunResultStore
 
 
@@ -18,6 +19,8 @@ class StageContext:
     run_id: str
     target_fruit: str
     home: dict[str, Any]
+    run_epoch: str = "simulation"
+    orientation_degrees: float = 0.0
     outbound_forward_pulses: int = 0
 
 
@@ -29,6 +32,10 @@ class StageExecutor(Protocol):
     ) -> dict[str, Any]: ...
 
     async def stop(self) -> list[str]: ...
+
+
+class AutomaticFailureRecovery(Protocol):
+    async def recover_automatically(self, run_id: str) -> dict[str, Any] | None: ...
 
 
 class StageFailure(RuntimeError):
@@ -46,6 +53,7 @@ class StageFailure(RuntimeError):
 
 
 EXECUTED_STAGES = (
+    MissionPhase.ORIENT_FOR_RUN,
     MissionPhase.TURN_TO_FRUIT,
     MissionPhase.FIND_FRUIT,
     MissionPhase.APPROACH_FRUIT,
@@ -57,6 +65,7 @@ EXECUTED_STAGES = (
 )
 
 DEFAULT_STAGE_FAILURE_REASONS = {
+    MissionPhase.ORIENT_FOR_RUN: "ORIENTATION_FAILURE",
     MissionPhase.TURN_TO_FRUIT: "TARGET_RECOGNITION_FAILURE",
     MissionPhase.FIND_FRUIT: "TARGET_RECOGNITION_FAILURE",
     MissionPhase.APPROACH_FRUIT: "ARRIVAL_FAILURE",
@@ -71,15 +80,17 @@ DEFAULT_STAGE_FAILURE_REASONS = {
 class DemoOrchestrator:
     def __init__(
         self,
-        mission: MissionMachine,
+        coordinator: RunCoordinator,
         results: RunResultStore,
         stages: StageExecutor,
         terminal_evidence: Callable[[], list[EvidenceArtifact]] | None = None,
+        automatic_failure_recovery: AutomaticFailureRecovery | None = None,
     ) -> None:
-        self._mission = mission
+        self._coordinator = coordinator
         self._results = results
         self._stages = stages
         self._terminal_evidence = terminal_evidence
+        self._automatic_failure_recovery = automatic_failure_recovery
 
     async def _capture_terminal_evidence(self, run_id: str) -> None:
         if self._terminal_evidence is None:
@@ -101,16 +112,17 @@ class DemoOrchestrator:
         run = self._results.get(run_id)
         context = StageContext(
             run_id=run_id,
+            run_epoch=str(run["run_epoch"]),
             target_fruit=run["target_fruit"],
             home=run["home"],
+            orientation_degrees=float(run.get("orientation_degrees", 0.0)),
         )
         try:
             for phase in EXECUTED_STAGES:
-                self._mission.advance(f"starting {phase.value}")
-                self._results.enter_phase(
+                self._coordinator.advance(
                     run_id,
-                    phase=phase.value,
-                    reason=f"{phase.value.upper()}_STARTED",
+                    reason=f"starting {phase.value}",
+                    event_reason=f"{phase.value.upper()}_STARTED",
                     message=f"{phase.value} started",
                 )
                 evidence = await self._stages.execute(phase, context)
@@ -126,35 +138,31 @@ class DemoOrchestrator:
                         context,
                         outbound_forward_pulses=pulse_count,
                     )
-                    self._mission.advance("Arrival confirmed")
-                    self._results.enter_phase(
+                    self._coordinator.advance(
                         run_id,
-                        phase=self._mission.phase.value,
-                        reason="ARRIVAL_CONFIRMED",
+                        reason="Arrival confirmed",
+                        event_reason="ARRIVAL_CONFIRMED",
                         message="qualified near-fruit Arrival confirmed",
                     )
 
             stop_errors = await self._stages.stop()
             if stop_errors:
                 raise RuntimeError("; ".join(stop_errors))
-            await self._capture_terminal_evidence(run_id)
-            self._mission.advance("Demo Run completed and disarmed")
-            return self._results.seal(
+            return self._coordinator.finish(
                 run_id,
-                phase=self._mission.phase.value,
+                terminal_phase=MissionPhase.COMPLETE,
                 outcome="COMPLETED",
                 reason="SUCCESS",
                 message="Demo Run completed at Home",
                 final_safety_state="DISARMED_CONFIRMED",
             )
         except StageFailure as exc:
-            failed_phase = self._mission.phase.value
+            failed_phase = self._results.get(run_id)["current_phase"]
             stop_errors = await self._stages.stop()
             await self._capture_terminal_evidence(run_id)
-            self._mission.fail(exc.message)
-            return self._results.seal(
+            failed = self._coordinator.finish(
                 run_id,
-                phase=self._mission.phase.value,
+                terminal_phase=MissionPhase.FAILED,
                 outcome="FAILED",
                 reason=exc.reason,
                 message=exc.message,
@@ -166,14 +174,17 @@ class DemoOrchestrator:
                 failed_phase=failed_phase,
                 failure_details=exc.details,
             )
+            if self._automatic_failure_recovery is not None:
+                await self._automatic_failure_recovery.recover_automatically(run_id)
+                return self._results.get(run_id)
+            return failed
         except Exception as exc:  # noqa: BLE001 - terminal safety boundary
-            failed_phase = self._mission.phase.value
+            failed_phase = self._results.get(run_id)["current_phase"]
             stop_errors = await self._stages.stop()
             await self._capture_terminal_evidence(run_id)
-            self._mission.fail(f"Demo Run failed: {exc}")
-            return self._results.seal(
+            return self._coordinator.finish(
                 run_id,
-                phase=self._mission.phase.value,
+                terminal_phase=MissionPhase.FAILED,
                 outcome="FAILED",
                 reason="INTERNAL_ERROR",
                 message=f"Demo Run failed: {exc}",
@@ -190,6 +201,12 @@ class SimulatedStageExecutor:
     """Deterministic non-hardware adapter for the complete base Demo Run."""
 
     _EVIDENCE: ClassVar[dict[MissionPhase, dict[str, Any]]] = {
+        MissionPhase.ORIENT_FOR_RUN: {
+            "requested_angle_degrees": 0.0,
+            "requested_angle_rad": 0.0,
+            "measured_yaw_change_rad": 0.0,
+            "motion_commands_sent": False,
+        },
         MissionPhase.TURN_TO_FRUIT: {
             "measured_yaw_change_rad": 3.14,
             "motion_commands_sent": False,
@@ -202,7 +219,8 @@ class SimulatedStageExecutor:
         },
         MissionPhase.APPROACH_FRUIT: {
             "arrival_confirmed": True,
-            "final_push_mps": 0.3,
+            "close_range_mps": 0.55,
+            "final_push_mps": 0.55,
             "final_push_duration_s": 1.0,
             "forward_pulse_count": 7,
             "motion_commands_sent": False,
@@ -259,6 +277,13 @@ class SimulatedStageExecutor:
                 self._failure_message,
             )
         evidence = dict(self._EVIDENCE[phase])
+        if phase is MissionPhase.ORIENT_FOR_RUN:
+            requested_rad = math.radians(context.orientation_degrees)
+            evidence.update(
+                requested_angle_degrees=context.orientation_degrees,
+                requested_angle_rad=requested_rad,
+                measured_yaw_change_rad=requested_rad,
+            )
         if phase is MissionPhase.FIND_FRUIT:
             evidence["label"] = context.target_fruit
         if phase is MissionPhase.RETURN_HOME:

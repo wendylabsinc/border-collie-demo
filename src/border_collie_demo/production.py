@@ -7,7 +7,13 @@ import math
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
-from .hardware import CameraFailure, HardwareUnavailable, TargetLost
+from .hardware import (
+    CameraFailure,
+    HardwareUnavailable,
+    RangeUnavailable,
+    TargetLost,
+    TargetLostOffAxis,
+)
 from .media import BarkFailure
 from .models import MissionPhase
 from .orchestrator import (
@@ -47,6 +53,9 @@ class ProductionStageExecutor:
         phase: MissionPhase,
         context: StageContext,
     ) -> dict[str, Any]:
+        set_authority = getattr(self._hardware, "set_motion_authority", None)
+        if callable(set_authority):
+            set_authority(context.run_id, context.run_epoch, phase.value)
         start_trace = getattr(self._hardware, "start_motion_trace", None)
         if callable(start_trace):
             start_trace(phase.value)
@@ -57,6 +66,22 @@ class ProductionStageExecutor:
                 "CAMERA_FAILURE",
                 str(exc),
                 details=self._failure_details(),
+            ) from exc
+        except RangeUnavailable as exc:
+            raise StageFailure(
+                "RANGE_UNAVAILABLE",
+                str(exc),
+                details=self._failure_details(
+                    {"metric_arrival": exc.evidence} if exc.evidence else None
+                ),
+            ) from exc
+        except TargetLostOffAxis as exc:
+            raise StageFailure(
+                "TARGET_LOST_OFF_AXIS",
+                str(exc),
+                details=self._failure_details(
+                    {"recognition": exc.evidence} if exc.evidence else None
+                ),
             ) from exc
         except TargetLost as exc:
             search_phase = phase in (
@@ -112,13 +137,34 @@ class ProductionStageExecutor:
         phase: MissionPhase,
         context: StageContext,
     ) -> dict[str, Any]:
+        if phase is MissionPhase.ORIENT_FOR_RUN:
+            requested_degrees = float(context.orientation_degrees)
+            requested_rad = math.radians(requested_degrees)
+            if requested_degrees == 0.0:
+                return {
+                    "requested_angle_degrees": 0.0,
+                    "requested_angle_rad": 0.0,
+                    "measured_yaw_change_rad": 0.0,
+                    "orientation_skipped": True,
+                    "motion_commands_sent": False,
+                }
+            evidence = await self._hardware.turn_relative(
+                requested_rad,
+                yaw_rps=1.00,
+                tolerance_rad=min(math.radians(3.0), requested_rad / 2.0),
+                timeout_s=30.0,
+            )
+            return {
+                **evidence,
+                "requested_angle_degrees": requested_degrees,
+            }
         if phase is MissionPhase.TURN_TO_FRUIT:
             if visible := self._visible_target_evidence(context.target_fruit):
                 return visible
             return await self._hardware.find_target(
                 self._perception_status,
                 context.target_fruit,
-                yaw_rps=0.50,
+                yaw_rps=1.00,
                 sweep_rad=2.0 * math.pi,
                 timeout_s=30.0,
             )
@@ -136,20 +182,19 @@ class ProductionStageExecutor:
             return await self._hardware.approach_target(
                 self._perception_status,
                 context.target_fruit,
-                # The legacy factory-avoidance calibration found 0.50 m/s to
-                # be the deadband edge and 1.0 m/s to produce a reliable
-                # physical step during camera-guided approach. Once qualified
-                # lower-edge disappearance proves arrival, soften the one
-                # bounded final movement before the stop-and-lie-down stage.
+                # Keep the qualified approach brisk while slowing explicitly
+                # for close-range geometry. Arrival qualification owns stop.
                 forward_mps=1.0,
-                maximum_yaw_rps=0.30,
+                maximum_yaw_rps=0.5,
                 near_bottom_ratio=0.86,
                 near_center_ratio=0.72,
                 near_confirmations=3,
                 near_loss_grace_s=0.75,
-                final_push_mps=0.3,
+                close_range_mps=0.55,
+                final_push_mps=1.0,
                 final_push_duration_s=1.0,
                 timeout_s=20.0,
+                metric_arrival_required=True,
             )
         if phase is MissionPhase.SIT_AND_BARK:
             stop_errors = await self._hardware.emergency_stop()

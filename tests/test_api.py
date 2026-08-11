@@ -1,3 +1,4 @@
+import asyncio
 import time
 from time import monotonic
 
@@ -9,6 +10,7 @@ from border_collie_demo.evidence import EvidenceArtifact
 from border_collie_demo.mission import MissionMachine
 from border_collie_demo.models import MissionPhase, RemoteInput
 from border_collie_demo.orchestrator import SimulatedStageExecutor, StageFailure
+from border_collie_demo.recovery import RECOVERY_CONFIRMATION
 
 
 class ReadyHardwareBoundary:
@@ -38,12 +40,68 @@ class ReadyHardwareBoundary:
     def status(self) -> dict[str, object]:
         return {
             "configured": True,
+            "autonomy_enabled": True,
             "connected": True,
             "fault": None,
             "active_operation": None,
-            "pose": {"healthy": True, "age_s": 0.04, "error": None},
-            "motion": {"armed": False},
+            "pose": {
+                "healthy": True,
+                "age_s": 0.04,
+                "error": None,
+                "pose": {"x_m": 1.25, "y_m": -0.42, "yaw_rad": 0.75},
+            },
+            "motion": {"initialized": True, "armed": False, "fault": None},
         }
+
+
+class RecoveryHardwareBoundary(ReadyHardwareBoundary):
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls: list[tuple[str, dict[str, object], dict[str, object]]] = []
+        self.trace_phase: str | None = None
+
+    def start_motion_trace(self, phase: str) -> None:
+        self.trace_phase = phase
+
+    def motion_trace(self) -> list[dict[str, object]]:
+        return [
+            {
+                "sequence": 1,
+                "phase": self.trace_phase,
+                "forward_mps": (
+                    1.0 if self.trace_phase == "recovery_return_home" else 0.0
+                ),
+                "yaw_rps": 0.0,
+                "reason": self.trace_phase,
+            }
+        ]
+
+    async def turn_toward_home(self, home, **options):
+        self.calls.append(("turn_toward_home", home, options))
+        return {
+            "home_distance_m": 1.4,
+            "home_bearing_error_rad": 0.03,
+            "motion_commands_sent": True,
+        }
+
+    async def return_home(self, home, **options):
+        self.calls.append(("return_home", home, options))
+        return {
+            "home_distance_m": 0.08,
+            "requested_forward_pulses": options["forward_pulse_count"],
+            "replayed_forward_pulses": 4,
+            "motion_commands_sent": True,
+        }
+
+
+class FailureChoreographyHardwareBoundary(RecoveryHardwareBoundary):
+    async def stand_down(self):
+        self.calls.append(("stand_down", {}, {}))
+        return {"posture": "stand_down", "motion_commands_sent": False}
+
+    async def stand_up(self, *, settle_s=1.0):
+        self.calls.append(("stand_up", {}, {"settle_s": settle_s}))
+        return {"posture": "balance_stand", "motion_commands_sent": False}
 
 
 def ready_camera_perception() -> dict[str, object]:
@@ -185,13 +243,20 @@ def test_status_is_explicitly_non_operational() -> None:
                 "name": "camera_perception_ready",
                 "detail": "production camera/perception adapter is not connected",
             },
+            {
+                "name": "metric_arrival_calibrated",
+                "detail": "metric range calibration and a fresh source are required",
+            },
         ],
     }
 
 
 def test_activate_fails_closed_when_preflight_is_not_ready(tmp_path) -> None:
     with TestClient(create_app(runs_root=tmp_path)) as client:
-        response = client.post("/api/run", json={"target_fruit": "pear"})
+        response = client.post(
+            "/api/run",
+            json={"target_fruit": "pear", "orientation_degrees": 137},
+        )
 
         assert response.status_code == 201
         created = response.json()["run"]
@@ -212,6 +277,7 @@ def test_activate_fails_closed_when_preflight_is_not_ready(tmp_path) -> None:
             "fresh_pose": False,
             "motion_disarmed": True,
             "camera_perception_ready": False,
+            "metric_arrival_calibrated": False,
         }
         assert client.get("/api/status").json()["active_run_id"] is None
 
@@ -255,6 +321,24 @@ def test_activate_rejects_a_second_active_demo_run(tmp_path) -> None:
         assert second.json()["detail"] == "a Demo Run is already active"
 
 
+def test_activate_reuses_an_idempotency_key_without_starting_twice(tmp_path) -> None:
+    with TestClient(
+        create_app(
+            runs_root=tmp_path,
+            hardware=ReadyHardwareBoundary(),
+            camera_perception_status=ready_camera_perception,
+        )
+    ) as client:
+        payload = {"target_fruit": "pear", "idempotency_key": "request-123"}
+        first = client.post("/api/run", json=payload)
+        second = client.post("/api/run", json=payload)
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert second.json()["activation_reused"] is True
+    assert second.json()["run"]["run_id"] == first.json()["run"]["run_id"]
+
+
 def test_activation_allows_a_healthy_camera_before_pear_is_visible(tmp_path) -> None:
     with TestClient(
         create_app(
@@ -293,7 +377,10 @@ def test_activate_demo_completes_every_stage_with_simulated_adapters(tmp_path) -
             stage_executor=SimulatedStageExecutor(),
         )
     ) as client:
-        response = client.post("/api/run", json={"target_fruit": "pear"})
+        response = client.post(
+            "/api/run",
+            json={"target_fruit": "pear", "orientation_degrees": 137},
+        )
         run_id = response.json()["run"]["run_id"]
 
         deadline = time.monotonic() + 1.0
@@ -307,7 +394,9 @@ def test_activate_demo_completes_every_stage_with_simulated_adapters(tmp_path) -
         assert run["reason"] == "SUCCESS"
         assert run["current_phase"] == "complete"
         assert run["final_safety_state"] == "DISARMED_CONFIRMED"
-        assert list(run["stage_results"]) == [
+        assert run["record_type"] == "success_summary"
+        assert run["key_values"]["completed_stages"] == [
+            "orient_for_run",
             "turn_to_fruit",
             "find_fruit",
             "approach_fruit",
@@ -317,18 +406,24 @@ def test_activate_demo_completes_every_stage_with_simulated_adapters(tmp_path) -
             "return_home",
             "restore_heading",
         ]
-        assert run["stage_results"]["return_home"]["home_distance_m"] == 0.08
-        assert run["stage_results"]["approach_fruit"]["forward_pulse_count"] == 7
-        assert run["stage_results"]["approach_fruit"]["final_push_mps"] == 0.3
-        assert run["stage_results"]["approach_fruit"]["final_push_duration_s"] == 1.0
-        assert run["stage_results"]["sit_and_bark"]["down_hold_s"] == 5.0
-        assert run["stage_results"]["return_home"]["requested_forward_pulses"] == 7
-        assert run["stage_results"]["return_home"]["replayed_forward_pulses"] == 7
-        assert run["stage_results"]["restore_heading"]["heading_error_rad"] == 0.04
-        assert run["terminal_measurements"] == {
-            "home_distance_m": 0.08,
-            "heading_error_rad": 0.04,
-        }
+        assert run["orientation_degrees"] == 137.0
+        assert run["key_values"]["measured_orientation_change_rad"] == pytest.approx(
+            2.391101
+        )
+        assert run["key_values"]["home_distance_m"] == 0.08
+        assert run["key_values"]["outbound_forward_pulses"] == 7
+        assert run["key_values"]["final_push_mps"] == 0.55
+        assert run["key_values"]["close_range_mps"] == 0.55
+        assert run["key_values"]["final_push_duration_s"] == 1.0
+        assert run["key_values"]["bark_played"] is True
+        assert run["key_values"]["requested_return_pulses"] == 7
+        assert run["key_values"]["replayed_return_pulses"] == 7
+        assert run["key_values"]["heading_error_rad"] == 0.04
+        assert "stage_results" not in run
+        assert "events" not in run
+        assert sorted(path.name for path in (tmp_path / run_id).iterdir()) == [
+            "result.json"
+        ]
 
 
 def test_demo_run_carries_outbound_forward_pulses_into_return_playback(
@@ -370,9 +465,40 @@ def test_demo_run_carries_outbound_forward_pulses_into_return_playback(
             time.sleep(0.01)
 
     assert run["outcome"] == "COMPLETED"
-    assert run["stage_results"]["approach_fruit"]["forward_pulse_count"] == 7
-    assert run["stage_results"]["return_home"]["requested_forward_pulses"] == 7
-    assert run["stage_results"]["return_home"]["replayed_forward_pulses"] == 7
+    assert run["key_values"]["outbound_forward_pulses"] == 7
+    assert run["key_values"]["requested_return_pulses"] == 7
+    assert run["key_values"]["replayed_return_pulses"] == 7
+
+
+def test_success_does_not_capture_terminal_frame_archive(tmp_path) -> None:
+    captures = 0
+
+    def capture_terminal_evidence() -> list[EvidenceArtifact]:
+        nonlocal captures
+        captures += 1
+        return []
+
+    with TestClient(
+        create_app(
+            runs_root=tmp_path,
+            hardware=ReadyHardwareBoundary(),
+            camera_perception_status=ready_camera_perception,
+            stage_executor=SimulatedStageExecutor(),
+            terminal_evidence=capture_terminal_evidence,
+        )
+    ) as client:
+        run_id = client.post("/api/run", json={"target_fruit": "pear"}).json()["run"][
+            "run_id"
+        ]
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            run = client.get(f"/api/results/{run_id}").json()["run"]
+            if run["outcome"] is not None:
+                break
+            time.sleep(0.01)
+
+    assert captures == 0
+    assert run["record_type"] == "success_summary"
 
 
 def test_camera_failure_identifies_find_fruit_as_the_broken_stage(tmp_path) -> None:
@@ -403,7 +529,7 @@ def test_camera_failure_identifies_find_fruit_as_the_broken_stage(tmp_path) -> N
         assert run["failed_phase"] == "find_fruit"
         assert run["final_safety_state"] == "DISARMED_CONFIRMED"
         assert run["message"] == "source PTS stopped advancing"
-        assert list(run["stage_results"]) == ["turn_to_fruit"]
+        assert list(run["stage_results"]) == ["orient_for_run", "turn_to_fruit"]
 
 
 def test_failed_search_persists_downloadable_fieldmark_evidence(tmp_path) -> None:
@@ -471,6 +597,7 @@ def test_failed_search_persists_downloadable_fieldmark_evidence(tmp_path) -> Non
         }
     }
     assert [artifact["filename"] for artifact in run["artifacts"]] == [
+        "flight-recorder.ndjson",
         "evidence.zip",
         "terminal.jpg",
     ]
@@ -480,7 +607,247 @@ def test_failed_search_persists_downloadable_fieldmark_evidence(tmp_path) -> Non
     assert unreferenced.status_code == 404
     assert [
         artifact["filename"] for artifact in diagnostic["latest_run"]["artifacts"]
-    ] == ["evidence.zip", "terminal.jpg"]
+    ] == ["flight-recorder.ndjson", "evidence.zip", "terminal.jpg"]
+
+
+def test_failed_run_recovery_uses_saved_home_and_failed_approach_trace(
+    tmp_path,
+) -> None:
+    class FailedApproachStages(SimulatedStageExecutor):
+        async def execute(self, phase, context):
+            if phase is MissionPhase.APPROACH_FRUIT:
+                raise StageFailure(
+                    "ARRIVAL_FAILURE",
+                    "qualified pear Arrival timed out",
+                    details={
+                        "motion_commands": [
+                            {
+                                "sequence": sequence,
+                                "phase": "approach_fruit",
+                                "forward_mps": 1.0,
+                                "yaw_rps": 0.0,
+                                "reason": "approach_target",
+                            }
+                            for sequence in range(1, 4)
+                        ]
+                    },
+                )
+            return await super().execute(phase, context)
+
+    hardware = RecoveryHardwareBoundary()
+    with TestClient(
+        create_app(
+            runs_root=tmp_path,
+            hardware=hardware,
+            camera_perception_status=ready_camera_perception,
+            stage_executor=FailedApproachStages(),
+        )
+    ) as client:
+        run_id = client.post("/api/run", json={"target_fruit": "pear"}).json()["run"][
+            "run_id"
+        ]
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            failed = client.get(f"/api/results/{run_id}").json()["run"]
+            if failed["outcome"] is not None:
+                break
+            time.sleep(0.01)
+
+        wrong = client.post(
+            f"/api/results/{run_id}/recover-home",
+            json={"confirmation": "recover"},
+        )
+        accepted = client.post(
+            f"/api/results/{run_id}/recover-home",
+            json={"confirmation": RECOVERY_CONFIRMATION},
+        )
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            recovered_run = client.get(f"/api/results/{run_id}").json()["run"]
+            attempt = recovered_run["recovery_attempts"][0]
+            if attempt["outcome"] is not None:
+                break
+            time.sleep(0.01)
+        duplicate = client.post(
+            f"/api/results/{run_id}/recover-home",
+            json={"confirmation": RECOVERY_CONFIRMATION},
+        )
+        status = client.get("/api/status").json()
+
+    assert wrong.status_code == 409
+    assert accepted.status_code == 202
+    assert accepted.json()["outbound_forward_pulses"] == 3
+    assert accepted.json()["maximum_forward_pulses"] == 5
+    assert accepted.json()["forward_pulse_source"] == (
+        "failure_details.motion_commands"
+    )
+    assert duplicate.status_code == 409
+    assert recovered_run["outcome"] == "FAILED"
+    assert recovered_run["reason"] == "ARRIVAL_FAILURE"
+    assert "events" in recovered_run
+    assert "stage_results" in recovered_run
+    assert "failure_details" in recovered_run
+    assert (tmp_path / run_id / "events.ndjson").is_file()
+    assert attempt["outcome"] == "COMPLETED"
+    assert attempt["reason"] == "HOME_POSITION_RECOVERED"
+    assert attempt["final_safety_state"] == "DISARMED_CONFIRMED"
+    assert [step["step"] for step in attempt["steps"]] == [
+        "preflight",
+        "turn_toward_home",
+        "return_home",
+    ]
+    assert attempt["steps"][2]["evidence"]["home_distance_m"] == 0.08
+    assert attempt["steps"][0]["evidence"]["outbound_forward_pulses"] == 3
+    assert attempt["steps"][0]["evidence"]["maximum_forward_pulses"] == 5
+    assert attempt["steps"][2]["evidence"]["requested_forward_pulses"] == 5
+    assert (
+        attempt["steps"][2]["evidence"]["motion_commands"][0]["phase"]
+        == "recovery_return_home"
+    )
+    assert hardware.calls[0][0] == "turn_toward_home"
+    assert hardware.calls[0][1] == failed["home"]
+    assert hardware.calls[1][0] == "return_home"
+    assert hardware.calls[1][2]["forward_pulse_count"] == 5
+    assert status["active_recovery"] is None
+    assert status["hardware"]["motion"]["armed"] is False
+
+
+def test_off_axis_failure_lies_down_then_returns_home_automatically(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    class OffAxisApproachStages(SimulatedStageExecutor):
+        async def execute(self, phase, context):
+            if phase is MissionPhase.APPROACH_FRUIT:
+                raise StageFailure(
+                    "TARGET_LOST_OFF_AXIS",
+                    "qualified pear left the close handoff corridor",
+                    details={
+                        "motion_commands": [
+                            {
+                                "sequence": sequence,
+                                "phase": "approach_fruit",
+                                "forward_mps": 0.55,
+                                "yaw_rps": -0.2,
+                                "reason": "visual_close_until_sight_loss",
+                            }
+                            for sequence in range(1, 4)
+                        ]
+                    },
+                )
+            return await super().execute(phase, context)
+
+    monkeypatch.setattr("border_collie_demo.recovery.FAILURE_DOWN_HOLD_S", 0.0)
+    hardware = FailureChoreographyHardwareBoundary()
+    with TestClient(
+        create_app(
+            runs_root=tmp_path,
+            hardware=hardware,
+            camera_perception_status=ready_camera_perception,
+            stage_executor=OffAxisApproachStages(),
+        )
+    ) as client:
+        run_id = client.post("/api/run", json={"target_fruit": "pear"}).json()[
+            "run"
+        ]["run_id"]
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            run = client.get(f"/api/results/{run_id}").json()["run"]
+            attempts = run.get("recovery_attempts") or []
+            if attempts and attempts[0]["outcome"] is not None:
+                break
+            time.sleep(0.01)
+        status = client.get("/api/status").json()
+
+    assert run["outcome"] == "FAILED"
+    assert run["reason"] == "TARGET_LOST_OFF_AXIS"
+    assert run["final_safety_state"] == "DISARMED_CONFIRMED"
+    attempt = run["recovery_attempts"][0]
+    assert attempt["outcome"] == "COMPLETED"
+    assert attempt["reason"] == "HOME_POSITION_RECOVERED"
+    assert [step["step"] for step in attempt["steps"]] == [
+        "failure_posture_down",
+        "failure_posture_hold",
+        "failure_posture_stand",
+        "preflight",
+        "turn_toward_home",
+        "return_home",
+    ]
+    assert [call[0] for call in hardware.calls] == [
+        "stand_down",
+        "stand_up",
+        "turn_toward_home",
+        "return_home",
+    ]
+    assert status["active_recovery"] is None
+    assert status["hardware"]["motion"]["armed"] is False
+
+
+def test_active_recovery_blocks_activation_and_operator_stop_seals_it(
+    tmp_path,
+) -> None:
+    class FailedApproachStages(SimulatedStageExecutor):
+        async def execute(self, phase, context):
+            if phase is MissionPhase.APPROACH_FRUIT:
+                raise StageFailure(
+                    "ARRIVAL_FAILURE",
+                    "arrival timed out",
+                    details={
+                        "motion_commands": [
+                            {
+                                "phase": "approach_fruit",
+                                "forward_mps": 1.0,
+                            }
+                        ]
+                    },
+                )
+            return await super().execute(phase, context)
+
+    class SlowRecoveryHardware(RecoveryHardwareBoundary):
+        async def turn_toward_home(self, home, **options):
+            await asyncio.sleep(1.0)
+            return await super().turn_toward_home(home, **options)
+
+    hardware = SlowRecoveryHardware()
+    with TestClient(
+        create_app(
+            runs_root=tmp_path,
+            hardware=hardware,
+            camera_perception_status=ready_camera_perception,
+            stage_executor=FailedApproachStages(),
+        )
+    ) as client:
+        run_id = client.post("/api/run", json={"target_fruit": "pear"}).json()["run"][
+            "run_id"
+        ]
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            failed = client.get(f"/api/results/{run_id}").json()["run"]
+            if failed["outcome"] is not None:
+                break
+            time.sleep(0.01)
+
+        accepted = client.post(
+            f"/api/results/{run_id}/recover-home",
+            json={"confirmation": RECOVERY_CONFIRMATION},
+        )
+        active = client.get("/api/status").json()
+        blocked = client.post("/api/run", json={"target_fruit": "apple"})
+        stopped = client.post("/api/stop")
+        recovered_run = client.get(f"/api/results/{run_id}").json()["run"]
+        final_status = client.get("/api/status").json()
+
+    assert accepted.status_code == 202
+    assert active["active_recovery"]["run_id"] == run_id
+    assert active["activation"]["ready"] is False
+    assert blocked.status_code == 409
+    assert stopped.status_code == 200
+    assert recovered_run["recovery_attempts"][0]["outcome"] == "STOPPED"
+    assert recovered_run["recovery_attempts"][0]["reason"] == "OPERATOR_STOP"
+    assert recovered_run["recovery_attempts"][0]["final_safety_state"] == (
+        "DISARMED_CONFIRMED"
+    )
+    assert final_status["active_recovery"] is None
 
 
 def test_stop_during_a_stage_cancels_the_demo_without_late_resume(tmp_path) -> None:
@@ -587,19 +954,19 @@ def test_diagnostics_identifies_completed_failed_and_unreached_stages(
 
         assert response.status_code == 200
         body = response.json()
-        assert body["latest_run"] == {
-            "run_id": run_id,
-            "outcome": "FAILED",
-            "reason": "RETURN_HOME_FAILURE",
-            "failed_phase": "return_home",
-            "failure_details": None,
-            "artifacts": [],
-            "evidence_capture": {
-                "available": False,
-                "unavailable_reason": ("terminal evidence adapter is not configured"),
-            },
-        }
+        latest = body["latest_run"]
+        assert latest["run_id"] == run_id
+        assert latest["outcome"] == "FAILED"
+        assert latest["reason"] == "RETURN_HOME_FAILURE"
+        assert latest["failed_phase"] == "return_home"
+        assert latest["failure_details"] is None
+        assert latest["evidence_capture"] == {"available": True}
+        assert [artifact["filename"] for artifact in latest["artifacts"]] == [
+            "flight-recorder.ndjson",
+            "evidence-capture-warnings.json",
+        ]
         assert [stage["phase"] for stage in body["stages"]] == [
+            "orient_for_run",
             "turn_to_fruit",
             "find_fruit",
             "approach_fruit",
@@ -616,14 +983,15 @@ def test_diagnostics_identifies_completed_failed_and_unreached_stages(
             "COMPLETED",
             "COMPLETED",
             "COMPLETED",
+            "COMPLETED",
             "FAILED",
             "NOT_RUN",
         ]
-        assert body["stages"][5]["evidence"] == {
+        assert body["stages"][6]["evidence"] == {
             "home_bearing_error_rad": 0.03,
             "motion_commands_sent": False,
         }
-        assert body["stages"][6]["evidence"] is None
+        assert body["stages"][7]["evidence"] is None
 
 
 def test_home_capture_fails_closed_if_pose_freshness_is_lost(tmp_path) -> None:
@@ -701,7 +1069,7 @@ def test_startup_seals_an_interrupted_demo_run(tmp_path) -> None:
         assert recovered["outcome"] == "FAILED"
         assert recovered["reason"] == "PROCESS_INTERRUPTED"
         assert recovered["current_phase"] == "failed"
-        assert recovered["final_safety_state"] == "UNKNOWN"
+        assert recovered["final_safety_state"] == "STOP_REQUESTED_UNCONFIRMED"
         assert restarted.get("/api/status").json()["active_run_id"] is None
 
 
@@ -755,6 +1123,23 @@ def test_activate_accepts_specialist_gated_banana(tmp_path) -> None:
 
         assert response.status_code == 201
         assert response.json()["run"]["target_fruit"] == "banana"
+
+
+@pytest.mark.parametrize("orientation_degrees", [-1, 360])
+def test_activate_rejects_orientation_outside_one_revolution(
+    tmp_path,
+    orientation_degrees,
+) -> None:
+    with TestClient(create_app(runs_root=tmp_path)) as client:
+        response = client.post(
+            "/api/run",
+            json={
+                "target_fruit": "pear",
+                "orientation_degrees": orientation_degrees,
+            },
+        )
+
+    assert response.status_code == 422
 
 
 def test_activate_rejects_an_unsupported_target_fruit(tmp_path) -> None:

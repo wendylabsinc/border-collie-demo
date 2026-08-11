@@ -14,14 +14,13 @@ The executable, hardware-free design probe lives in
 - Home is a position and heading captured immediately before the run begins.
 - Capture requires a stable window of advancing local-pose samples. The sample
   count and permitted position and yaw spread are qualification parameters.
-- The recorded outbound forward-heartbeat count bounds the return translation:
-  after turning toward Home, the return controller replays at most that many
-  forward heartbeats at the same 1.0 m/s signal. Heading-only corrections do
-  not consume the count.
-- Fresh measured local pose remains the authority for course, progress, early
-  stop, the 0.10 m Home gate, and the reported Home Distance. Pulse count and
-  requested velocity never substitute for measured Home Distance or prove
-  arrival.
+- The recorded outbound forward-heartbeat count bounds return translation.
+  It is a safety budget, not a route estimate. Heading-only corrections do not
+  consume the count.
+- Fresh fused local pose remains the authority for course and progress. The
+  0.10 m gate conservatively uses the farther of fresh raw Go2 distance and
+  filtered distance. Pulse count and requested velocity never substitute for
+  measured Home Distance or prove arrival.
 - A pose is usable only when its age is at most **0.50 seconds**. This is the
   current clean-app freshness boundary and must be rechecked during hardware
   qualification.
@@ -30,15 +29,24 @@ The executable, hardware-free design probe lives in
 - When the pose is untrustworthy, Home Distance and heading error are recorded
   as unavailable rather than copied from the last estimate.
 
+The implementation fuses Go2 position deltas, body velocity, IMU yaw rate,
+loaded-foot zero-velocity updates, and bounded CPU-only sparse visual motion
+through
+[`home-localization-adapter.md`](home-localization-adapter.md). Vision supplies
+scale-free direction/yaw, continuity, and natural-scene revisit evidence. It
+does not claim metric monocular translation or replace the fresh Go2 pose
+requirement.
+
 ## Bounded return sequence
 
 1. Stop and settle after standing from the fruit action.
 2. Read a fresh pose and recompute bearing and distance to Home.
 3. Turn in place until the measured Home bearing enters the qualified course
    gate.
-4. Replay the recorded outbound forward-heartbeat count through a
+4. Follow the recorded outbound pose breadcrumbs in reverse through a
    collision-aware motion owner while continuously measuring Home Distance,
-   pose age, route state, and progress.
+   pose age, route state, and progress. The heartbeat count remains the maximum
+   translation budget.
 5. Stop translation inside the position gate.
 6. Restore the captured Home heading in place.
 7. Re-read position after the heading turn. If the position gate was lost,
@@ -55,12 +63,13 @@ implementation must earn these values in a new acceptance run.
 ## Route, progress, and recovery
 
 - Translation is forward-only. The return controller does not reverse toward
-  an unseen route. Bounded course correction may accompany forward replay.
+  an unseen route. Bounded course correction accompanies reverse-order
+  breadcrumb traversal.
 - Translation must retain factory obstacle avoidance or use another
   independently qualified collision-aware planner. Direct unprotected body
   translation cannot implement production return-to-Home.
-- Progress means a measured reduction in Home Distance over a bounded time
-  window. Distance traveled in some other direction is not progress.
+- Progress means a measured reduction in distance to the active breadcrumb or
+  Home over a bounded time window. Reaching a breadcrumb advances the route.
 - Minimum progress, progress-window duration, course gate, maximum Home
   Distance, total return timeout, speed, and pulse duration are configuration
   owned by WDY-2281 and WDY-2283. Prototype defaults are illustrative only.
@@ -82,6 +91,43 @@ An unsuccessful stop is not hidden. The run remains `FAILED` with reason
 `STOP_REQUESTED_UNCONFIRMED` or `UNKNOWN` as appropriate. Remote Takeover uses
 the separate latched `REMOTE_TAKEOVER` terminal path and `REMOTE_OWNED` safety
 state.
+
+## Recovery after a failed run
+
+A failed run with `DISARMED_CONFIRMED` and a persisted Home pose may accept an
+explicit recovery attempt. Translation additionally requires at least one
+recorded forward approach heartbeat; a run already inside the position gate is
+sealed as recovered without arming motion.
+The recovery is separate from the terminal mission: the original run remains
+`FAILED`, no new Home is captured, and the failed mission stages are not
+resumed.
+
+`TARGET_LOST_OFF_AXIS` starts this recovery automatically after terminal
+evidence and confirmed disarm. The recovery record is persisted before the
+failure action. Woof lies down without barking, holds for five seconds, stands,
+and requires the existing continuous-fusion readiness gate before turning
+toward Home. Pose, motion, posture, or stop failures remain fail-closed and do
+not attempt translation. Other failed-run reasons retain the explicit recovery
+endpoint.
+
+The API persists the recovery record before motion, returns `202 Accepted`, and
+runs recovery asynchronously so a client disconnect cannot cause an ambiguous
+second activation. Recovery turns toward the saved Home and uses 1.5 times the
+original approach heartbeat count as its maximum forward-return budget. The
+reserve accounts for factory obstacle avoidance reducing actual return speed;
+pose-based arrival stops playback early. Fresh pose,
+factory obstacle avoidance, progress, course, timeout, watchdog, stop, and
+0.10-meter position gates remain authoritative.
+
+Failed-run recovery is position-only. It records the final heading but does not
+restore it, because the in-place heading primitive can move the feet back
+outside the position gate. Recovery reports `HOME_POSITION_RECOVERED` only when
+a fresh terminal pose is inside 0.10 meters and stop/disarm is confirmed. Any
+failure or operator stop seals the recovery attempt with its own outcome and
+full evidence without altering the failed run's original reason.
+One correction attempt is allowed only when the first recovery ended `FAILED`
+with `DISARMED_CONFIRMED`. No third attempt is accepted, and a completed,
+stopped, active, interrupted, or unconfirmed recovery is not retryable.
 
 ## Run Result evidence
 

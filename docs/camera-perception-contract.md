@@ -44,6 +44,13 @@ than trusting a sidecar-provided `ready` flag:
 ```json
 {
   "generation": "opaque-generation",
+  "supervision": {
+    "state": "ready",
+    "ready": true,
+    "generation": "opaque-generation",
+    "stable_frames": 10,
+    "restart_budget": 5
+  },
   "source": {
     "pts": 12345,
     "time_base": "1/90000",
@@ -77,6 +84,24 @@ Both processes must run on the same Woof host so their monotonic timestamps use
 the same kernel clock. A missing, future, malformed, stale, unreachable, or
 cross-host timestamp fails readiness closed. The complete validated document is
 persisted in the Demo Run preflight evidence.
+
+The sidecar process stays available while its SDK-neutral service supervisor
+owns WebRTC connection attempts. A partial or stale session is disconnected
+before each retry, failures use bounded exponential backoff, and exhausting the
+configured restart budget produces an explicit `failed` state. Every retry
+receives a new generation. The supervisor reports `degraded` until ten strictly
+advancing frames from that one generation have arrived, then reports `ready`.
+A frame stall revokes readiness before cleanup and reconnect. The mission-side
+adapter requires the supervisor generation to match the camera generation and
+still validates all source and detection evidence independently; the
+supervisor's `ready` flag never authorizes motion by itself.
+
+Connection setup and camera progress have separate deadlines. The 15-second
+transport timeout bounds WebRTC and DataChannel setup. Only after the video
+channel is enabled does the 3-second first-frame grace period begin. Once the
+first frame arrives, the 0.75-second frame-stall timeout applies. Recovery uses
+an 8-second initial robot-signaling cooldown with bounded exponential backoff;
+this prevents rapid reconnects from overrunning the Go2 signaling endpoint.
 
 ## Qualified thresholds
 
@@ -130,17 +155,30 @@ may be relaxed only after new acceptance evidence is recorded.
   lower threshold cannot acquire a pear, start a search result, or bypass any
   freshness, generation, geometry, or camera-health gate. A weaker or missing
   track commands zero motion until the approach contract either reacquires the
-  pear or performs its already-qualified lower-edge final push.
+  pear or confirms a bounded sight-lost-close Arrival.
 - A previously acquired red-apple track may continue below the normal tracking
   floor, down to 0.10 confidence, only after its lower edge or the prior lower
   edge reaches 0.70 of frame height and its geometry remains continuous. Its
   horizontal center may move at most 0.20 of frame width between accepted
   samples; its vertical center and lower edge may retreat by at most 0.08.
   This rule cannot acquire an apple or accept a label change.
-- Near-fruit geometry does not itself stop motion or confirm Arrival. It arms
-  the lower-edge disappearance gate while fresh, centered Target Fruit evidence
-  continues authorizing the bounded forward approach. Only a subsequent
-  qualified lower-edge disappearance permits the one bounded final push.
+- Near-fruit geometry slows motion and establishes close-range track memory.
+  Image geometry enters Final Approach but cannot establish metric Arrival.
+  Camera-to-LiDAR handoff requires the last three fresh filtered centers to
+  remain within 0.08 of frame center. The final camera center is converted to a
+  body-frame bearing using the calibrated horizontal field of view; post-loss
+  LiDAR candidates must remain within six degrees of that bearing and satisfy
+  temporal continuity. A nearer cluster on the wrong side is not the Target
+  Fruit. The camera-to-LiDAR transition is one-way for the remainder of that
+  approach: after LiDAR handoff is latched, weak, missing, contradictory, or
+  newly qualified camera detections are diagnostic evidence only and cannot
+  steer, stop, advance, or return control to camera tracking. Fresh LiDAR
+  association and the metric Arrival gate exclusively authorize subsequent
+  motion; unavailable LiDAR fails closed rather than falling back to vision.
+  A camera transport or source-health failure may still abort the Demo Run,
+  but cannot restore camera control.
+  Off-axis disappearance before handoff sends zero motion, terminates as
+  `TARGET_LOST_OFF_AXIS`, and never arms LiDAR or authorizes a blind push.
 - Warm-up must finish before preflight passes. After preflight, detector
   execution time must be **no greater than 0.200 seconds**.
 - Detection age must be **no greater than 0.250 seconds**, measured with the
@@ -172,6 +210,12 @@ camera failure. Search motion must stop. During approach, only the bounded
 tracking hysteresis above may extend an already-acquired track; otherwise
 camera-guided motion stops and the approach contract decides whether bounded
 reacquisition is allowed or the run terminates as target loss.
+
+`TARGET_LOST_OFF_AXIS` is a Recoverable Failure only after zero motion and
+disarm are confirmed. Its automatic correction preserves the original Home,
+records terminal perception evidence, lies down without barking, stands, waits
+for trusted continuous Home fusion, and performs the bounded position-only
+Home recovery. It does not convert the failed fruit attempt into success.
 
 ## Evidence and remaining qualification
 

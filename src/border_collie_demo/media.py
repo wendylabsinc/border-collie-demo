@@ -12,6 +12,7 @@ from typing import Any
 from urllib.request import Request, urlopen
 
 from .config import env_bool
+from .release import ReleaseCohort, evaluate_peer_release
 
 
 class BarkFailure(RuntimeError):
@@ -59,10 +60,12 @@ class BarkClient:
         *,
         poster: BarkPoster | None = None,
         fetcher: BarkPoster | None = None,
+        release_cohort: ReleaseCohort | None = None,
     ) -> None:
         self.config = config or BarkConfig()
         self._poster = poster or _post_json
         self._fetcher = fetcher or _fetch_json
+        self._release_cohort = release_cohort
 
     def status(self) -> dict[str, object]:
         if not self.config.enabled:
@@ -71,15 +74,42 @@ class BarkClient:
             payload = self._fetcher(self.config.status_url, self.config.timeout_s)
         except Exception as exc:  # noqa: BLE001 - sidecar failures are untyped
             return {"ready": False, "detail": f"Go2 bark status unavailable: {exc}"}
-        ready = payload.get("bark_ready") is True
-        return {
+        supervision = payload.get("supervision")
+        supervision_ready = bool(
+            isinstance(supervision, dict)
+            and supervision.get("state") == "ready"
+            and supervision.get("ready") is True
+        )
+        release = evaluate_peer_release(
+            self._release_cohort,
+            payload.get("release"),
+            peer_service="media",
+        )
+        ready = (
+            payload.get("bark_ready") is True
+            and supervision_ready
+            and release["ready"] is True
+        )
+        status = {
             "ready": ready,
             "detail": (
                 "Go2 bark sidecar is ready"
                 if ready
-                else str(payload.get("error") or "Go2 bark sidecar is not ready")
+                else str(
+                    payload.get("error")
+                    or (release["detail"] if release["ready"] is not True else None)
+                    or (
+                        supervision.get("last_error")
+                        if isinstance(supervision, dict)
+                        else None
+                    )
+                    or "Go2 bark sidecar is not ready"
+                )
             ),
         }
+        if self._release_cohort is not None:
+            status["release"] = release
+        return status
 
     async def bark(self) -> dict[str, object]:
         if not self.config.enabled:

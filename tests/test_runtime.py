@@ -29,10 +29,8 @@ def test_explicit_simulation_runtime_completes_activate_demo(
 
         assert run["outcome"] == "COMPLETED"
         assert run["reason"] == "SUCCESS"
-        assert all(
-            evidence["motion_commands_sent"] is False
-            for evidence in run["stage_results"].values()
-        )
+        assert run["record_type"] == "success_summary"
+        assert run["key_values"]["motion_commands_sent"] is False
 
 
 def test_production_runtime_wires_the_real_stage_executor(
@@ -43,7 +41,7 @@ def test_production_runtime_wires_the_real_stage_executor(
     created = []
 
     class Perception:
-        def __init__(self, _config) -> None:
+        def __init__(self, _config, **_options) -> None:
             pass
 
         status = staticmethod(simulated_camera_perception)
@@ -61,7 +59,7 @@ def test_production_runtime_wires_the_real_stage_executor(
         return SimulatedStageExecutor()
 
     class Bark:
-        def __init__(self, _config) -> None:
+        def __init__(self, _config, **_options) -> None:
             pass
 
         @staticmethod
@@ -80,7 +78,11 @@ def test_production_runtime_wires_the_real_stage_executor(
     hardware = SimulatedHardware()
     monkeypatch.setenv("BORDER_COLLIE_RUNTIME_MODE", "production")
     monkeypatch.setenv("BORDER_COLLIE_RUNS_DIR", str(tmp_path))
-    monkeypatch.setattr(main_module, "HardwareManager", lambda _config: hardware)
+    monkeypatch.setattr(
+        main_module,
+        "HardwareManager",
+        lambda _config, **_options: hardware,
+    )
     monkeypatch.setattr(main_module, "PerceptionStatusClient", Perception)
     monkeypatch.setattr(main_module, "BarkClient", Bark)
     monkeypatch.setattr(main_module, "TerminalEvidenceClient", Evidence)

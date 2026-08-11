@@ -27,6 +27,12 @@ from fastapi import FastAPI, HTTPException, Response
 from pydantic import BaseModel
 
 from media.model_router import FruitCandidate, FruitModelRouter, RoutedPrediction
+from media.service_supervision import (
+    ServiceState,
+    ServiceSupervisionConfig,
+    ServiceSupervisor,
+)
+from media.visual_odometry import SparseVisualOdometry, VisualOdometryConfig
 
 FRUIT_ACQUISITION_CONFIDENCE = {
     "apple": 0.70,
@@ -35,6 +41,18 @@ FRUIT_ACQUISITION_CONFIDENCE = {
 }
 SUPPORTED_FRUITS = tuple(FRUIT_ACQUISITION_CONFIDENCE)
 SEARCH_CROP_FRUITS = frozenset({"apple", "banana"})
+LOGGER = logging.getLogger(__name__)
+
+
+def release_cohort_status() -> dict[str, object] | None:
+    release_id = os.environ.get("BORDER_COLLIE_RELEASE_ID", "").strip()
+    if not release_id:
+        return None
+    return {
+        "release_id": release_id,
+        "config_schema": int(os.environ.get("BORDER_COLLIE_CONFIG_SCHEMA", "1")),
+        "service": "media",
+    }
 
 
 class TargetFruitRequest(BaseModel):
@@ -105,6 +123,13 @@ class CropConfirmConfig:
 def configure_media_logging() -> None:
     """Prevent recoverable decoder packet errors from flooding device logs."""
     logging.getLogger("aiortc.codecs.h264").setLevel(logging.ERROR)
+
+
+def _positive_env_float(name: str, default: str) -> float:
+    value = float(os.environ.get(name, default))
+    if not math.isfinite(value) or value <= 0.0:
+        raise ValueError(f"{name} must be finite and positive")
+    return value
 
 
 class EvidenceFrameBuffer:
@@ -452,7 +477,7 @@ class PerceptionRuntime:
             "161387de-21ab-4f0b-b4e9-97124b000d06",
         )
         self.evidence = PerceptionEvidence(generation=uuid4().hex)
-        self._frames: asyncio.Queue[tuple[Any, float, int, str]] = asyncio.Queue(
+        self._frames: asyncio.Queue[tuple[str, Any, float, int, str]] = asyncio.Queue(
             maxsize=1
         )
         self._evidence_frames = EvidenceFrameBuffer(
@@ -467,6 +492,43 @@ class PerceptionRuntime:
         self._connection: Any | None = None
         self._audiohub: Any | None = None
         self._detector_task: asyncio.Task[None] | None = None
+        self._supervisor_task: asyncio.Task[None] | None = None
+        self._session_failures: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
+        self._closing = False
+        self._connection_class: Any | None = None
+        self._connection_method: Any | None = None
+        self._audiohub_class: Any | None = None
+        self._connect_timeout_s = _positive_env_float(
+            "MEDIA_CONNECT_TIMEOUT_S", "15.0"
+        )
+        self._cleanup_timeout_s = _positive_env_float(
+            "MEDIA_CLEANUP_TIMEOUT_S", "5.0"
+        )
+        self._monitor_interval_s = _positive_env_float(
+            "MEDIA_SUPERVISION_INTERVAL_S", "0.10"
+        )
+        self._supervision = ServiceSupervisor(
+            ServiceSupervisionConfig(
+                stable_frame_count=int(
+                    os.environ.get("MEDIA_STABLE_FRAME_COUNT", "10")
+                ),
+                frame_stall_timeout_s=float(
+                    os.environ.get("MEDIA_FRAME_STALL_TIMEOUT_S", "0.75")
+                ),
+                first_frame_timeout_s=float(
+                    os.environ.get("MEDIA_FIRST_FRAME_TIMEOUT_S", "3.0")
+                ),
+                restart_budget=int(
+                    os.environ.get("MEDIA_RESTART_BUDGET", "5")
+                ),
+                initial_backoff_s=float(
+                    os.environ.get("MEDIA_INITIAL_BACKOFF_S", "8.0")
+                ),
+                maximum_backoff_s=float(
+                    os.environ.get("MEDIA_MAXIMUM_BACKOFF_S", "30.0")
+                ),
+            )
+        )
         self._model: Any | None = None
         self._banana_specialist_model: Any | None = None
         self._model_router: FruitModelRouter | None = None
@@ -480,6 +542,10 @@ class PerceptionRuntime:
         self._inference_executor_closed = False
         self._preview_lock = Lock()
         self._preview_jpeg: bytes | None = None
+        self._visual_odometry = SparseVisualOdometry(
+            VisualOdometryConfig.from_env(dict(os.environ))
+        )
+        self._visual_odometry.reset(self.evidence.generation)
 
     async def start(self) -> None:
         configure_media_logging()
@@ -489,6 +555,10 @@ class PerceptionRuntime:
             WebRTCConnectionMethod,
         )
         from unitree_webrtc_connect.webrtc_audiohub import WebRTCAudioHub
+
+        self._connection_class = UnitreeWebRTCConnection
+        self._connection_method = WebRTCConnectionMethod.LocalSTA
+        self._audiohub_class = WebRTCAudioHub
 
         loop = asyncio.get_running_loop()
         self._model = await loop.run_in_executor(
@@ -540,22 +610,20 @@ class PerceptionRuntime:
                 self.banana_specialist_minimum_agreement_iou
             ),
         )
-        self._connection = UnitreeWebRTCConnection(
-            WebRTCConnectionMethod.LocalSTA,
-            ip=self.robot_ip,
-        )
-        await self._connection.connect()
-        self._audiohub = WebRTCAudioHub(self._connection)
-        self._connection.video.add_track_callback(self._consume_camera)
-        self._connection.video.switchVideoChannel(True)
         self._detector_task = asyncio.create_task(self._detect())
+        self._supervisor_task = asyncio.create_task(self._supervise_sessions())
 
     async def close(self) -> None:
+        self._closing = True
+        if self._supervisor_task is not None:
+            self._supervisor_task.cancel()
+            await asyncio.gather(self._supervisor_task, return_exceptions=True)
+            self._supervisor_task = None
+        await self._cleanup_session()
         if self._detector_task is not None:
             self._detector_task.cancel()
             await asyncio.gather(self._detector_task, return_exceptions=True)
-        if self._connection is not None:
-            await self._connection.disconnect()
+            self._detector_task = None
         if not self._inference_executor_closed:
             await asyncio.to_thread(
                 self._inference_executor.shutdown,
@@ -565,15 +633,23 @@ class PerceptionRuntime:
             self._inference_executor_closed = True
 
     async def bark(self) -> dict[str, object]:
-        if self._audiohub is None:
+        if self._audiohub is None or not self._supervision.ready:
             raise RuntimeError("Go2 AudioHub is not connected")
         await self._audiohub.play_by_uuid(self.bark_uuid)
         return {"ok": True, "uuid": self.bark_uuid}
 
     def status(self) -> dict[str, object]:
+        self._supervision.check_health()
+        supervision = self._supervision.status()
         return {
             **self.evidence.status(),
-            "bark_ready": self._audiohub is not None and bool(self.bark_uuid),
+            "release": release_cohort_status(),
+            "supervision": supervision,
+            "bark_ready": (
+                supervision["ready"] is True
+                and self._audiohub is not None
+                and bool(self.bark_uuid)
+            ),
             "crop_confirm": asdict(self._crop_confirm),
             "model_router": (
                 self._model_router.status()
@@ -591,6 +667,7 @@ class PerceptionRuntime:
                     ),
                 }
             ),
+            "visual_odometry": self._visual_odometry.status(),
         }
 
     def select_target(self, target_fruit: str) -> dict[str, object]:
@@ -619,11 +696,151 @@ class PerceptionRuntime:
     def evidence_archive(self) -> bytes:
         return self._evidence_frames.archive()
 
-    async def _consume_camera(self, track: Any) -> None:
+    async def _supervise_sessions(self) -> None:
+        while not self._closing and self._supervision.state is not ServiceState.FAILED:
+            now = time.monotonic()
+            if not self._supervision.begin_attempt(now_s=now):
+                retry_at = self._supervision.next_retry_s
+                delay_s = self._monitor_interval_s
+                if retry_at is not None:
+                    delay_s = max(0.0, min(delay_s, retry_at - now))
+                await asyncio.sleep(delay_s)
+                continue
+
+            await self._cleanup_session()
+            generation = uuid4().hex
+            self._begin_generation(generation)
+            self._supervision.session_started(generation)
+            LOGGER.info(
+                "media session connection attempt %s generation=%s",
+                self._supervision.status()["attempts"],
+                generation,
+            )
+            try:
+                await asyncio.wait_for(
+                    self._open_session(generation),
+                    timeout=self._connect_timeout_s,
+                )
+                self._supervision.session_connected(generation)
+                LOGGER.info("media WebRTC session connected generation=%s", generation)
+                while not self._closing:
+                    await asyncio.sleep(self._monitor_interval_s)
+                    failure = self._session_failure_for(generation)
+                    if failure is not None:
+                        raise RuntimeError(failure)
+                    self._supervision.check_health()
+                    if (
+                        self._supervision.restart_required
+                        or self._supervision.state is ServiceState.FAILED
+                    ):
+                        status = self._supervision.status()
+                        LOGGER.warning(
+                            "media session unhealthy state=%s generation=%s "
+                            "restarts=%s/%s retry_in_s=%s error=%s",
+                            status["state"],
+                            generation,
+                            status["failures_since_ready"],
+                            status["restart_budget"],
+                            status["next_retry_in_s"],
+                            status["last_error"],
+                        )
+                        break
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - WebRTC failures are untyped
+                if not self._supervision.restart_required:
+                    self._supervision.session_failed(
+                        f"{type(exc).__name__}: {exc}"
+                    )
+                status = self._supervision.status()
+                LOGGER.warning(
+                    "media session failed state=%s generation=%s "
+                    "restarts=%s/%s retry_in_s=%s error=%s",
+                    status["state"],
+                    generation,
+                    status["failures_since_ready"],
+                    status["restart_budget"],
+                    status["next_retry_in_s"],
+                    status["last_error"],
+                )
+            finally:
+                await self._cleanup_session()
+
+    async def _open_session(self, generation: str) -> None:
+        if (
+            self._connection_class is None
+            or self._connection_method is None
+            or self._audiohub_class is None
+        ):
+            raise RuntimeError("media session SDK adapters are not configured")
+        connection = self._connection_class(
+            self._connection_method,
+            ip=self.robot_ip,
+        )
+        # Store before connect so a partial or timed-out startup is still cleaned.
+        self._connection = connection
+        await connection.connect()
+        self._audiohub = self._audiohub_class(connection)
+        connection.video.add_track_callback(
+            partial(self._consume_camera, generation=generation)
+        )
+        connection.video.switchVideoChannel(True)
+
+    async def _cleanup_session(self) -> None:
+        connection = self._connection
+        self._connection = None
+        self._audiohub = None
+        while not self._frames.empty():
+            try:
+                self._frames.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+        if connection is None:
+            return
+        try:
+            connection.video.switchVideoChannel(False)
+        except Exception:
+            LOGGER.debug("failed to disable stale video channel", exc_info=True)
+        try:
+            await asyncio.wait_for(
+                connection.disconnect(),
+                timeout=self._cleanup_timeout_s,
+            )
+        except Exception:
+            LOGGER.debug("failed to disconnect stale media session", exc_info=True)
+
+    def _begin_generation(self, generation: str) -> None:
+        with self._target_lock:
+            target_fruit = self._target_fruit
+        self.evidence = PerceptionEvidence(
+            generation=generation,
+            target_fruit=target_fruit,
+        )
+        self._evidence_frames = EvidenceFrameBuffer(
+            generation=generation,
+            maximum_frames=int(os.environ.get("EVIDENCE_MAXIMUM_FRAMES", "40")),
+        )
+        self._last_evidence_capture_s = None
+        self._visual_odometry.reset(generation)
+
+    def _session_failure_for(self, generation: str) -> str | None:
+        while not self._session_failures.empty():
+            try:
+                failed_generation, error = self._session_failures.get_nowait()
+            except asyncio.QueueEmpty:
+                return None
+            if failed_generation == generation:
+                return error
+        return None
+
+    async def _consume_camera(self, track: Any, *, generation: str | None = None) -> None:
+        active_generation = generation or self.evidence.generation
         try:
             while True:
                 frame = await track.recv()
                 received = time.monotonic()
+                if active_generation != self.evidence.generation:
+                    return
                 if frame.pts is None or frame.time_base is None:
                     self.evidence.fail("camera frame has no PTS or time base")
                     continue
@@ -637,19 +854,37 @@ class PerceptionRuntime:
                     width=width,
                     height=height,
                 )
+                self._supervision.note_frame(
+                    active_generation,
+                    pts,
+                    now_s=received,
+                )
                 if self._frames.full():
                     self._frames.get_nowait()
-                self._frames.put_nowait((frame, received, pts, str(frame.time_base)))
+                self._frames.put_nowait(
+                    (
+                        active_generation,
+                        frame,
+                        received,
+                        pts,
+                        str(frame.time_base),
+                    )
+                )
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 - WebRTC errors are untyped
-            self.evidence.fail(f"camera failure: {type(exc).__name__}: {exc}")
+            error = f"camera failure: {type(exc).__name__}: {exc}"
+            if active_generation == self.evidence.generation:
+                self.evidence.fail(error)
+                self._session_failures.put_nowait((active_generation, error))
 
     async def _detect(self) -> None:
         assert self._model is not None and self._fruit_class_ids
         loop = asyncio.get_running_loop()
         while True:
-            frame, received, pts, time_base = await self._frames.get()
+            generation, frame, received, pts, time_base = await self._frames.get()
+            if generation != self.evidence.generation:
+                continue
             await loop.run_in_executor(
                 self._inference_executor,
                 self._process_frame,
@@ -657,6 +892,7 @@ class PerceptionRuntime:
                 received,
                 pts,
                 time_base,
+                generation,
             )
 
     def _predict_candidate(
@@ -686,8 +922,11 @@ class PerceptionRuntime:
         received_monotonic_s: float,
         pts: int,
         time_base: str,
+        generation: str | None = None,
     ) -> None:
         """Own all frame conversion, model, postprocess, and preview work."""
+        if generation is not None and generation != self.evidence.generation:
+            return
         assert self._model is not None and self._fruit_class_ids
         with self._target_lock:
             target_fruit = self._target_fruit
@@ -801,6 +1040,8 @@ class PerceptionRuntime:
                     assert crop_candidate is not None
                     candidate = crop_candidate
         except Exception as exc:  # noqa: BLE001 - detector errors are untyped
+            if generation is not None and generation != self.evidence.generation:
+                return
             self.evidence.fail(f"detector failure: {type(exc).__name__}: {exc}")
             self._publish_preview(
                 bgr,
@@ -810,9 +1051,18 @@ class PerceptionRuntime:
                 time_base=time_base,
                 received_monotonic_s=received_monotonic_s,
                 detection={},
+                generation=generation,
             )
             return
         completed = time.monotonic()
+        if generation is not None and generation != self.evidence.generation:
+            return
+        self._visual_odometry.observe(
+            bgr,
+            captured_monotonic_s=received_monotonic_s,
+            source_pts=pts,
+            generation=generation or self.evidence.generation,
+        )
         if candidate is None:
             self.evidence.note_miss(target_fruit)
             self._publish_preview(
@@ -823,6 +1073,7 @@ class PerceptionRuntime:
                 time_base=time_base,
                 received_monotonic_s=received_monotonic_s,
                 detection={},
+                generation=generation,
             )
             return
         # Published raw by contract: consumers own their confidence floors.
@@ -868,6 +1119,7 @@ class PerceptionRuntime:
             time_base=time_base,
             received_monotonic_s=received_monotonic_s,
             detection=detection,
+            generation=generation,
         )
 
     def _should_crop_confirm(
@@ -902,6 +1154,7 @@ class PerceptionRuntime:
         received_monotonic_s: float,
         detection: dict[str, object],
         bbox_xyxy: tuple[int, int, int, int] | None = None,
+        generation: str | None = None,
     ) -> None:
         import cv2
 
@@ -937,6 +1190,8 @@ class PerceptionRuntime:
         )
         if not encoded:
             self.evidence.fail("camera preview JPEG encoding failed")
+            return
+        if generation is not None and generation != self.evidence.generation:
             return
         with self._preview_lock:
             self._preview_jpeg = jpeg.tobytes()

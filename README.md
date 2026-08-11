@@ -25,19 +25,22 @@ reference, but it is not a runtime dependency.
    turn using the same reliable yaw signal; an unqualified crop keeps rotating
    rather than becoming a false stop.
 6. Confirm/reacquire and approach the requested fruit using fresh detections.
-   No forward command is permitted before this stage. Once approach begins,
-   forward and yaw inputs may be combined to steer toward the fruit.
-7. Near-fruit geometry arms the lower-edge Arrival gate but does not stop the
-   approach. While the requested fruit remains freshly visible, continue the
-   bounded forward approach. Only after it disappears through the lower camera
-   edge may Woof send the single bounded final movement.
-8. First turn at a fixed 0.50 rad/s until the Target Fruit is within the middle
-   16% of the camera, then hold zero yaw for three fresh centered samples. After
-   qualified lower-edge disappearance, send one 0.3 m/s by
-   1.0-second final push, stop, lie down, bark, and remain down for 5 seconds.
-9. Stand, turn toward Home, replay the recorded number of outbound forward
-   heartbeats at 1.0 m/s, and restore the original heading. Fresh pose remains
-   the authority for the 10 cm Home success gate and recorded Home Distance.
+   No forward command is permitted until the fruit remains within 5% of frame
+   center for three fresh samples. Once approach begins, moderate corrections
+   combine forward motion with proportional yaw. Track reacquisition does not
+   repeat yaw-only centering unless the fruit is more than 25% off center.
+7. Near-fruit geometry slows the approach. Fresh continuous geometry may
+   confirm visible Arrival; a track already proven close may also confirm
+   Arrival when it disappears through the lower camera edge within the bounded
+   sight-loss grace period. Sight loss always commands zero motion.
+8. First turn at a fixed 1.00 rad/s until the Target Fruit is within the middle
+   10% of the camera, then hold zero yaw for three fresh centered samples. After
+   qualified visible or sight-lost-close Arrival, stop without a blind final
+   push, lie down, bark, and remain down for 5 seconds.
+9. Stand, turn toward Home, follow sparse outbound pose breadcrumbs in reverse,
+   and restore the original heading. The recorded heartbeat count remains a
+   translation budget. Fresh fused pose remains the authority for the 10 cm
+   Home success gate and recorded Home Distance.
 10. Stop all motion, record the result, and report completion.
 
 Arbitrary typed commands remain on the separate debug surface. The supervised
@@ -149,8 +152,11 @@ evidence before sealing success. Loss of pose freshness during capture also fail
 **Stop Woof** seals an active run and permits another activation, while process
 restart seals unfinished work as `PROCESS_INTERRUPTED`. The production executor
 uses measured pose turns, bounded camera-guided search, geometry-gated approach,
-one 0.3 m/s by 1.0 s off-screen final push, Unitree posture actions, bark, and
-closed-loop odometry return through factory obstacle avoidance.
+zero-motion sight-lost-close Arrival, Unitree posture actions, bark, and
+closed-loop fused-odometry return through factory obstacle avoidance. The
+planar estimator combines Go2 position/velocity, IMU yaw rate, loaded-foot
+zero-velocity updates, and bounded scale-free visual direction/yaw while the
+final 10 cm gate uses the farther of raw and filtered distance.
 The initial turn/search is explicitly **conditional**, not an unconditional
 part of every run. Target Fruit qualification may already be present when
 `TURN_TO_FRUIT` begins. Fresh qualified evidence for the selected Target Fruit
@@ -192,20 +198,25 @@ runtime-neutral evidence contract rather than adding motion controls to the
 labeler.
 
 Pear acquisition remains fixed at 0.65 confidence for five consecutive fresh
-frames. Once that acquisition has succeeded, approach tracking may continue at
-0.55 confidence after three consecutive fresh pear detections. These values are
-separately configurable with
-`BORDER_COLLIE_PEAR_TRACKING_MIN_CONFIDENCE` and
-`BORDER_COLLIE_PEAR_TRACKING_CONFIRMATIONS`; changing them does not alter the
-acquisition rule.
+sidecar detections and three fresh application observations. Once that
+acquisition has succeeded, approach tracking may continue at the fruit-policy
+floor of 0.55 confidence. `BORDER_COLLIE_PEAR_TRACKING_MIN_CONFIDENCE` may make
+that tracking floor stricter but cannot lower it, while
+`BORDER_COLLIE_PEAR_TRACKING_CONFIRMATIONS` controls application-side temporal
+acquisition. Neither setting alters the sidecar acquisition rule.
 
 Red apple acquisition remains fixed at 0.70 confidence for five fresh frames.
 After acquisition, a close red-apple track may continue down to 0.10 confidence
-only when the box is already low in the image and remains spatially continuous:
-its horizontal center cannot jump by more than 0.20 of the frame and its lower
-edge or vertical center cannot retreat by more than 0.08. This close-range rule
-cannot acquire an apple and must be requalified if the fruit, model, camera, or
-stage setup changes.
+only while fresh observations remain spatially continuous: its horizontal
+center cannot jump by more than 0.20 of the frame, its lower edge or vertical
+center cannot retreat by more than 0.08, and its box area cannot collapse by
+more than 35 percent between samples. This rule cannot acquire an apple. The
+approach slows near the fruit and confirms Arrival without a blind final push;
+stale frames, duplicate frames, identity changes, or discontinuous geometry
+produce zero-motion recommendations. A same-fruit discontinuity preserves the
+completed initial-centering gate: two fresh samples confirm reacquisition at
+zero motion, then moderate horizontal error is corrected while moving. Only an
+error greater than 0.25 of the frame authorizes another yaw-only recenter.
 
 For a complete zero-motion base Demo Run, explicitly start with
 `BORDER_COLLIE_RUNTIME_MODE=simulation`. The audience UI shows a persistent
@@ -280,8 +291,9 @@ Keep `BORDER_COLLIE_LAB_MOTION_ENABLED=0` for the audience demo. Confirm
 the person with the pear in the qualified search area, then use **Activate
 Demo** once. Keep the physical remote and **Stop Woof** immediately available.
 
-The pulse is fixed to the previously observed factory-path movement signal:
-0.50 m/s for 0.40 seconds. It uses a private exclusive lease, 100 ms command
+The pulse is fixed to the field-qualified factory-path movement signal:
+0.55 m/s for 0.40 seconds. Any nonzero forward command below 0.55 m/s fails
+closed before reaching the SDK. It uses a private exclusive lease, 100 ms command
 heartbeats, a 350 ms stale-command watchdog, factory avoidance verification,
 and `StopMove` plus avoidance release in a `finally` boundary.
 
@@ -295,6 +307,91 @@ legacy app on `8096` without replacing it.
 
 Run Results default to `artifacts/runs/`. A deployment must set
 `BORDER_COLLIE_RUNS_DIR` to durable mounted storage before stage use.
+
+## Ten-run randomized soak
+
+The supervised soak runs ten complete missions in a seeded, randomized order.
+It reads the deployed build's qualified fruits and balances the schedule before
+shuffling it, so three qualified fruits receive three or four attempts each.
+The same seed also assigns every run a relative orientation turn from 0 through
+359 degrees. Woof captures Home, completes and records that measured turn, and
+only then starts looking for the selected fruit.
+The result JSON is replaced atomically after every run and includes the exact
+sequence, per-stage telemetry, lighting frames, network observations, device
+temperatures, dongle checks, terminal measurements, and the records-only
+scorecard.
+
+Use an exact expected build label so an old or experimental deployment cannot
+be activated accidentally:
+
+```bash
+python3 scripts/fruit_soak.py \
+  --host 192.168.0.107 \
+  --agent 192.168.0.107:50052 \
+  --runs 10 \
+  --seed 20260810 \
+  --expected-build-label "base-soak-v3-recovery-retention (demo/base)" \
+  --expected-fruits apple banana pear \
+  --recover-failures \
+  --device-probes \
+  --dongle-match "DJI MIC MINI" \
+  --note "<fruit placements, lighting, and microphone setup>"
+```
+
+The build label and qualified-fruit set are checked before the first activation.
+An activation request with an ambiguous response aborts the session without an
+automatic retry. A restart-required application state also aborts immediately.
+Individual terminal run failures are recorded and the supervised soak continues
+only after their saved-Home recovery completes when `--recover-failures` is
+enabled. A rejected, failed, stopped, or timed-out recovery aborts the soak
+before another run can capture a displaced Home. Without that flag, failures
+retain the earlier records-only behavior and the harness does not issue recovery
+motion.
+Pass `--no-orientation-randomization` to run the original soak with a zero-degree
+pre-search turn on every mission.
+
+### Recover a failed run to its captured Home
+
+Failed-run recovery is a separate, position-only operation. It reuses the
+failed run's saved Home and recorded forward approach heartbeat count; it does
+not capture a new Home or change the original failed outcome.
+
+```bash
+curl -X POST \
+  http://woof.local:8110/api/results/RUN_ID/recover-home \
+  -H 'content-type: application/json' \
+  -d '{"confirmation":"RECOVER FAILED RUN TO CAPTURED HOME"}'
+```
+
+The endpoint returns `202 Accepted` with a recovery ID. Poll
+`/api/results/RUN_ID` and read `recovery_attempts`; the active recovery also
+appears in `/api/status`. One correction attempt is accepted only when the
+first recovery itself failed with a confirmed disarm; completed, stopped, or
+unconfirmed recoveries cannot be retried. `/api/stop` cancels and disarms an
+active recovery.
+
+Failed and stopped runs retain their full event, stage, failure, motion, and
+frame evidence. Completed runs retain one compact `result.json` with the key
+acceptance values and no frame archive or event journal.
+
+## Deploy with Wendy Stagefiles
+
+Run the multi-service deployment directly from the repository root:
+
+```bash
+cd /Users/olivertaylor/Documents/Wendy/border-collie-demo-durability-cadence
+wendy run --detach --device 192.168.0.107
+```
+
+This is the canonical deployment command for Woof. Do not use `docker build`,
+pass `--dockerfile`, or wrap the command with DLO for a normal deployment.
+
+The root app and `media` service each have a committed `build.stagefile.yaml`
+and digest-pinned lockfile. A Stagefile-capable Wendy CLI selects both
+automatically for the multi-service deployment; generated Dockerfiles are build
+artifacts, not deployment inputs selected by the operator. The root context
+resolves `build.stagefile.yaml`, and the `media` context independently resolves
+`media/build.stagefile.yaml`.
 
 ## Local validation
 

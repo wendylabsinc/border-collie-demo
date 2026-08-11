@@ -15,6 +15,10 @@ lab/*/artifacts/
 runs/
 .DS_Store
 
+# Stagefile build output is regenerated from the committed source and lock.
+Dockerfile.generated
+Dockerfile.generated.dockerignore
+
 # The two demo model binaries are deliberately versioned: they are part of the
 # reproducible demo checkpoint and the branch must stay deployable as-is.
 # Everything else under artifacts/, lab/*/model/, and runs/ stays ignored.

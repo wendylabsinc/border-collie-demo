@@ -5,12 +5,14 @@ import logging
 import time
 import zipfile
 from types import SimpleNamespace
+from typing import ClassVar
 
 from fastapi.testclient import TestClient
 
 from media import perception_sidecar
 from media.model_router import FruitModelRouter
 from media.perception_sidecar import EvidenceFrameBuffer, PerceptionEvidence, create_app
+from media.service_supervision import ServiceSupervisionConfig, ServiceSupervisor
 
 
 class FakeTensor:
@@ -54,6 +56,139 @@ class FakeImage:
         return FakeImage(y_slice.stop - y_slice.start, x_slice.stop - x_slice.start)
 
 
+def test_runtime_supervisor_cleans_failed_sessions_and_recovers_in_process() -> None:
+    class Video:
+        def __init__(self) -> None:
+            self.callback = None
+            self.channels = []
+
+        def add_track_callback(self, callback) -> None:
+            self.callback = callback
+
+        def switchVideoChannel(self, enabled: bool) -> None:
+            self.channels.append(enabled)
+
+    class Connection:
+        instances: ClassVar[list[object]] = []
+
+        def __init__(self, method, *, ip: str) -> None:
+            self.method = method
+            self.ip = ip
+            self.video = Video()
+            self.disconnected = False
+            self.index = len(self.instances)
+            self.instances.append(self)
+
+        async def connect(self) -> None:
+            if self.index < 2:
+                raise TimeoutError("DataChannelTimeoutError")
+
+        async def disconnect(self) -> None:
+            self.disconnected = True
+
+    async def scenario() -> None:
+        runtime = perception_sidecar.PerceptionRuntime()
+        runtime._connection_class = Connection
+        runtime._connection_method = "local-sta"
+        runtime._audiohub_class = lambda connection: ("audiohub", connection)
+        runtime._connect_timeout_s = 0.1
+        runtime._cleanup_timeout_s = 0.1
+        runtime._monitor_interval_s = 0.001
+        runtime._supervision = ServiceSupervisor(
+            ServiceSupervisionConfig(
+                stable_frame_count=2,
+                frame_stall_timeout_s=0.25,
+                restart_budget=3,
+                initial_backoff_s=0.001,
+                maximum_backoff_s=0.002,
+            )
+        )
+        runtime._supervisor_task = asyncio.create_task(runtime._supervise_sessions())
+        try:
+            deadline = asyncio.get_running_loop().time() + 1.0
+            while len(Connection.instances) < 3:
+                if asyncio.get_running_loop().time() >= deadline:
+                    raise AssertionError("third supervised session did not start")
+                await asyncio.sleep(0.001)
+            generation = runtime.evidence.generation
+            runtime._supervision.note_frame(generation, 1)
+            runtime._supervision.note_frame(generation, 2)
+            assert runtime.status()["supervision"]["state"] == "ready"
+            assert runtime.status()["bark_ready"] is True
+        finally:
+            await runtime.close()
+
+        assert len(Connection.instances) == 3
+        assert all(connection.disconnected for connection in Connection.instances)
+        assert Connection.instances[2].video.channels == [True, False]
+
+    asyncio.run(scenario())
+
+
+def test_runtime_first_frame_grace_starts_after_connection_is_open() -> None:
+    async def scenario() -> None:
+        runtime = perception_sidecar.PerceptionRuntime()
+        runtime._monitor_interval_s = 0.001
+        runtime._supervision = ServiceSupervisor(
+            ServiceSupervisionConfig(
+                stable_frame_count=2,
+                frame_stall_timeout_s=0.01,
+                first_frame_timeout_s=0.05,
+                restart_budget=1,
+                initial_backoff_s=0.001,
+                maximum_backoff_s=0.001,
+            )
+        )
+        publisher_tasks: list[asyncio.Task[None]] = []
+
+        async def delayed_open(generation: str) -> None:
+            # The real connection handshake took almost the entire 0.75 second
+            # stall window before video activation. First-frame health must not
+            # include that handshake time.
+            await asyncio.sleep(0.03)
+
+            async def publish_frames() -> None:
+                await asyncio.sleep(0.005)
+                runtime._supervision.note_frame(generation, 1)
+                await asyncio.sleep(0.005)
+                runtime._supervision.note_frame(generation, 2)
+
+            publisher_tasks.append(asyncio.create_task(publish_frames()))
+
+        runtime._open_session = delayed_open
+        runtime._cleanup_session = lambda: asyncio.sleep(0)
+        runtime._supervisor_task = asyncio.create_task(runtime._supervise_sessions())
+        try:
+            deadline = asyncio.get_running_loop().time() + 0.25
+            while not runtime._supervision.ready:
+                if asyncio.get_running_loop().time() >= deadline:
+                    raise AssertionError(
+                        f"supervisor did not become ready: {runtime._supervision.status()}"
+                    )
+                await asyncio.sleep(0.001)
+            status = runtime._supervision.status()
+            assert status["attempts"] == 1
+            assert status["total_restarts"] == 0
+        finally:
+            await runtime.close()
+            await asyncio.gather(*publisher_tasks, return_exceptions=True)
+
+    asyncio.run(scenario())
+
+
+def test_media_status_publishes_its_release_cohort(monkeypatch) -> None:
+    monkeypatch.setenv("BORDER_COLLIE_RELEASE_ID", "release-9")
+    monkeypatch.setenv("BORDER_COLLIE_CONFIG_SCHEMA", "4")
+
+    status = perception_sidecar.release_cohort_status()
+
+    assert status == {
+        "release_id": "release-9",
+        "config_schema": 4,
+        "service": "media",
+    }
+
+
 def test_preview_encoding_cannot_starve_the_sidecar_status_event_loop() -> None:
     class Frame:
         def to_ndarray(self, *, format: str):
@@ -74,7 +209,9 @@ def test_preview_encoding_cannot_starve_the_sidecar_status_event_loop() -> None:
             time.sleep(0.15)
 
         runtime._publish_preview = slow_preview
-        runtime._frames.put_nowait((Frame(), time.monotonic(), 1, "1/90000"))
+        runtime._frames.put_nowait(
+            (runtime.evidence.generation, Frame(), time.monotonic(), 1, "1/90000")
+        )
 
         loop = asyncio.get_running_loop()
         status_tick = asyncio.Event()

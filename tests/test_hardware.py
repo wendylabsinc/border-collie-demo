@@ -2,20 +2,24 @@ from __future__ import annotations
 
 import asyncio
 import math
+from itertools import pairwise
 
 import pytest
 
 from border_collie_demo.config import HardwareConfig
+from border_collie_demo.go2_lidar import LidarHandoffObservation
 from border_collie_demo.go2_motion import MotionConfig
-from border_collie_demo.go2_pose import PoseStatus
+from border_collie_demo.go2_pose import Go2MotionEvidence, PoseStatus
 from border_collie_demo.hardware import (
     FORWARD_PULSE_CONFIRMATION,
     CameraFailure,
     HardwareManager,
     HardwareUnavailable,
+    RangeUnavailable,
     TargetLost,
 )
 from border_collie_demo.models import Pose, VelocityCommand
+from border_collie_demo.target_range import MetricArrivalGate, RangeCalibration
 
 
 class FakeMotion:
@@ -41,8 +45,9 @@ class FakeMotion:
     async def initialize(self) -> None:
         self.initialized = True
 
-    async def arm(self) -> str:
+    async def arm(self, authority=None) -> str:
         self.armed = True
+        self.authority = authority
         return "lease"
 
     async def command(self, lease: str, command: VelocityCommand) -> VelocityCommand:
@@ -93,6 +98,128 @@ class FakePose:
         )
 
 
+class MetricRangePose(FakePose):
+    def __init__(self, motion: FakeMotion, ranges: tuple[float, ...]) -> None:
+        super().__init__()
+        self._motion_adapter = motion
+        self._ranges = iter(ranges)
+        self._last_range = ranges[-1]
+
+    def status(self) -> PoseStatus:
+        self._last_range = next(self._ranges, self._last_range)
+        command = (
+            self._motion_adapter.commands[-1]
+            if self._motion_adapter.commands
+            else VelocityCommand(reason="idle")
+        )
+        moving = command.forward_mps > 0.0 or command.yaw_rps != 0.0
+        return PoseStatus(
+            Pose(0.0, 0.0, 0.0, 1.0),
+            0.01,
+            self.started,
+            None,
+            Go2MotionEvidence(
+                source_timestamp_s=1.0,
+                velocity_x_mps=command.forward_mps if moving else 0.0,
+                velocity_y_mps=0.0,
+                yaw_rate_rps=command.yaw_rps if moving else 0.0,
+                imu_yaw_rate_rps=command.yaw_rps if moving else 0.0,
+                mode=3 if moving else 1,
+                gait_type=1 if moving else 0,
+                obstacle_ranges_m=(0.0, self._last_range, 0.0, 0.0),
+                foot_force=(20.0, 20.0, 20.0, 20.0),
+                contact_feet=4,
+                stationary_stance=not moving,
+            ),
+        )
+
+
+class ScriptedLidarHandoff:
+    def __init__(self, clearances_m: tuple[float, ...]) -> None:
+        self._clearances = iter(clearances_m)
+        self._last = clearances_m[-1]
+        self.started = False
+        self.calls: list[dict[str, object]] = []
+        self.visual_calls: list[dict[str, object]] = []
+
+    def start(self) -> None:
+        self.started = True
+
+    def close(self) -> None:
+        self.started = False
+
+    def status(self) -> dict[str, object]:
+        return {"configured": True, "ready": self.started, "fresh": self.started}
+
+    def note_visual_track(
+        self,
+        *,
+        center_error_ratio: float | None,
+        close_authorized: bool,
+    ) -> None:
+        self.visual_calls.append(
+            {
+                "center_error_ratio": center_error_ratio,
+                "close_authorized": close_authorized,
+            }
+        )
+
+    def observe(
+        self,
+        *,
+        visual_close_authorized: bool,
+        visual_center_error_ratio: float | None,
+        allow_handoff: bool,
+    ) -> LidarHandoffObservation:
+        self.calls.append(
+            {
+                "visual_close_authorized": visual_close_authorized,
+                "allow_handoff": allow_handoff,
+            }
+        )
+        self._last = next(self._clearances, self._last)
+        mode = "lidar_handoff" if allow_handoff else "lidar_visual_association"
+        return LidarHandoffObservation(
+            available=True,
+            reason="scripted_lidar",
+            front_clearance_m=self._last,
+            age_s=0.01,
+            confidence=0.80,
+            association_valid=True,
+            association_mode=mode,
+            handoff_active=allow_handoff,
+        )
+
+
+class ContinuousFusionPose(FakePose):
+    def __init__(self) -> None:
+        super().__init__()
+        self._source_time_s = 0.0
+
+    def status(self) -> PoseStatus:
+        self._source_time_s += 0.20
+        return PoseStatus(
+            Pose(0.0, 0.0, 0.0, self._source_time_s),
+            0.0,
+            self.started,
+            None,
+            Go2MotionEvidence(
+                source_timestamp_s=self._source_time_s,
+                velocity_x_mps=0.0,
+                velocity_y_mps=0.0,
+                yaw_rate_rps=0.0,
+                imu_yaw_rate_rps=0.0,
+                mode=5,
+                gait_type=0,
+                obstacle_ranges_m=None,
+                foot_force=(0.0, 0.0, 0.0, 0.0),
+                contact_feet=0,
+                stationary_stance=True,
+                stationary_evidence_source="verified_posture_kinematics",
+            ),
+        )
+
+
 class TurningPose(FakePose):
     def __init__(self) -> None:
         super().__init__()
@@ -133,6 +260,22 @@ class ReturningPose(FakePose):
             self.started,
             None if self.started else "pose unavailable",
         )
+
+
+class BreadcrumbPose(FakePose):
+    def __init__(self) -> None:
+        super().__init__()
+        self.returning = False
+        self._outbound = iter((0.0, 0.25, 0.50, 0.75, 1.0))
+        self._returning = iter((1.0, 1.0, 0.75, 0.50, 0.25, 0.05))
+        self._x = 0.0
+
+    def status(self) -> PoseStatus:
+        if self.started:
+            values = self._returning if self.returning else self._outbound
+            self._x = next(values, self._x)
+        yaw = math.pi if self.returning else 0.0
+        return PoseStatus(Pose(self._x, 0.0, yaw, 1.0), 0.0, self.started, None)
 
 
 class HomeTurnPose(FakePose):
@@ -199,7 +342,7 @@ def live_config() -> HardwareConfig:
         autonomy_enabled=True,
         lab_motion_enabled=True,
         network_interface="test0",
-        forward_pulse_mps=0.50,
+        forward_pulse_mps=0.55,
         forward_pulse_duration_s=0.04,
         command_heartbeat_s=0.01,
         command_watchdog_s=0.03,
@@ -232,6 +375,69 @@ def test_hardware_start_connects_dds_motion_and_pose() -> None:
     asyncio.run(scenario())
 
 
+def test_continuous_fusion_remains_trusted_through_seven_second_posture_sequence() -> (
+    None
+):
+    async def scenario() -> None:
+        motion = FakeMotion()
+        pose = ContinuousFusionPose()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: pose,
+        )
+        await manager.start()
+        home = manager.capture_home()
+
+        samples = [manager.ingest_home_fusion_sample() for _ in range(35)]
+        turn = await manager.turn_toward_home(
+            home,
+            yaw_rps=0.50,
+            tolerance_rad=math.radians(5.0),
+            timeout_s=1.0,
+        )
+
+        assert all(sample["trusted"] is True for sample in samples)
+        fusion = manager.status()["continuous_home_fusion"]
+        assert fusion["consecutive_trusted_samples"] >= 35
+        assert fusion["latest"]["trusted"] is True
+        assert turn["home_distance_m"] == pytest.approx(0.0)
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_continuous_fusion_adapter_failure_is_recorded_untrusted() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        pose = ContinuousFusionPose()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: pose,
+        )
+        await manager.start()
+        manager.capture_home()
+
+        def fail_status() -> PoseStatus:
+            raise RuntimeError("pose reader failed")
+
+        pose.status = fail_status  # type: ignore[method-assign]
+        sample = manager.ingest_home_fusion_sample()
+
+        assert sample == {
+            "trusted": False,
+            "unavailable_reason": (
+                "continuous fusion ingestion failed: pose reader failed"
+            ),
+        }
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
 def test_measured_turn_stops_from_fresh_pose_progress() -> None:
     async def scenario() -> None:
         motion = FakeMotion()
@@ -250,7 +456,7 @@ def test_measured_turn_stops_from_fresh_pose_progress() -> None:
             timeout_s=0.25,
         )
 
-        assert result["motion_path"] == "factory_avoidance"
+        assert result["motion_path"] == "sport_client"
         assert result["requested_angle_rad"] == pytest.approx(math.pi / 2.0)
         assert result["measured_yaw_change_rad"] == pytest.approx(1.52)
         assert len(motion.commands) >= 3
@@ -332,12 +538,12 @@ def test_find_target_turns_until_fresh_stable_perception_then_stops() -> None:
         )
 
         assert result["label"] == "pear"
+        assert result["motion_path"] == "sport_client"
         assert result["stable_detections"] == 5
         assert result["motion_commands_sent"] is True
         assert all(command.forward_mps == 0.0 for command in motion.commands)
         assert all(
-            command["phase"] == "turn_to_fruit"
-            and command["forward_mps"] == 0.0
+            command["phase"] == "turn_to_fruit" and command["forward_mps"] == 0.0
             for command in manager.motion_trace()
         )
         assert motion.armed is False
@@ -346,7 +552,7 @@ def test_find_target_turns_until_fresh_stable_perception_then_stops() -> None:
     asyncio.run(scenario())
 
 
-def test_find_target_slows_but_keeps_rotating_during_crop_confirmation() -> None:
+def test_find_target_holds_during_crop_confirmation() -> None:
     async def scenario() -> None:
         motion = FakeMotion()
         manager = HardwareManager(
@@ -364,6 +570,7 @@ def test_find_target_slows_but_keeps_rotating_during_crop_confirmation() -> None
                 "label": "pear",
                 "confidence": 0.58,
                 "consecutive_detections": 0,
+                "age_s": 0.01,
                 "crop_confirmation": {
                     "attempted": True,
                     "promoted": False,
@@ -413,19 +620,323 @@ def test_find_target_slows_but_keeps_rotating_during_crop_confirmation() -> None
         assert reasons == [
             "find_target",
             "crop_confirm_hold",
-            "crop_confirm_slow_turn",
-            "find_target",
+            "crop_confirm_hold",
+            "crop_confirm_hold",
         ]
         assert [command.yaw_rps for command in motion.commands] == [
             0.50,
             0.0,
-            0.50,
-            0.50,
+            0.0,
+            0.0,
         ]
         assert result["recognition"]["crop_confirmation_samples"] == 2
-        assert result["recognition"]["crop_slowdown_hold_samples"] == 1
-        assert result["recognition"]["crop_slowdown_turn_samples"] == 1
+        assert result["recognition"]["crop_slowdown_hold_samples"] == 3
+        assert result["recognition"].get("crop_slowdown_turn_samples", 0) == 0
         assert result["recognition"]["crop_candidate_confidence_threshold"] == 0.50
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_find_target_resumes_candidate_tracking_at_half_rate_after_hold() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        clock = 0.0
+
+        def monotonic() -> float:
+            return clock
+
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+            monotonic=monotonic,
+        )
+        await manager.start()
+
+        def candidate(consecutive: int, *, ready: bool = False) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": ready,
+                "detection": {
+                    "label": "pear",
+                    "confidence": 0.85,
+                    "consecutive_detections": consecutive,
+                    "age_s": 0.01,
+                },
+            }
+
+        statuses = iter(
+            (
+                candidate(1),
+                candidate(2),
+                candidate(3),
+                candidate(4),
+                candidate(4),
+                candidate(4),
+                candidate(5, ready=True),
+            )
+        )
+
+        def read_status() -> dict[str, object]:
+            nonlocal clock
+            clock += 0.2
+            return next(statuses)
+
+        result = await manager.find_target(
+            read_status,
+            "pear",
+            yaw_rps=1.0,
+            sweep_rad=2.0 * math.pi,
+            timeout_s=5.0,
+        )
+
+        assert result["stable_detections"] == 5
+        assert [command.reason for command in motion.commands] == [
+            "crop_confirm_hold",
+            "crop_confirm_hold",
+            "crop_confirm_hold",
+            "crop_confirm_hold",
+            "crop_confirm_slow_turn",
+            "crop_confirm_slow_turn",
+        ]
+        assert [command.yaw_rps for command in motion.commands] == [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.5,
+            0.5,
+        ]
+        assert result["recognition"]["candidate_lock_hold_s"] == 0.75
+        assert result["recognition"]["candidate_lock_yaw_rps"] == 0.5
+        assert result["recognition"]["crop_slowdown_hold_samples"] == 4
+        assert result["recognition"]["crop_slowdown_turn_samples"] == 2
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_find_target_returns_to_broad_search_after_candidate_loss() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        clock = 0.0
+
+        def monotonic() -> float:
+            return clock
+
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+            monotonic=monotonic,
+        )
+        await manager.start()
+
+        statuses = iter(
+            (
+                {
+                    "camera_healthy": True,
+                    "target_ready": False,
+                    "detection": {
+                        "label": "pear",
+                        "confidence": 0.85,
+                        "consecutive_detections": 1,
+                        "age_s": 0.01,
+                    },
+                },
+                {"camera_healthy": True, "target_ready": False},
+                {"camera_healthy": True, "target_ready": False},
+                {"camera_healthy": True, "target_ready": False},
+                {
+                    "camera_healthy": True,
+                    "target_ready": True,
+                    "detection": {
+                        "label": "pear",
+                        "confidence": 0.85,
+                        "consecutive_detections": 5,
+                    },
+                },
+            )
+        )
+
+        def read_status() -> dict[str, object]:
+            nonlocal clock
+            clock += 0.2
+            return next(statuses)
+
+        result = await manager.find_target(
+            read_status,
+            "pear",
+            yaw_rps=1.0,
+            sweep_rad=2.0 * math.pi,
+            timeout_s=5.0,
+        )
+
+        assert result["stable_detections"] == 5
+        assert [command.reason for command in motion.commands] == [
+            "crop_confirm_hold",
+            "crop_confirm_hold",
+            "crop_confirm_hold",
+            "find_target",
+        ]
+        assert [command.yaw_rps for command in motion.commands] == [
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+        ]
+        assert result["recognition"]["candidate_lock_losses"] == 1
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    ("confidence", "age_s"),
+    ((0.49, 0.01), (0.85, 0.251)),
+)
+def test_find_target_does_not_lock_unqualified_candidate(
+    confidence: float,
+    age_s: float,
+) -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+        statuses = iter(
+            (
+                {
+                    "camera_healthy": True,
+                    "target_ready": False,
+                    "detection": {
+                        "label": "pear",
+                        "confidence": confidence,
+                        "consecutive_detections": 1,
+                        "age_s": age_s,
+                    },
+                },
+                {
+                    "camera_healthy": True,
+                    "target_ready": True,
+                    "detection": {
+                        "label": "pear",
+                        "confidence": 0.85,
+                        "consecutive_detections": 5,
+                    },
+                },
+            )
+        )
+
+        result = await manager.find_target(
+            lambda: next(statuses),
+            "pear",
+            yaw_rps=1.0,
+            sweep_rad=2.0 * math.pi,
+            timeout_s=0.5,
+        )
+
+        assert [command.reason for command in motion.commands] == ["find_target"]
+        assert [command.yaw_rps for command in motion.commands] == [1.0]
+        assert result["recognition"].get("candidate_lock_count", 0) == 0
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_find_target_holds_a_plausible_pear_long_enough_to_qualify() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+
+        class MotionCoupledTurningPose(FakePose):
+            def __init__(self) -> None:
+                super().__init__()
+                self.yaw = 0.0
+
+            def status(self) -> PoseStatus:
+                if self.started and motion.commands:
+                    self.yaw += abs(motion.commands[-1].yaw_rps) * 0.2
+                return PoseStatus(
+                    Pose(0.0, 0.0, self.yaw, 1.0),
+                    0.0,
+                    self.started,
+                    None if self.started else "pose unavailable",
+                )
+
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: MotionCoupledTurningPose(),
+        )
+        await manager.start()
+
+        def candidate(consecutive: int, *, ready: bool = False) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": ready,
+                "detection": {
+                    "label": "pear",
+                    "confidence": 0.85,
+                    "consecutive_detections": consecutive,
+                    "age_s": 0.01,
+                    "crop_confirmation": {
+                        "attempted": True,
+                        "promoted": ready,
+                        "full_frame_confidence": 0.85,
+                        "crop_confidence": 0.88,
+                    },
+                },
+            }
+
+        statuses = iter(
+            (
+                {"camera_healthy": True, "target_ready": False},
+                candidate(1),
+                candidate(2),
+                candidate(3),
+                candidate(4),
+                candidate(4),
+                candidate(5, ready=True),
+            )
+        )
+
+        result = await manager.find_target(
+            lambda: next(statuses),
+            "pear",
+            yaw_rps=1.0,
+            sweep_rad=0.5,
+            timeout_s=0.5,
+        )
+
+        assert result["stable_detections"] == 5
+        assert [command.reason for command in motion.commands] == [
+            "find_target",
+            "crop_confirm_hold",
+            "crop_confirm_hold",
+            "crop_confirm_hold",
+            "crop_confirm_hold",
+            "crop_confirm_hold",
+        ]
+        assert [command.yaw_rps for command in motion.commands] == [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        ]
         assert motion.armed is False
         await manager.close()
 
@@ -512,7 +1023,7 @@ def test_failed_search_reports_the_best_distant_pear_evidence() -> None:
     asyncio.run(scenario())
 
 
-def test_approach_requires_near_geometry_then_one_offscreen_final_push() -> None:
+def test_approach_stops_on_confirmed_visible_geometry_without_a_final_push() -> None:
     async def scenario() -> None:
         motion = FakeMotion()
         manager = HardwareManager(
@@ -523,7 +1034,9 @@ def test_approach_requires_near_geometry_then_one_offscreen_final_push() -> None
         )
         await manager.start()
 
-        def seen(*, center_x: float, center_y: float, bottom: float) -> dict[str, object]:
+        def seen(
+            *, center_x: float, center_y: float, bottom: float
+        ) -> dict[str, object]:
             return {
                 "camera_healthy": True,
                 "target_ready": True,
@@ -534,6 +1047,7 @@ def test_approach_requires_near_geometry_then_one_offscreen_final_push() -> None
                     "center_x_ratio": center_x,
                     "center_y_ratio": center_y,
                     "bottom_ratio": bottom,
+                    "age_s": 0.01,
                 },
             }
 
@@ -545,7 +1059,11 @@ def test_approach_requires_near_geometry_then_one_offscreen_final_push() -> None
                 seen(center_x=0.53, center_y=0.75, bottom=0.90),
                 seen(center_x=0.52, center_y=0.76, bottom=0.91),
                 seen(center_x=0.51, center_y=0.77, bottom=0.92),
-                {"camera_healthy": True, "target_ready": False, "detail": "pear offscreen"},
+                {
+                    "camera_healthy": True,
+                    "target_ready": False,
+                    "detail": "pear offscreen",
+                },
             )
         )
 
@@ -555,12 +1073,13 @@ def test_approach_requires_near_geometry_then_one_offscreen_final_push() -> None
                 {"camera_healthy": True, "target_ready": False},
             ),
             "pear",
-            forward_mps=0.50,
+            forward_mps=0.55,
             maximum_yaw_rps=0.30,
             near_bottom_ratio=0.86,
             near_center_ratio=0.72,
             near_confirmations=3,
             near_loss_grace_s=0.75,
+            close_range_mps=0.55,
             final_push_mps=1.0,
             final_push_duration_s=0.001,
             timeout_s=0.5,
@@ -569,22 +1088,383 @@ def test_approach_requires_near_geometry_then_one_offscreen_final_push() -> None
         assert result["arrival_confirmed"] is True
         assert result["near_confirmations"] == 3
         assert result["final_push_mps"] == 1.0
-        assert result["final_push_count"] == 1
-        assert result["forward_pulse_count"] == 5
+        assert result["final_push_count"] == 0
+        assert result["forward_pulse_count"] == 3
         assert any(
-            command.reason == "approach_target_near_visible"
-            and command.forward_mps == 0.50
+            command.reason == "approach_target_slow" and command.forward_mps == 0.55
             for command in motion.commands
         )
-        assert any(command.forward_mps == 0.50 for command in motion.commands)
-        assert any(command.forward_mps == 1.0 for command in motion.commands)
+        assert any(command.forward_mps == 0.55 for command in motion.commands)
+        assert not any(command.forward_mps == 1.0 for command in motion.commands)
+        assert motion.commands[-1].reason == "qualified_arrival_stop"
         assert motion.armed is False
         await manager.close()
 
     asyncio.run(scenario())
 
 
-def test_approach_keeps_moving_while_near_pear_remains_visible() -> None:
+def test_metric_arrival_brakes_then_confirms_stopped_front_clearance() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        pose = MetricRangePose(motion, (0.55, 0.45, 0.35, 0.35))
+        gate = MetricArrivalGate(
+            RangeCalibration(
+                forward_index=1,
+                sensor_to_front_envelope_m=0.20,
+                sensor_latency_s=0.10,
+                braking_distance_m=0.04,
+                noise_m=0.01,
+            )
+        )
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: pose,
+            metric_arrival_gate=gate,
+        )
+        await manager.start()
+
+        def seen(pts: int, *, close: bool = False) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": True,
+                "generation": "camera-1",
+                "detection": {
+                    "label": "pear",
+                    "generation": "camera-1",
+                    "confidence": 0.81,
+                    "center_x_ratio": 0.50,
+                    "center_y_ratio": 0.74 if close else 0.50,
+                    "bottom_ratio": 0.82 if close else 0.65,
+                    "bbox_area_ratio": 0.10 if close else 0.04,
+                    "age_s": 0.01,
+                    "source_pts": pts,
+                },
+            }
+
+        statuses = iter(
+            (seen(1), seen(2), seen(3), seen(4, close=True), seen(5, close=True))
+        )
+        result = await manager.approach_target(
+            lambda: next(statuses),
+            "pear",
+            forward_mps=1.0,
+            maximum_yaw_rps=0.50,
+            near_bottom_ratio=0.86,
+            near_center_ratio=0.72,
+            near_confirmations=3,
+            near_loss_grace_s=0.75,
+            close_range_mps=0.55,
+            final_push_mps=0.55,
+            final_push_duration_s=0.001,
+            timeout_s=0.5,
+            metric_arrival_required=True,
+        )
+
+        assert result["arrival_confirmed"] is True
+        assert result["arrival_mode"] == "metric_forward_range"
+        assert result["front_clearance_m"] == pytest.approx(0.15)
+        assert any(
+            command.reason == "metric_arrival_predicted_stop"
+            for command in motion.commands
+        )
+        assert motion.commands[-1].reason == "qualified_arrival_stop"
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_metric_arrival_cannot_fall_back_to_visual_geometry() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        pose = MetricRangePose(motion, (0.0,))
+        gate = MetricArrivalGate(
+            RangeCalibration(
+                forward_index=1,
+                sensor_to_front_envelope_m=0.20,
+                sensor_latency_s=0.10,
+                braking_distance_m=0.04,
+                noise_m=0.01,
+            )
+        )
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: pose,
+            metric_arrival_gate=gate,
+        )
+        await manager.start()
+        pts = 0
+
+        def seen() -> dict[str, object]:
+            nonlocal pts
+            pts += 1
+            return {
+                "camera_healthy": True,
+                "target_ready": True,
+                "generation": "camera-1",
+                "detection": {
+                    "label": "pear",
+                    "generation": "camera-1",
+                    "confidence": 0.81,
+                    "center_x_ratio": 0.50,
+                    "center_y_ratio": 0.76,
+                    "bottom_ratio": 0.90,
+                    "bbox_area_ratio": 0.12,
+                    "age_s": 0.01,
+                    "source_pts": pts,
+                },
+            }
+
+        with pytest.raises(RangeUnavailable, match="forward range unavailable"):
+            await manager.approach_target(
+                seen,
+                "pear",
+                forward_mps=1.0,
+                maximum_yaw_rps=0.50,
+                near_bottom_ratio=0.86,
+                near_center_ratio=0.72,
+                near_confirmations=3,
+                near_loss_grace_s=0.75,
+                close_range_mps=0.55,
+                final_push_mps=0.55,
+                final_push_duration_s=0.001,
+                timeout_s=0.5,
+                metric_arrival_required=True,
+            )
+        assert motion.commands[-1].reason == "metric_range_unavailable"
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_close_visual_track_hands_off_to_lidar_until_stopped_18_inch_arrival() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        pose = MetricRangePose(motion, (0.0,))
+        lidar = ScriptedLidarHandoff((0.90, 0.80, 0.70, 0.60, 0.48))
+        gate = MetricArrivalGate(
+            RangeCalibration(
+                forward_index=0,
+                sensor_to_front_envelope_m=0.0,
+                sensor_latency_s=0.20,
+                braking_distance_m=0.02,
+                noise_m=0.02,
+                target_clearance_m=0.4572,
+                tolerance_m=0.0508,
+                maximum_age_s=0.30,
+            )
+        )
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: pose,
+            metric_arrival_gate=gate,
+            metric_range_provider=lidar,
+        )
+        await manager.start()
+        pts = 0
+
+        def visible() -> dict[str, object]:
+            nonlocal pts
+            pts += 1
+            return {
+                "camera_healthy": True,
+                "target_ready": True,
+                "generation": "camera-1",
+                "detection": {
+                    "label": "pear",
+                    "generation": "camera-1",
+                    "confidence": 0.81,
+                    "center_x_ratio": 0.50,
+                    "center_y_ratio": 0.76,
+                    "bottom_ratio": 0.90,
+                    "bbox_area_ratio": 0.10,
+                    "age_s": 0.01,
+                    "source_pts": pts,
+                },
+            }
+
+        statuses = iter(
+            (
+                visible(),
+                visible(),
+                visible(),
+                visible(),
+                {"camera_healthy": True, "target_ready": False},
+                {"camera_healthy": True, "target_ready": False},
+                {"camera_healthy": True, "target_ready": False},
+                {"camera_healthy": True, "target_ready": False},
+                {"camera_healthy": True, "target_ready": False},
+            )
+        )
+        result = await manager.approach_target(
+            lambda: next(statuses),
+            "pear",
+            forward_mps=1.0,
+            maximum_yaw_rps=0.50,
+            near_bottom_ratio=0.86,
+            near_center_ratio=0.72,
+            near_confirmations=2,
+            near_loss_grace_s=0.75,
+            close_range_mps=0.55,
+            final_push_mps=0.55,
+            final_push_duration_s=0.001,
+            timeout_s=0.5,
+            metric_arrival_required=True,
+        )
+
+        assert result["arrival_confirmed"] is True
+        assert result["metric_arrival_control_mode"] == "lidar_handoff"
+        assert result["lidar_handoff_latched"] is True
+        assert result["lidar_handoff_trigger_reason"] == "qualified_close_track_lost"
+        assert result["range_association_mode"] == "lidar_handoff"
+        assert result["front_clearance_m"] == pytest.approx(0.48)
+        assert lidar.calls
+        assert len(lidar.visual_calls) == 4
+        assert all(call["close_authorized"] is True for call in lidar.visual_calls)
+        assert all(call["allow_handoff"] is True for call in lidar.calls)
+        assert all(call["visual_close_authorized"] is False for call in lidar.calls)
+        assert any(
+            command.reason == "visual_close_until_sight_loss"
+            and command.forward_mps == 0.55
+            for command in motion.commands
+        )
+        assert any(
+            command.reason == "metric_lidar_handoff"
+            and command.forward_mps == 0.55
+            and command.yaw_rps == 0.0
+            for command in motion.commands
+        )
+        assert any(
+            command.reason == "metric_arrival_predicted_stop"
+            for command in motion.commands
+        )
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_lidar_handoff_is_monotonic_after_phantom_and_visual_reacquisition() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        pose = MetricRangePose(motion, (0.0,))
+        lidar = ScriptedLidarHandoff((0.60, 0.70, 0.48, 0.48))
+        gate = MetricArrivalGate(
+            RangeCalibration(
+                forward_index=0,
+                sensor_to_front_envelope_m=0.0,
+                sensor_latency_s=0.20,
+                braking_distance_m=0.02,
+                noise_m=0.02,
+                target_clearance_m=0.4572,
+                tolerance_m=0.0508,
+                maximum_age_s=0.30,
+            )
+        )
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: pose,
+            metric_arrival_gate=gate,
+            metric_range_provider=lidar,
+        )
+        await manager.start()
+        pts = 0
+
+        def visible() -> dict[str, object]:
+            nonlocal pts
+            pts += 1
+            return {
+                "camera_healthy": True,
+                "target_ready": True,
+                "generation": "camera-1",
+                "detection": {
+                    "label": "pear",
+                    "generation": "camera-1",
+                    "confidence": 0.81,
+                    "center_x_ratio": 0.50,
+                    "center_y_ratio": 0.94,
+                    "bottom_ratio": 1.0,
+                    "bbox_area_ratio": 0.10,
+                    "age_s": 0.01,
+                    "source_pts": pts,
+                },
+            }
+
+        weak_phantom = {
+            "camera_healthy": True,
+            "target_ready": False,
+            "generation": "camera-1",
+            "detection": {
+                "label": "pear",
+                "generation": "camera-1",
+                "confidence": 0.01,
+                "center_x_ratio": 0.56,
+                "center_y_ratio": 0.13,
+                "bottom_ratio": 0.16,
+                "bbox_area_ratio": 0.002,
+                "age_s": 0.01,
+                "source_pts": 99,
+            },
+        }
+        statuses = iter(
+            (
+                visible(),
+                visible(),
+                visible(),
+                visible(),
+                {"camera_healthy": True, "target_ready": False},
+                weak_phantom,
+                visible(),
+                visible(),
+            )
+        )
+
+        result = await manager.approach_target(
+            lambda: next(statuses, weak_phantom),
+            "pear",
+            forward_mps=1.0,
+            maximum_yaw_rps=0.50,
+            near_bottom_ratio=0.86,
+            near_center_ratio=0.72,
+            near_confirmations=3,
+            near_loss_grace_s=0.75,
+            close_range_mps=0.55,
+            final_push_mps=0.55,
+            final_push_duration_s=0.001,
+            timeout_s=0.5,
+            metric_arrival_required=True,
+        )
+
+        assert result["arrival_confirmed"] is True
+        assert result["metric_arrival_control_mode"] == "lidar_handoff"
+        assert result["lidar_handoff_latched"] is True
+        assert result["lidar_handoff_trigger_reason"] == "qualified_close_track_lost"
+        assert result["range_association_mode"] == "lidar_handoff"
+        assert result["front_clearance_m"] == pytest.approx(0.48)
+        assert len(lidar.calls) == 4
+        assert all(call["allow_handoff"] is True for call in lidar.calls)
+        assert len(lidar.visual_calls) == 4
+        assert any(
+            command.reason == "metric_arrival_predicted_stop"
+            for command in motion.commands
+        )
+        assert any(
+            command.reason == "metric_lidar_handoff" and command.forward_mps == 0.55
+            for command in motion.commands
+        )
+        assert motion.commands[-1].reason == "qualified_arrival_stop"
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_approach_slows_then_stops_while_near_pear_remains_visible() -> None:
     async def scenario() -> None:
         motion = FakeMotion()
         manager = HardwareManager(
@@ -606,6 +1486,7 @@ def test_approach_keeps_moving_while_near_pear_remains_visible() -> None:
                     "center_x_ratio": 0.50,
                     "center_y_ratio": center_y,
                     "bottom_ratio": bottom,
+                    "age_s": 0.01,
                 },
             }
 
@@ -635,7 +1516,8 @@ def test_approach_keeps_moving_while_near_pear_remains_visible() -> None:
             near_center_ratio=0.72,
             near_confirmations=3,
             near_loss_grace_s=0.75,
-            final_push_mps=0.30,
+            close_range_mps=0.55,
+            final_push_mps=0.55,
             final_push_duration_s=0.001,
             timeout_s=0.5,
         )
@@ -643,26 +1525,289 @@ def test_approach_keeps_moving_while_near_pear_remains_visible() -> None:
         visible_forward = [
             command
             for command in motion.commands
-            if command.reason
-            in {"approach_target", "approach_target_near_visible"}
+            if command.reason in {"approach_target", "approach_target_slow"}
             and command.forward_mps == 1.0
         ]
-        assert len(visible_forward) == 6
-        assert len(
-            [
-                command
-                for command in motion.commands
-                if command.reason == "approach_target_near_visible"
-                and command.forward_mps == 1.0
-            ]
-        ) == 3
-        assert not any(
-            command.reason == "near_target_confirmed"
-            for command in motion.commands
+        assert len(visible_forward) == 1
+        assert (
+            len(
+                [
+                    command
+                    for command in motion.commands
+                    if command.reason == "approach_target_slow"
+                    and command.forward_mps == 0.55
+                ]
+            )
+            == 2
         )
-        assert result["near_confirmations"] == 5
-        assert result["forward_pulse_count"] == 7
-        assert result["final_push_count"] == 1
+        assert not any(
+            command.reason == "near_target_confirmed" for command in motion.commands
+        )
+        assert result["near_confirmations"] == 3
+        assert result["forward_pulse_count"] == 3
+        assert result["final_push_count"] == 0
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_approach_holds_authorized_command_between_fresh_inference_frames() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+
+        def seen(
+            source_pts: int,
+            *,
+            age_s: float = 0.01,
+            near: bool = False,
+        ) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": True,
+                "generation": "camera-1",
+                "detection": {
+                    "label": "pear",
+                    "generation": "camera-1",
+                    "confidence": 0.81,
+                    "center_x_ratio": 0.50,
+                    "center_y_ratio": 0.76 if near else 0.50,
+                    "bottom_ratio": 0.91 if near else 0.65,
+                    "bbox_area_ratio": 0.12 if near else 0.04,
+                    "age_s": age_s,
+                    "source_pts": source_pts,
+                },
+            }
+
+        # A 10 Hz control loop observes one or two duplicate samples between
+        # fresh 4-8 Hz inference frames. Only the new source PTS values may
+        # advance acquisition and arrival confirmation counts.
+        statuses = iter(
+            (
+                seen(1),
+                seen(1, age_s=0.10),
+                seen(2),
+                seen(2, age_s=0.10),
+                seen(3),
+                seen(3, age_s=0.10),
+                seen(3, age_s=0.20),
+                seen(3, age_s=0.251),
+                seen(4, near=True),
+                seen(4, age_s=0.10, near=True),
+                seen(5, near=True),
+                seen(6, near=True),
+            )
+        )
+
+        result = await manager.approach_target(
+            lambda: next(statuses),
+            "pear",
+            forward_mps=1.0,
+            maximum_yaw_rps=1.0,
+            near_bottom_ratio=0.86,
+            near_center_ratio=0.72,
+            near_confirmations=3,
+            near_loss_grace_s=0.75,
+            close_range_mps=0.55,
+            final_push_mps=1.0,
+            final_push_duration_s=1.0,
+            timeout_s=0.5,
+        )
+
+        assert motion.commands[0] == motion.commands[1]
+        assert motion.commands[0].forward_mps == 0.0
+        assert motion.commands[4] == motion.commands[5] == motion.commands[6]
+        assert motion.commands[4].forward_mps == 1.0
+        assert motion.commands[7] == VelocityCommand(
+            reason="qualified_track_detection_stale"
+        )
+        assert motion.commands[8] == motion.commands[9]
+        assert motion.commands[8].forward_mps == 0.55
+        assert result["acquisition_samples"] == 3
+        assert result["qualified_samples"] == 6
+        assert result["near_samples"] == 3
+        assert result["duplicate_samples"] == 5
+        assert result["forward_pulse_count"] == 6
+        assert result["close_range_mps"] == 0.55
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_healthy_4hz_camera_does_not_toggle_motion_in_10hz_control_loop() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+
+        def seen(pts: int, age_s: float, *, near: bool = False) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": True,
+                "generation": "camera-1",
+                "detection": {
+                    "label": "pear",
+                    "generation": "camera-1",
+                    "confidence": 0.81,
+                    "center_x_ratio": 0.50,
+                    "center_y_ratio": 0.76 if near else 0.50,
+                    "bottom_ratio": 0.91 if near else 0.65,
+                    "bbox_area_ratio": 0.12 if near else 0.04,
+                    "age_s": age_s,
+                    "source_pts": pts,
+                },
+            }
+
+        statuses = iter(
+            (
+                seen(1, 0.01),
+                seen(1, 0.11),
+                seen(1, 0.21),
+                seen(2, 0.01),
+                seen(2, 0.11),
+                seen(3, 0.01),
+                seen(3, 0.11),
+                seen(3, 0.21),
+                seen(4, 0.01),
+                seen(4, 0.11),
+                seen(5, 0.01, near=True),
+                seen(5, 0.11, near=True),
+                seen(6, 0.01, near=True),
+                seen(6, 0.11, near=True),
+                seen(7, 0.01, near=True),
+            )
+        )
+        result = await manager.approach_target(
+            lambda: next(statuses),
+            "pear",
+            forward_mps=1.0,
+            maximum_yaw_rps=0.50,
+            near_bottom_ratio=0.86,
+            near_center_ratio=0.72,
+            near_confirmations=3,
+            near_loss_grace_s=0.75,
+            close_range_mps=0.55,
+            final_push_mps=0.55,
+            final_push_duration_s=0.001,
+            timeout_s=0.5,
+        )
+
+        first_forward = next(
+            index
+            for index, command in enumerate(motion.commands)
+            if command.forward_mps > 0.0
+        )
+        moving_window = motion.commands[first_forward:-1]
+        assert moving_window
+        assert all(command.forward_mps > 0.0 for command in moving_window)
+        assert result["duplicate_samples"] >= 7
+        assert motion.commands[-1].reason == "qualified_arrival_stop"
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_approach_zeros_motion_before_reporting_camera_failure() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+
+        def seen(source_pts: int) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": True,
+                "detection": {
+                    "label": "pear",
+                    "confidence": 0.81,
+                    "center_x_ratio": 0.50,
+                    "center_y_ratio": 0.50,
+                    "bottom_ratio": 0.65,
+                    "age_s": 0.01,
+                    "source_pts": source_pts,
+                },
+            }
+
+        statuses = iter(
+            (
+                seen(1),
+                seen(2),
+                seen(3),
+                {"camera_healthy": False, "detail": "camera stalled"},
+            )
+        )
+
+        with pytest.raises(CameraFailure, match="camera stalled"):
+            await manager.approach_target(
+                lambda: next(statuses),
+                "pear",
+                forward_mps=1.0,
+                maximum_yaw_rps=1.0,
+                near_bottom_ratio=0.86,
+                near_center_ratio=0.72,
+                near_confirmations=3,
+                near_loss_grace_s=0.75,
+                close_range_mps=0.55,
+                final_push_mps=1.0,
+                final_push_duration_s=1.0,
+                timeout_s=0.5,
+            )
+
+        assert any(command.forward_mps == 1.0 for command in motion.commands)
+        assert motion.commands[-1] == VelocityCommand(
+            reason="qualified_track_camera_unhealthy"
+        )
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_approach_rejects_sub_breakaway_slow_speed_before_arming() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+
+        with pytest.raises(ValueError, match="minimum 0.55"):
+            await manager.approach_target(
+                lambda: {"camera_healthy": True, "target_ready": False},
+                "pear",
+                forward_mps=1.0,
+                maximum_yaw_rps=0.30,
+                near_bottom_ratio=0.86,
+                near_center_ratio=0.72,
+                near_confirmations=3,
+                near_loss_grace_s=0.75,
+                close_range_mps=0.54,
+                final_push_mps=0.54,
+                final_push_duration_s=0.001,
+                timeout_s=0.001,
+            )
+
+        assert motion.commands == []
         assert motion.armed is False
         await manager.close()
 
@@ -689,6 +1834,7 @@ def test_approach_centers_pear_before_first_forward_command() -> None:
                     "center_x_ratio": center_x,
                     "center_y_ratio": 0.76 if near else 0.50,
                     "bottom_ratio": 0.91 if near else 0.65,
+                    "age_s": 0.01,
                 },
             }
 
@@ -718,6 +1864,7 @@ def test_approach_centers_pear_before_first_forward_command() -> None:
             near_center_ratio=0.72,
             near_confirmations=3,
             near_loss_grace_s=0.75,
+            close_range_mps=0.55,
             final_push_mps=1.0,
             final_push_duration_s=0.001,
             timeout_s=0.5,
@@ -728,21 +1875,25 @@ def test_approach_centers_pear_before_first_forward_command() -> None:
             for index, command in enumerate(motion.commands)
             if command.forward_mps > 0.0
         )
-        assert first_forward == 4
+        assert first_forward == 6
         assert all(
-            command.forward_mps == 0.0
-            for command in motion.commands[:first_forward]
+            command.forward_mps == 0.0 for command in motion.commands[:first_forward]
         )
         assert all(
             command.reason == "center_target_before_approach"
             for command in motion.commands[:first_forward]
         )
-        assert [
-            command.yaw_rps for command in motion.commands[:first_forward]
-        ] == [-0.50, -0.50, 0.0, 0.0]
+        assert [command.yaw_rps for command in motion.commands[:first_forward]] == [
+            -0.30,
+            -0.30,
+            -0.30,
+            -0.30,
+            0.0,
+            0.0,
+        ]
         assert result["initial_center_confirmations"] == 3
-        assert result["initial_center_tolerance_ratio"] == 0.08
-        assert result["initial_center_yaw_rps"] == 0.50
+        assert result["initial_center_tolerance_ratio"] == 0.05
+        assert result["initial_center_yaw_rps"] == 0.30
         assert motion.armed is False
         await manager.close()
 
@@ -760,29 +1911,35 @@ def test_approach_tracks_an_acquired_pear_at_sixty_percent_confidence() -> None:
         )
         await manager.start()
 
-        def low_confidence(*, near: bool = False) -> dict[str, object]:
+        def seen(
+            confidence: float,
+            *,
+            near: bool = False,
+            target_ready: bool,
+        ) -> dict[str, object]:
             return {
                 "camera_healthy": True,
-                "target_ready": False,
+                "target_ready": target_ready,
                 "detection": {
                     "label": "pear",
-                    "confidence": 0.60,
+                    "confidence": confidence,
                     "center_x_ratio": 0.50,
                     "center_y_ratio": 0.76 if near else 0.50,
                     "bottom_ratio": 0.91 if near else 0.65,
+                    "age_s": 0.01,
                 },
             }
 
         statuses = iter(
             (
-                low_confidence(),
-                low_confidence(),
-                low_confidence(),
-                low_confidence(),
-                low_confidence(),
-                low_confidence(near=True),
-                low_confidence(near=True),
-                low_confidence(near=True),
+                seen(0.80, target_ready=True),
+                seen(0.80, target_ready=True),
+                seen(0.80, target_ready=True),
+                seen(0.60, target_ready=False),
+                seen(0.60, target_ready=False),
+                seen(0.60, near=True, target_ready=False),
+                seen(0.60, near=True, target_ready=False),
+                seen(0.60, near=True, target_ready=False),
                 {"camera_healthy": True, "target_ready": False},
             )
         )
@@ -793,13 +1950,14 @@ def test_approach_tracks_an_acquired_pear_at_sixty_percent_confidence() -> None:
                 {"camera_healthy": True, "target_ready": False},
             ),
             "pear",
-            forward_mps=0.50,
-            maximum_yaw_rps=0.30,
+            forward_mps=0.55,
+            maximum_yaw_rps=1.00,
             near_bottom_ratio=0.86,
             near_center_ratio=0.72,
             near_confirmations=3,
             near_loss_grace_s=0.75,
-            final_push_mps=0.30,
+            close_range_mps=0.55,
+            final_push_mps=0.55,
             final_push_duration_s=0.001,
             timeout_s=0.5,
         )
@@ -808,7 +1966,7 @@ def test_approach_tracks_an_acquired_pear_at_sixty_percent_confidence() -> None:
         assert result["tracking_minimum_confidence"] == 0.55
         assert result["minimum_observed_tracking_confidence"] == 0.60
         assert any(
-            command.reason == "approach_target" and command.forward_mps == 0.50
+            command.reason == "approach_target" and command.forward_mps == 0.55
             for command in motion.commands
         )
         assert motion.armed is False
@@ -817,7 +1975,7 @@ def test_approach_tracks_an_acquired_pear_at_sixty_percent_confidence() -> None:
     asyncio.run(scenario())
 
 
-def test_approach_may_combine_forward_and_yaw_after_initial_centering() -> None:
+def test_approach_steering_enters_and_exits_with_smooth_hysteresis() -> None:
     async def scenario() -> None:
         motion = FakeMotion()
         manager = HardwareManager(
@@ -838,6 +1996,7 @@ def test_approach_may_combine_forward_and_yaw_after_initial_centering() -> None:
                     "center_x_ratio": center_x,
                     "center_y_ratio": 0.77 if near else 0.50,
                     "bottom_ratio": 0.92 if near else 0.65,
+                    "age_s": 0.01,
                 },
             }
 
@@ -846,8 +2005,12 @@ def test_approach_may_combine_forward_and_yaw_after_initial_centering() -> None:
                 seen(0.53),
                 seen(0.52),
                 seen(0.51),
-                seen(0.70),
-                seen(0.52),
+                seen(0.68),
+                seen(0.74),
+                seen(0.78),
+                seen(0.80),
+                seen(0.68),
+                seen(0.60),
                 seen(0.51, near=True),
                 seen(0.50, near=True),
                 seen(0.50, near=True),
@@ -862,38 +2025,57 @@ def test_approach_may_combine_forward_and_yaw_after_initial_centering() -> None:
             ),
             "pear",
             forward_mps=1.0,
-            maximum_yaw_rps=0.30,
+            maximum_yaw_rps=0.50,
             near_bottom_ratio=0.86,
             near_center_ratio=0.72,
             near_confirmations=3,
             near_loss_grace_s=0.75,
-            final_push_mps=0.30,
+            close_range_mps=0.55,
+            final_push_mps=0.55,
             final_push_duration_s=0.001,
             timeout_s=0.5,
         )
 
         assert result["arrival_confirmed"] is True
+        moving_yaws = [
+            command.yaw_rps
+            for command in motion.commands
+            if command.reason == "approach_target" and command.forward_mps == 1.0
+        ]
+        first_correction = next(yaw for yaw in moving_yaws if yaw != 0.0)
+        assert first_correction == pytest.approx(-0.02)
+        assert all(
+            abs(current - previous) <= 0.020001
+            for previous, current in pairwise(moving_yaws)
+        )
         assert any(
             command.reason == "approach_target"
             and command.forward_mps == 1.0
-            and command.yaw_rps == -0.30
+            and command.yaw_rps == 0.0
             for command in motion.commands
         )
+        assert result["moving_steering_enter_ratio"] == 0.25
+        assert result["moving_steering_exit_ratio"] == 0.12
+        assert result["moving_yaw_gain"] == 1.50
+        assert result["moving_yaw_maximum_rps"] == 0.50
+        assert result["moving_yaw_slew_rps_per_s"] == 2.0
+        assert result["stationary_recenter_error_ratio"] == 0.40
         first_forward = next(
             index
             for index, command in enumerate(motion.commands)
             if command.forward_mps > 0.0
         )
         assert all(
-            command.forward_mps == 0.0
-            for command in motion.commands[:first_forward]
+            command.forward_mps == 0.0 for command in motion.commands[:first_forward]
         )
         await manager.close()
 
     asyncio.run(scenario())
 
 
-def test_approach_uses_close_range_continuity_after_red_apple_confidence_drops() -> None:
+def test_approach_uses_close_range_continuity_after_red_apple_confidence_drops() -> (
+    None
+):
     async def scenario() -> None:
         motion = FakeMotion()
         manager = HardwareManager(
@@ -921,19 +2103,36 @@ def test_approach_uses_close_range_continuity_after_red_apple_confidence_drops()
                     "center_x_ratio": center_x,
                     "center_y_ratio": center_y,
                     "bottom_ratio": bottom,
+                    "age_s": 0.01,
                 },
             }
 
         statuses = iter(
             (
-                apple(0.84, center_x=0.53, center_y=0.66, bottom=0.68, target_ready=True),
-                apple(0.83, center_x=0.52, center_y=0.66, bottom=0.68, target_ready=True),
-                apple(0.81, center_x=0.51, center_y=0.66, bottom=0.68, target_ready=True),
-                apple(0.76, center_x=0.56, center_y=0.73, bottom=0.76, target_ready=True),
-                apple(0.30, center_x=0.61, center_y=0.79, bottom=0.83, target_ready=False),
-                apple(0.17, center_x=0.65, center_y=0.83, bottom=0.87, target_ready=False),
-                apple(0.15, center_x=0.65, center_y=0.89, bottom=0.93, target_ready=False),
-                apple(0.30, center_x=0.67, center_y=0.87, bottom=0.91, target_ready=False),
+                apple(
+                    0.84, center_x=0.53, center_y=0.66, bottom=0.68, target_ready=True
+                ),
+                apple(
+                    0.83, center_x=0.52, center_y=0.66, bottom=0.68, target_ready=True
+                ),
+                apple(
+                    0.81, center_x=0.51, center_y=0.66, bottom=0.68, target_ready=True
+                ),
+                apple(
+                    0.76, center_x=0.56, center_y=0.73, bottom=0.76, target_ready=True
+                ),
+                apple(
+                    0.30, center_x=0.61, center_y=0.79, bottom=0.83, target_ready=False
+                ),
+                apple(
+                    0.17, center_x=0.65, center_y=0.83, bottom=0.87, target_ready=False
+                ),
+                apple(
+                    0.15, center_x=0.65, center_y=0.89, bottom=0.93, target_ready=False
+                ),
+                apple(
+                    0.30, center_x=0.67, center_y=0.87, bottom=0.91, target_ready=False
+                ),
                 {"camera_healthy": True, "target_ready": False},
             )
         )
@@ -950,7 +2149,8 @@ def test_approach_uses_close_range_continuity_after_red_apple_confidence_drops()
             near_center_ratio=0.72,
             near_confirmations=3,
             near_loss_grace_s=0.75,
-            final_push_mps=0.30,
+            close_range_mps=0.55,
+            final_push_mps=0.55,
             final_push_duration_s=0.001,
             timeout_s=0.5,
         )
@@ -983,6 +2183,7 @@ def test_close_range_continuity_rejects_a_discontinuous_low_confidence_apple() -
                 "center_x_ratio": 0.50,
                 "center_y_ratio": 0.70,
                 "bottom_ratio": 0.74,
+                "age_s": 0.01,
             },
         }
         discontinuous = {
@@ -994,11 +2195,12 @@ def test_close_range_continuity_rejects_a_discontinuous_low_confidence_apple() -
                 "center_x_ratio": 0.90,
                 "center_y_ratio": 0.85,
                 "bottom_ratio": 0.90,
+                "age_s": 0.01,
             },
         }
         statuses = iter((acquired, acquired, acquired, discontinuous))
 
-        with pytest.raises(TargetLost, match="Arrival timed out"):
+        with pytest.raises(TargetLost, match="Arrival timed out") as caught:
             await manager.approach_target(
                 lambda: next(statuses, discontinuous),
                 "apple",
@@ -1008,19 +2210,24 @@ def test_close_range_continuity_rejects_a_discontinuous_low_confidence_apple() -
                 near_center_ratio=0.72,
                 near_confirmations=3,
                 near_loss_grace_s=0.75,
-                final_push_mps=0.30,
+                close_range_mps=0.55,
+                final_push_mps=0.55,
                 final_push_duration_s=0.001,
                 timeout_s=0.08,
             )
 
-        assert all(command.reason != "fruit_offscreen_final_push" for command in motion.commands)
+        assert caught.value.evidence["close_range_mps"] == 0.55
+        assert all(
+            command.reason != "fruit_offscreen_final_push"
+            for command in motion.commands
+        )
         assert motion.armed is False
         await manager.close()
 
     asyncio.run(scenario())
 
 
-def test_final_push_stops_if_camera_source_fails_during_the_bounded_push() -> None:
+def test_visible_arrival_finishes_before_a_later_camera_failure() -> None:
     async def scenario() -> None:
         motion = FakeMotion()
         manager = HardwareManager(
@@ -1038,6 +2245,7 @@ def test_final_push_stops_if_camera_source_fails_during_the_bounded_push() -> No
                 "center_x_ratio": 0.5,
                 "center_y_ratio": 0.8,
                 "bottom_ratio": 0.95,
+                "age_s": 0.01,
             },
         }
         statuses = iter(
@@ -1050,24 +2258,30 @@ def test_final_push_stops_if_camera_source_fails_during_the_bounded_push() -> No
             )
         )
 
-        with pytest.raises(CameraFailure, match="source progress is stale"):
-            await manager.approach_target(
-                lambda: next(
-                    statuses,
-                    {"camera_healthy": False, "detail": "source progress is stale"},
-                ),
-                "pear",
-                forward_mps=0.50,
-                maximum_yaw_rps=0.30,
-                near_bottom_ratio=0.86,
-                near_center_ratio=0.72,
-                near_confirmations=3,
-                near_loss_grace_s=0.75,
-                final_push_mps=1.0,
-                final_push_duration_s=0.05,
-                timeout_s=0.5,
-            )
+        result = await manager.approach_target(
+            lambda: next(
+                statuses,
+                {"camera_healthy": False, "detail": "source progress is stale"},
+            ),
+            "pear",
+            forward_mps=0.55,
+            maximum_yaw_rps=0.30,
+            near_bottom_ratio=0.86,
+            near_center_ratio=0.72,
+            near_confirmations=3,
+            near_loss_grace_s=0.75,
+            close_range_mps=0.55,
+            final_push_mps=1.0,
+            final_push_duration_s=0.05,
+            timeout_s=0.5,
+        )
 
+        assert result["arrival_confirmed"] is True
+        assert result["final_push_count"] == 0
+        assert not any(
+            command.reason == "fruit_offscreen_final_push"
+            for command in motion.commands
+        )
         assert motion.armed is False
         await manager.close()
 
@@ -1101,10 +2315,50 @@ def test_return_home_replays_outbound_pulses_and_logs_measured_home_distance() -
         assert result["arrival_tolerance_m"] == 0.10
         assert result["requested_forward_pulses"] == 3
         assert result["replayed_forward_pulses"] == 3
-        assert result["motion_path"] == "factory_avoidance"
+        assert result["motion_path"] == "direct_fused_closed_loop"
+        assert result["planned_breadcrumbs"] == 0
         assert len(motion.commands) == 3
         assert all(command.forward_mps == 1.0 for command in motion.commands)
         assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_return_home_follows_recorded_outbound_breadcrumbs_in_reverse() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        pose = BreadcrumbPose()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: pose,
+        )
+        await manager.start()
+        home = manager.capture_home()
+        await manager.run_forward_pulse(FORWARD_PULSE_CONFIRMATION)
+        pose.returning = True
+        motion.commands.clear()
+
+        result = await manager.return_home(
+            home,
+            forward_mps=1.0,
+            forward_pulse_count=6,
+            arrival_tolerance_m=0.10,
+            heading_gate_rad=math.radians(20.0),
+            maximum_yaw_rps=0.30,
+            minimum_progress_m=0.03,
+            stall_timeout_s=0.10,
+            timeout_s=0.50,
+        )
+
+        assert result["motion_path"] == "breadcrumb_closed_loop"
+        assert result["planned_breadcrumbs"] >= 2
+        assert result["reached_breadcrumbs"] == result["planned_breadcrumbs"]
+        assert result["home_distance_m"] == pytest.approx(0.05)
+        assert result["replayed_forward_pulses"] < 6
+        assert all(command.forward_mps == 1.0 for command in motion.commands)
         await manager.close()
 
     asyncio.run(scenario())
@@ -1212,7 +2466,7 @@ def test_guarded_pulse_renews_fixed_command_then_releases() -> None:
         result = await manager.run_forward_pulse(FORWARD_PULSE_CONFIRMATION)
 
         assert len(motion.commands) >= 2
-        assert all(command.forward_mps == 0.50 for command in motion.commands)
+        assert all(command.forward_mps == 0.55 for command in motion.commands)
         assert all(command.yaw_rps == 0.0 for command in motion.commands)
         assert result["motion_path"] == "factory_avoidance"
         assert result["stopped"] is True
@@ -1282,6 +2536,13 @@ def test_home_capture_returns_one_fresh_disarmed_pose() -> None:
             "captured_monotonic_s": 1.0,
             "age_s": 0.0,
             "source": "rt/sportmodestate",
+            "visual_odometry": {
+                "state": "unavailable",
+                "generation": None,
+                "frame_sequence": None,
+                "error": None,
+                "sensor_fusion": "legacy",
+            },
         }
         assert motion.armed is False
         assert motion.commands == []
@@ -1308,6 +2569,7 @@ def test_motion_factory_receives_the_validated_limits() -> None:
         await manager.start()
 
         assert received[0].maximum_forward_mps == 1.0
+        assert received[0].minimum_forward_mps == 0.55
         assert received[0].command_watchdog_s == 0.03
         assert received[0].remote_api_settle_s == 0.0
         await manager.close()

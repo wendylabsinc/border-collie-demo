@@ -11,6 +11,8 @@ from urllib.request import Request, urlopen
 
 from .config import PerceptionConfig
 from .fruits import SUPPORTED_FRUITS, fruit_policy
+from .home_localization import VisualOdometryObservation
+from .release import ReleaseCohort, evaluate_peer_release
 
 SOURCE_MAXIMUM_AGE_S = 0.350
 SOURCE_MINIMUM_CONSECUTIVE_FRAMES = 10
@@ -34,11 +36,13 @@ class PerceptionStatusClient:
         fetcher: StatusFetcher | None = None,
         target_poster: TargetPoster | None = None,
         clock: Clock = time.monotonic,
+        release_cohort: ReleaseCohort | None = None,
     ) -> None:
         self.config = config or PerceptionConfig()
         self._fetcher = fetcher or _fetch_status
         self._target_poster = target_poster or _post_target
         self._clock = clock
+        self._release_cohort = release_cohort
 
     def select_target(self, target_fruit: str) -> dict[str, object]:
         if not self.config.enabled:
@@ -68,7 +72,11 @@ class PerceptionStatusClient:
                 self.config.status_url,
                 self.config.timeout_s,
             )
-            return evaluate_perception_evidence(payload, now_s=self._clock())
+            return evaluate_perception_evidence(
+                payload,
+                now_s=self._clock(),
+                release_cohort=self._release_cohort,
+            )
         except Exception as exc:  # noqa: BLE001 - remote evidence is untrusted
             return {
                 "ready": False,
@@ -92,11 +100,81 @@ class PerceptionStatusClient:
             raise ValueError("camera preview is not a complete JPEG")
         return jpeg
 
+    def observe_motion(self) -> VisualOdometryObservation | None:
+        """Return qualified sparse visual motion without fruit-policy coupling."""
+        if not self.config.enabled:
+            return None
+        payload = self._fetcher(self.config.status_url, self.config.timeout_s)
+        raw = payload.get("visual_odometry")
+        if not isinstance(raw, dict) or raw.get("state") != "tracking":
+            return None
+        generation = raw.get("generation")
+        if not isinstance(generation, str) or generation != payload.get("generation"):
+            return None
+        trajectory = raw.get("trajectory_image_space")
+        motion = raw.get("latest_motion")
+        if not isinstance(trajectory, dict) or not isinstance(motion, dict):
+            return None
+        captured_s = _finite_number(motion.get("captured_monotonic_s"))
+        x_px = _finite_number(trajectory.get("x_px"))
+        y_px = _finite_number(trajectory.get("y_px"))
+        yaw_rad = _finite_number(trajectory.get("yaw_rad"))
+        quality = _finite_number(motion.get("quality"))
+        frame_sequence = _whole_number(raw.get("frame_sequence"))
+        motion_sequence = _whole_number(raw.get("motion_sequence"))
+        tracked = _whole_number(motion.get("tracked_features"))
+        inliers = _whole_number(motion.get("inliers"))
+        body_forward = _finite_number(motion.get("body_forward_direction"))
+        body_left = _finite_number(motion.get("body_left_direction"))
+        body_yaw = _finite_number(motion.get("body_yaw_rad"))
+        motion_geometry = motion.get("motion_geometry")
+        if any(
+            value is None
+            for value in (
+                captured_s,
+                x_px,
+                y_px,
+                yaw_rad,
+                quality,
+                frame_sequence,
+                motion_sequence,
+                tracked,
+                inliers,
+            )
+        ):
+            return None
+        assert captured_s is not None
+        assert x_px is not None and y_px is not None and yaw_rad is not None
+        assert quality is not None
+        assert frame_sequence is not None and motion_sequence is not None
+        assert tracked is not None and inliers is not None
+        loop = raw.get("loop_closure")
+        return VisualOdometryObservation(
+            generation=generation,
+            frame_sequence=frame_sequence,
+            motion_sequence=motion_sequence,
+            captured_monotonic_s=captured_s,
+            trajectory_x_px=x_px,
+            trajectory_y_px=y_px,
+            trajectory_yaw_rad=yaw_rad,
+            motion_quality=quality,
+            tracked_features=tracked,
+            inliers=inliers,
+            loop_closure=dict(loop) if isinstance(loop, dict) else None,
+            body_forward_direction=body_forward,
+            body_left_direction=body_left,
+            body_yaw_delta_rad=body_yaw,
+            motion_geometry=(
+                str(motion_geometry) if isinstance(motion_geometry, str) else None
+            ),
+        )
+
 
 def evaluate_perception_evidence(
     payload: dict[str, Any],
     *,
     now_s: float,
+    release_cohort: ReleaseCohort | None = None,
 ) -> dict[str, object]:
     violations: list[str] = []
     camera_violations: list[str] = []
@@ -110,10 +188,38 @@ def evaluate_perception_evidence(
         target_policy = fruit_policy("pear")
         violations.append("selected Target Fruit is unsupported")
     generation = payload.get("generation")
+    supervision = payload.get("supervision")
     source = payload.get("source")
     detection = payload.get("detection")
+    release = evaluate_peer_release(
+        release_cohort,
+        payload.get("release"),
+        peer_service="media",
+    )
+    if release["ready"] is not True:
+        camera_violations.append(str(release["detail"]))
     if not isinstance(generation, str) or not generation.strip():
         camera_violations.append("connection generation is missing")
+    if not isinstance(supervision, dict):
+        supervision = {}
+        camera_violations.append("media supervision evidence is missing")
+    else:
+        if (
+            supervision.get("state") != "ready"
+            or supervision.get("ready") is not True
+        ):
+            camera_violations.append(
+                "media supervision is not ready: "
+                + str(
+                    supervision.get("last_error")
+                    or supervision.get("state")
+                    or "unknown"
+                )
+            )
+        if supervision.get("generation") != generation:
+            camera_violations.append(
+                "media supervision generation does not match camera generation"
+            )
     if not isinstance(source, dict):
         source = {}
         camera_violations.append("source evidence is missing")
@@ -248,6 +354,8 @@ def evaluate_perception_evidence(
         "supported_fruits": list(SUPPORTED_FRUITS),
         "motion_qualified": target_policy.motion_qualified,
         "generation": generation,
+        "release": release,
+        "supervision": dict(supervision),
         "source": {
             "pts": pts,
             "time_base": time_base,

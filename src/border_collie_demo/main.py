@@ -8,11 +8,13 @@ from fastapi import FastAPI
 from .api import create_app
 from .config import HardwareConfig, PerceptionConfig
 from .evidence import TerminalEvidenceClient
+from .go2_lidar import PearLidarHandoffConfig, PearLidarHandoffProvider
 from .hardware import HardwareManager
 from .media import BarkClient, BarkConfig
 from .orchestrator import SimulatedStageExecutor
 from .perception import PerceptionStatusClient
 from .production import ProductionStageExecutor
+from .release import ReleaseCohort
 from .simulation import SimulatedHardware, simulated_camera_perception
 
 
@@ -30,9 +32,20 @@ def build_app_from_env() -> FastAPI:
         )
     if runtime_mode != "production":
         raise ValueError("BORDER_COLLIE_RUNTIME_MODE must be production or simulation")
-    hardware = HardwareManager(HardwareConfig.from_env())
-    perception = PerceptionStatusClient(PerceptionConfig.from_env())
-    bark = BarkClient(BarkConfig.from_env())
+    release_cohort = ReleaseCohort.from_env("app")
+    perception = PerceptionStatusClient(
+        PerceptionConfig.from_env(), release_cohort=release_cohort
+    )
+    hardware_config = HardwareConfig.from_env()
+    lidar_config = PearLidarHandoffConfig.from_env()
+    hardware = HardwareManager(
+        hardware_config,
+        visual_odometry=perception,
+        metric_range_provider=(
+            PearLidarHandoffProvider(lidar_config) if lidar_config.enabled else None
+        ),
+    )
+    bark = BarkClient(BarkConfig.from_env(), release_cohort=release_cohort)
     terminal_evidence = TerminalEvidenceClient.from_env()
     return create_app(
         hardware=hardware,
@@ -42,6 +55,7 @@ def build_app_from_env() -> FastAPI:
         media_status=bark.status,
         stage_executor=ProductionStageExecutor(hardware, perception.status, bark),
         terminal_evidence=terminal_evidence.capture,
+        release_cohort=release_cohort,
         runtime_mode="production",
     )
 

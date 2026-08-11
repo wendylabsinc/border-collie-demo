@@ -29,7 +29,9 @@ The planar distance in meters between Woof's latest fresh measured position and 
 _Avoid_: Distance traveled, estimated route length
 
 **Arrival**:
-The validated near-fruit condition reached without requiring physical contact. It permits at most one bounded final approach after trustworthy lower-edge disappearance and ends with Woof stopped safely.
+The stopped, metric near-fruit condition confirmed by fresh centered pear evidence and calibrated forward range. Current qualification requires 18 +/- 2 inches from Woof's front body/paw envelope. Image geometry may enter Final Approach but cannot establish Arrival.
+Control ownership is monotonic during Final Approach: camera tracking may hand
+off to LiDAR exactly once, and camera evidence cannot reclaim control afterward.
 _Avoid_: Fruit contact, fruit disappearance
 
 **Demo Run**:
@@ -39,6 +41,10 @@ _Avoid_: Session, mission
 **Run Result**:
 The durable terminal record of a Demo Run, including its outcome, final phase, reason, and relevant terminal measurements. A stale or frozen camera must produce a failed Run Result with reason `CAMERA_FAILURE`.
 _Avoid_: Console output, debug message
+
+**Recoverable Failure**:
+An approach failure that leaves motion, pose, captured Home, and posture control trustworthy. Woof records the failed attempt, lies down without barking, stands, and performs one bounded position-only return to the original Home. The Demo Run remains failed and the recovery receives its own outcome.
+_Avoid_: Success, retry, resumed run
 
 **Remote Takeover**:
 The process-latched terminal state caused by valid physical remote input. It stops autonomous output immediately and requires an application restart before another Demo Run.

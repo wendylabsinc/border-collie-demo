@@ -9,14 +9,23 @@ from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .evidence import EvidenceArtifact
+from .flight_recorder import FlightRecorder, terminal_evidence_bundle
 from .fruits import QUALIFIED_FRUITS, SUPPORTED_FRUITS
 from .hardware import HardwareManager, HardwareUnavailable
 from .mission import MissionMachine, RestartRequired
+from .models import MissionPhase
 from .orchestrator import EXECUTED_STAGES, DemoOrchestrator, StageExecutor
 from .preflight import evaluate_preflight, preflight_check_ready
+from .recovery import (
+    RECOVERY_CONFIRMATION,
+    FailedRunHomeRecovery,
+    recovery_forward_pulse_budget,
+)
+from .release import ReleaseCohort
+from .run_coordinator import RunActivation, RunCoordinator
 from .run_results import ActiveRunError, RunResultNotFound, RunResultStore
 
 
@@ -37,10 +46,16 @@ class ForwardPulseRequest(BaseModel):
 class RunRequest(BaseModel):
     target_fruit: Literal["apple", "banana", "pear"] = "pear"
     activation_source: Literal["audience_ui", "voice"] = "audience_ui"
+    orientation_degrees: float = Field(default=0.0, ge=0.0, lt=360.0)
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=128)
 
 
 class FruitPreviewRequest(BaseModel):
     target_fruit: Literal["apple", "banana", "pear"]
+
+
+class FailedRunRecoveryRequest(BaseModel):
+    confirmation: str
 
 
 def create_app(
@@ -54,14 +69,24 @@ def create_app(
     media_status: Callable[[], dict[str, object]] | None = None,
     stage_executor: StageExecutor | None = None,
     terminal_evidence: Callable[[], list[EvidenceArtifact]] | None = None,
+    flight_recorder: FlightRecorder | None = None,
+    release_cohort: ReleaseCohort | None = None,
     runtime_mode: Literal["production", "simulation"] = "production",
 ) -> FastAPI:
     machine = mission or MissionMachine()
     robot = hardware or HardwareManager()
     root = web_root or Path(os.environ.get("BORDER_COLLIE_WEB_ROOT", "web")).resolve()
-    results = RunResultStore(
-        runs_root or Path(os.environ.get("BORDER_COLLIE_RUNS_DIR", "artifacts/runs"))
+    runs_directory = runs_root or Path(
+        os.environ.get("BORDER_COLLIE_RUNS_DIR", "artifacts/runs")
     )
+    results = RunResultStore(runs_directory)
+    recorder = flight_recorder or FlightRecorder(
+        Path(runs_directory) / "_flight_recorder"
+    )
+    coordinator = RunCoordinator(machine, results, recorder)
+    set_recorder = getattr(robot, "set_flight_recorder", None)
+    if callable(set_recorder):
+        set_recorder(recorder)
     read_camera_perception = camera_perception_status or (
         lambda: {
             "ready": False,
@@ -82,24 +107,59 @@ def create_app(
             }
 
     active_tasks: set[asyncio.Task[dict[str, object]]] = set()
+    recovery = FailedRunHomeRecovery(robot, results)
+    def capture_terminal_bundle() -> list[EvidenceArtifact]:
+        return terminal_evidence_bundle(recorder, terminal_evidence)
     orchestrator = (
         None
         if stage_executor is None
         else DemoOrchestrator(
-            machine,
+            coordinator,
             results,
             stage_executor,
-            terminal_evidence=terminal_evidence,
+            terminal_evidence=capture_terminal_bundle,
+            automatic_failure_recovery=recovery,
         )
     )
 
+    async def capture_failed_evidence(run_id: str) -> None:
+        try:
+            recorder.record(
+                "terminal_evidence_requested",
+                {"run": results.get(run_id)},
+                run_id=run_id,
+            )
+            artifacts = await asyncio.to_thread(capture_terminal_bundle)
+            results.record_artifacts(run_id, artifacts)
+        except Exception as exc:  # noqa: BLE001 - evidence must not mask safety
+            results.record_evidence_unavailable(
+                run_id,
+                f"terminal evidence capture failed: {exc}",
+            )
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
-        results.seal_interrupted_runs()
         await robot.start()
+        recorder.record("application_started", {"runtime_mode": runtime_mode})
+        if results.has_interrupted_work():
+            startup_stop_errors = await robot.emergency_stop()
+            motion = robot.status().get("motion")
+            startup_disarmed = (
+                not startup_stop_errors
+                and isinstance(motion, dict)
+                and motion.get("armed") is False
+            )
+            coordinator.recover_interrupted(
+                final_safety_state=(
+                    "DISARMED_CONFIRMED"
+                    if startup_disarmed
+                    else "STOP_REQUESTED_UNCONFIRMED"
+                )
+            )
         try:
             yield
         finally:
+            recorder.record("application_stopping", {"active_tasks": len(active_tasks)})
             tasks = list(active_tasks)
             for task in tasks:
                 task.cancel()
@@ -192,11 +252,14 @@ def create_app(
         return {
             "build_label": build_label(),
             "runtime_mode": runtime_mode,
+            "release": None if release_cohort is None else release_cohort.to_dict(),
             "mission": machine.status(),
             "hardware": robot.status(),
             "active_run_id": results.active_run_id,
+            "active_recovery": results.active_recovery,
+            "flight_recorder": recorder.status(),
             "activation": {
-                "ready": preflight["ready"],
+                "ready": preflight["ready"] and results.active_recovery is None,
                 "blockers": [
                     {
                         "name": check["name"],
@@ -204,7 +267,17 @@ def create_app(
                     }
                     for check in preflight["checks"]
                     if not check["ready"]
-                ],
+                ]
+                + (
+                    [
+                        {
+                            "name": "failed_run_recovery_active",
+                            "detail": "failed-run Home recovery is active",
+                        }
+                    ]
+                    if results.active_recovery is not None
+                    else []
+                ),
             },
         }
 
@@ -215,20 +288,25 @@ def create_app(
                 status_code=423,
                 detail="physical remote takeover is latched; restart required",
             )
+        if results.active_recovery is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="failed-run Home recovery is active",
+            )
         try:
-            run = results.start_run(
-                target_fruit=request.target_fruit,
-                activation_source=request.activation_source,
+            decision = coordinator.activate(
+                RunActivation(
+                    target_fruit=request.target_fruit,
+                    activation_source=request.activation_source,
+                    orientation_degrees=request.orientation_degrees,
+                    idempotency_key=request.idempotency_key,
+                )
             )
         except ActiveRunError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        machine.begin_run("Demo Run activation persisted")
-        run = results.enter_phase(
-            run["run_id"],
-            phase=machine.phase.value,
-            reason="PREFLIGHT_STARTED",
-            message="preflight entered; verifying production motion and media gates",
-        )
+        run = decision.run
+        if not decision.created:
+            return {"run": run, "activation_reused": True}
         try:
             if select_perception_target is not None:
                 select_perception_target(request.target_fruit)
@@ -243,10 +321,10 @@ def create_app(
         run = results.record_preflight(run["run_id"], report)
         if not report["ready"]:
             stop_errors = await robot.emergency_stop()
-            machine.fail("preflight readiness failed")
-            run = results.seal(
+            await capture_failed_evidence(run["run_id"])
+            run = coordinator.finish(
                 run["run_id"],
-                phase=machine.phase.value,
+                terminal_phase=MissionPhase.FAILED,
                 outcome="FAILED",
                 reason="PREFLIGHT_FAILURE",
                 message="required preflight readiness checks did not pass",
@@ -262,11 +340,10 @@ def create_app(
                 failed_phase="preflight",
             )
         else:
-            machine.advance("preflight readiness passed")
-            run = results.enter_phase(
+            run = coordinator.advance(
                 run["run_id"],
-                phase=machine.phase.value,
-                reason="CAPTURE_HOME_STARTED",
+                reason="preflight readiness passed",
+                event_reason="CAPTURE_HOME_STARTED",
                 message="preflight passed; ready to capture Home",
             )
             try:
@@ -274,10 +351,10 @@ def create_app(
                 run = results.record_home(run["run_id"], home)
             except Exception as exc:  # noqa: BLE001 - hardware evidence boundary
                 stop_errors = await robot.emergency_stop()
-                machine.fail("fresh Home pose capture failed")
-                run = results.seal(
+                await capture_failed_evidence(run["run_id"])
+                run = coordinator.finish(
                     run["run_id"],
-                    phase=machine.phase.value,
+                    terminal_phase=MissionPhase.FAILED,
                     outcome="FAILED",
                     reason="PREFLIGHT_FAILURE",
                     message=f"fresh Home pose capture failed: {exc}",
@@ -289,11 +366,10 @@ def create_app(
                     failed_phase="capture_home",
                 )
             else:
-                machine.advance("fresh Home pose captured")
-                run = results.enter_phase(
+                run = coordinator.advance(
                     run["run_id"],
-                    phase=machine.phase.value,
-                    reason="WAITING_FOR_COMMAND",
+                    reason="fresh Home pose captured",
+                    event_reason="WAITING_FOR_COMMAND",
                     message=(
                         "Home captured; waiting for the qualified "
                         f"{request.target_fruit} command"
@@ -304,6 +380,45 @@ def create_app(
                     active_tasks.add(task)
                     task.add_done_callback(active_tasks.discard)
         return {"run": run}
+
+    @app.post("/api/results/{run_id}/recover-home", status_code=202)
+    async def recover_failed_run_home(
+        run_id: str,
+        request: FailedRunRecoveryRequest,
+    ) -> dict[str, object]:
+        if request.confirmation.strip().upper() != RECOVERY_CONFIRMATION:
+            raise HTTPException(
+                status_code=409,
+                detail=f'type exactly "{RECOVERY_CONFIRMATION}"',
+            )
+        if machine.takeover_latched:
+            raise HTTPException(
+                status_code=423,
+                detail="physical remote takeover is latched; restart required",
+            )
+        try:
+            run = results.get(run_id)
+            pulse_count, pulse_source = recovery.validate(run)
+            attempt = results.start_recovery(
+                run_id,
+                confirmation=RECOVERY_CONFIRMATION,
+            )
+        except RunResultNotFound as exc:
+            raise HTTPException(status_code=404, detail="Run Result not found") from exc
+        except (ActiveRunError, HardwareUnavailable) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        task = asyncio.create_task(
+            recovery.run(run_id, str(attempt["recovery_id"]))
+        )
+        active_tasks.add(task)
+        task.add_done_callback(active_tasks.discard)
+        return {
+            "recovery": attempt,
+            "outbound_forward_pulses": pulse_count,
+            "maximum_forward_pulses": recovery_forward_pulse_budget(pulse_count),
+            "forward_pulse_source": pulse_source,
+        }
 
     @app.get("/api/results/{run_id}")
     async def get_result(run_id: str) -> dict[str, object]:
@@ -335,10 +450,13 @@ def create_app(
         runs = results.list_results()
         latest = runs[0] if runs else None
         completed = (latest or {}).get("stage_results", {})
+        compact_completed = set(
+            ((latest or {}).get("key_values") or {}).get("completed_stages", [])
+        )
         failed_phase = (latest or {}).get("failed_phase")
         stages = []
         for phase in EXECUTED_STAGES:
-            if phase.value in completed:
+            if phase.value in completed or phase.value in compact_completed:
                 stage_status = "COMPLETED"
             elif failed_phase == phase.value:
                 stage_status = "FAILED"
@@ -394,15 +512,12 @@ def create_app(
         stop_errors = await robot.emergency_stop()
         if stage_executor is not None:
             stop_errors.extend(await stage_executor.stop())
-        try:
-            machine.stop()
-        except RestartRequired:
-            pass
         run = None
         if results.active_run_id is not None:
-            run = results.seal(
+            await capture_failed_evidence(results.active_run_id)
+            run = coordinator.finish(
                 results.active_run_id,
-                phase=machine.phase.value,
+                terminal_phase=MissionPhase.STOPPED,
                 outcome="STOPPED",
                 reason="OPERATOR_STOP",
                 message="operator stopped the Demo Run",
@@ -412,6 +527,11 @@ def create_app(
                     else "STOP_REQUESTED_UNCONFIRMED"
                 ),
             )
+        else:
+            try:
+                machine.stop()
+            except RestartRequired:
+                pass
         return {
             "mission": machine.status(),
             "hardware": robot.status(),

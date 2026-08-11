@@ -1,9 +1,8 @@
 """Exclusive, watchdog-protected Unitree motion boundary.
 
-This is a deliberately reduced adaptation of the motion boundary physically
-tested in ``wendylabsinc/collie-demo``. The clean foundation exposes only the
-factory ``ObstaclesAvoidClient`` path. Direct SportClient translation remains
-out of scope until return-home owns a qualified collision-planning contract.
+Forward-capable leases use the factory ``ObstaclesAvoidClient`` path. Yaw-only
+leases use ``SportClient`` directly, while retaining the same exclusive lease,
+motion-authority, watchdog, and emergency-stop contract.
 """
 
 from __future__ import annotations
@@ -17,6 +16,12 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from .models import VelocityCommand
+from .motion_guardian import (
+    MotionAuthority,
+    MotionAuthorityExpired,
+    MotionGuardian,
+    MotionPermitMismatch,
+)
 
 
 class MotionError(RuntimeError):
@@ -44,6 +49,8 @@ class SportClientProtocol(Protocol):
 
     def StopMove(self) -> int: ...
 
+    def Move(self, vx: float, vy: float, vyaw: float) -> int: ...
+
 
 class AvoidanceClientProtocol(Protocol):
     def SetTimeout(self, timeout_s: float) -> Any: ...
@@ -61,26 +68,32 @@ class AvoidanceClientProtocol(Protocol):
 
 @dataclass(frozen=True)
 class MotionConfig:
+    minimum_forward_mps: float = 0.55
     maximum_forward_mps: float = 1.0
-    maximum_yaw_rps: float = 0.80
+    maximum_yaw_rps: float = 1.00
     command_watchdog_s: float = 0.35
     rpc_timeout_s: float = 0.75
     client_timeout_s: float = 12.0
     avoidance_verify_interval_s: float = 0.30
     remote_api_settle_s: float = 0.50
+    authority_ttl_s: float = 2.0
 
     def __post_init__(self) -> None:
         for name in (
+            "minimum_forward_mps",
             "maximum_forward_mps",
             "maximum_yaw_rps",
             "command_watchdog_s",
             "rpc_timeout_s",
             "client_timeout_s",
             "avoidance_verify_interval_s",
+            "authority_ttl_s",
         ):
             value = float(getattr(self, name))
             if not math.isfinite(value) or value <= 0.0:
                 raise ValueError(f"{name} must be finite and positive")
+        if self.minimum_forward_mps > self.maximum_forward_mps:
+            raise ValueError("minimum forward speed exceeds maximum forward speed")
         if self.remote_api_settle_s < 0.0:
             raise ValueError("remote_api_settle_s must be non-negative")
 
@@ -91,10 +104,12 @@ class Go2Motion:
         sport: SportClientProtocol,
         avoidance: AvoidanceClientProtocol,
         config: MotionConfig | None = None,
+        guardian: MotionGuardian | None = None,
     ) -> None:
         self.sport = sport
         self.avoidance = avoidance
         self.config = config or MotionConfig()
+        self._guardian = guardian or MotionGuardian()
         self._lock = asyncio.Lock()
         self._rpc_executor = ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="border-collie-sdk"
@@ -106,6 +121,7 @@ class Go2Motion:
         self._closed = False
         self._fault: str | None = None
         self._lease: str | None = None
+        self._motion_path: str | None = None
         self._avoidance_enabled = False
         self._remote_api_enabled = False
         self._last_verify_at: float | None = None
@@ -116,13 +132,18 @@ class Go2Motion:
 
     @property
     def armed(self) -> bool:
+        path_ready = self._motion_path == "sport_client" or (
+            self._motion_path == "factory_avoidance"
+            and self._avoidance_enabled
+            and self._remote_api_enabled
+        )
         return bool(
             self._initialized
             and not self._closed
             and self._fault is None
             and self._lease
-            and self._avoidance_enabled
-            and self._remote_api_enabled
+            and path_ready
+            and self._guardian.status()["active"] is True
         )
 
     def status(self) -> dict[str, object]:
@@ -130,18 +151,20 @@ class Go2Motion:
             "initialized": self._initialized,
             "closed": self._closed,
             "armed": self.armed,
-            "mode": "factory_avoidance" if self._lease else None,
+            "mode": self._motion_path if self._lease else None,
             "fault": self._fault,
             "avoidance_enabled": self._avoidance_enabled,
             "remote_api_enabled": self._remote_api_enabled,
             "watchdog_s": self.config.command_watchdog_s,
             "limits": {
+                "minimum_forward_mps": self.config.minimum_forward_mps,
                 "forward_mps": self.config.maximum_forward_mps,
                 "yaw_rps": self.config.maximum_yaw_rps,
                 "lateral_mps": 0.0,
                 "reverse_allowed": False,
             },
             "last_command": self._last_command.to_dict(),
+            "guardian": self._guardian.status(),
         }
 
     async def initialize(self) -> None:
@@ -162,40 +185,66 @@ class Go2Motion:
                 raise MotionNotReady(self._fault) from exc
             self._initialized = True
 
-    async def arm(self) -> str:
+    async def arm(self, authority: MotionAuthority) -> str:
         async with self._lock:
             self._require_ready()
             if self._lease is not None:
                 raise MotionNotReady("motion lease already active")
             try:
-                await self._success(self.avoidance.SwitchSet, True)
-                response = await self._call(self.avoidance.SwitchGet)
-                if response != (0, True):
-                    raise MotionError(f"avoidance not confirmed: {response!r}")
-                self._avoidance_enabled = True
-                self._last_verify_at = time.monotonic()
-                await self._success(self.avoidance.UseRemoteCommandFromApi, True)
-                self._remote_api_enabled = True
-                if self.config.remote_api_settle_s:
-                    await asyncio.sleep(self.config.remote_api_settle_s)
-                await self._success(self.avoidance.Move, 0.0, 0.0, 0.0)
+                if authority.allow_forward:
+                    self._motion_path = "factory_avoidance"
+                    await self._success(self.avoidance.SwitchSet, True)
+                    response = await self._call(self.avoidance.SwitchGet)
+                    if response != (0, True):
+                        raise MotionError(f"avoidance not confirmed: {response!r}")
+                    self._avoidance_enabled = True
+                    self._last_verify_at = time.monotonic()
+                    await self._success(self.avoidance.UseRemoteCommandFromApi, True)
+                    self._remote_api_enabled = True
+                    if self.config.remote_api_settle_s:
+                        await asyncio.sleep(self.config.remote_api_settle_s)
+                    await self._success(self.avoidance.Move, 0.0, 0.0, 0.0)
+                else:
+                    self._motion_path = "sport_client"
+                    await self._disable_avoidance_locked()
+                    await self._idle_stop()
             except Exception as exc:
                 await self._release_locked(use_stop=True)
                 raise MotionNotReady(f"arm failed: {exc}") from exc
-            self._lease = secrets.token_urlsafe(32)
+            try:
+                self._lease = self._guardian.acquire(authority)
+            except Exception as exc:
+                await self._release_locked(use_stop=True)
+                raise MotionNotReady(f"motion authority acquisition failed: {exc}") from exc
             self._last_command = VelocityCommand(reason="armed_zero")
             return self._lease
 
     async def command(self, lease: str, command: VelocityCommand) -> VelocityCommand:
-        forward = self._bounded_forward(command.forward_mps)
-        yaw = self._bounded_yaw(command.yaw_rps)
         async with self._lock:
             self._require_owner(lease)
+            try:
+                guarded = self._guardian.authorize(lease, command)
+            except MotionPermitMismatch as exc:
+                raise LeaseMismatch(str(exc)) from exc
+            except MotionAuthorityExpired as exc:
+                await self._release_locked(use_stop=True)
+                raise MotionNotReady(str(exc)) from exc
+            forward = self._bounded_forward(guarded.forward_mps)
+            yaw = self._bounded_yaw(guarded.yaw_rps)
             self._cancel_watchdog()
             try:
-                if forward != 0.0 or yaw != 0.0:
-                    await self._verify_avoidance_if_due()
-                await self._success(self.avoidance.Move, forward, 0.0, yaw)
+                if self._motion_path == "factory_avoidance":
+                    if forward != 0.0 or yaw != 0.0:
+                        await self._verify_avoidance_if_due()
+                    await self._success(self.avoidance.Move, forward, 0.0, yaw)
+                elif self._motion_path == "sport_client":
+                    if forward != 0.0:
+                        raise MotionError(
+                            "SportClient yaw-only lease rejected forward motion"
+                        )
+                    await self._success(self.sport.Move, 0.0, 0.0, yaw)
+                else:
+                    raise MotionNotReady("motion path is not armed")
             except Exception as exc:
                 self._fault = f"velocity command failed: {exc}"
                 await self._release_locked(use_stop=True)
@@ -350,10 +399,12 @@ class Go2Motion:
             except Exception as exc:  # noqa: BLE001 - best-effort safety release
                 errors.append(f"{label}: {exc}")
         self._lease = None
+        self._motion_path = None
         self._avoidance_enabled = False
         self._remote_api_enabled = False
         self._last_verify_at = None
         self._last_command = VelocityCommand(reason="released")
+        self._guardian.trip("motion released")
         return errors
 
     def _require_ready(self) -> None:
@@ -442,6 +493,11 @@ class Go2Motion:
         number = float(value)
         if not math.isfinite(number) or number < 0.0:
             raise ValueError("forward speed must be finite and non-negative")
+        if 0.0 < number < self.config.minimum_forward_mps:
+            raise ValueError(
+                "forward speed is below minimum "
+                f"{self.config.minimum_forward_mps:.2f} m/s"
+            )
         if number > self.config.maximum_forward_mps:
             raise ValueError("forward speed exceeds the configured limit")
         return number

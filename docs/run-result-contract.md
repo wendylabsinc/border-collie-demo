@@ -1,14 +1,19 @@
 # Run Result contract
 
-Every accepted **Activate Demo** request creates a durable Run Result before
-preflight or any hardware action begins. A failed preflight, operator stop,
-camera failure, process interruption, or Remote Takeover is still a Demo Run
-and must remain inspectable.
+The first accepted **Activate Demo** request for an idempotency key creates a
+durable Run Result before preflight or any hardware action begins. Repeating
+that request returns the same run instead of starting duplicate motion. A
+failed preflight, operator stop, camera failure, process interruption, or
+Remote Takeover is still a Demo Run and must remain inspectable.
 
 ## Identity and ownership
 
 - `schema_version` begins at `1` and changes only for incompatible schemas.
 - `run_id` is an immutable UUIDv4 generated when activation is accepted.
+- `idempotency_key` identifies one operator intent. Reuse with the same intent
+  returns the original run; reuse with different intent is rejected.
+- `run_epoch` fences motion authority so work from an older process or run
+  generation cannot command the robot.
 - The full UUID is used in storage, logs, snapshots, and APIs. A short prefix
   may be displayed but is never accepted as an authoritative identifier.
 - Only one Demo Run may be active in the process. A second activation is
@@ -46,16 +51,20 @@ Each run owns one directory:
     └── terminal.jpg
 ```
 
-- `events.ndjson` is an append-only journal written and flushed after every
-  accepted phase transition, safety event, failure, and terminal action.
+- `events.ndjson` is an append-only, hash-linked journal written and fsynced
+  after every accepted phase transition, safety event, failure, and terminal
+  action. Each event has an immutable event ID, prior-event hash, and event
+  hash.
 - `result.json` is the current materialized Run Result. It is written to a
   sibling temporary file, flushed, and atomically renamed after every journal
   event.
 - A terminal Run Result is sealed and never mutated. Corrections create a new
   explicitly linked administrative record; they do not rewrite evidence.
-- On application startup, any unsealed prior run is sealed as `FAILED` with
-  reason `PROCESS_INTERRUPTED` and safety state `UNKNOWN`. The new process does
-  not infer that Woof stopped safely.
+- On application startup, the coordinator requests a hardware stop before it
+  seals any unsealed prior run as `FAILED` with reason `PROCESS_INTERRUPTED`.
+  The safety state is `DISARMED_CONFIRMED` only when the stop result verifies
+  disarm; otherwise it is `STOP_REQUESTED_UNCONFIRMED`. The new process never
+  infers that Woof stopped safely.
 - Evidence is never silently overwritten or automatically deleted. If storage
   is full, a new Demo Run fails preflight. Retention may be added later only as
   an explicit operator policy.
@@ -187,7 +196,7 @@ failure preserves the last trustworthy frame and labels its actual age; it is
 never presented as current. If a required snapshot is unavailable, the Run
 Result retains an entry with `unavailable_reason`.
 
-Every orchestrated terminal run also attempts to persist a bounded rolling
+Every failed or operator-stopped run also attempts to persist a bounded rolling
 archive of raw, unannotated JPEGs for manual labeling. The default is 40 frames
 sampled at 0.5-second intervals, approximately the final 20 seconds. The archive
 contains a source/detection manifest and one annotated terminal comparison
@@ -195,10 +204,38 @@ frame. Evidence-capture failure is recorded with an `unavailable_reason` and
 must never mask the run's motion-safety result. Full continuous video and audio
 recording remain outside this contract.
 
-Every terminal record materializes `terminal_measurements.home_distance_m` and
+The mission process also maintains a bounded rolling flight recorder outside
+individual run directories. Its rotating NDJSON segments are hash-linked and
+fsynced, and include lifecycle, motion-authority, accepted-command, pose, and
+perception events. Failed and stopped runs freeze the current window into
+`snapshots/flight-recorder.ndjson`. A media-sidecar evidence failure cannot
+remove this application-side evidence; capture warnings are persisted beside
+the snapshot.
+
+## Outcome-based retention
+
+Failed and stopped runs retain the complete materialized result, append-only
+event journal, completed-stage evidence, failed-stage motion trace, preflight,
+Home, terminal measurements, evidence descriptors, and captured frame archive.
+A post-failure Home recovery appends its full preflight, bounded pulse source,
+per-step evidence, every accepted recovery motion command, stop result, and
+terminal safety state to that same failed result.
+
+Completed runs retain only `result.json`. Its `record_type` is
+`success_summary`, and `key_values` contains the compact acceptance values:
+completed stages and durations, fruit-recognition result, orientation change,
+Arrival and outbound pulse count, bark result, return pulse accounting, Home
+Distance, heading error, and the position/heading tolerances. The detailed event
+journal and snapshot directory are removed only after the compact result has
+been atomically materialized. Successful runs do not request the rolling frame
+archive.
+
+Detailed failed and stopped records materialize
+`terminal_measurements.home_distance_m` and
 `terminal_measurements.heading_error_rad` from the latest completed
-return-stage evidence. A value is `null` when no trustworthy measurement was
-completed; requested speed and elapsed command time never substitute for pose.
+return-stage evidence. Compact success records carry the same values under
+`key_values`. A value is `null` when no trustworthy measurement was completed;
+requested speed and elapsed command time never substitute for pose.
 
 ## Read interfaces
 
@@ -210,19 +247,26 @@ The audience and diagnostic surfaces read the same persisted record:
 - retrieve snapshots or evidence archives only through paths referenced by
   that result.
 
-Result APIs are read-only. They cannot edit, delete, clear, resume, or relabel a
-run. Arbitrary filesystem paths and short IDs are rejected.
+Result APIs are read-only except for the explicit failed-run Home recovery
+endpoint. Recovery cannot change the original terminal outcome, resume its
+mission stages, clear evidence, or relabel the run. It appends one separately
+identified recovery attempt after exact operator confirmation and may append
+one correction only when the first recovery failed with a confirmed disarm.
+Arbitrary filesystem paths and short IDs are rejected.
 
 ## Acceptance requirements
 
 Before the recorder can support a stage-ready run, automated tests must prove:
 
 - activation persists before the first hardware call;
+- ambiguous activation retry with the same key cannot create a second run;
 - every phase and terminal path is journaled in order;
 - atomic materialization survives an interrupted write;
-- startup seals an interrupted run without claiming a safe stop;
+- startup attempts stop and seals an interrupted run without claiming a safe
+  stop unless disarm is verified;
 - camera, motion, return, operator-stop, and Remote Takeover failures retain
   the required reason and safety evidence;
 - unavailable pose produces null Home measurements with a reason;
-- terminal results cannot be resumed or mutated; and
+- terminal mission outcomes cannot be resumed or relabeled, while a confirmed
+  failed-run recovery can only append its separate attempt record; and
 - APIs cannot escape the configured run directory or alter evidence.

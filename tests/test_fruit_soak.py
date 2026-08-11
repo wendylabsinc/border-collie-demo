@@ -1,4 +1,5 @@
 import json
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -10,10 +11,12 @@ from scripts.fruit_soak import (
     aggregate_stage_telemetry,
     dongle_check,
     draw_fruit_sequence,
+    draw_orientation_sequence,
     run_session,
     summarize_network,
     summarize_run,
     wait_for_ready,
+    wait_for_recovery,
     wait_for_terminal,
 )
 
@@ -33,6 +36,8 @@ class FakeClient:
         self._qualified = list(qualified)
         self._sidecar = sidecar
         self.activated: list[str] = []
+        self.orientation_degrees: list[float] = []
+        self.idempotency_keys: list[str | None] = []
         self.stop_calls = 0
 
     def status(self):
@@ -52,8 +57,10 @@ class FakeClient:
     def fruits(self):
         return {"qualified_fruits": self._qualified}
 
-    def activate(self, fruit):
+    def activate(self, fruit, orientation_degrees=0.0, idempotency_key=None):
         self.activated.append(fruit)
+        self.orientation_degrees.append(orientation_degrees)
+        self.idempotency_keys.append(idempotency_key)
         run_id = f"run-{len(self.activated)}"
         return {"run": {"run_id": run_id}}
 
@@ -70,13 +77,13 @@ class FakeClient:
 
 
 READY = {
-    "build_label": "base (demo/base)",
+    "build_label": "base-soak-v2-orientation (demo/base)",
     "mission": {"restart_required": False, "phase": "idle"},
     "activation": {"ready": True, "blockers": []},
     "active_run_id": None,
 }
 LATCHED = {
-    "build_label": "base (demo/base)",
+    "build_label": "base-soak-v2-orientation (demo/base)",
     "mission": {"restart_required": True, "reason": "REMOTE_TAKEOVER"},
     "activation": {"ready": False, "blockers": []},
     "active_run_id": None,
@@ -115,12 +122,31 @@ def test_sequence_is_seeded_and_only_qualified():
     second = draw_fruit_sequence(["banana", "apple", "pear"], 10, seed=7)
     assert first == second
     assert set(first) <= {"pear", "apple", "banana"}
+    counts = [first.count(fruit) for fruit in ("apple", "banana", "pear")]
+    assert max(counts) - min(counts) <= 1
+    assert min(counts) >= 3
     assert draw_fruit_sequence(["pear"], 3, seed=1) == ["pear", "pear", "pear"]
 
 
 def test_sequence_requires_qualified_fruits():
     with pytest.raises(HarnessAbort):
         draw_fruit_sequence([], 10, seed=7)
+
+
+def test_sequence_requires_a_positive_run_count():
+    with pytest.raises(HarnessAbort, match="greater than zero"):
+        draw_fruit_sequence(["pear"], 0, seed=7)
+
+
+def test_orientation_sequence_is_seeded_and_covers_the_full_heading_range():
+    first = draw_orientation_sequence(10, seed=20260810)
+    second = draw_orientation_sequence(10, seed=20260810)
+
+    assert first == second
+    assert len(first) == 10
+    assert all(isinstance(angle, int) and 0 <= angle < 360 for angle in first)
+    assert len(set(first)) > 1
+    assert first != draw_orientation_sequence(10, seed=20260811)
 
 
 def test_wait_for_ready_aborts_on_restart_required():
@@ -150,7 +176,7 @@ def test_wait_for_terminal_stops_robot_on_overrun():
     pending = {"run": {"run_id": "run-1", "outcome": None}}
     client = FakeClient([READY], results_by_id={"run-1": [pending]})
     clock_values = iter([0.0] * 4 + [500.0] * 4)
-    run, samples, note = wait_for_terminal(
+    _run, samples, note = wait_for_terminal(
         client,
         "run-1",
         target_fruit="pear",
@@ -170,7 +196,7 @@ def test_wait_for_terminal_samples_confidence_and_proximity():
         results_by_id={"run-1": [running, running, terminal("run-1")]},
         sidecar=SIDECAR,
     )
-    run, samples, note = wait_for_terminal(
+    _run, samples, note = wait_for_terminal(
         client, "run-1", target_fruit="pear", sleep=lambda _: None
     )
     assert note is None
@@ -178,6 +204,69 @@ def test_wait_for_terminal_samples_confidence_and_proximity():
     assert samples[0]["confidence"] == 0.81
     assert samples[0]["target_matches"] is True
     assert samples[0]["bbox_bottom_ratio"] == 0.9  # 648 / 720
+
+
+def test_wait_for_terminal_reconciles_a_transient_result_timeout():
+    class TransientResultClient(FakeClient):
+        def __init__(self):
+            super().__init__(
+                [READY],
+                results_by_id={"run-1": [terminal("run-1")]},
+                sidecar=SIDECAR,
+            )
+            self.calls = 0
+
+        def result(self, run_id):
+            self.calls += 1
+            if self.calls == 1:
+                raise TimeoutError("transient result timeout")
+            return super().result(run_id)
+
+    run, samples, note = wait_for_terminal(
+        TransientResultClient(),
+        "run-1",
+        target_fruit="pear",
+        sleep=lambda _: None,
+    )
+
+    assert run["outcome"] == "COMPLETED"
+    assert note is None
+    assert samples[0]["result_error"] == "transient result timeout"
+
+
+def test_wait_for_recovery_reconciles_transient_poll_errors():
+    class RecoveryPollClient:
+        calls = 0
+        stop_calls = 0
+
+        def result(self, run_id):
+            self.calls += 1
+            if self.calls == 1:
+                raise TimeoutError("link timeout")
+            return {
+                "run": {
+                    "recovery_attempts": [
+                        {
+                            "recovery_id": "recovery-1",
+                            "outcome": "COMPLETED",
+                            "reason": "HOME_POSITION_RECOVERED",
+                        }
+                    ]
+                }
+            }
+
+        def stop(self):
+            self.stop_calls += 1
+
+    attempt, errors = wait_for_recovery(
+        RecoveryPollClient(),
+        "run-1",
+        "recovery-1",
+        sleep=lambda _: None,
+    )
+
+    assert attempt["outcome"] == "COMPLETED"
+    assert errors == ["link timeout"]
 
 
 def test_aggregate_stage_telemetry_groups_by_phase():
@@ -298,9 +387,11 @@ def test_session_records_every_run_and_build_label(tmp_path: Path):
         client, runs=2, seed=7, output_path=output, sleep=lambda _: None, log=lambda *_: None
     )
     saved = json.loads(output.read_text())
-    assert saved["build_label"] == "base (demo/base)"
+    assert saved["build_label"] == "base-soak-v2-orientation (demo/base)"
     assert saved["seed"] == 7
     assert saved["fruit_sequence"] == client.activated
+    assert saved["orientation_sequence_degrees"] == client.orientation_degrees
+    assert [r["orientation_degrees"] for r in saved["runs"]] == client.orientation_degrees
     assert [r["outcome"] for r in saved["runs"]] == ["COMPLETED", "FAILED"]
     assert saved["runs"][1]["home_distance_m"] == 0.3
     assert saved["runs"][0]["stage_results"] == {"approach_fruit": {"forward_pulse_count": 12}}
@@ -311,6 +402,75 @@ def test_session_records_every_run_and_build_label(tmp_path: Path):
     assert Path(saved["runs"][0]["lighting_frame"]["path"]).exists()
     assert saved["scorecard"]["criteria"]["completion"]["passed"] is False  # run 2 FAILED
     assert saved["scorecard"]["recorded_only"] is True
+    assert session["aborted"] is None
+
+
+def test_session_can_run_the_regular_soak_without_orientation_turns(tmp_path: Path):
+    client = FakeClient(
+        [READY],
+        results_by_id={
+            "run-1": [terminal("run-1")],
+            "run-2": [terminal("run-2")],
+        },
+        sidecar=SIDECAR,
+    )
+
+    session = run_session(
+        client,
+        runs=2,
+        seed=17,
+        output_path=tmp_path / "regular-soak.json",
+        randomize_orientation=False,
+        sleep=lambda _: None,
+        log=lambda *_: None,
+    )
+
+    assert session["orientation_randomized"] is False
+    assert session["orientation_sequence_degrees"] == [0, 0]
+    assert client.orientation_degrees == [0, 0]
+
+
+def test_session_recovers_a_failed_run_before_continuing(tmp_path: Path):
+    recovery = {
+        "recovery_id": "recovery-1",
+        "outcome": "COMPLETED",
+        "reason": "HOME_POSITION_RECOVERED",
+        "final_safety_state": "DISARMED_CONFIRMED",
+        "final_evidence": {"home_distance_m": 0.08},
+    }
+    failed = terminal("run-1", outcome="FAILED", home=0.3)
+    recovered = json.loads(json.dumps(failed))
+    recovered["run"]["recovery_attempts"] = [recovery]
+
+    class RecoveryClient(FakeClient):
+        def recover_home(self, run_id):
+            assert run_id == "run-1"
+            return {"recovery": {"recovery_id": "recovery-1"}}
+
+    client = RecoveryClient(
+        [READY],
+        results_by_id={
+            "run-1": [failed, recovered],
+            "run-2": [terminal("run-2")],
+        },
+        sidecar=SIDECAR,
+    )
+
+    session = run_session(
+        client,
+        runs=2,
+        seed=17,
+        output_path=tmp_path / "recovering-soak.json",
+        recover_failures=True,
+        sleep=lambda _: None,
+        log=lambda *_: None,
+    )
+
+    assert session["failure_recovery_enabled"] is True
+    assert len(session["runs"]) == 2
+    assert session["runs"][0]["outcome"] == "FAILED"
+    assert session["runs"][0]["recovery"]["outcome"] == "COMPLETED"
+    assert session["runs"][1]["outcome"] == "COMPLETED"
     assert session["aborted"] is None
 
 
@@ -328,6 +488,102 @@ def test_session_aborts_and_persists_partial_on_latch(tmp_path: Path):
     assert len(saved["runs"]) == 1
     assert "restart-required" in saved["aborted"]
     assert session["aborted"] == saved["aborted"]
+
+
+def test_session_rejects_the_wrong_build_before_activation(tmp_path: Path):
+    client = FakeClient([READY], sidecar=SIDECAR)
+    with pytest.raises(HarnessAbort, match="no run was activated"):
+        run_session(
+            client,
+            runs=1,
+            seed=7,
+            output_path=tmp_path / "soak.json",
+            expected_build_label="edge (demo/edge)",
+            sleep=lambda _: None,
+            log=lambda *_: None,
+        )
+    assert client.activated == []
+
+
+def test_session_rejects_the_wrong_qualified_fruits_before_activation(tmp_path: Path):
+    client = FakeClient([READY], qualified=("pear",), sidecar=SIDECAR)
+    with pytest.raises(HarnessAbort, match="expected qualified fruits"):
+        run_session(
+            client,
+            runs=10,
+            seed=7,
+            output_path=tmp_path / "soak.json",
+            expected_build_label="base-soak-v2-orientation (demo/base)",
+            expected_fruits=["apple", "banana", "pear"],
+            sleep=lambda _: None,
+            log=lambda *_: None,
+        )
+    assert client.activated == []
+
+
+def test_ambiguous_activation_retries_once_with_the_same_key(tmp_path: Path):
+    class AmbiguousClient(FakeClient):
+        calls = 0
+
+        def activate(self, fruit, orientation_degrees=0.0, idempotency_key=None):
+            self.activated.append(fruit)
+            self.orientation_degrees.append(orientation_degrees)
+            self.idempotency_keys.append(idempotency_key)
+            self.calls += 1
+            if self.calls == 1:
+                raise TimeoutError("request timed out after server acceptance")
+            return {"run": {"run_id": "run-1"}, "activation_reused": True}
+
+    client = AmbiguousClient(
+        [READY],
+        results_by_id={"run-1": [terminal("run-1")]},
+        sidecar=SIDECAR,
+    )
+    output = tmp_path / "soak.json"
+    session = run_session(
+        client,
+        runs=1,
+        seed=7,
+        output_path=output,
+        expected_build_label="base-soak-v2-orientation (demo/base)",
+        expected_fruits=["apple", "banana", "pear"],
+        sleep=lambda _: None,
+        log=lambda *_: None,
+    )
+    saved = json.loads(output.read_text())
+    assert len(client.activated) == 2
+    assert len(client.orientation_degrees) == 2
+    assert client.idempotency_keys[0] == client.idempotency_keys[1]
+    assert len(saved["runs"]) == 1
+    assert session["aborted"] is None
+
+
+def test_complete_ten_run_soak_is_balanced_and_scores_cleanly(tmp_path: Path):
+    results = {
+        f"run-{number}": [terminal(f"run-{number}")]
+        for number in range(1, 11)
+    }
+    client = FakeClient([READY], results_by_id=results, sidecar=SIDECAR)
+    output = tmp_path / "ten-run-soak.json"
+    session = run_session(
+        client,
+        runs=10,
+        seed=20260810,
+        output_path=output,
+        expected_build_label="base-soak-v2-orientation (demo/base)",
+        sleep=lambda _: None,
+        log=lambda *_: None,
+    )
+
+    counts = Counter(client.activated)
+    assert len(session["runs"]) == 10
+    assert max(counts.values()) - min(counts.values()) <= 1
+    assert set(counts) == {"apple", "banana", "pear"}
+    assert session["scorecard"]["criteria"]["completion"]["passed"] is True
+    assert session["scorecard"]["criteria"]["fruit_coverage"]["passed"] is True
+    assert session["scorecard"]["criteria"]["home_gate"]["passed"] is True
+    assert output.exists()
+    assert not output.with_suffix(".json.tmp").exists()
 
 
 def test_summarize_run_flattens_terminal_measurements():

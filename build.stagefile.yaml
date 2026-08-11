@@ -1,0 +1,53 @@
+version: 1
+stages:
+  - name: builder
+    from: python:3.11-slim-bookworm
+    env:
+      CYCLONEDDS_HOME: /usr/local
+    install:
+      apt:
+        packages: [build-essential, ca-certificates, cmake, git]
+      cmake:
+        - repository: https://github.com/eclipse-cyclonedds/cyclonedds.git
+          commit: 2cdd114cbd18340c606573b4cc8dc20cc161ec5a
+          prefix: /usr/local
+          buildType: Release
+          defines:
+            BUILD_DDSPERF: "OFF"
+            BUILD_EXAMPLES: "OFF"
+            BUILD_TESTING: "OFF"
+          jobs: 2
+      pip:
+        - packages:
+            - fastapi>=0.115,<1
+            - uvicorn[standard]>=0.30,<1
+            - cyclonedds==0.10.2
+            - numpy>=1.24,<3
+            - opencv-python>=4.8,<5
+            - git+https://github.com/unitreerobotics/unitree_sdk2_python.git@e4cd91f051aaa77a70600e3d2bf7f50889db1980
+
+  - name: app
+    from: python:3.11-slim-bookworm
+    workdir: /app
+    env:
+      CYCLONEDDS_HOME: /usr/local
+      PYTHONPATH: /app/src
+      PYTHONUNBUFFERED: "1"
+      BORDER_COLLIE_PORT: "8110"
+      BORDER_COLLIE_HARDWARE_ENABLED: "0"
+      BORDER_COLLIE_LAB_MOTION_ENABLED: "0"
+      GO2_NETWORK_INTERFACE: enP8p1s0
+    install:
+      apt:
+        packages: [libgl1, libglib2.0-0, libstdc++6]
+    copy:
+      - from: builder
+        paths: [/usr/local]
+      - from: local
+        paths: [src]
+        dest: /app/src/
+      - from: local
+        paths: [web]
+        dest: /app/web/
+    user: root
+    cmd: [python, -m, border_collie_demo.main]
