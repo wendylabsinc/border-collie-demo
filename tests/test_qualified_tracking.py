@@ -155,6 +155,57 @@ def test_pear_close_range_confidence_collapse_confirms_no_motion_arrival() -> No
     assert decision.evidence["close_range_tracking_confidence"] == 0.55
 
 
+def test_duplicate_weak_close_frame_holds_before_fresh_collapse_arrives() -> None:
+    target = tracker()
+    pts = acquire(target)
+    target.observe(
+        observation(
+            confidence=0.72,
+            center_y=0.69,
+            bottom=0.74,
+            area=0.07,
+            source_pts=pts,
+        ),
+        now_s=0.4,
+    )
+    target.observe(
+        observation(
+            confidence=0.64,
+            center_y=0.75,
+            bottom=0.83,
+            area=0.12,
+            source_pts=pts + 1,
+        ),
+        now_s=0.5,
+    )
+
+    duplicate = target.observe(
+        observation(
+            confidence=0.27,
+            center_y=0.75,
+            bottom=0.83,
+            area=0.12,
+            source_pts=pts + 1,
+        ),
+        now_s=0.55,
+    )
+    arrived = target.observe(
+        observation(
+            confidence=0.27,
+            center_y=0.91,
+            bottom=0.997,
+            area=0.24,
+            source_pts=pts + 2,
+        ),
+        now_s=0.6,
+    )
+
+    assert duplicate.recommendation is MotionRecommendation.HOLD
+    assert duplicate.reason == "duplicate_weak_close_frame"
+    assert arrived.recommendation is MotionRecommendation.ARRIVAL
+    assert arrived.reason == "qualified_close_track_confidence_collapsed"
+
+
 def test_stale_detection_stops_without_reusing_close_range_evidence() -> None:
     target = tracker()
     pts = acquire(target)

@@ -1,5 +1,9 @@
 # Metric Arrival contract
 
+This experimental profile is retained for sensor qualification but is disabled
+in the stage-camera Wendy descriptor. The deployed stage profile uses the
+shared camera closeout documented in `camera-perception-contract.md`.
+
 Arrival is measured from Woof's front body/paw envelope, not from the LiDAR
 origin. The initial qualified clearance is 0.15 m with a tolerance of 0.05 m.
 Image geometry can enter Final Approach but cannot complete Arrival.

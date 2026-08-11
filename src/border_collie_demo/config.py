@@ -54,6 +54,7 @@ class HardwareConfig:
     arrival_clearance_m: float = 0.15
     arrival_clearance_tolerance_m: float = 0.05
     range_maximum_age_s: float = 0.25
+    metric_arrival_required: bool = True
 
     def __post_init__(self) -> None:
         positive_values = (
@@ -220,6 +221,10 @@ class HardwareConfig:
             ),
             range_maximum_age_s=float(
                 os.environ.get("BORDER_COLLIE_RANGE_MAXIMUM_AGE_S", "0.25")
+            ),
+            metric_arrival_required=env_bool(
+                "BORDER_COLLIE_METRIC_ARRIVAL_REQUIRED",
+                default=True,
             ),
         )
 

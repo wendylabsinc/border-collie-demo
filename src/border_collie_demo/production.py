@@ -41,11 +41,13 @@ class ProductionStageExecutor:
         perception_status: Callable[[], dict[str, object]],
         bark: BarkPort,
         *,
+        metric_arrival_required: bool = True,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._hardware = hardware
         self._perception_status = perception_status
         self._bark = bark
+        self._metric_arrival_required = metric_arrival_required
         self._sleep = sleep
 
     async def execute(
@@ -191,10 +193,10 @@ class ProductionStageExecutor:
                 near_confirmations=3,
                 near_loss_grace_s=0.75,
                 close_range_mps=0.55,
-                final_push_mps=1.0,
+                final_push_mps=0.6,
                 final_push_duration_s=1.0,
                 timeout_s=20.0,
-                metric_arrival_required=True,
+                metric_arrival_required=self._metric_arrival_required,
             )
         if phase is MissionPhase.SIT_AND_BARK:
             stop_errors = await self._hardware.emergency_stop()

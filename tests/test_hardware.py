@@ -1023,7 +1023,7 @@ def test_failed_search_reports_the_best_distant_pear_evidence() -> None:
     asyncio.run(scenario())
 
 
-def test_approach_stops_on_confirmed_visible_geometry_without_a_final_push() -> None:
+def test_camera_arrival_continues_until_loss_then_uses_bounded_final_push() -> None:
     async def scenario() -> None:
         motion = FakeMotion()
         manager = HardwareManager(
@@ -1080,22 +1080,25 @@ def test_approach_stops_on_confirmed_visible_geometry_without_a_final_push() -> 
             near_confirmations=3,
             near_loss_grace_s=0.75,
             close_range_mps=0.55,
-            final_push_mps=1.0,
+            final_push_mps=0.6,
             final_push_duration_s=0.001,
             timeout_s=0.5,
         )
 
         assert result["arrival_confirmed"] is True
         assert result["near_confirmations"] == 3
-        assert result["final_push_mps"] == 1.0
-        assert result["final_push_count"] == 0
-        assert result["forward_pulse_count"] == 3
+        assert result["final_push_mps"] == 0.6
+        assert result["final_push_count"] == 1
+        assert result["forward_pulse_count"] >= 4
         assert any(
             command.reason == "approach_target_slow" and command.forward_mps == 0.55
             for command in motion.commands
         )
         assert any(command.forward_mps == 0.55 for command in motion.commands)
-        assert not any(command.forward_mps == 1.0 for command in motion.commands)
+        assert any(
+            command.reason == "camera_final_push" and command.forward_mps == 0.6
+            for command in motion.commands
+        )
         assert motion.commands[-1].reason == "qualified_arrival_stop"
         assert motion.armed is False
         await manager.close()
@@ -1464,7 +1467,7 @@ def test_lidar_handoff_is_monotonic_after_phantom_and_visual_reacquisition() -> 
     asyncio.run(scenario())
 
 
-def test_approach_slows_then_stops_while_near_pear_remains_visible() -> None:
+def test_approach_stays_slow_until_near_pear_leaves_camera() -> None:
     async def scenario() -> None:
         motion = FakeMotion()
         manager = HardwareManager(
@@ -1543,9 +1546,13 @@ def test_approach_slows_then_stops_while_near_pear_remains_visible() -> None:
         assert not any(
             command.reason == "near_target_confirmed" for command in motion.commands
         )
-        assert result["near_confirmations"] == 3
-        assert result["forward_pulse_count"] == 3
-        assert result["final_push_count"] == 0
+        assert result["near_confirmations"] == 5
+        assert result["forward_pulse_count"] >= 6
+        assert result["final_push_count"] == 1
+        assert any(
+            command.reason == "visual_close_until_sight_loss"
+            for command in motion.commands
+        )
         assert motion.armed is False
         await manager.close()
 
@@ -1603,11 +1610,16 @@ def test_approach_holds_authorized_command_between_fresh_inference_frames() -> N
                 seen(4, age_s=0.10, near=True),
                 seen(5, near=True),
                 seen(6, near=True),
+                {"camera_healthy": True, "target_ready": False},
+                {"camera_healthy": True, "target_ready": False},
             )
         )
 
         result = await manager.approach_target(
-            lambda: next(statuses),
+            lambda: next(
+                statuses,
+                {"camera_healthy": True, "target_ready": False},
+            ),
             "pear",
             forward_mps=1.0,
             maximum_yaw_rps=1.0,
@@ -1616,8 +1628,8 @@ def test_approach_holds_authorized_command_between_fresh_inference_frames() -> N
             near_confirmations=3,
             near_loss_grace_s=0.75,
             close_range_mps=0.55,
-            final_push_mps=1.0,
-            final_push_duration_s=1.0,
+            final_push_mps=0.6,
+            final_push_duration_s=0.001,
             timeout_s=0.5,
         )
 
@@ -1634,7 +1646,8 @@ def test_approach_holds_authorized_command_between_fresh_inference_frames() -> N
         assert result["qualified_samples"] == 6
         assert result["near_samples"] == 3
         assert result["duplicate_samples"] == 5
-        assert result["forward_pulse_count"] == 6
+        assert result["forward_pulse_count"] >= 7
+        assert result["final_push_count"] == 1
         assert result["close_range_mps"] == 0.55
         await manager.close()
 
@@ -1687,10 +1700,15 @@ def test_healthy_4hz_camera_does_not_toggle_motion_in_10hz_control_loop() -> Non
                 seen(6, 0.01, near=True),
                 seen(6, 0.11, near=True),
                 seen(7, 0.01, near=True),
+                {"camera_healthy": True, "target_ready": False},
+                {"camera_healthy": True, "target_ready": False},
             )
         )
         result = await manager.approach_target(
-            lambda: next(statuses),
+            lambda: next(
+                statuses,
+                {"camera_healthy": True, "target_ready": False},
+            ),
             "pear",
             forward_mps=1.0,
             maximum_yaw_rps=0.50,
@@ -2227,7 +2245,7 @@ def test_close_range_continuity_rejects_a_discontinuous_low_confidence_apple() -
     asyncio.run(scenario())
 
 
-def test_visible_arrival_finishes_before_a_later_camera_failure() -> None:
+def test_camera_failure_during_final_push_stops_and_fails() -> None:
     async def scenario() -> None:
         motion = FakeMotion()
         manager = HardwareManager(
@@ -2258,30 +2276,29 @@ def test_visible_arrival_finishes_before_a_later_camera_failure() -> None:
             )
         )
 
-        result = await manager.approach_target(
-            lambda: next(
-                statuses,
-                {"camera_healthy": False, "detail": "source progress is stale"},
-            ),
-            "pear",
-            forward_mps=0.55,
-            maximum_yaw_rps=0.30,
-            near_bottom_ratio=0.86,
-            near_center_ratio=0.72,
-            near_confirmations=3,
-            near_loss_grace_s=0.75,
-            close_range_mps=0.55,
-            final_push_mps=1.0,
-            final_push_duration_s=0.05,
-            timeout_s=0.5,
-        )
+        with pytest.raises(CameraFailure, match="source progress is stale"):
+            await manager.approach_target(
+                lambda: next(
+                    statuses,
+                    {
+                        "camera_healthy": False,
+                        "detail": "source progress is stale",
+                    },
+                ),
+                "pear",
+                forward_mps=0.55,
+                maximum_yaw_rps=0.30,
+                near_bottom_ratio=0.86,
+                near_center_ratio=0.72,
+                near_confirmations=3,
+                near_loss_grace_s=0.75,
+                close_range_mps=0.55,
+                final_push_mps=0.6,
+                final_push_duration_s=0.05,
+                timeout_s=0.5,
+            )
 
-        assert result["arrival_confirmed"] is True
-        assert result["final_push_count"] == 0
-        assert not any(
-            command.reason == "fruit_offscreen_final_push"
-            for command in motion.commands
-        )
+        assert motion.commands[-1].forward_mps == 0.0
         assert motion.armed is False
         await manager.close()
 

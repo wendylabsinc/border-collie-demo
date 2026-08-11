@@ -38,12 +38,15 @@ def build_app_from_env() -> FastAPI:
     )
     hardware_config = HardwareConfig.from_env()
     lidar_config = PearLidarHandoffConfig.from_env()
+    metric_range_provider = (
+        PearLidarHandoffProvider(lidar_config)
+        if hardware_config.metric_arrival_required and lidar_config.enabled
+        else None
+    )
     hardware = HardwareManager(
         hardware_config,
         visual_odometry=perception,
-        metric_range_provider=(
-            PearLidarHandoffProvider(lidar_config) if lidar_config.enabled else None
-        ),
+        metric_range_provider=metric_range_provider,
     )
     bark = BarkClient(BarkConfig.from_env(), release_cohort=release_cohort)
     terminal_evidence = TerminalEvidenceClient.from_env()
@@ -53,7 +56,12 @@ def build_app_from_env() -> FastAPI:
         camera_frame=perception.camera_frame,
         select_perception_target=perception.select_target,
         media_status=bark.status,
-        stage_executor=ProductionStageExecutor(hardware, perception.status, bark),
+        stage_executor=ProductionStageExecutor(
+            hardware,
+            perception.status,
+            bark,
+            metric_arrival_required=hardware_config.metric_arrival_required,
+        ),
         terminal_evidence=terminal_evidence.capture,
         release_cohort=release_cohort,
         runtime_mode="production",

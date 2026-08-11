@@ -347,6 +347,13 @@ class QualifiedFruitTracker:
         if not tracking_qualified:
             self._weak_samples += 1
             if duplicate:
+                if self._close_loss_candidate(now) is not None:
+                    self._duplicate_samples += 1
+                    return self._decision(
+                        MotionRecommendation.HOLD,
+                        "duplicate_weak_close_frame",
+                        observation,
+                    )
                 self._invalidate_close_loss()
                 return self._decision(
                     MotionRecommendation.STOP,

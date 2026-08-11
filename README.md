@@ -29,14 +29,14 @@ reference, but it is not a runtime dependency.
    center for three fresh samples. Once approach begins, moderate corrections
    combine forward motion with proportional yaw. Track reacquisition does not
    repeat yaw-only centering unless the fruit is more than 25% off center.
-7. Near-fruit geometry slows the approach. Fresh continuous geometry may
-   confirm visible Arrival; a track already proven close may also confirm
-   Arrival when it disappears through the lower camera edge within the bounded
-   sight-loss grace period. Sight loss always commands zero motion.
+7. Near-fruit geometry slows the approach. Three fresh centered near samples
+   establish Final Approach for apple, banana, and pear. Woof continues at the
+   close speed until the qualified track exits through the lower camera edge,
+   then performs one bounded 0.6 m/s, 1.0 second final push and stops.
 8. First turn at a fixed 1.00 rad/s until the Target Fruit is within the middle
    10% of the camera, then hold zero yaw for three fresh centered samples. After
-   qualified visible or sight-lost-close Arrival, stop without a blind final
-   push, lie down, bark, and remain down for 5 seconds.
+   qualified sight-lost-close Arrival, complete the bounded final push, lie
+   down, bark, and remain down for 5 seconds.
 9. Stand, turn toward Home, follow sparse outbound pose breadcrumbs in reverse,
    and restore the original heading. The recorded heartbeat count remains a
    translation budget. Fresh fused pose remains the authority for the 10 cm
@@ -211,7 +211,7 @@ only while fresh observations remain spatially continuous: its horizontal
 center cannot jump by more than 0.20 of the frame, its lower edge or vertical
 center cannot retreat by more than 0.08, and its box area cannot collapse by
 more than 35 percent between samples. This rule cannot acquire an apple. The
-approach slows near the fruit and confirms Arrival without a blind final push;
+approach slows near the fruit and uses the shared bounded final-push contract;
 stale frames, duplicate frames, identity changes, or discontinuous geometry
 produce zero-motion recommendations. A same-fruit discontinuity preserves the
 completed initial-centering gate: two fresh samples confirm reacquisition at
