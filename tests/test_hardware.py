@@ -1318,6 +1318,9 @@ def test_close_visual_track_hands_off_to_lidar_until_stopped_18_inch_arrival() -
         )
 
         assert result["arrival_confirmed"] is True
+        assert result["metric_arrival_control_mode"] == "lidar_handoff"
+        assert result["lidar_handoff_latched"] is True
+        assert result["lidar_handoff_trigger_reason"] == "qualified_close_track_lost"
         assert result["range_association_mode"] == "lidar_handoff"
         assert result["front_clearance_m"] == pytest.approx(0.48)
         assert lidar.calls
@@ -1340,6 +1343,122 @@ def test_close_visual_track_hands_off_to_lidar_until_stopped_18_inch_arrival() -
             command.reason == "metric_arrival_predicted_stop"
             for command in motion.commands
         )
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_lidar_handoff_is_monotonic_after_phantom_and_visual_reacquisition() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        pose = MetricRangePose(motion, (0.0,))
+        lidar = ScriptedLidarHandoff((0.60, 0.70, 0.48, 0.48))
+        gate = MetricArrivalGate(
+            RangeCalibration(
+                forward_index=0,
+                sensor_to_front_envelope_m=0.0,
+                sensor_latency_s=0.20,
+                braking_distance_m=0.02,
+                noise_m=0.02,
+                target_clearance_m=0.4572,
+                tolerance_m=0.0508,
+                maximum_age_s=0.30,
+            )
+        )
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: pose,
+            metric_arrival_gate=gate,
+            metric_range_provider=lidar,
+        )
+        await manager.start()
+        pts = 0
+
+        def visible() -> dict[str, object]:
+            nonlocal pts
+            pts += 1
+            return {
+                "camera_healthy": True,
+                "target_ready": True,
+                "generation": "camera-1",
+                "detection": {
+                    "label": "pear",
+                    "generation": "camera-1",
+                    "confidence": 0.81,
+                    "center_x_ratio": 0.50,
+                    "center_y_ratio": 0.94,
+                    "bottom_ratio": 1.0,
+                    "bbox_area_ratio": 0.10,
+                    "age_s": 0.01,
+                    "source_pts": pts,
+                },
+            }
+
+        weak_phantom = {
+            "camera_healthy": True,
+            "target_ready": False,
+            "generation": "camera-1",
+            "detection": {
+                "label": "pear",
+                "generation": "camera-1",
+                "confidence": 0.01,
+                "center_x_ratio": 0.56,
+                "center_y_ratio": 0.13,
+                "bottom_ratio": 0.16,
+                "bbox_area_ratio": 0.002,
+                "age_s": 0.01,
+                "source_pts": 99,
+            },
+        }
+        statuses = iter(
+            (
+                visible(),
+                visible(),
+                visible(),
+                visible(),
+                {"camera_healthy": True, "target_ready": False},
+                weak_phantom,
+                visible(),
+                visible(),
+            )
+        )
+
+        result = await manager.approach_target(
+            lambda: next(statuses, weak_phantom),
+            "pear",
+            forward_mps=1.0,
+            maximum_yaw_rps=0.50,
+            near_bottom_ratio=0.86,
+            near_center_ratio=0.72,
+            near_confirmations=3,
+            near_loss_grace_s=0.75,
+            close_range_mps=0.55,
+            final_push_mps=0.55,
+            final_push_duration_s=0.001,
+            timeout_s=0.5,
+            metric_arrival_required=True,
+        )
+
+        assert result["arrival_confirmed"] is True
+        assert result["metric_arrival_control_mode"] == "lidar_handoff"
+        assert result["lidar_handoff_latched"] is True
+        assert result["lidar_handoff_trigger_reason"] == "qualified_close_track_lost"
+        assert result["range_association_mode"] == "lidar_handoff"
+        assert result["front_clearance_m"] == pytest.approx(0.48)
+        assert len(lidar.calls) == 4
+        assert all(call["allow_handoff"] is True for call in lidar.calls)
+        assert len(lidar.visual_calls) == 4
+        assert any(
+            command.reason == "metric_arrival_predicted_stop"
+            for command in motion.commands
+        )
+        assert any(
+            command.reason == "metric_lidar_handoff" and command.forward_mps == 0.55
+            for command in motion.commands
+        )
+        assert motion.commands[-1].reason == "qualified_arrival_stop"
         await manager.close()
 
     asyncio.run(scenario())

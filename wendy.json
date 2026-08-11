@@ -1,13 +1,13 @@
 {
   "appId": "border-collie-demo",
-  "version": "1.0.16-durability",
+  "version": "1.0.17-durability",
   "services": {
     "app": {
       "context": ".",
       "env": {
         "BORDER_COLLIE_PORT": "8110",
-        "BORDER_COLLIE_BUILD_LABEL": "durability-foundation-v13-centered-handoff-recovery (codex/durability-approach-cadence)",
-        "BORDER_COLLIE_RELEASE_ID": "durability-foundation-v13-centered-handoff-recovery",
+        "BORDER_COLLIE_BUILD_LABEL": "durability-foundation-v14-monotonic-lidar-handoff (codex/durability-approach-cadence)",
+        "BORDER_COLLIE_RELEASE_ID": "durability-foundation-v14-monotonic-lidar-handoff",
         "BORDER_COLLIE_CONFIG_SCHEMA": "2",
         "BORDER_COLLIE_RUNTIME_MODE": "production",
         "BORDER_COLLIE_HARDWARE_ENABLED": "1",
@@ -65,7 +65,7 @@
       "context": "./media",
       "env": {
         "UNITREE_ROBOT_IP": "192.168.123.161",
-        "BORDER_COLLIE_RELEASE_ID": "durability-foundation-v13-centered-handoff-recovery",
+        "BORDER_COLLIE_RELEASE_ID": "durability-foundation-v14-monotonic-lidar-handoff",
         "BORDER_COLLIE_CONFIG_SCHEMA": "2",
         "PEAR_MODEL_PATH": "/media/model.engine",
         "BANANA_SPECIALIST_MODEL_PATH": "/media/banana-specialist.pt",

@@ -4,6 +4,21 @@ Arrival is measured from Woof's front body/paw envelope, not from the LiDAR
 origin. The initial qualified clearance is 0.15 m with a tolerance of 0.05 m.
 Image geometry can enter Final Approach but cannot complete Arrival.
 
+Final Approach control has one legal transition:
+
+```text
+camera_tracking -> lidar_handoff -> Arrival or failure
+```
+
+The LiDAR handoff is latched. Once entered, camera tracking cannot regain
+control during that approach, even if the camera later publishes a weak phantom
+or a newly qualified detection. Camera evidence remains recordable for
+diagnostics, but only fresh associated LiDAR evidence may advance, brake, or
+confirm Arrival. Missing, stale, discontinuous, ambiguous, or expired LiDAR
+evidence stops motion and fails closed; it never falls back to camera control.
+A camera transport or source-health failure may still abort the Demo Run, but
+cannot reverse the control transition.
+
 Production requires a stationary calibration before motion. Run:
 
 ```bash

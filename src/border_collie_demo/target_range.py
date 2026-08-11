@@ -15,6 +15,13 @@ class MetricArrivalAction(str, Enum):
     UNAVAILABLE = "unavailable"
 
 
+class MetricArrivalControlMode(str, Enum):
+    """Monotonic owner of Final Approach and Arrival decisions."""
+
+    CAMERA_TRACKING = "camera_tracking"
+    LIDAR_HANDOFF = "lidar_handoff"
+
+
 @dataclass(frozen=True)
 class RangeCalibration:
     """Qualified transformation from a raw directional range to clearance."""

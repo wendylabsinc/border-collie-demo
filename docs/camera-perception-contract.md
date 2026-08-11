@@ -169,7 +169,15 @@ may be relaxed only after new acceptance evidence is recorded.
   body-frame bearing using the calibrated horizontal field of view; post-loss
   LiDAR candidates must remain within six degrees of that bearing and satisfy
   temporal continuity. A nearer cluster on the wrong side is not the Target
-  Fruit. Off-axis disappearance sends zero motion, terminates as
+  Fruit. The camera-to-LiDAR transition is one-way for the remainder of that
+  approach: after LiDAR handoff is latched, weak, missing, contradictory, or
+  newly qualified camera detections are diagnostic evidence only and cannot
+  steer, stop, advance, or return control to camera tracking. Fresh LiDAR
+  association and the metric Arrival gate exclusively authorize subsequent
+  motion; unavailable LiDAR fails closed rather than falling back to vision.
+  A camera transport or source-health failure may still abort the Demo Run,
+  but cannot restore camera control.
+  Off-axis disappearance before handoff sends zero motion, terminates as
   `TARGET_LOST_OFF_AXIS`, and never arms LiDAR or authorizes a blind push.
 - Warm-up must finish before preflight passes. After preflight, detector
   execution time must be **no greater than 0.200 seconds**.

@@ -30,6 +30,8 @@ _Avoid_: Distance traveled, estimated route length
 
 **Arrival**:
 The stopped, metric near-fruit condition confirmed by fresh centered pear evidence and calibrated forward range. Current qualification requires 18 +/- 2 inches from Woof's front body/paw envelope. Image geometry may enter Final Approach but cannot establish Arrival.
+Control ownership is monotonic during Final Approach: camera tracking may hand
+off to LiDAR exactly once, and camera evidence cannot reclaim control afterward.
 _Avoid_: Fruit contact, fruit disappearance
 
 **Demo Run**:

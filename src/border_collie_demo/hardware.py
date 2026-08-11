@@ -40,6 +40,7 @@ from .return_home import (
 )
 from .target_range import (
     MetricArrivalAction,
+    MetricArrivalControlMode,
     MetricArrivalGate,
     RangeCalibration,
     RangeObservation,
@@ -859,6 +860,10 @@ class HardwareManager:
             last_decision_evidence: dict[str, object] = {}
             last_authorized_command: VelocityCommand | None = None
             last_moving_yaw_rps = 0.0
+            metric_control_mode = MetricArrivalControlMode.CAMERA_TRACKING
+            lidar_handoff_trigger_reason: str | None = None
+            lidar_handoff_latched_at: float | None = None
+            visual_handoff_mode: object | None = None
             started = time.monotonic()
             try:
                 assert self._motion is not None
@@ -888,12 +893,11 @@ class HardwareManager:
                     )
                     visible_detection = status.get("detection")
                     if (
-                        callable(note_visual_track)
+                        metric_control_mode is MetricArrivalControlMode.CAMERA_TRACKING
+                        and callable(note_visual_track)
                         and target_fruit.casefold().strip() == "pear"
                         and isinstance(visible_detection, dict)
-                        and str(visible_detection.get("label") or "")
-                        .casefold()
-                        .strip()
+                        and str(visible_detection.get("label") or "").casefold().strip()
                         == target_fruit.casefold().strip()
                         and decision.reason
                         in {
@@ -906,9 +910,7 @@ class HardwareManager:
                             "large_tracking_error",
                             "close_tracking_recenter",
                         }
-                        and int(
-                            last_decision_evidence.get("close_range_samples", 0)
-                        )
+                        and int(last_decision_evidence.get("close_range_samples", 0))
                         > 0
                     ):
                         filtered_center = _finite_float(
@@ -926,10 +928,36 @@ class HardwareManager:
                     close_samples = int(
                         last_decision_evidence.get("close_range_samples", 0)
                     )
-                    allow_lidar_handoff = bool(
-                        self._metric_range_provider is not None
+                    handoff_authorized = bool(
+                        metric_arrival_required
+                        and self._metric_range_provider is not None
                         and close_samples >= 2
                         and decision.reason in LIDAR_HANDOFF_TRACKING_REASONS
+                    )
+                    if (
+                        metric_control_mode is MetricArrivalControlMode.CAMERA_TRACKING
+                        and handoff_authorized
+                    ):
+                        metric_control_mode = MetricArrivalControlMode.LIDAR_HANDOFF
+                        lidar_handoff_trigger_reason = decision.reason
+                        lidar_handoff_latched_at = now
+                        visual_handoff_mode = decision.evidence.get("arrival_mode")
+                    allow_lidar_handoff = (
+                        metric_control_mode is MetricArrivalControlMode.LIDAR_HANDOFF
+                    )
+                    last_decision_evidence.update(
+                        {
+                            "metric_arrival_control_mode": metric_control_mode.value,
+                            "lidar_handoff_latched": allow_lidar_handoff,
+                            "lidar_handoff_trigger_reason": (
+                                lidar_handoff_trigger_reason
+                            ),
+                            "lidar_handoff_elapsed_s": (
+                                None
+                                if lidar_handoff_latched_at is None
+                                else max(0.0, now - lidar_handoff_latched_at)
+                            ),
+                        }
                     )
                     metric_path_active = bool(
                         allow_lidar_handoff
@@ -1032,7 +1060,9 @@ class HardwareManager:
                                 else last_decision_evidence.get("arrival_mode")
                             ),
                             "visual_final_approach_mode": (
-                                decision.evidence.get("arrival_mode")
+                                visual_handoff_mode
+                                if allow_lidar_handoff
+                                else decision.evidence.get("arrival_mode")
                             ),
                             "near_confirmations": last_decision_evidence.get(
                                 "near_samples", 0
@@ -1150,8 +1180,7 @@ class HardwareManager:
                                     if decision.reason == "large_tracking_error"
                                     else (
                                         "recenter_close_target"
-                                        if decision.reason
-                                        == "close_tracking_recenter"
+                                        if decision.reason == "close_tracking_recenter"
                                         else "center_target_before_approach"
                                     )
                                 ),
