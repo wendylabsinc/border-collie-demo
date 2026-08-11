@@ -1,0 +1,20 @@
+{
+  "title": "Border Collie Fruit Demo",
+  "description": "Operator view for the Go2 fruit-finding demonstration.",
+  "category": "Robot",
+  "safety": "control",
+  "links": [
+    {
+      "label": "Open operator UI",
+      "port": 8096,
+      "path": "/",
+      "kind": "control"
+    },
+    {
+      "label": "Open diagnostics",
+      "port": 8096,
+      "path": "/debug",
+      "kind": "debug"
+    }
+  ]
+}
