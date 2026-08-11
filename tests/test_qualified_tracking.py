@@ -10,7 +10,11 @@ from border_collie_demo.qualified_tracking import (
 )
 
 
-def tracker(*, grace_s: float = 0.75) -> QualifiedFruitTracker:
+def tracker(
+    *,
+    grace_s: float = 0.75,
+    search_handoff: SearchQualificationHandoff | None = None,
+) -> QualifiedFruitTracker:
     return QualifiedFruitTracker(
         QualifiedTrackingConfig.for_fruit(
             "pear",
@@ -23,7 +27,8 @@ def tracker(*, grace_s: float = 0.75) -> QualifiedFruitTracker:
             sight_loss_grace_s=grace_s,
             slow_speed_scale=0.30,
             final_approach_latch_enabled=True,
-        )
+        ),
+        search_handoff=search_handoff,
     )
 
 
@@ -185,10 +190,44 @@ def test_search_handoff_replays_real_apple_confidence_drop_without_lowering_acqu
     assert decisions[-1].evidence["qualified_samples"] == 3
 
 
+def test_search_handoff_survives_bounded_controller_setup_with_fresh_current_frame() -> None:
+    target = apple_tracker(apple_handoff())
+
+    decision = target.observe(
+        apple_observation(
+            confidence=0.6477978,
+            source_pts=101,
+            age_s=0.01,
+        ),
+        now_s=10.55,
+    )
+
+    assert decision.recommendation is MotionRecommendation.ALIGN
+    assert decision.reason == "confirming_search_handoff_centering"
+    assert decision.evidence["search_handoff_accepted"] is True
+
+
+def test_search_handoff_setup_allowance_never_weakens_current_frame_freshness() -> None:
+    target = apple_tracker(apple_handoff())
+
+    decision = target.observe(
+        apple_observation(
+            confidence=0.6477978,
+            source_pts=101,
+            age_s=0.30,
+        ),
+        now_s=10.55,
+    )
+
+    assert decision.recommendation is MotionRecommendation.STOP
+    assert decision.reason == "detection_stale"
+    assert decision.evidence["search_handoff_accepted"] is False
+
+
 @pytest.mark.parametrize(
     ("handoff_changes", "status_changes", "now_s", "rejection_reason"),
     [
-        ({"qualified_monotonic_s": 9.70}, {}, 10.01, "handoff_stale"),
+        ({"qualified_monotonic_s": 8.90}, {}, 10.01, "handoff_stale"),
         ({"target_fruit": "pear"}, {}, 10.01, "target_mismatch"),
         ({"generation": "camera-2"}, {}, 10.01, "generation_mismatch"),
         ({"source_time_base": "1/1000"}, {}, 10.01, "time_base_mismatch"),
@@ -1009,7 +1048,7 @@ def test_off_axis_close_loss_cannot_authorize_lidar_handoff() -> None:
     assert lost.evidence["arrival_mode"] is None
 
 
-def test_two_fresh_close_off_center_samples_stop_forward_to_recenter() -> None:
+def test_two_fresh_close_off_center_samples_steer_while_continuing_forward() -> None:
     target = tracker()
     pts = acquire(target)
 
@@ -1035,10 +1074,11 @@ def test_two_fresh_close_off_center_samples_stop_forward_to_recenter() -> None:
     )
 
     assert first.recommendation is MotionRecommendation.APPROACH
-    assert second.recommendation is MotionRecommendation.ALIGN
-    assert second.reason == "close_tracking_recenter"
-    assert second.forward_scale == 0.0
-    assert second.evidence["close_recenter_active"] is True
+    assert second.recommendation is MotionRecommendation.SLOW
+    assert second.reason == "close_range_steering"
+    assert second.forward_scale == target.config.slow_speed_scale
+    assert second.horizontal_error > 0.0
+    assert second.evidence["close_steering_active"] is True
 
 
 def test_bbox_retreat_breaks_continuity_and_stops_forward_motion() -> None:

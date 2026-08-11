@@ -43,6 +43,10 @@ class QualifiedTrackingConfig:
     near_confirmations: int
     sight_loss_grace_s: float
     maximum_detection_age_s: float = 0.250
+    # Search and approach are separate hardware operations.  The handoff may
+    # span one bounded controller arm/setup interval, while the current camera
+    # and detection samples remain subject to maximum_detection_age_s.
+    search_handoff_maximum_age_s: float = 1.0
     close_bottom_ratio: float = 0.70
     maximum_center_delta_ratio: float = 0.20
     center_filter_alpha: float = 0.70
@@ -165,6 +169,8 @@ class QualifiedTrackingConfig:
             or self.sight_loss_grace_s <= 0.0
             or not math.isfinite(self.maximum_detection_age_s)
             or self.maximum_detection_age_s <= 0.0
+            or not math.isfinite(self.search_handoff_maximum_age_s)
+            or self.search_handoff_maximum_age_s <= 0.0
         ):
             raise ValueError("tracking time limits must be finite and positive")
 
@@ -716,7 +722,7 @@ class QualifiedFruitTracker:
         age_s = now - handoff.qualified_monotonic_s
         if age_s < 0.0:
             return False, "handoff_time_invalid"
-        if age_s > self.config.maximum_detection_age_s:
+        if age_s > self.config.search_handoff_maximum_age_s:
             return False, "handoff_stale"
         generation = status.get("generation")
         if (
@@ -803,9 +809,10 @@ class QualifiedFruitTracker:
                 self._close_recenter_samples = 0
             else:
                 return self._decision(
-                    MotionRecommendation.ALIGN,
-                    "close_tracking_recenter",
+                    MotionRecommendation.SLOW,
+                    "close_range_steering",
                     observation,
+                    forward_scale=self.config.slow_speed_scale,
                     horizontal_error=horizontal_error,
                 )
         elif self.config.target_fruit == "pear" and close_geometry:
@@ -821,9 +828,10 @@ class QualifiedFruitTracker:
             ):
                 self._close_recenter_active = True
                 return self._decision(
-                    MotionRecommendation.ALIGN,
-                    "close_tracking_recenter",
+                    MotionRecommendation.SLOW,
+                    "close_range_steering",
                     observation,
+                    forward_scale=self.config.slow_speed_scale,
                     horizontal_error=horizontal_error,
                 )
         if self._approach_authorized and (
@@ -1385,6 +1393,13 @@ class QualifiedFruitTracker:
             "close_recenter_enter_ratio": self.config.close_recenter_enter_ratio,
             "close_recenter_confirmations": (
                 self.config.close_recenter_confirmations
+            ),
+            "close_steering_active": self._close_recenter_active,
+            "close_steering_samples": self._close_recenter_samples,
+            "close_steering_enter_ratio": self.config.close_recenter_enter_ratio,
+            "close_steering_exit_ratio": self.config.close_handoff_center_ratio,
+            "search_handoff_maximum_age_s": (
+                self.config.search_handoff_maximum_age_s
             ),
             "near_samples": self._near_samples,
             "weak_samples": self._weak_samples,

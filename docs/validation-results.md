@@ -596,3 +596,43 @@ the separate failed-run Home-recovery or heading-restoration repairs.
 - Qualification boundary: deterministic software evidence is not a supervised
   physical apple/banana/pear repeatability result. Deployment and live safety
   evidence must be recorded separately before activation.
+
+### Physical v19 attempts
+
+- Apple run `bce597a9-aa51-4ab9-8d9e-18f11358c10e` was interrupted by an
+  external clean application lifecycle stop during `turn_to_fruit`. The durable
+  recorder retained 130 yaw-only search commands, zero forward commands, and a
+  last pre-stop pose 0.0124 m from captured Home. The process restart changed
+  the odometry origin, so the post-restart coordinates were not used to command
+  a speculative recovery. This attempt does not qualify application behavior.
+- Pear run `e3054a9a-5ecf-4526-ac5f-f3a980d6d22b` failed
+  `TARGET_LOST_OFF_AXIS`. Its search token was rejected as `handoff_stale` after
+  controller setup; approach then issued 20 in-place initial-centering commands,
+  17 forward close-speed pulses, and three in-place close-recenter commands.
+  The last filtered center was 0.6372, close-handoff centering never qualified,
+  and loss was correctly fail-closed. The one-shot automatic recovery completed
+  at trusted Home distance 0.0529 m with `DISARMED_CONFIRMED` and exact zero
+  final command.
+
+## STAGE-CAMERA-V20-CONTINUOUS-TRACK-2026-08-11 — implementation checkpoint
+
+- Lineage: v19 commit `cdcfba4`, extended on
+  `codex/stage-camera-v20-continuous-track` in the matching v20 worktree.
+- Release identity: `stage-camera-v20-continuous-track`, configuration schema 4,
+  app version `1.0.23-stage-camera`; root/media descriptors and both Stagefiles
+  use one cohort.
+- Cross-stage continuity: search identity evidence may span one bounded 1.0 s
+  controller setup interval. The current approach source and detection remain
+  independently limited to 0.250 s and must still match fruit, generation,
+  timebase, advancing PTS, tracking confidence, and continuous geometry.
+- Close control: two fresh close pear samples outside the 0.12 center corridor
+  now select `SLOW / close_range_steering`. Hardware keeps 0.55 m/s translation
+  and applies the existing proportional, capped, slew-limited moving yaw. The
+  former in-place close recenter is not emitted. Persistent off-axis loss still
+  stops and fails; no stale, weak, wrong-label, generation, or continuity guard
+  is weakened.
+- Software boundary: deterministic tracker and HardwareManager tests cover the
+  bounded setup delay, unchanged current-frame freshness, continuous close
+  steering, no in-place pause, centered closeout, and final disarm. Physical yaw
+  response, final clearance, and five-run randomized repeatability remain to be
+  qualified after whole-app Stagefile deployment.

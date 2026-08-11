@@ -396,14 +396,14 @@ acceptance values and no frame archive or event journal.
 Run the multi-service deployment directly from the repository root:
 
 ```bash
-cd /Users/olivertaylor/Documents/Wendy/border-collie-demo-stage-camera-v19-search-handoff
+cd /Users/olivertaylor/Documents/Wendy/border-collie-demo-stage-camera-v20-continuous-track
 wendy run --detach
 ```
 
 The exact underlying whole-project command is `wendy run --detach`; a device
 flag is needed only when Woof is not already the selected Wendy target. The v19
-candidate identity is `stage-camera-v19-search-handoff`, schema `4`, app
-version `1.0.22-stage-camera`. Confirm the branch and commit against
+candidate identity is `stage-camera-v20-continuous-track`, schema `4`, app
+version `1.0.23-stage-camera`. Confirm the branch and commit against
 [the progression map](docs/worktree-progression.md) before running it. Do not
 use `--service`, `docker build`, or pass `--dockerfile`.
 

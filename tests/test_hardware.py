@@ -2010,6 +2010,117 @@ def test_approach_replays_search_qualified_apple_confidence_drop() -> None:
     asyncio.run(scenario())
 
 
+def test_close_offset_uses_slew_limited_steering_without_in_place_pause() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+
+        def seen(
+            source_pts: int,
+            *,
+            center_x: float,
+            center_y: float = 0.50,
+            bottom: float = 0.65,
+            area: float = 0.04,
+        ) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": True,
+                "generation": "camera-1",
+                "source": {"pts": source_pts, "age_s": 0.01},
+                "detection": {
+                    "label": "pear",
+                    "generation": "camera-1",
+                    "confidence": 0.81,
+                    "center_x_ratio": center_x,
+                    "center_y_ratio": center_y,
+                    "bottom_ratio": bottom,
+                    "bbox_area_ratio": area,
+                    "age_s": 0.01,
+                    "source_pts": source_pts,
+                },
+            }
+
+        statuses = iter(
+            (
+                seen(1, center_x=0.50),
+                seen(2, center_x=0.50),
+                seen(3, center_x=0.50),
+                seen(4, center_x=0.64, center_y=0.69, bottom=0.74, area=0.07),
+                seen(5, center_x=0.66, center_y=0.75, bottom=0.83, area=0.12),
+                seen(6, center_x=0.56, center_y=0.76, bottom=0.91, area=0.13),
+                seen(7, center_x=0.53, center_y=0.77, bottom=0.92, area=0.14),
+                seen(8, center_x=0.51, center_y=0.78, bottom=0.93, area=0.15),
+                seen(9, center_x=0.50, center_y=0.79, bottom=0.94, area=0.16),
+                {
+                    "camera_healthy": True,
+                    "target_ready": False,
+                    "generation": "camera-1",
+                    "source": {"pts": 10, "age_s": 0.01},
+                    "detection": {},
+                },
+                {
+                    "camera_healthy": True,
+                    "target_ready": False,
+                    "generation": "camera-1",
+                    "source": {"pts": 11, "age_s": 0.01},
+                    "detection": {},
+                },
+            )
+        )
+
+        def read_status() -> dict[str, object]:
+            return next(
+                statuses,
+                {
+                    "camera_healthy": True,
+                    "target_ready": False,
+                    "generation": "camera-1",
+                    "source": {"pts": 12, "age_s": 0.01},
+                    "detection": {},
+                },
+            )
+
+        result = await manager.approach_target(
+            read_status,
+            "pear",
+            forward_mps=1.0,
+            maximum_yaw_rps=0.50,
+            near_bottom_ratio=0.86,
+            near_center_ratio=0.72,
+            near_confirmations=3,
+            near_loss_grace_s=0.75,
+            close_range_mps=0.55,
+            final_push_mps=0.6,
+            final_push_duration_s=0.001,
+            timeout_s=1.0,
+        )
+
+        assert not any(
+            command.reason == "recenter_close_target" for command in motion.commands
+        )
+        close_steering = [
+            command
+            for command in motion.commands
+            if command.reason == "approach_target_slow"
+            and command.yaw_rps < 0.0
+        ]
+        assert close_steering
+        assert all(command.forward_mps == 0.55 for command in close_steering)
+        assert abs(close_steering[0].yaw_rps) <= 0.20
+        assert result["arrival_confirmed"] is True
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
 def test_healthy_4hz_camera_does_not_toggle_motion_in_10hz_control_loop() -> None:
     async def scenario() -> None:
         motion = FakeMotion()

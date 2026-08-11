@@ -933,7 +933,7 @@ class HardwareManager:
                             "close_range_track",
                             "qualified_visible_arrival",
                             "large_tracking_error",
-                            "close_tracking_recenter",
+                            "close_range_steering",
                         }
                         and int(last_decision_evidence.get("close_range_samples", 0))
                         > 0
