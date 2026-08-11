@@ -9,6 +9,32 @@ Takeover is process-latched, activation is recorder-backed, and production code
 does not import the legacy project. They do not qualify physical motion or the
 autonomous routine.
 
+## HOME-RETURN-DIAGNOSIS-2026-08-11 — failed safely, cause isolated
+
+- Physical run `7098b433-23db-4c2d-9811-59dd8d2019c5` completed fruit search,
+  approach, Arrival, and the action sequence, then failed return with
+  `return Home stalled 0.323 m from its active waypoint` and disarmed.
+- The aggregate's `1.8595 m` terminal Home value is stale: failed
+  `return_home` produced no stage result, so summary fallback selected the last
+  completed `turn_toward_home` stage measured before return translation.
+- Failed-run recovery began with raw Go2 Home distance `0.3258 m` and filtered
+  distance `0.3250 m` (`0.0244 m` position sigma). Their agreement does not
+  support a one-metre odometry jump.
+- Recovery rebuilt the entire reversed outbound breadcrumb list. Although Woof
+  was already about `0.325 m` from Home, its active target became an old
+  fruit-side breadcrumb; the resulting `1.574 m` error was distance to that
+  stale waypoint, not distance to Home.
+- The original return then recovery both entered yaw-only correction at
+  `0.30 rad/s`, which is at the observed factory-avoidance posture-only edge.
+  This is a contributing control failure, separate from localization.
+- Operational consequence: do not use the aggregate fallback value or an
+  active-waypoint error as current Home distance. Preserve the latest raw and
+  fused Home pose, target kind, and planner decision in the per-run black-box
+  trace. Resume recovery from current pose toward Home; never replay a consumed
+  outbound route from its beginning.
+
+Evidence: `benchmarks/results/search-fast-lock.json`.
+
 ## PRODUCTION-OFFLINE-001 — passed
 
 - Observed: 2026-08-03 in the clean repository
@@ -24,8 +50,9 @@ autonomous routine.
   it imports no motion client
 - Result: passed the local implementation gate
 - Limitation: deterministic adapters and recorded hardware facts do not qualify
-  the combined physical sequence. The next step remains DLO comparison, then a
-  supervised Woof deployment and one real end-to-end acceptance run.
+  the combined physical sequence. The next step remains a direct Stagefile
+  deployment with `wendy run`, then one supervised Woof end-to-end acceptance
+  run.
 
 ## PREFLIGHT-FAIL-CLOSED-001 — passed
 
