@@ -9,7 +9,8 @@
         "BORDER_COLLIE_HARDWARE_ENABLED": "0"
       },
       "entitlements": [
-        {"type": "network", "mode": "host"}
+        {"type": "network", "mode": "host"},
+        {"type": "http", "port": 8096}
       ]
     }
   }
