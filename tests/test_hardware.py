@@ -1143,6 +1143,159 @@ def test_camera_final_approach_replay_survives_weak_and_stale_before_fresh_loss(
     asyncio.run(scenario())
 
 
+def test_camera_bottom_clip_replay_stops_then_runs_one_configured_final_push() -> None:
+    """Replay the decisive observations from run acfdb493 through hardware."""
+
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+
+        def seen(
+            source_pts: int,
+            *,
+            confidence: float,
+            center_x: float,
+            center_y: float,
+            bottom: float,
+            area: float,
+        ) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": confidence >= 0.65,
+                "generation": "camera-1",
+                "source": {"pts": source_pts, "age_s": 0.01},
+                "detection": {
+                    "label": "pear",
+                    "generation": "camera-1",
+                    "source_pts": source_pts,
+                    "confidence": confidence,
+                    "consecutive_detections": 5,
+                    "center_x_ratio": center_x,
+                    "center_y_ratio": center_y,
+                    "bottom_ratio": bottom,
+                    "bbox_area_ratio": area,
+                    "age_s": 0.01,
+                },
+            }
+
+        statuses = iter(
+            (
+                *(
+                    seen(
+                        source_pts,
+                        confidence=0.80,
+                        center_x=0.54,
+                        center_y=0.50,
+                        bottom=0.65,
+                        area=0.005,
+                    )
+                    for source_pts in (276000, 276060, 276180)
+                ),
+                seen(
+                    276360,
+                    confidence=0.821043848991394,
+                    center_x=0.541015625,
+                    center_y=0.9125,
+                    bottom=0.9680555555555556,
+                    area=0.005815972222222222,
+                ),
+                seen(
+                    276540,
+                    confidence=0.7732153534889221,
+                    center_x=0.5453125,
+                    center_y=0.9361111111111111,
+                    bottom=0.9972222222222222,
+                    area=0.006493055555555555,
+                ),
+                seen(
+                    276660,
+                    confidence=0.7592233419418335,
+                    center_x=0.5546875,
+                    center_y=0.9430555555555555,
+                    bottom=1.0,
+                    area=0.00640625,
+                ),
+                seen(
+                    276780,
+                    confidence=0.644224226474762,
+                    center_x=0.56015625,
+                    center_y=0.9597222222222223,
+                    bottom=1.0,
+                    area=0.0050347222222222225,
+                ),
+                seen(
+                    276960,
+                    confidence=0.8311417698860168,
+                    center_x=0.57109375,
+                    center_y=0.9729166666666667,
+                    bottom=1.0,
+                    area=0.0022851562500000003,
+                ),
+                seen(
+                    277320,
+                    confidence=0.1436695158481598,
+                    center_x=0.57109375,
+                    center_y=0.975,
+                    bottom=0.9958333333333333,
+                    area=0.0017578125,
+                ),
+            )
+        )
+        fallback = {
+            "camera_healthy": True,
+            "target_ready": False,
+            "generation": "camera-1",
+            "source": {"pts": 277440, "age_s": 0.01},
+            "detection": {},
+        }
+
+        result = await manager.approach_target(
+            lambda: next(statuses, fallback),
+            "pear",
+            forward_mps=0.55,
+            maximum_yaw_rps=0.30,
+            near_bottom_ratio=0.86,
+            near_center_ratio=0.72,
+            near_confirmations=3,
+            near_loss_grace_s=0.75,
+            close_range_mps=0.55,
+            final_push_mps=0.6,
+            final_push_duration_s=1.0,
+            timeout_s=2.0,
+        )
+
+        first_loss_stop = next(
+            command
+            for command in motion.commands
+            if command.reason
+            == "qualified_track_confirming_final_approach_loss"
+        )
+        push_commands = [
+            command
+            for command in motion.commands
+            if command.reason == "camera_final_push"
+        ]
+        assert first_loss_stop.forward_mps == 0.0
+        assert push_commands
+        assert {command.forward_mps for command in push_commands} == {0.6}
+        assert result["arrival_mode"] == "final_approach_loss_confirmed"
+        assert result["final_approach_loss_samples"] == 2
+        assert result["final_push_mps"] == 0.6
+        assert result["final_push_duration_s"] == 1.0
+        assert result["final_push_count"] == 1
+        assert motion.commands[-1].reason == "qualified_arrival_stop"
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
 def test_metric_arrival_brakes_then_confirms_stopped_front_clearance() -> None:
     async def scenario() -> None:
         motion = FakeMotion()

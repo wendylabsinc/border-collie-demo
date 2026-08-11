@@ -610,7 +610,13 @@ class QualifiedFruitTracker:
                 "target_lost_off_axis",
                 observation,
             )
-        if self._continuity_issue(observation) is not None:
+        continuity_issue = self._continuity_issue(observation)
+        if self._bottom_edge_area_retreat_is_loss_evidence(
+            observation,
+            continuity_issue,
+        ):
+            return self._advance_final_approach_loss(observation)
+        if continuity_issue is not None:
             self._cancel_final_approach("final_approach_track_discontinuous")
             return self._decision(
                 MotionRecommendation.STOP,
@@ -905,6 +911,30 @@ class QualifiedFruitTracker:
 
     def _continuous_with_last(self, observation: _Observation) -> bool:
         return self._continuity_issue(observation) is None
+
+    def _bottom_edge_area_retreat_is_loss_evidence(
+        self,
+        observation: _Observation,
+        continuity_issue: str | None,
+    ) -> bool:
+        """Recognize a centered box shrinking as it clips out of the image."""
+        previous = self._last_observation
+        if continuity_issue != "area_retreat" or previous is None:
+            return False
+        lower_edge_ratio = max(
+            self.config.near_bottom_ratio,
+            1.0 - self.config.maximum_vertical_retreat_ratio,
+        )
+        return bool(
+            abs(previous.center_x - 0.5)
+            <= self.config.close_handoff_center_ratio
+            and abs(observation.center_x - 0.5)
+            <= self.config.close_handoff_center_ratio
+            and previous.center_y >= self.config.near_center_ratio
+            and observation.center_y >= self.config.near_center_ratio
+            and previous.bottom >= lower_edge_ratio
+            and observation.bottom >= lower_edge_ratio
+        )
 
     def _filtered_horizontal_error(self, observation: _Observation) -> float:
         center_x = (

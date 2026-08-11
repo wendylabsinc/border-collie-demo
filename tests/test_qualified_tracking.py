@@ -159,6 +159,187 @@ def test_final_approach_latch_survives_weak_and_stale_frames_until_fresh_loss() 
     assert repeated.reason == "arrival_already_confirmed"
 
 
+def test_bottom_clipped_area_retreat_counts_as_final_approach_loss() -> None:
+    """Replay the decisive closeout samples from run acfdb493."""
+    target = tracker()
+    for source_pts in (276000, 276060, 276180):
+        target.observe(
+            observation(
+                center_x=0.54,
+                area=0.005,
+                source_pts=source_pts,
+            ),
+            now_s=0.50,
+        )
+    for source_pts, confidence, center_x, center_y, bottom, area in (
+        (276360, 0.821043848991394, 0.541015625, 0.9125, 0.9680555555555556, 0.005815972222222222),
+        (276540, 0.7732153534889221, 0.5453125, 0.9361111111111111, 0.9972222222222222, 0.006493055555555555),
+        (276660, 0.7592233419418335, 0.5546875, 0.9430555555555555, 1.0, 0.00640625),
+    ):
+        target.observe(
+            observation(
+                confidence=confidence,
+                center_x=center_x,
+                center_y=center_y,
+                bottom=bottom,
+                area=area,
+                source_pts=source_pts,
+            ),
+            now_s=0.60,
+        )
+
+    last_full_box = target.observe(
+        observation(
+            confidence=0.644224226474762,
+            center_x=0.56015625,
+            center_y=0.9597222222222223,
+            bottom=1.0,
+            area=0.0050347222222222225,
+            source_pts=276780,
+        ),
+        now_s=0.65,
+    )
+    clipped = target.observe(
+        observation(
+            confidence=0.8311417698860168,
+            center_x=0.57109375,
+            center_y=0.9729166666666667,
+            bottom=1.0,
+            area=0.0022851562500000003,
+            source_pts=276960,
+        ),
+        now_s=0.70,
+    )
+    later_weak_bottom_edge = target.observe(
+        observation(
+            confidence=0.1436695158481598,
+            center_x=0.57109375,
+            center_y=0.975,
+            bottom=0.9958333333333333,
+            area=0.0017578125,
+            source_pts=277320,
+        ),
+        now_s=0.75,
+    )
+
+    assert last_full_box.reason == "qualified_visible_arrival"
+    assert clipped.recommendation is MotionRecommendation.STOP
+    assert clipped.reason == "confirming_final_approach_loss"
+    assert clipped.evidence["final_approach_loss_samples"] == 1
+    assert later_weak_bottom_edge.recommendation is MotionRecommendation.ARRIVAL
+    assert later_weak_bottom_edge.reason == "qualified_final_approach_loss"
+    assert later_weak_bottom_edge.evidence["final_approach_loss_samples"] == 2
+
+
+def test_bottom_clip_loss_needs_two_fresh_advancing_samples() -> None:
+    target = tracker()
+    pts = latch_bottom_edge(target)
+
+    first_loss = target.observe(
+        observation(
+            center_x=0.52,
+            center_y=0.93,
+            bottom=1.0,
+            area=0.05,
+            source_pts=pts,
+        ),
+        now_s=0.7,
+    )
+    duplicate = target.observe(
+        observation(
+            center_x=0.52,
+            center_y=0.93,
+            bottom=1.0,
+            area=0.04,
+            source_pts=pts,
+        ),
+        now_s=0.75,
+    )
+    stale = target.observe(
+        observation(
+            confidence=0.20,
+            center_x=0.52,
+            center_y=0.94,
+            bottom=1.0,
+            area=0.03,
+            age_s=0.40,
+            source_pts=pts + 1,
+        ),
+        now_s=0.80,
+    )
+
+    assert first_loss.recommendation is MotionRecommendation.STOP
+    assert first_loss.evidence["final_approach_loss_samples"] == 1
+    assert duplicate.reason == "final_approach_frame_not_advancing"
+    assert duplicate.evidence["final_approach_loss_samples"] == 1
+    assert stale.reason == "detection_stale"
+    assert stale.evidence["final_approach_loss_samples"] == 1
+
+
+def test_area_retreat_away_from_centered_lower_edge_cancels_final_approach() -> None:
+    cases = (
+        {"center_x": 0.52, "center_y": 0.75, "bottom": 0.88},
+        {"center_x": 0.60, "center_y": 0.93, "bottom": 1.0},
+        {"center_x": 0.52, "center_y": 0.82, "bottom": 1.0},
+    )
+
+    for case in cases:
+        target = tracker()
+        pts = latch_bottom_edge(target)
+        decision = target.observe(
+            observation(
+                area=0.05,
+                source_pts=pts,
+                **case,
+            ),
+            now_s=0.7,
+        )
+
+        assert decision.recommendation is MotionRecommendation.STOP
+        assert decision.reason == "final_approach_track_discontinuous"
+        assert decision.evidence["final_approach_latched"] is False
+        assert decision.evidence["final_approach_loss_samples"] == 0
+
+
+def test_bottom_clip_loss_authority_cancels_on_identity_generation_or_camera() -> None:
+    status_mutations = (
+        {"detection": {"label": "apple"}},
+        {"generation": "camera-2"},
+        {"camera_healthy": False},
+    )
+
+    for mutation in status_mutations:
+        target = tracker()
+        pts = latch_bottom_edge(target)
+        first_loss = target.observe(
+            observation(
+                center_x=0.52,
+                center_y=0.93,
+                bottom=1.0,
+                area=0.05,
+                source_pts=pts,
+            ),
+            now_s=0.7,
+        )
+        status = observation(
+            center_x=0.52,
+            center_y=0.94,
+            bottom=1.0,
+            area=0.04,
+            source_pts=pts + 1,
+        )
+        if "detection" in mutation:
+            status["detection"].update(mutation["detection"])  # type: ignore[union-attr]
+        else:
+            status.update(mutation)
+        cancelled = target.observe(status, now_s=0.75)
+
+        assert first_loss.evidence["final_approach_loss_samples"] == 1
+        assert cancelled.recommendation is MotionRecommendation.STOP
+        assert cancelled.evidence["final_approach_latched"] is False
+        assert cancelled.evidence["final_approach_cancelled_reason"] is not None
+
+
 def latch_final_approach(target: QualifiedFruitTracker) -> int:
     pts = acquire(target)
     for offset in range(3):
@@ -174,6 +355,22 @@ def latch_final_approach(target: QualifiedFruitTracker) -> int:
         )
     assert decision.reason == "qualified_visible_arrival"
     return pts + 3
+
+
+def latch_bottom_edge(target: QualifiedFruitTracker) -> int:
+    pts = latch_final_approach(target)
+    decision = target.observe(
+        observation(
+            center_x=0.52,
+            center_y=0.93,
+            bottom=1.0,
+            area=0.12,
+            source_pts=pts,
+        ),
+        now_s=0.65,
+    )
+    assert decision.reason == "qualified_visible_arrival"
+    return pts + 1
 
 
 def test_stale_or_frozen_evidence_never_confirms_final_approach_loss() -> None:

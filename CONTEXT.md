@@ -33,12 +33,15 @@ The stage-camera profile's common apple, banana, and pear closeout: three fresh
 centered near-geometry samples establish Final Approach, Woof continues at the
 close-range speed until questionable evidence revokes motion. Two fresh,
 advancing, camera-healthy weak or missing frames within the close-loss window
-confirm the qualified lower-edge exit, then Woof executes one bounded 0.6 m/s,
-1.0 second final push and stops. Duplicate or stale evidence cannot advance
-loss confirmation. Wrong identity/generation, camera failure, off-axis loss,
-invalid geometry, expired evidence, or an unqualified loss cannot establish
-Arrival. The experimental metric/LiDAR profile remains a separate fail-closed
-mode and is not enabled by the stage descriptor.
+confirm the qualified lower-edge exit. A fresh advancing area retreat also
+counts as loss evidence only when both the prior and current pear boxes remain
+inside the qualified close-center corridor, stay clipped at the lower edge, and
+have no center jump or vertical retreat. Woof then executes one bounded 0.6
+m/s, 1.0 second final push and stops. Duplicate or stale evidence cannot
+advance loss confirmation. Wrong identity/generation, camera failure, off-axis
+loss, invalid geometry, expired evidence, or an unqualified loss cannot
+establish Arrival. The experimental metric/LiDAR profile remains a separate
+fail-closed mode and is not enabled by the stage descriptor.
 _Avoid_: Fruit contact, fruit disappearance
 
 **Demo Run**:

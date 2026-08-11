@@ -173,6 +173,15 @@ may be relaxed only after new acceptance evidence is recorded.
   terminal confirmation, and stale evidence does not erase the latch. Wrong
   label or generation, off-axis fresh evidence, invalid geometry, camera
   failure, or latch expiry cancels push authority and remains fail-closed.
+  A detection whose area shrinks by more than the unchanged 35% continuity
+  limit counts as one loss-confirmation sample only when its source marker is
+  fresh and advancing, its label and generation still match, the camera is
+  healthy, both it and the preceding accepted box remain within 0.08 of image
+  center and at the clipped lower edge, and neither center jump nor vertical
+  retreat is present. This sample commands zero motion; it never extends the
+  close approach. The second separately qualified loss sample is still
+  required before final-push authorization. Area retreat elsewhere remains a
+  discontinuity and cancels Final Approach.
 - The optional metric profile instead treats image geometry only as entry to
   Final Approach and uses the following one-way handoff contract.
   Camera-to-LiDAR handoff requires the last three fresh filtered centers to

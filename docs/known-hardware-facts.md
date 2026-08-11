@@ -36,6 +36,14 @@ proof that this clean implementation works:
   sequence now restores that hold before stand-up.
 - Camera safety requires frame identity, source time, connection generation,
   and a strict stale-data boundary.
+- **Observed on Woof (2026-08-11, run `acfdb493`):** while a centered pear was
+  clipped at the bottom of the 1280x720 camera image, its detected area shrank
+  54.6% between fresh advancing frames even though horizontal center changed
+  only from 0.560 to 0.571 and the lower edge remained at 1.0. A generic 35%
+  area-retreat continuity guard therefore produced a false discontinuity.
+  Treat this geometry as stopped loss evidence only inside Final Approach; do
+  not relax the global continuity threshold or permit off-axis/non-bottom
+  shrinkage to authorize a final push.
 - Return success must include measured position, restored heading, and a final
   disarmed state.
 

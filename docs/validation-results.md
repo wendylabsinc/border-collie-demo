@@ -482,3 +482,28 @@ Meaning: the first repair is implemented, regression-tested, installed, and
 ready for a later supervised acceptance run. It has not been physically
 executed, does not qualify fruit clearance or repeatability, and does not include
 the separate failed-run Home-recovery or heading-restoration repairs.
+
+## STAGE-CAMERA-V17-BOTTOM-CLIP-CLOSEOUT-2026-08-11 — implemented, not physically run
+
+- Source: `codex/stage-camera-bottom-clip-closeout`, derived from deployed v16
+- Live failure input: run `acfdb493-0afd-46e9-bff5-ee6caf8f152e` reached Final
+  Approach, then a fresh centered lower-edge pear box shrank 54.6% from area
+  `0.0050347` to `0.0022852`; v16 cancelled the latch and sent 97 zero commands
+  until approach timeout
+- Repair: only in latched Final Approach, fresh advancing area retreat becomes
+  stopped loss evidence when the prior and current geometry remain in the
+  0.08 close-center corridor at the lower edge with no center jump or vertical
+  retreat. The global 35% continuity guard is unchanged
+- Deterministic replay: the real centered area-retreat sample and a later real
+  weak bottom-edge sample produce two loss confirmations, followed by exactly
+  one configured `0.6 m/s` by `1.0 s` final push and a mandatory stop
+- Negative coverage: one sample, duplicate, stale, non-bottom, off-axis,
+  vertical-retreat, wrong-label, wrong-generation, unhealthy-camera, invalid
+  geometry, and expired-latch inputs never authorize the push
+- Local validation: 297 tests passed and one was skipped; Ruff passed for every
+  changed Python file and `git diff --check` passed. Repository-wide Ruff still
+  reports 24 pre-existing violations under `lab/` and `scripts/`, outside this
+  change
+- Physical status: no Demo Run has exercised this checkpoint; clearance,
+  detector cadence between the replayed samples, and three-fruit repeatability
+  remain unqualified
