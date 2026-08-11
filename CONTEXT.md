@@ -29,9 +29,13 @@ The planar distance in meters between Woof's latest fresh measured position and 
 _Avoid_: Distance traveled, estimated route length
 
 **Arrival**:
-The stopped, metric near-fruit condition confirmed by fresh centered pear evidence and calibrated forward range. Current qualification requires 18 +/- 2 inches from Woof's front body/paw envelope. Image geometry may enter Final Approach but cannot establish Arrival.
-Control ownership is monotonic during Final Approach: camera tracking may hand
-off to LiDAR exactly once, and camera evidence cannot reclaim control afterward.
+The stage-camera profile's common apple, banana, and pear closeout: three fresh
+centered near-geometry samples establish Final Approach, Woof continues at the
+close-range speed until the qualified track exits the lower camera edge, then
+executes one bounded 0.6 m/s, 1.0 second final push and stops. Stale evidence,
+wrong identity/generation, camera failure, off-axis loss, or unqualified loss
+cannot establish Arrival. The experimental metric/LiDAR profile remains a
+separate fail-closed mode and is not enabled by the stage descriptor.
 _Avoid_: Fruit contact, fruit disappearance
 
 **Demo Run**:

@@ -1,13 +1,13 @@
 {
   "appId": "border-collie-demo",
-  "version": "1.0.17-durability",
+  "version": "1.0.18-stage-camera",
   "services": {
     "app": {
       "context": ".",
       "env": {
         "BORDER_COLLIE_PORT": "8110",
-        "BORDER_COLLIE_BUILD_LABEL": "durability-foundation-v14-monotonic-lidar-handoff (codex/durability-approach-cadence)",
-        "BORDER_COLLIE_RELEASE_ID": "durability-foundation-v14-monotonic-lidar-handoff",
+        "BORDER_COLLIE_BUILD_LABEL": "stage-camera-v15-base-compatible-arrival (codex/stage-camera-three-fruit)",
+        "BORDER_COLLIE_RELEASE_ID": "stage-camera-v15-base-compatible-arrival",
         "BORDER_COLLIE_CONFIG_SCHEMA": "2",
         "BORDER_COLLIE_RUNTIME_MODE": "production",
         "BORDER_COLLIE_HARDWARE_ENABLED": "1",
@@ -43,7 +43,8 @@
         "BORDER_COLLIE_ARRIVAL_CLEARANCE_M": "0.4572",
         "BORDER_COLLIE_ARRIVAL_CLEARANCE_TOLERANCE_M": "0.0508",
         "BORDER_COLLIE_RANGE_MAXIMUM_AGE_S": "0.30",
-        "BORDER_COLLIE_LIDAR_HANDOFF_ENABLED": "1",
+        "BORDER_COLLIE_METRIC_ARRIVAL_REQUIRED": "0",
+        "BORDER_COLLIE_LIDAR_HANDOFF_ENABLED": "0",
         "BORDER_COLLIE_LIDAR_FRONT_ENVELOPE_M": "0.30",
         "BORDER_COLLIE_LIDAR_MAXIMUM_AGE_S": "0.30",
         "BORDER_COLLIE_LIDAR_MAXIMUM_HANDOFF_S": "2.0",
@@ -65,7 +66,7 @@
       "context": "./media",
       "env": {
         "UNITREE_ROBOT_IP": "192.168.123.161",
-        "BORDER_COLLIE_RELEASE_ID": "durability-foundation-v14-monotonic-lidar-handoff",
+        "BORDER_COLLIE_RELEASE_ID": "stage-camera-v15-base-compatible-arrival",
         "BORDER_COLLIE_CONFIG_SCHEMA": "2",
         "PEAR_MODEL_PATH": "/media/model.engine",
         "BANANA_SPECIALIST_MODEL_PATH": "/media/banana-specialist.pt",

@@ -389,3 +389,66 @@ Known motion-quality follow-ups:
   revalidate against `benchmarks/results/supervised-three-run-2026-08-08.json`
 
 Evidence: `benchmarks/results/supervised-three-run-2026-08-08.json`.
+
+## STAGE-CAMERA-V15-PEAR-RUN-2026-08-11 — failed at heading restoration
+
+- Run: `7b5cfd93-7359-4f4c-908e-9b791e0bde93`
+- Build: `codex/stage-camera-three-fruit` at `c6f70eb`, deployed with runtime
+  label `stage-camera-v15-base-compatible-arrival`
+- Deployment: complete root and media Stagefiles through `wendy run --detach`;
+  134.524 seconds; matching app/media release identities; readiness and disarm
+  verified before activation
+- Approach: pear acquired and centered; 25 qualified close-range samples; no
+  discontinuity or stale-frame stop; confidence-collapse Arrival with filtered
+  center `0.4818`; exactly one configured final-push episode at `0.6 m/s` for
+  `1.0 s`
+- Audience action: Arrival, stand-down, bark, five-second hold, and stand-up all
+  completed
+- Return translation: all seven breadcrumb targets reached; return stage
+  stopped at `0.07946 m`, inside the `0.10 m` Home gate
+- Failure: heading restoration then moved the measured Home distance to
+  `0.124 m`, producing `RETURN_HOME_FAILURE` in `restore_heading`
+- Safety: `DISARMED_CONFIRMED`, no active run or recovery, zero released motion
+  command, and 73% battery after the run
+- Evidence: bounded flight-recorder, evidence archive, and terminal frame were
+  retained. Telemetry proves the control sequence but does not establish the
+  physical fruit clearance; that remains an operator-observation field.
+
+Meaning: the stage-camera change repaired the previously failing fruit-facing
+path for this run. The current blocker moved to the Home-heading contract:
+heading restoration must preserve the already-achieved position gate rather
+than rotating until translation drifts outside it. One run is not repeatability
+evidence, and this checkpoint is not qualified.
+
+Compact evidence: `benchmarks/results/stage-camera-v15-pear-run-2026-08-11.json`.
+
+## STAGE-CAMERA-V15-PEAR-RUN-2-2026-08-11 — Arrival timed out
+
+- Run: `bce852b0-8645-46b4-9d26-dedcb6cb81a4`
+- Runtime: unchanged `stage-camera-v15-base-compatible-arrival`; live gates
+  passed at 72% battery before the single activation
+- Tracking: acquired and initially centered the pear; reached 39 qualified
+  samples, 32 close-range samples, 13 close-handoff-centered samples, filtered
+  center `0.5198`, and maximum lower edge `0.9972`
+- Interruption: nine weak samples, two stale samples, and later missing
+  detections stopped motion. The tracker retained `visible_geometry` as its
+  prior Arrival mode but never qualified the terminal loss, so the final push
+  was not authorized
+- Result: `FAILED / ARRIVAL_FAILURE` after 24.759 seconds; no sit/bark, return,
+  or failed-run Home recovery occurred
+- Terminal state: `DISARMED_CONFIRMED`, no active run or recovery, motion
+  released, and 71% battery
+- Position: the final fresh pose was approximately `1.656 m` from this run's
+  captured Home. This is a derived odometry distance, not a successful recovery
+  measurement
+- Evidence: the flight recorder, evidence archive, and terminal frame were
+  retained
+
+Meaning: the first v15 run showed that the final push can execute, while the
+second showed that close-range weak/stale evidence still has a state-transition
+hole: it can invalidate bounded loss Arrival and then wait at zero motion until
+the overall approach timeout. The failure choreography also did not start the
+requested Home recovery path. Both issues block a consecutive soak.
+
+Compact evidence:
+`benchmarks/results/stage-camera-v15-pear-run-2-2026-08-11.json`.

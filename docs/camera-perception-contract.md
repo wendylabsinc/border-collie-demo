@@ -163,7 +163,15 @@ may be relaxed only after new acceptance evidence is recorded.
   samples; its vertical center and lower edge may retreat by at most 0.08.
   This rule cannot acquire an apple or accept a label change.
 - Near-fruit geometry slows motion and establishes close-range track memory.
-  Image geometry enters Final Approach but cannot establish metric Arrival.
+  In the deployed stage-camera profile, apple, banana, and pear share the same
+  geometry thresholds. Three fresh centered near samples enter Final Approach;
+  a qualified lower-edge loss within the grace window authorizes exactly one
+  0.6 m/s, 1.0 second final push before the mandatory stop. Duplicate weak
+  close frames may hold the last fresh command but cannot advance counters.
+  Stale, wrong-label/generation, off-axis, or unhealthy-camera evidence stops
+  immediately.
+- The optional metric profile instead treats image geometry only as entry to
+  Final Approach and uses the following one-way handoff contract.
   Camera-to-LiDAR handoff requires the last three fresh filtered centers to
   remain within 0.08 of frame center. The final camera center is converted to a
   body-frame bearing using the calibrated horizontal field of view; post-loss

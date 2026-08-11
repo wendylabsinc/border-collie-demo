@@ -7,6 +7,15 @@ This repository intentionally does not import from the original `collie-demo`
 application. The old repository remains useful as test evidence and a hardware
 reference, but it is not a runtime dependency.
 
+## Project lineage
+
+The demo has progressed through a physically validated base lane, a randomized
+soak/recovery lane, an integrated durability lane, and the current stage-camera
+candidate. Several other worktrees are parallel source, tooling, or research
+lanes rather than later demo versions. See
+[Demo and worktree progression](docs/worktree-progression.md) for the branch,
+PR, integration, deployment, and physical-evidence map.
+
 ## Intended routine
 
 1. Verify the advancing camera source, perception service, pose, motion, media,
@@ -14,8 +23,8 @@ reference, but it is not a runtime dependency.
 2. Confirm that Woof is facing the person. This is initially an operator setup
    requirement rather than autonomous person detection.
 3. Capture a stable Home position and heading.
-4. Choose Pear or Red apple from the audience UI's qualified-fruit list, then
-   use the single **Activate Demo** control.
+4. Choose apple, banana, or pear from the audience UI, then use the single
+   **Activate Demo** control.
 5. **Conditional search:** if fresh qualified evidence already shows the
    requested fruit, do not perform the initial rotation. Record the
    turn/search stages as conditionally skipped and proceed directly to approach
@@ -29,14 +38,14 @@ reference, but it is not a runtime dependency.
    center for three fresh samples. Once approach begins, moderate corrections
    combine forward motion with proportional yaw. Track reacquisition does not
    repeat yaw-only centering unless the fruit is more than 25% off center.
-7. Near-fruit geometry slows the approach. Fresh continuous geometry may
-   confirm visible Arrival; a track already proven close may also confirm
-   Arrival when it disappears through the lower camera edge within the bounded
-   sight-loss grace period. Sight loss always commands zero motion.
+7. Near-fruit geometry slows the approach. Three fresh centered near samples
+   establish Final Approach for apple, banana, and pear. Woof continues at the
+   close speed until the qualified track exits through the lower camera edge,
+   then performs one bounded 0.6 m/s, 1.0 second final push and stops.
 8. First turn at a fixed 1.00 rad/s until the Target Fruit is within the middle
    10% of the camera, then hold zero yaw for three fresh centered samples. After
-   qualified visible or sight-lost-close Arrival, stop without a blind final
-   push, lie down, bark, and remain down for 5 seconds.
+   qualified sight-lost-close Arrival, complete the bounded final push, lie
+   down, bark, and remain down for 5 seconds.
 9. Stand, turn toward Home, follow sparse outbound pose breadcrumbs in reverse,
    and restore the original heading. The recorded heartbeat count remains a
    translation budget. Fresh fused pose remains the authority for the 10 cm
@@ -211,7 +220,7 @@ only while fresh observations remain spatially continuous: its horizontal
 center cannot jump by more than 0.20 of the frame, its lower edge or vertical
 center cannot retreat by more than 0.08, and its box area cannot collapse by
 more than 35 percent between samples. This rule cannot acquire an apple. The
-approach slows near the fruit and confirms Arrival without a blind final push;
+approach slows near the fruit and uses the shared bounded final-push contract;
 stale frames, duplicate frames, identity changes, or discontinuous geometry
 produce zero-motion recommendations. A same-fruit discontinuity preserves the
 completed initial-centering gate: two fresh samples confirm reacquisition at
@@ -379,12 +388,13 @@ acceptance values and no frame archive or event journal.
 Run the multi-service deployment directly from the repository root:
 
 ```bash
-cd /Users/olivertaylor/Documents/Wendy/border-collie-demo-durability-cadence
+cd /Users/olivertaylor/Documents/Wendy/border-collie-demo-stage-camera
 wendy run --detach --device 192.168.0.107
 ```
 
-This is the canonical deployment command for Woof. Do not use `docker build`,
-pass `--dockerfile`, or wrap the command with DLO for a normal deployment.
+This is the current stage-candidate deployment command for Woof. Confirm the
+branch and commit against [the progression map](docs/worktree-progression.md)
+before running it. Do not use `docker build` or pass `--dockerfile`.
 
 The root app and `media` service each have a committed `build.stagefile.yaml`
 and digest-pinned lockfile. A Stagefile-capable Wendy CLI selects both

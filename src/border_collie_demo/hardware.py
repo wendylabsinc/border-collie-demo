@@ -1039,14 +1039,63 @@ class HardwareManager:
                         == "lidar_handoff"
                     )
 
-                    arrival_confirmed = (
-                        decision.recommendation is MotionRecommendation.ARRIVAL
-                        and not metric_arrival_required
-                    ) or (
+                    camera_arrival_confirmed = bool(
+                        not metric_arrival_required
+                        and decision.recommendation is MotionRecommendation.ARRIVAL
+                        and decision.reason != "qualified_visible_arrival"
+                    )
+                    arrival_confirmed = camera_arrival_confirmed or (
                         metric_decision is not None
                         and metric_decision.action is MetricArrivalAction.ARRIVAL
                     )
                     if arrival_confirmed:
+                        camera_final_push_count = 0
+                        if camera_arrival_confirmed:
+                            push_deadline = time.monotonic() + final_push_duration_s
+                            while time.monotonic() < push_deadline:
+                                push_status = status_reader()
+                                self._record_perception_sample(
+                                    push_status,
+                                    target_fruit,
+                                )
+                                if not push_status.get("camera_healthy"):
+                                    last_authorized_command = (
+                                        await self._send_motion_command(
+                                            lease,
+                                            VelocityCommand(
+                                                reason=(
+                                                    "camera_final_push_unhealthy"
+                                                )
+                                            ),
+                                        )
+                                    )
+                                    raise CameraFailure(
+                                        str(
+                                            push_status.get("detail")
+                                            or "camera became unhealthy during final push"
+                                        )
+                                    )
+                                last_authorized_command = (
+                                    await self._send_motion_command(
+                                        lease,
+                                        VelocityCommand(
+                                            final_push_mps,
+                                            0.0,
+                                            "camera_final_push",
+                                        ),
+                                    )
+                                )
+                                forward_pulse_count += 1
+                                commands_sent = True
+                                remaining = push_deadline - time.monotonic()
+                                if remaining > 0.0:
+                                    await asyncio.sleep(
+                                        min(
+                                            self.config.command_heartbeat_s,
+                                            remaining,
+                                        )
+                                    )
+                            camera_final_push_count = 1
                         last_authorized_command = await self._send_motion_command(
                             lease,
                             VelocityCommand(reason="qualified_arrival_stop"),
@@ -1067,12 +1116,14 @@ class HardwareManager:
                             "near_confirmations": last_decision_evidence.get(
                                 "near_samples", 0
                             ),
-                            # Kept for result-schema compatibility. Mature
-                            # tracking deliberately never moves after sight loss.
                             "close_range_mps": close_range_mps,
                             "final_push_mps": final_push_mps,
                             "final_push_duration_s": final_push_duration_s,
-                            "final_push_count": metric_final_approach_pulses,
+                            "final_push_count": (
+                                metric_final_approach_pulses
+                                if metric_arrival_required
+                                else camera_final_push_count
+                            ),
                             "initial_center_confirmations": (
                                 INITIAL_CENTER_CONFIRMATIONS
                             ),
@@ -1221,10 +1272,9 @@ class HardwareManager:
                         if decision.recommendation is MotionRecommendation.SLOW
                         else "approach_target"
                     )
-                    if (
-                        metric_arrival_required
-                        and decision.recommendation is MotionRecommendation.ARRIVAL
-                        and (
+                    if decision.recommendation is MotionRecommendation.ARRIVAL and (
+                        not metric_arrival_required
+                        or (
                             self._metric_range_provider is not None
                             or (
                                 metric_decision is not None
@@ -1239,7 +1289,8 @@ class HardwareManager:
                             if metric_decision is None
                             else "metric_final_approach"
                         )
-                        metric_final_approach_pulses += 1
+                        if metric_arrival_required:
+                            metric_final_approach_pulses += 1
                     last_authorized_command = await self._send_motion_command(
                         lease,
                         VelocityCommand(
@@ -1956,6 +2007,7 @@ class HardwareManager:
                 ),
                 "latest": self._continuous_fusion_latest,
             },
+            "metric_arrival_required": self.config.metric_arrival_required,
             "metric_arrival": metric_arrival,
             "last_pulse": self._last_pulse,
         }

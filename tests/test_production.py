@@ -64,10 +64,11 @@ def context(
     *,
     outbound_forward_pulses: int = 0,
     orientation_degrees: float = 0.0,
+    target_fruit: str = "pear",
 ) -> StageContext:
     return StageContext(
         run_id="run-1",
-        target_fruit="pear",
+        target_fruit=target_fruit,
         home={"x_m": 0.0, "y_m": 0.0, "yaw_rad": 0.0},
         orientation_degrees=orientation_degrees,
         outbound_forward_pulses=outbound_forward_pulses,
@@ -284,12 +285,41 @@ def test_approach_pins_full_and_close_range_speeds_independently() -> None:
             "near_confirmations": 3,
             "near_loss_grace_s": 0.75,
             "close_range_mps": 0.55,
-            "final_push_mps": 1.0,
+            "final_push_mps": 0.6,
             "final_push_duration_s": 1.0,
             "timeout_s": 20.0,
             "metric_arrival_required": True,
         }
         assert evidence["arrival_confirmed"] is True
+
+    asyncio.run(scenario())
+
+
+def test_stage_camera_profile_uses_one_shared_arrival_contract() -> None:
+    async def scenario() -> None:
+        for fruit in ("apple", "banana", "pear"):
+            hardware = FakeProductionHardware()
+            stages = ProductionStageExecutor(
+                hardware,
+                lambda: {"ready": True},
+                FakeBark(),
+                metric_arrival_required=False,
+            )
+
+            await stages.execute(
+                MissionPhase.APPROACH_FRUIT,
+                context(target_fruit=fruit),
+            )
+
+            _, _, called_fruit, options = hardware.calls[0]
+            assert called_fruit == fruit
+            assert options["near_bottom_ratio"] == 0.86
+            assert options["near_center_ratio"] == 0.72
+            assert options["near_confirmations"] == 3
+            assert options["near_loss_grace_s"] == 0.75
+            assert options["final_push_mps"] == 0.6
+            assert options["final_push_duration_s"] == 1.0
+            assert options["metric_arrival_required"] is False
 
     asyncio.run(scenario())
 

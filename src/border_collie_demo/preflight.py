@@ -76,7 +76,9 @@ def evaluate_preflight(
             }
         )
     metric_arrival = hardware.get("metric_arrival")
-    if isinstance(metric_arrival, dict):
+    if hardware.get("metric_arrival_required", True) and isinstance(
+        metric_arrival, dict
+    ):
         checks.append(
             {
                 "name": "metric_arrival_calibrated",

@@ -54,7 +54,7 @@ def test_production_runtime_wires_the_real_stage_executor(
         def camera_frame():
             return b"\xff\xd8preview\xff\xd9"
 
-    def stages(hardware, perception, bark):
+    def stages(hardware, perception, bark, **_options):
         created.append((hardware, perception, bark))
         return SimulatedStageExecutor()
 

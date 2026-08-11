@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "recorded_date": "2026-08-11",
+  "branch": "codex/stage-camera-three-fruit",
+  "commit": "c6f70eb9278b7ad0fb2b3188e5def08ffb3424ee",
+  "runtime_release_id": "stage-camera-v15-base-compatible-arrival",
+  "run_id": "7b5cfd93-7359-4f4c-908e-9b791e0bde93",
+  "target_fruit": "pear",
+  "outcome": "FAILED",
+  "reason": "RETURN_HOME_FAILURE",
+  "failed_phase": "restore_heading",
+  "duration_s": 37.274983393000184,
+  "final_safety_state": "DISARMED_CONFIRMED",
+  "deployment": {
+    "complete_stagefile_services": [
+      "app",
+      "media"
+    ],
+    "command": "wendy run --detach",
+    "duration_s": 134.524,
+    "matching_release_identities": true,
+    "activation_ready_before_run": true,
+    "motion_disarmed_before_run": true
+  },
+  "approach": {
+    "completed": true,
+    "arrival_mode": "confidence_collapse_at_close_range",
+    "filtered_center_x_ratio": 0.48181733218842937,
+    "qualified_samples": 25,
+    "close_range_samples": 25,
+    "close_handoff_centered_samples": 25,
+    "near_samples": 1,
+    "stale_samples": 0,
+    "discontinuity_stops": 0,
+    "duplicate_samples": 10,
+    "close_range_mps": 0.55,
+    "final_push_mps": 0.6,
+    "final_push_duration_s": 1.0,
+    "final_push_count": 1,
+    "physical_clearance_observed_m": null
+  },
+  "audience_action": {
+    "stand_down_completed": true,
+    "bark_played": true,
+    "down_hold_s": 5.0,
+    "stand_up_completed": true
+  },
+  "home": {
+    "arrival_gate_m": 0.1,
+    "return_stage_distance_m": 0.07945835788676245,
+    "planned_breadcrumbs": 7,
+    "reached_breadcrumbs": 7,
+    "restore_heading_abort_distance_m": 0.124,
+    "position_gate_preserved_during_heading_restore": false
+  },
+  "terminal": {
+    "active_run": false,
+    "active_recovery": false,
+    "motion_armed": false,
+    "battery_percent": 73,
+    "retained_artifacts": [
+      {
+        "filename": "flight-recorder.ndjson",
+        "size_bytes": 6070256,
+        "sha256": "056bebc13509476d3884107c87e46fcd2e9f8380e55b4287773c7f728e77f135"
+      },
+      {
+        "filename": "evidence.zip",
+        "size_bytes": 3482001,
+        "sha256": "ceadab5ce42d560b6c82186c3e52eb9f4372416d0532ee4836a90d8533537c94"
+      },
+      {
+        "filename": "terminal.jpg",
+        "size_bytes": 77828,
+        "sha256": "d296f93f2c797fcb234044b47224a25ead0bf950d8124cf692f6eb3b8d4cd23c"
+      }
+    ]
+  },
+  "qualification": {
+    "physically_executed": true,
+    "qualified": false,
+    "remaining_blocker": "Heading restoration displaced Woof outside the 0.10 m Home gate after return translation had succeeded."
+  }
+}
