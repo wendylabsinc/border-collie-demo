@@ -76,6 +76,16 @@ class RecoveryHardwareBoundary(ReadyHardwareBoundary):
             }
         ]
 
+    def status(self) -> dict[str, object]:
+        status = super().status()
+        status["continuous_home_fusion"] = {
+            "running": True,
+            "consecutive_trusted_samples": 4,
+            "latest_age_s": 0.01,
+            "latest": {"trusted": True},
+        }
+        return status
+
     async def turn_toward_home(self, home, **options):
         self.calls.append(("turn_toward_home", home, options))
         return {
@@ -617,7 +627,7 @@ def test_failed_run_recovery_uses_saved_home_and_failed_approach_trace(
         async def execute(self, phase, context):
             if phase is MissionPhase.APPROACH_FRUIT:
                 raise StageFailure(
-                    "ARRIVAL_FAILURE",
+                    "TARGET_LOST",
                     "qualified pear Arrival timed out",
                     details={
                         "motion_commands": [
@@ -683,7 +693,7 @@ def test_failed_run_recovery_uses_saved_home_and_failed_approach_trace(
     )
     assert duplicate.status_code == 409
     assert recovered_run["outcome"] == "FAILED"
-    assert recovered_run["reason"] == "ARRIVAL_FAILURE"
+    assert recovered_run["reason"] == "TARGET_LOST"
     assert "events" in recovered_run
     assert "stage_results" in recovered_run
     assert "failure_details" in recovered_run
@@ -783,6 +793,77 @@ def test_off_axis_failure_lies_down_then_returns_home_automatically(
     assert status["hardware"]["motion"]["armed"] is False
 
 
+def test_arrival_failure_lies_down_then_returns_home_automatically(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    class ArrivalFailureStages(SimulatedStageExecutor):
+        async def execute(self, phase, context):
+            if phase is MissionPhase.APPROACH_FRUIT:
+                raise StageFailure(
+                    "ARRIVAL_FAILURE",
+                    "qualified close approach could not confirm Arrival",
+                    details={
+                        "motion_commands": [
+                            {
+                                "sequence": sequence,
+                                "phase": "approach_fruit",
+                                "forward_mps": 0.55,
+                                "yaw_rps": 0.0,
+                                "reason": "visual_close_until_sight_loss",
+                            }
+                            for sequence in range(1, 4)
+                        ]
+                    },
+                )
+            return await super().execute(phase, context)
+
+    monkeypatch.setattr("border_collie_demo.recovery.FAILURE_DOWN_HOLD_S", 0.0)
+    hardware = FailureChoreographyHardwareBoundary()
+    with TestClient(
+        create_app(
+            runs_root=tmp_path,
+            hardware=hardware,
+            camera_perception_status=ready_camera_perception,
+            stage_executor=ArrivalFailureStages(),
+        )
+    ) as client:
+        run_id = client.post("/api/run", json={"target_fruit": "pear"}).json()[
+            "run"
+        ]["run_id"]
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            run = client.get(f"/api/results/{run_id}").json()["run"]
+            attempts = run.get("recovery_attempts") or []
+            if attempts and attempts[0]["outcome"] is not None:
+                break
+            time.sleep(0.01)
+
+    assert run["outcome"] == "FAILED"
+    assert run["reason"] == "ARRIVAL_FAILURE"
+    attempt = run["recovery_attempts"][0]
+    assert attempt["outcome"] == "COMPLETED"
+    assert attempt["reason"] == "HOME_POSITION_RECOVERED"
+    assert [step["step"] for step in attempt["steps"]] == [
+        "failure_posture_down",
+        "failure_posture_hold",
+        "failure_posture_stand",
+        "preflight",
+        "turn_toward_home",
+        "return_home",
+    ]
+    assert all(
+        step["evidence"].get("bark_played") is not True
+        for step in attempt["steps"]
+    )
+    assert [call[0] for call in hardware.calls] == [
+        "stand_down",
+        "stand_up",
+        "turn_toward_home",
+        "return_home",
+    ]
+
+
 def test_active_recovery_blocks_activation_and_operator_stop_seals_it(
     tmp_path,
 ) -> None:
@@ -790,7 +871,7 @@ def test_active_recovery_blocks_activation_and_operator_stop_seals_it(
         async def execute(self, phase, context):
             if phase is MissionPhase.APPROACH_FRUIT:
                 raise StageFailure(
-                    "ARRIVAL_FAILURE",
+                    "TARGET_LOST",
                     "arrival timed out",
                     details={
                         "motion_commands": [

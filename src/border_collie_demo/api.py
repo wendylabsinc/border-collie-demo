@@ -107,9 +107,19 @@ def create_app(
             }
 
     active_tasks: set[asyncio.Task[dict[str, object]]] = set()
-    recovery = FailedRunHomeRecovery(robot, results)
+    recovery = FailedRunHomeRecovery(
+        robot,
+        results,
+        automatic_recovery_guard=lambda: (
+            "physical remote takeover is latched; automatic recovery is forbidden"
+            if machine.takeover_latched
+            else None
+        ),
+    )
+
     def capture_terminal_bundle() -> list[EvidenceArtifact]:
         return terminal_evidence_bundle(recorder, terminal_evidence)
+
     orchestrator = (
         None
         if stage_executor is None

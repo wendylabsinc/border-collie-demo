@@ -231,11 +231,15 @@ tracking hysteresis above may extend an already-acquired track; otherwise
 camera-guided motion stops and the approach contract decides whether bounded
 reacquisition is allowed or the run terminates as target loss.
 
-`TARGET_LOST_OFF_AXIS` is a Recoverable Failure only after zero motion and
-disarm are confirmed. Its automatic correction preserves the original Home,
-records terminal perception evidence, lies down without barking, stands, waits
-for trusted continuous Home fusion, and performs the bounded position-only
-Home recovery. It does not convert the failed fruit attempt into success.
+`TARGET_LOST_OFF_AXIS` and an `ARRIVAL_FAILURE` from the approach phase are
+Recoverable Failures only after zero motion and disarm are confirmed. Their
+automatic correction preserves the original Home, records terminal perception
+evidence, lies down without barking, stands, waits for three fresh trusted
+continuous Home-fusion samples, and performs one bounded position-only Home
+recovery. Camera failure, Remote Takeover, stale or untrusted Home/pose/fusion,
+missing or excessive outbound pulse evidence, hardware faults, active motion,
+and unconfirmed posture or stop results cannot authorize translation. Recovery
+never converts the failed fruit attempt into success.
 
 ## Evidence and remaining qualification
 

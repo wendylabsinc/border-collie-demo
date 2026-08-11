@@ -28,6 +28,7 @@ main (clean scaffold)
   -> codex/stage-camera-three-fruit          PR #6
   -> codex/stage-camera-final-approach-latch
   -> codex/stage-camera-bottom-clip-closeout
+  -> codex/stage-camera-v18-closeout-recovery
 ```
 
 | Checkpoint | Purpose | Evidence status |
@@ -42,6 +43,8 @@ main (clean scaffold)
 | `codex/stage-camera-three-fruit` | Keeps PR #5's durability/recovery work while restoring a base-compatible camera closeout shared by apple, banana, and pear. | Open stacked PR #6. Commit `7a4686f` supplied the runtime change and `c6f70eb` added this lineage map; the latter was deployed with the same `stage-camera-v15-base-compatible-arrival` runtime identity. Two supervised pear runs have executed: run one completed the fruit/audience path but failed heading restoration after Home distance grew from 0.079 m to 0.124 m; run two reached centered close geometry but weak/stale/missing evidence prevented final-push authorization and timed out without automatic Home recovery. It is physically executed but not qualified. |
 | `codex/stage-camera-final-approach-latch` | Repairs the v15 closeout state-transition hole with a bounded, one-way Final Approach latch while leaving the metric/LiDAR profile unchanged. | Deterministic replay of run `bce852b0-8645-46b4-9d26-dedcb6cb81a4` reaches one terminal camera final-push authorization instead of waiting for the overall timeout. Negative tests keep stale/frozen, wrong-label/generation, off-axis, invalid, unhealthy, and expired evidence fail-closed. This checkpoint is not physically qualified. |
 | `codex/stage-camera-bottom-clip-closeout` | Specializes the latched camera closeout for a centered pear box shrinking as it clips out through the lower image edge. | Deterministic tracker and hardware replays of run `acfdb493-0afd-46e9-bff5-ee6caf8f152e` stop on the first qualifying area retreat and authorize one configured final push only after a second fresh advancing loss sample. The global 35% continuity limit remains unchanged, and non-bottom, off-axis, stale, duplicate, wrong-label/generation, invalid, unhealthy, and expired evidence remain fail-closed. This checkpoint is not physically qualified. |
+| `codex/stage-camera-arrival-failure-home-recovery` | Extends the existing one-shot, no-bark failed-run recovery to eligible `ARRIVAL_FAILURE` outcomes with fresh Home, pose, fusion, disarm, motion-release, pulse-budget, posture, and takeover gates. | Parallel source lane derived from v16 at `5882aeb`; its implementation is integrated into the combined v18 checkpoint rather than merged independently into the progression. |
+| `codex/stage-camera-v18-closeout-recovery` | Combines the bottom-clipped Final Approach closeout and automatic eligible Arrival-failure Home recovery. | Integration checkpoint derived from the deployed/readiness-verified v17 branch. Software and deployment evidence are recorded separately; physical closeout and recovery behavior remain unqualified until supervised execution. |
 
 PR #6 is based on PR #5, and PR #5 is based on `demo/base`. This keeps each
 review focused without pretending the latest stage candidate is already merged

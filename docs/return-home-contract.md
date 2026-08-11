@@ -102,13 +102,23 @@ The recovery is separate from the terminal mission: the original run remains
 `FAILED`, no new Home is captured, and the failed mission stages are not
 resumed.
 
-`TARGET_LOST_OFF_AXIS` starts this recovery automatically after terminal
-evidence and confirmed disarm. The recovery record is persisted before the
-failure action. Woof lies down without barking, holds for five seconds, stands,
-and requires the existing continuous-fusion readiness gate before turning
-toward Home. Pose, motion, posture, or stop failures remain fail-closed and do
-not attempt translation. Other failed-run reasons retain the explicit recovery
-endpoint.
+`TARGET_LOST_OFF_AXIS` and `ARRIVAL_FAILURE` from `approach_fruit` start this
+recovery automatically only after the original Run Result records
+`DISARMED_CONFIRMED`. Before the failure action, the recovery decision is
+persisted and rechecks a fresh captured Home, fresh trusted current pose,
+enabled autonomy, no hardware fault or active operation, a released/disarmed
+motion owner, no Remote Takeover, and between one and 200 recorded forward
+approach heartbeats. Woof lies down without barking, holds for five seconds,
+stands, verifies both posture results, and then requires at least three fresh
+trusted continuous-fusion samples before turning toward Home.
+
+An unsafe or ambiguous automatic candidate is sealed separately as
+`FAILED / AUTOMATIC_RECOVERY_SKIPPED` without translation. A stop, posture, or
+controller failure is `FAILED / RECOVERY_FAILURE`. Every exit requests zero,
+checks disarm, and preserves the original failed Run Result. Automatic recovery
+is one-shot: an existing recovery record prevents a second automatic attempt.
+Other failed-run reasons do not enter this path; camera failure and Remote
+Takeover remain stopped.
 
 The API persists the recovery record before motion, returns `202 Accepted`, and
 runs recovery asynchronously so a client disconnect cannot cause an ambiguous
