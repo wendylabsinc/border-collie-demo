@@ -6,6 +6,11 @@ layer becomes an integration dependency.
 
 ## Worktrees
 
+For the full current lineage, stacked PR structure, integrated commit mapping,
+and parallel experiment lanes, see [Demo and worktree
+progression](worktree-progression.md). This section describes the original
+durability decomposition.
+
 - Primary integration: `codex/extreme-durability-foundation` in
   `border-collie-demo-durability`.
 - Mature Target Fruit tracking: `codex/durability-qualified-tracking` in
@@ -15,10 +20,13 @@ layer becomes an integration dependency.
 - media supervision: `codex/durability-service-supervision` in
   `border-collie-demo-durability-supervision`.
 
-The three derived branches start at foundation commit `7acdc71`. Changes are
-integrated deliberately by commit after their interface tests and full suites
-pass. Physical-run artifacts in the original checkout stay untracked and are
-never copied into these worktrees.
+The three original derived branches started at foundation commit `7acdc71`.
+Their qualified tracking, Home localization, and supervision changes were
+integrated deliberately into PR #5 under new commit hashes after their
+interface tests and full suites passed. The source branches therefore do not
+appear as direct ancestors of the current stage branch. Physical-run artifacts
+in the original checkout stay untracked and are never copied into these
+worktrees.
 
 ## Layer order
 
