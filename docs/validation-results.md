@@ -421,3 +421,34 @@ than rotating until translation drifts outside it. One run is not repeatability
 evidence, and this checkpoint is not qualified.
 
 Compact evidence: `benchmarks/results/stage-camera-v15-pear-run-2026-08-11.json`.
+
+## STAGE-CAMERA-V15-PEAR-RUN-2-2026-08-11 — Arrival timed out
+
+- Run: `bce852b0-8645-46b4-9d26-dedcb6cb81a4`
+- Runtime: unchanged `stage-camera-v15-base-compatible-arrival`; live gates
+  passed at 72% battery before the single activation
+- Tracking: acquired and initially centered the pear; reached 39 qualified
+  samples, 32 close-range samples, 13 close-handoff-centered samples, filtered
+  center `0.5198`, and maximum lower edge `0.9972`
+- Interruption: nine weak samples, two stale samples, and later missing
+  detections stopped motion. The tracker retained `visible_geometry` as its
+  prior Arrival mode but never qualified the terminal loss, so the final push
+  was not authorized
+- Result: `FAILED / ARRIVAL_FAILURE` after 24.759 seconds; no sit/bark, return,
+  or failed-run Home recovery occurred
+- Terminal state: `DISARMED_CONFIRMED`, no active run or recovery, motion
+  released, and 71% battery
+- Position: the final fresh pose was approximately `1.656 m` from this run's
+  captured Home. This is a derived odometry distance, not a successful recovery
+  measurement
+- Evidence: the flight recorder, evidence archive, and terminal frame were
+  retained
+
+Meaning: the first v15 run showed that the final push can execute, while the
+second showed that close-range weak/stale evidence still has a state-transition
+hole: it can invalidate bounded loss Arrival and then wait at zero motion until
+the overall approach timeout. The failure choreography also did not start the
+requested Home recovery path. Both issues block a consecutive soak.
+
+Compact evidence:
+`benchmarks/results/stage-camera-v15-pear-run-2-2026-08-11.json`.

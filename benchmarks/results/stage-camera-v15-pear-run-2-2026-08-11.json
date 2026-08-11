@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "recorded_date": "2026-08-11",
+  "branch": "codex/stage-camera-three-fruit",
+  "runtime_release_id": "stage-camera-v15-base-compatible-arrival",
+  "run_id": "bce852b0-8645-46b4-9d26-dedcb6cb81a4",
+  "target_fruit": "pear",
+  "outcome": "FAILED",
+  "reason": "ARRIVAL_FAILURE",
+  "failed_phase": "approach_fruit",
+  "duration_s": 24.75875800699987,
+  "final_safety_state": "DISARMED_CONFIRMED",
+  "preflight": {
+    "battery_percent": 72,
+    "matching_release_identities": true,
+    "activation_ready": true,
+    "motion_disarmed": true
+  },
+  "approach": {
+    "completed": false,
+    "terminal_tracking_reason": "detection_missing",
+    "prior_arrival_mode": "visible_geometry",
+    "track_acquired": true,
+    "initial_centered": true,
+    "filtered_center_x_ratio": 0.5198023884545506,
+    "qualified_samples": 39,
+    "close_range_samples": 32,
+    "close_handoff_centered_samples": 13,
+    "near_samples_at_timeout": 0,
+    "weak_samples": 9,
+    "stale_samples": 2,
+    "duplicate_samples": 14,
+    "discontinuity_stops": 0,
+    "maximum_bottom_ratio": 0.9972222222222222,
+    "minimum_observed_tracking_confidence": 0.613236665725708,
+    "final_push_count": 0,
+    "failure_summary": "Weak and stale close-range evidence was followed by missing detections; motion stopped but bounded loss Arrival was never confirmed before the overall timeout."
+  },
+  "failure_choreography": {
+    "sit_and_bark_started": false,
+    "return_home_started": false,
+    "automatic_failed_run_recovery_started": false
+  },
+  "terminal": {
+    "active_run": false,
+    "active_recovery": false,
+    "motion_armed": false,
+    "battery_percent": 71,
+    "estimated_distance_from_captured_home_m": 1.6563325722735782,
+    "distance_source": "derived from final fresh Go2 odometry pose and captured Home",
+    "retained_artifacts": [
+      {
+        "filename": "flight-recorder.ndjson",
+        "size_bytes": 6550245,
+        "sha256": "0df16ae31ae1191bce4365dd00dc9f0851d7ca0bda3b11137b0a16d6153661ae"
+      },
+      {
+        "filename": "evidence.zip",
+        "size_bytes": 3940074,
+        "sha256": "7fef2937ac4cac439f663b6b3a20a5f945564e5dbc68e7040646308a411d1d74"
+      },
+      {
+        "filename": "terminal.jpg",
+        "size_bytes": 104388,
+        "sha256": "11560de1829a1366d0802523391d637427fbec7c71b3920b0c8547418ce0f6fb"
+      }
+    ]
+  },
+  "qualification": {
+    "physically_executed": true,
+    "qualified": false,
+    "remaining_blockers": [
+      "Close-range weak or stale evidence can prevent bounded loss Arrival and leave the controller stopped until timeout.",
+      "An approach failure did not automatically start failed-run Home recovery."
+    ]
+  }
+}
