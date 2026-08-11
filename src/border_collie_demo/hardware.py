@@ -855,6 +855,7 @@ class HardwareManager:
                         if target_fruit.casefold().strip() == "pear"
                         else None
                     ),
+                    final_approach_latch_enabled=not metric_arrival_required,
                 )
             )
             last_decision_evidence: dict[str, object] = {}

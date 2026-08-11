@@ -1,13 +1,13 @@
 {
   "appId": "border-collie-demo",
-  "version": "1.0.18-stage-camera",
+  "version": "1.0.19-stage-camera",
   "services": {
     "app": {
       "context": ".",
       "env": {
         "BORDER_COLLIE_PORT": "8110",
-        "BORDER_COLLIE_BUILD_LABEL": "stage-camera-v15-base-compatible-arrival (codex/stage-camera-three-fruit)",
-        "BORDER_COLLIE_RELEASE_ID": "stage-camera-v15-base-compatible-arrival",
+        "BORDER_COLLIE_BUILD_LABEL": "stage-camera-v16-final-approach-latch (codex/stage-camera-final-approach-latch)",
+        "BORDER_COLLIE_RELEASE_ID": "stage-camera-v16-final-approach-latch",
         "BORDER_COLLIE_CONFIG_SCHEMA": "2",
         "BORDER_COLLIE_RUNTIME_MODE": "production",
         "BORDER_COLLIE_HARDWARE_ENABLED": "1",
@@ -66,7 +66,7 @@
       "context": "./media",
       "env": {
         "UNITREE_ROBOT_IP": "192.168.123.161",
-        "BORDER_COLLIE_RELEASE_ID": "stage-camera-v15-base-compatible-arrival",
+        "BORDER_COLLIE_RELEASE_ID": "stage-camera-v16-final-approach-latch",
         "BORDER_COLLIE_CONFIG_SCHEMA": "2",
         "PEAR_MODEL_PATH": "/media/model.engine",
         "BANANA_SPECIALIST_MODEL_PATH": "/media/banana-specialist.pt",

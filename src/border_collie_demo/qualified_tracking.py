@@ -50,6 +50,8 @@ class QualifiedTrackingConfig:
     stationary_recenter_confirmations: int = 2
     close_handoff_center_ratio: float = 0.08
     close_handoff_center_confirmations: int = 3
+    final_approach_latch_enabled: bool = False
+    final_approach_loss_confirmations: int = 2
     close_recenter_enter_ratio: float = 0.12
     close_recenter_confirmations: int = 2
     maximum_vertical_retreat_ratio: float = 0.08
@@ -70,6 +72,7 @@ class QualifiedTrackingConfig:
         sight_loss_grace_s: float,
         slow_speed_scale: float,
         minimum_tracking_confidence: float | None = None,
+        final_approach_latch_enabled: bool = False,
     ) -> QualifiedTrackingConfig:
         policy: FruitPolicy = fruit_policy(target_fruit)
         configured_floor = (
@@ -98,6 +101,7 @@ class QualifiedTrackingConfig:
             near_confirmations=near_confirmations,
             sight_loss_grace_s=sight_loss_grace_s,
             slow_speed_scale=slow_speed_scale,
+            final_approach_latch_enabled=final_approach_latch_enabled,
         )
 
     def __post_init__(self) -> None:
@@ -131,6 +135,7 @@ class QualifiedTrackingConfig:
                 self.moving_steering_enter_confirmations,
                 self.stationary_recenter_confirmations,
                 self.close_handoff_center_confirmations,
+                self.final_approach_loss_confirmations,
                 self.close_recenter_confirmations,
             )
             < 1
@@ -226,6 +231,14 @@ class QualifiedFruitTracker:
         self._maximum_bottom_ratio = 0.0
         self._maximum_bbox_area_ratio = 0.0
         self._arrival_mode: str | None = None
+        self._final_approach_latched_at: float | None = None
+        self._final_approach_authority_at: float | None = None
+        self._final_approach_generation: str | None = None
+        self._final_approach_last_evidence_pts: int | None = None
+        self._final_approach_loss_samples = 0
+        self._final_approach_cancelled_reason: str | None = None
+        self._final_approach_completed = False
+        self._current_generation: str | None = None
 
     def observe(
         self,
@@ -238,37 +251,69 @@ class QualifiedFruitTracker:
         if not math.isfinite(now):
             raise ValueError("observation time must be finite")
         if status.get("camera_healthy") is not True:
+            self._cancel_final_approach("camera_unhealthy")
             self._invalidate_close_loss()
             return self._decision(MotionRecommendation.STOP, "camera_unhealthy")
 
+        if self._final_approach_completed:
+            return self._decision(MotionRecommendation.STOP, "arrival_already_confirmed")
+        if self._final_approach_cancelled_reason is not None:
+            return self._decision(
+                MotionRecommendation.STOP,
+                self._final_approach_cancelled_reason,
+            )
+
+        generation = status.get("generation")
+        if isinstance(generation, str) and generation:
+            self._current_generation = generation
+        if self._final_approach_latched_at is not None and (
+            not isinstance(generation, str)
+            or not generation
+            or generation != self._final_approach_generation
+        ):
+            self._cancel_final_approach("final_approach_generation_changed")
+            return self._decision(
+                MotionRecommendation.STOP,
+                "final_approach_generation_changed",
+            )
+        if self._final_approach_expired(now):
+            self._cancel_final_approach("final_approach_expired")
+            return self._decision(MotionRecommendation.STOP, "final_approach_expired")
+
         detection = status.get("detection")
         if not isinstance(detection, Mapping):
+            if self._final_approach_latched_at is not None:
+                return self._confirm_final_approach_loss(status, now)
             return self._handle_loss(now, "detection_missing")
         label = str(detection.get("label") or "").casefold().strip()
         if label != self.config.target_fruit:
             if label:
+                self._cancel_final_approach("target_identity_changed")
                 self._identity_resets += 1
                 self._reset_track()
                 return self._decision(
                     MotionRecommendation.STOP,
                     "target_identity_changed",
                 )
+            if self._final_approach_latched_at is not None:
+                return self._confirm_final_approach_loss(status, now)
             return self._handle_loss(now, "detection_missing")
 
         age_s = _finite_number(detection.get("age_s"))
         freshness_attested = status.get("target_ready") is True
         if age_s is None:
             self._stale_samples += 1
+            self._note_final_approach_frame(detection.get("source_pts"))
             self._invalidate_close_loss()
             return self._decision(MotionRecommendation.STOP, "detection_age_missing")
         if age_s is not None and (
             age_s < 0.0 or age_s > self.config.maximum_detection_age_s
         ):
             self._stale_samples += 1
+            self._note_final_approach_frame(detection.get("source_pts"))
             self._invalidate_close_loss()
             return self._decision(MotionRecommendation.STOP, "detection_stale")
 
-        generation = status.get("generation")
         detection_generation = detection.get("generation")
         if (
             isinstance(generation, str)
@@ -277,11 +322,13 @@ class QualifiedFruitTracker:
             and detection_generation != generation
         ):
             self._stale_samples += 1
+            self._cancel_final_approach("generation_mismatch")
             self._invalidate_close_loss()
             return self._decision(MotionRecommendation.STOP, "generation_mismatch")
 
         observation = self._parse_observation(detection)
         if observation is None:
+            self._cancel_final_approach("geometry_invalid")
             self._invalidate_close_loss()
             return self._decision(MotionRecommendation.STOP, "geometry_invalid")
         duplicate = (
@@ -300,6 +347,13 @@ class QualifiedFruitTracker:
             if confidence is None
             else confidence >= self.config.tracking_confidence
         )
+
+        if self._final_approach_latched_at is not None:
+            return self._observe_final_approach(
+                observation,
+                now,
+                tracking_qualified=tracking_qualified,
+            )
 
         if not self._track_acquired:
             if not acquisition_qualified:
@@ -487,6 +541,12 @@ class QualifiedFruitTracker:
         self._near_samples = self._near_samples + 1 if near else 0
         if self._near_samples >= self.config.near_confirmations:
             self._arrival_mode = "visible_geometry"
+            if (
+                self.config.final_approach_latch_enabled
+                and self._current_generation is not None
+                and observation.source_pts is not None
+            ):
+                self._latch_final_approach(observation, now)
             return self._decision(
                 MotionRecommendation.ARRIVAL,
                 "qualified_visible_arrival",
@@ -515,6 +575,164 @@ class QualifiedFruitTracker:
             forward_scale=1.0,
             horizontal_error=(horizontal_error if self._steering_active else 0.0),
         )
+
+    def _observe_final_approach(
+        self,
+        observation: _Observation,
+        now: float,
+        *,
+        tracking_qualified: bool,
+    ) -> TrackDecision:
+        if observation.source_pts is None:
+            return self._decision(
+                MotionRecommendation.STOP,
+                "final_approach_frame_identity_missing",
+            )
+        if (
+            self._final_approach_last_evidence_pts is not None
+            and observation.source_pts <= self._final_approach_last_evidence_pts
+        ):
+            self._duplicate_samples += 1
+            return self._decision(
+                MotionRecommendation.STOP,
+                "final_approach_frame_not_advancing",
+                observation,
+            )
+        self._final_approach_last_evidence_pts = observation.source_pts
+
+        if (
+            abs(observation.center_x - 0.5)
+            > self.config.close_recenter_enter_ratio
+        ):
+            self._cancel_final_approach("target_lost_off_axis")
+            return self._decision(
+                MotionRecommendation.STOP,
+                "target_lost_off_axis",
+                observation,
+            )
+        if self._continuity_issue(observation) is not None:
+            self._cancel_final_approach("final_approach_track_discontinuous")
+            return self._decision(
+                MotionRecommendation.STOP,
+                "final_approach_track_discontinuous",
+                observation,
+            )
+        if not tracking_qualified:
+            self._weak_samples += 1
+            return self._advance_final_approach_loss(observation)
+
+        self._accept_observation(observation, now)
+        self._final_approach_authority_at = now
+        self._final_approach_loss_samples = 0
+        self._arrival_mode = "visible_geometry"
+        return self._decision(
+            MotionRecommendation.ARRIVAL,
+            "qualified_visible_arrival",
+            observation,
+            horizontal_error=self._filtered_horizontal_error(observation),
+        )
+
+    def _confirm_final_approach_loss(
+        self,
+        status: Mapping[str, object],
+        now: float,
+    ) -> TrackDecision:
+        source = status.get("source")
+        if not isinstance(source, Mapping):
+            return self._decision(
+                MotionRecommendation.STOP,
+                "final_approach_source_evidence_missing",
+            )
+        source_age_s = _finite_number(source.get("age_s"))
+        source_pts = source.get("pts")
+        if (
+            source_age_s is None
+            or source_age_s < 0.0
+            or source_age_s > self.config.maximum_detection_age_s
+        ):
+            self._stale_samples += 1
+            self._note_final_approach_frame(source_pts)
+            return self._decision(
+                MotionRecommendation.STOP,
+                "final_approach_source_stale",
+            )
+        if not isinstance(source_pts, int) or isinstance(source_pts, bool):
+            return self._decision(
+                MotionRecommendation.STOP,
+                "final_approach_frame_identity_missing",
+            )
+        if (
+            self._final_approach_last_evidence_pts is not None
+            and source_pts <= self._final_approach_last_evidence_pts
+        ):
+            self._duplicate_samples += 1
+            return self._decision(
+                MotionRecommendation.STOP,
+                "final_approach_frame_not_advancing",
+            )
+        self._final_approach_last_evidence_pts = source_pts
+        return self._advance_final_approach_loss(None)
+
+    def _advance_final_approach_loss(
+        self,
+        observation: _Observation | None,
+    ) -> TrackDecision:
+        self._final_approach_loss_samples += 1
+        if (
+            self._final_approach_loss_samples
+            < self.config.final_approach_loss_confirmations
+        ):
+            return self._decision(
+                MotionRecommendation.STOP,
+                "confirming_final_approach_loss",
+                observation,
+            )
+        self._arrival_mode = "final_approach_loss_confirmed"
+        self._final_approach_completed = True
+        return self._decision(
+            MotionRecommendation.ARRIVAL,
+            "qualified_final_approach_loss",
+            observation,
+        )
+
+    def _latch_final_approach(
+        self,
+        observation: _Observation,
+        now: float,
+    ) -> None:
+        if self._final_approach_latched_at is not None:
+            return
+        self._final_approach_latched_at = now
+        self._final_approach_authority_at = now
+        self._final_approach_generation = self._current_generation
+        self._final_approach_last_evidence_pts = observation.source_pts
+        self._final_approach_loss_samples = 0
+
+    def _final_approach_expired(self, now: float) -> bool:
+        return bool(
+            self._final_approach_latched_at is not None
+            and self._final_approach_authority_at is not None
+            and now - self._final_approach_authority_at
+            > self.config.sight_loss_grace_s
+        )
+
+    def _note_final_approach_frame(self, raw_source_pts: object) -> None:
+        if (
+            self._final_approach_latched_at is not None
+            and isinstance(raw_source_pts, int)
+            and not isinstance(raw_source_pts, bool)
+            and (
+                self._final_approach_last_evidence_pts is None
+                or raw_source_pts > self._final_approach_last_evidence_pts
+            )
+        ):
+            self._final_approach_last_evidence_pts = raw_source_pts
+
+    def _cancel_final_approach(self, reason: str) -> None:
+        if self._final_approach_latched_at is None:
+            return
+        self._final_approach_latched_at = None
+        self._final_approach_cancelled_reason = reason
 
     def _handle_weak_close_observation(
         self,
@@ -767,7 +985,8 @@ class QualifiedFruitTracker:
     def _invalidate_close_loss(self) -> None:
         """Prevent stale or ambiguous evidence from becoming a later Arrival."""
         self._last_qualified_at = None
-        self._near_samples = 0
+        if self._final_approach_latched_at is None:
+            self._near_samples = 0
 
     def _decision(
         self,
@@ -828,6 +1047,16 @@ class QualifiedFruitTracker:
             "maximum_bottom_ratio": self._maximum_bottom_ratio,
             "maximum_bbox_area_ratio": self._maximum_bbox_area_ratio,
             "arrival_mode": self._arrival_mode,
+            "final_approach_latched": self._final_approach_latched_at is not None,
+            "final_approach_latched_at_s": self._final_approach_latched_at,
+            "final_approach_generation": self._final_approach_generation,
+            "final_approach_loss_samples": self._final_approach_loss_samples,
+            "final_approach_loss_confirmations": (
+                self.config.final_approach_loss_confirmations
+            ),
+            "final_approach_cancelled_reason": (
+                self._final_approach_cancelled_reason
+            ),
             "acquisition_confidence": self.config.acquisition_confidence,
             "close_range_tracking_confidence": self.config.tracking_confidence,
             "detection_maximum_age_s": self.config.maximum_detection_age_s,

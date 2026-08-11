@@ -165,11 +165,14 @@ may be relaxed only after new acceptance evidence is recorded.
 - Near-fruit geometry slows motion and establishes close-range track memory.
   In the deployed stage-camera profile, apple, banana, and pear share the same
   geometry thresholds. Three fresh centered near samples enter Final Approach;
-  a qualified lower-edge loss within the grace window authorizes exactly one
-  0.6 m/s, 1.0 second final push before the mandatory stop. Duplicate weak
-  close frames may hold the last fresh command but cannot advance counters.
-  Stale, wrong-label/generation, off-axis, or unhealthy-camera evidence stops
-  immediately.
+  this transition is one-way for that approach. Questionable evidence revokes
+  motion immediately without returning to ordinary tracking. Two fresh,
+  advancing, camera-healthy weak or missing frames within the grace window
+  confirm lower-edge loss and authorize exactly one 0.6 m/s, 1.0 second final
+  push before the mandatory stop. Duplicate or stale frames cannot advance
+  terminal confirmation, and stale evidence does not erase the latch. Wrong
+  label or generation, off-axis fresh evidence, invalid geometry, camera
+  failure, or latch expiry cancels push authority and remains fail-closed.
 - The optional metric profile instead treats image geometry only as entry to
   Final Approach and uses the following one-way handoff contract.
   Camera-to-LiDAR handoff requires the last three fresh filtered centers to

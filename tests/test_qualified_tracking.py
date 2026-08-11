@@ -19,6 +19,7 @@ def tracker(*, grace_s: float = 0.75) -> QualifiedFruitTracker:
             near_confirmations=3,
             sight_loss_grace_s=grace_s,
             slow_speed_scale=0.30,
+            final_approach_latch_enabled=True,
         )
     )
 
@@ -83,6 +84,201 @@ def acquire(target: QualifiedFruitTracker, *, start_pts: int = 1) -> int:
         decision = target.observe(observation(source_pts=pts), now_s=pts / 10)
     assert decision.recommendation is MotionRecommendation.APPROACH
     return start_pts + 3
+
+
+def missing_observation(*, source_pts: int, age_s: float = 0.01) -> dict[str, object]:
+    return {
+        "camera_healthy": True,
+        "target_ready": False,
+        "generation": "camera-1",
+        "source": {"pts": source_pts, "age_s": age_s},
+        "detection": {},
+    }
+
+
+def test_final_approach_latch_survives_weak_and_stale_frames_until_fresh_loss() -> None:
+    """Replay the closeout shape from run bce852b0 without a timeout stall."""
+    target = tracker()
+    pts = acquire(target)
+
+    visible = [
+        target.observe(
+            observation(
+                center_x=0.52,
+                center_y=0.76,
+                bottom=0.91,
+                area=0.12,
+                source_pts=pts + offset,
+            ),
+            now_s=0.4 + offset / 10,
+        )
+        for offset in range(3)
+    ]
+    weak = target.observe(
+        observation(
+            confidence=0.27,
+            center_x=0.52,
+            center_y=0.91,
+            bottom=0.997,
+            area=0.24,
+            source_pts=pts + 3,
+        ),
+        now_s=0.7,
+    )
+    stale = target.observe(
+        observation(
+            confidence=0.27,
+            center_x=0.52,
+            center_y=0.91,
+            bottom=0.997,
+            area=0.24,
+            age_s=0.40,
+            source_pts=pts + 4,
+        ),
+        now_s=0.8,
+    )
+    arrived = target.observe(
+        missing_observation(source_pts=pts + 5),
+        now_s=0.9,
+    )
+    repeated = target.observe(
+        missing_observation(source_pts=pts + 6),
+        now_s=0.95,
+    )
+
+    assert visible[-1].reason == "qualified_visible_arrival"
+    assert visible[-1].evidence["final_approach_latched"] is True
+    assert weak.recommendation is MotionRecommendation.STOP
+    assert weak.evidence["final_approach_loss_samples"] == 1
+    assert stale.recommendation is MotionRecommendation.STOP
+    assert stale.evidence["final_approach_loss_samples"] == 1
+    assert arrived.recommendation is MotionRecommendation.ARRIVAL
+    assert arrived.reason == "qualified_final_approach_loss"
+    assert arrived.evidence["arrival_mode"] == "final_approach_loss_confirmed"
+    assert repeated.recommendation is MotionRecommendation.STOP
+    assert repeated.reason == "arrival_already_confirmed"
+
+
+def latch_final_approach(target: QualifiedFruitTracker) -> int:
+    pts = acquire(target)
+    for offset in range(3):
+        decision = target.observe(
+            observation(
+                center_x=0.51,
+                center_y=0.76,
+                bottom=0.91,
+                area=0.12,
+                source_pts=pts + offset,
+            ),
+            now_s=0.4 + offset / 10,
+        )
+    assert decision.reason == "qualified_visible_arrival"
+    return pts + 3
+
+
+def test_stale_or_frozen_evidence_never_confirms_final_approach_loss() -> None:
+    target = tracker()
+    pts = latch_final_approach(target)
+
+    stale = target.observe(
+        observation(
+            center_y=0.91,
+            bottom=0.997,
+            age_s=0.40,
+            source_pts=pts,
+        ),
+        now_s=0.7,
+    )
+    frozen = target.observe(
+        missing_observation(source_pts=pts),
+        now_s=0.8,
+    )
+    expired = target.observe(
+        missing_observation(source_pts=pts + 1),
+        now_s=1.4,
+    )
+
+    assert stale.recommendation is MotionRecommendation.STOP
+    assert stale.evidence["final_approach_loss_samples"] == 0
+    assert frozen.recommendation is MotionRecommendation.STOP
+    assert frozen.reason == "final_approach_frame_not_advancing"
+    assert frozen.evidence["final_approach_loss_samples"] == 0
+    assert expired.recommendation is MotionRecommendation.STOP
+    assert expired.reason == "final_approach_expired"
+
+
+def test_final_approach_wrong_label_or_generation_cancels_push_authority() -> None:
+    wrong_label_target = tracker()
+    pts = latch_final_approach(wrong_label_target)
+    wrong_label = wrong_label_target.observe(
+        observation(label="apple", confidence=0.90, source_pts=pts),
+        now_s=0.7,
+    )
+    after_wrong_label = wrong_label_target.observe(
+        missing_observation(source_pts=pts + 1),
+        now_s=0.8,
+    )
+
+    wrong_generation_target = tracker()
+    pts = latch_final_approach(wrong_generation_target)
+    wrong_generation = wrong_generation_target.observe(
+        {
+            **missing_observation(source_pts=pts),
+            "generation": "camera-2",
+        },
+        now_s=0.7,
+    )
+    after_wrong_generation = wrong_generation_target.observe(
+        missing_observation(source_pts=pts + 1),
+        now_s=0.8,
+    )
+
+    assert wrong_label.reason == "target_identity_changed"
+    assert after_wrong_label.recommendation is MotionRecommendation.STOP
+    assert after_wrong_label.evidence["final_approach_cancelled_reason"] == (
+        "target_identity_changed"
+    )
+    assert wrong_generation.reason == "final_approach_generation_changed"
+    assert after_wrong_generation.recommendation is MotionRecommendation.STOP
+    assert after_wrong_generation.evidence["final_approach_cancelled_reason"] == (
+        "final_approach_generation_changed"
+    )
+
+
+def test_final_approach_off_axis_invalid_or_unhealthy_evidence_never_arrives() -> None:
+    off_axis_target = tracker()
+    pts = latch_final_approach(off_axis_target)
+    off_axis = off_axis_target.observe(
+        observation(
+            center_x=0.70,
+            center_y=0.91,
+            bottom=0.997,
+            area=0.24,
+            source_pts=pts,
+        ),
+        now_s=0.7,
+    )
+
+    invalid_target = tracker()
+    pts = latch_final_approach(invalid_target)
+    invalid_status = observation(source_pts=pts)
+    invalid_status["detection"]["bottom_ratio"] = None  # type: ignore[index]
+    invalid = invalid_target.observe(invalid_status, now_s=0.7)
+
+    unhealthy_target = tracker()
+    pts = latch_final_approach(unhealthy_target)
+    unhealthy = unhealthy_target.observe(
+        {
+            **missing_observation(source_pts=pts),
+            "camera_healthy": False,
+        },
+        now_s=0.7,
+    )
+
+    for decision in (off_axis, invalid, unhealthy):
+        assert decision.recommendation is MotionRecommendation.STOP
+        assert decision.evidence["final_approach_latched"] is False
+        assert decision.evidence["final_approach_cancelled_reason"] is not None
 
 
 def test_weak_phantom_never_authorizes_motion_or_acquires_a_track() -> None:

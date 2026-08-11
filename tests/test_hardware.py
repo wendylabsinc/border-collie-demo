@@ -1023,7 +1023,7 @@ def test_failed_search_reports_the_best_distant_pear_evidence() -> None:
     asyncio.run(scenario())
 
 
-def test_camera_arrival_continues_until_loss_then_uses_bounded_final_push() -> None:
+def test_camera_final_approach_replay_survives_weak_and_stale_before_fresh_loss() -> None:
     async def scenario() -> None:
         motion = FakeMotion()
         manager = HardwareManager(
@@ -1035,33 +1035,62 @@ def test_camera_arrival_continues_until_loss_then_uses_bounded_final_push() -> N
         await manager.start()
 
         def seen(
-            *, center_x: float, center_y: float, bottom: float
+            source_pts: int,
+            *,
+            center_x: float,
+            center_y: float,
+            bottom: float,
+            confidence: float = 0.81,
+            age_s: float = 0.01,
         ) -> dict[str, object]:
             return {
                 "camera_healthy": True,
-                "target_ready": True,
+                "target_ready": confidence >= 0.65,
+                "generation": "camera-1",
+                "source": {"pts": source_pts, "age_s": 0.01},
                 "detection": {
                     "label": "pear",
-                    "confidence": 0.81,
+                    "generation": "camera-1",
+                    "source_pts": source_pts,
+                    "confidence": confidence,
                     "consecutive_detections": 5,
                     "center_x_ratio": center_x,
                     "center_y_ratio": center_y,
                     "bottom_ratio": bottom,
-                    "age_s": 0.01,
+                    "bbox_area_ratio": 0.12,
+                    "age_s": age_s,
                 },
             }
 
         statuses = iter(
             (
-                seen(center_x=0.53, center_y=0.50, bottom=0.65),
-                seen(center_x=0.52, center_y=0.50, bottom=0.65),
-                seen(center_x=0.51, center_y=0.50, bottom=0.65),
-                seen(center_x=0.53, center_y=0.75, bottom=0.90),
-                seen(center_x=0.52, center_y=0.76, bottom=0.91),
-                seen(center_x=0.51, center_y=0.77, bottom=0.92),
+                seen(1, center_x=0.53, center_y=0.50, bottom=0.65),
+                seen(2, center_x=0.52, center_y=0.50, bottom=0.65),
+                seen(3, center_x=0.51, center_y=0.50, bottom=0.65),
+                seen(4, center_x=0.53, center_y=0.75, bottom=0.90),
+                seen(5, center_x=0.52, center_y=0.76, bottom=0.91),
+                seen(6, center_x=0.51, center_y=0.77, bottom=0.92),
+                seen(
+                    7,
+                    center_x=0.51,
+                    center_y=0.91,
+                    bottom=0.997,
+                    confidence=0.27,
+                ),
+                seen(
+                    8,
+                    center_x=0.51,
+                    center_y=0.91,
+                    bottom=0.997,
+                    confidence=0.27,
+                    age_s=0.40,
+                ),
                 {
                     "camera_healthy": True,
                     "target_ready": False,
+                    "generation": "camera-1",
+                    "source": {"pts": 9, "age_s": 0.01},
+                    "detection": {},
                     "detail": "pear offscreen",
                 },
             )
@@ -1070,7 +1099,13 @@ def test_camera_arrival_continues_until_loss_then_uses_bounded_final_push() -> N
         result = await manager.approach_target(
             lambda: next(
                 statuses,
-                {"camera_healthy": True, "target_ready": False},
+                {
+                    "camera_healthy": True,
+                    "target_ready": False,
+                    "generation": "camera-1",
+                    "source": {"pts": 10, "age_s": 0.01},
+                    "detection": {},
+                },
             ),
             "pear",
             forward_mps=0.55,
@@ -1089,6 +1124,8 @@ def test_camera_arrival_continues_until_loss_then_uses_bounded_final_push() -> N
         assert result["near_confirmations"] == 3
         assert result["final_push_mps"] == 0.6
         assert result["final_push_count"] == 1
+        assert result["arrival_mode"] == "final_approach_loss_confirmed"
+        assert result["final_approach_loss_samples"] == 2
         assert result["forward_pulse_count"] >= 4
         assert any(
             command.reason == "approach_target_slow" and command.forward_mps == 0.55
@@ -1580,6 +1617,7 @@ def test_approach_holds_authorized_command_between_fresh_inference_frames() -> N
                 "camera_healthy": True,
                 "target_ready": True,
                 "generation": "camera-1",
+                "source": {"pts": source_pts, "age_s": age_s},
                 "detection": {
                     "label": "pear",
                     "generation": "camera-1",
@@ -1610,15 +1648,33 @@ def test_approach_holds_authorized_command_between_fresh_inference_frames() -> N
                 seen(4, age_s=0.10, near=True),
                 seen(5, near=True),
                 seen(6, near=True),
-                {"camera_healthy": True, "target_ready": False},
-                {"camera_healthy": True, "target_ready": False},
+                {
+                    "camera_healthy": True,
+                    "target_ready": False,
+                    "generation": "camera-1",
+                    "source": {"pts": 8, "age_s": 0.01},
+                    "detection": {},
+                },
+                {
+                    "camera_healthy": True,
+                    "target_ready": False,
+                    "generation": "camera-1",
+                    "source": {"pts": 9, "age_s": 0.01},
+                    "detection": {},
+                },
             )
         )
 
         result = await manager.approach_target(
             lambda: next(
                 statuses,
-                {"camera_healthy": True, "target_ready": False},
+                {
+                    "camera_healthy": True,
+                    "target_ready": False,
+                    "generation": "camera-1",
+                    "source": {"pts": 10, "age_s": 0.01},
+                    "detection": {},
+                },
             ),
             "pear",
             forward_mps=1.0,
@@ -1670,6 +1726,7 @@ def test_healthy_4hz_camera_does_not_toggle_motion_in_10hz_control_loop() -> Non
                 "camera_healthy": True,
                 "target_ready": True,
                 "generation": "camera-1",
+                "source": {"pts": pts, "age_s": age_s},
                 "detection": {
                     "label": "pear",
                     "generation": "camera-1",
@@ -1700,14 +1757,32 @@ def test_healthy_4hz_camera_does_not_toggle_motion_in_10hz_control_loop() -> Non
                 seen(6, 0.01, near=True),
                 seen(6, 0.11, near=True),
                 seen(7, 0.01, near=True),
-                {"camera_healthy": True, "target_ready": False},
-                {"camera_healthy": True, "target_ready": False},
+                {
+                    "camera_healthy": True,
+                    "target_ready": False,
+                    "generation": "camera-1",
+                    "source": {"pts": 8, "age_s": 0.01},
+                    "detection": {},
+                },
+                {
+                    "camera_healthy": True,
+                    "target_ready": False,
+                    "generation": "camera-1",
+                    "source": {"pts": 9, "age_s": 0.01},
+                    "detection": {},
+                },
             )
         )
         result = await manager.approach_target(
             lambda: next(
                 statuses,
-                {"camera_healthy": True, "target_ready": False},
+                {
+                    "camera_healthy": True,
+                    "target_ready": False,
+                    "generation": "camera-1",
+                    "source": {"pts": 10, "age_s": 0.01},
+                    "detection": {},
+                },
             ),
             "pear",
             forward_mps=1.0,
@@ -1727,9 +1802,15 @@ def test_healthy_4hz_camera_does_not_toggle_motion_in_10hz_control_loop() -> Non
             for index, command in enumerate(motion.commands)
             if command.forward_mps > 0.0
         )
-        moving_window = motion.commands[first_forward:-1]
+        first_loss_stop = next(
+            index
+            for index, command in enumerate(motion.commands)
+            if command.reason == "qualified_track_confirming_final_approach_loss"
+        )
+        moving_window = motion.commands[first_forward:first_loss_stop]
         assert moving_window
         assert all(command.forward_mps > 0.0 for command in moving_window)
+        assert motion.commands[first_loss_stop].forward_mps == 0.0
         assert result["duplicate_samples"] >= 7
         assert motion.commands[-1].reason == "qualified_arrival_stop"
         await manager.close()
