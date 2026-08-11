@@ -139,6 +139,7 @@ class ScriptedLidarHandoff:
         self._clearances = iter(clearances_m)
         self._last = clearances_m[-1]
         self.started = False
+        self.calls: list[dict[str, object]] = []
 
     def start(self) -> None:
         self.started = True
@@ -156,6 +157,12 @@ class ScriptedLidarHandoff:
         visual_center_error_ratio: float | None,
         allow_handoff: bool,
     ) -> LidarHandoffObservation:
+        self.calls.append(
+            {
+                "visual_close_authorized": visual_close_authorized,
+                "allow_handoff": allow_handoff,
+            }
+        )
         self._last = next(self._clearances, self._last)
         mode = "lidar_handoff" if allow_handoff else "lidar_visual_association"
         return LidarHandoffObservation(
@@ -1272,6 +1279,8 @@ def test_close_visual_track_hands_off_to_lidar_until_stopped_18_inch_arrival() -
                 visible(),
                 visible(),
                 visible(),
+                visible(),
+                {"camera_healthy": True, "target_ready": False},
                 {"camera_healthy": True, "target_ready": False},
                 {"camera_healthy": True, "target_ready": False},
                 {"camera_healthy": True, "target_ready": False},
@@ -1283,9 +1292,9 @@ def test_close_visual_track_hands_off_to_lidar_until_stopped_18_inch_arrival() -
             "pear",
             forward_mps=1.0,
             maximum_yaw_rps=0.50,
-            near_bottom_ratio=0.98,
-            near_center_ratio=0.95,
-            near_confirmations=10,
+            near_bottom_ratio=0.86,
+            near_center_ratio=0.72,
+            near_confirmations=2,
             near_loss_grace_s=0.75,
             close_range_mps=0.55,
             final_push_mps=0.55,
@@ -1297,6 +1306,14 @@ def test_close_visual_track_hands_off_to_lidar_until_stopped_18_inch_arrival() -
         assert result["arrival_confirmed"] is True
         assert result["range_association_mode"] == "lidar_handoff"
         assert result["front_clearance_m"] == pytest.approx(0.48)
+        assert lidar.calls
+        assert all(call["allow_handoff"] is True for call in lidar.calls)
+        assert all(call["visual_close_authorized"] is False for call in lidar.calls)
+        assert any(
+            command.reason == "visual_close_until_sight_loss"
+            and command.forward_mps == 0.55
+            for command in motion.commands
+        )
         assert any(
             command.reason == "metric_lidar_handoff"
             and command.forward_mps == 0.55

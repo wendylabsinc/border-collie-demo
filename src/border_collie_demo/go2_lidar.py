@@ -31,6 +31,7 @@ class PearLidarHandoffConfig:
     maximum_cluster_height_m: float = 0.20
     maximum_age_s: float = 0.30
     maximum_range_jump_m: float = 0.18
+    minimum_nearest_separation_m: float = 0.20
     visual_association_window_s: float = 0.80
     visual_association_confirmations: int = 2
     maximum_handoff_s: float = 2.0
@@ -49,6 +50,7 @@ class PearLidarHandoffConfig:
             self.maximum_cluster_height_m,
             self.maximum_age_s,
             self.maximum_range_jump_m,
+            self.minimum_nearest_separation_m,
             self.visual_association_window_s,
             self.maximum_handoff_s,
         )
@@ -69,6 +71,7 @@ class PearLidarHandoffConfig:
                 self.range_bin_width_m,
                 self.maximum_age_s,
                 self.maximum_range_jump_m,
+                self.minimum_nearest_separation_m,
                 self.visual_association_window_s,
                 self.maximum_handoff_s,
             )
@@ -96,6 +99,9 @@ class PearLidarHandoffConfig:
             ),
             maximum_handoff_s=float(
                 os.environ.get("BORDER_COLLIE_LIDAR_MAXIMUM_HANDOFF_S", "2.0")
+            ),
+            minimum_nearest_separation_m=float(
+                os.environ.get("BORDER_COLLIE_LIDAR_MIN_NEAREST_SEPARATION_M", "0.20")
             ),
         )
 
@@ -179,21 +185,34 @@ def detect_centered_pear_cluster(
         previous_center = center
     if not groups:
         return None, "pear_lidar_cluster_unavailable"
-    if len(groups) != 1:
+    clusters = []
+    for group in groups:
+        points = tuple(group)
+        height = max(point[2] for point in points) - min(point[2] for point in points)
+        confidence = 0.5 * min(1.0, len(points) / 6.0) + 0.5 * min(1.0, height / 0.10)
+        clusters.append(
+            PearCluster(
+                body_x_m=statistics.median(point[0] for point in points),
+                body_y_m=statistics.mean(point[1] for point in points),
+                height_m=height,
+                points=len(points),
+                confidence=confidence,
+            )
+        )
+    clusters.sort(key=lambda candidate: candidate.body_x_m)
+    if (
+        len(clusters) > 1
+        and clusters[1].body_x_m - clusters[0].body_x_m
+        < calibration.minimum_nearest_separation_m
+    ):
         return None, "pear_lidar_cluster_ambiguous"
-
-    points = tuple(groups[0])
-    height = max(point[2] for point in points) - min(point[2] for point in points)
-    confidence = 0.5 * min(1.0, len(points) / 6.0) + 0.5 * min(1.0, height / 0.10)
     return (
-        PearCluster(
-            body_x_m=statistics.median(point[0] for point in points),
-            body_y_m=statistics.mean(point[1] for point in points),
-            height_m=height,
-            points=len(points),
-            confidence=confidence,
+        clusters[0],
+        (
+            "pear_lidar_nearest_cluster_separated"
+            if len(clusters) > 1
+            else "pear_lidar_cluster_centered"
         ),
-        "pear_lidar_cluster_centered",
     )
 
 
@@ -302,6 +321,9 @@ class PearLidarHandoffProvider:
             )
         if centered_visual and self._visual_pending_started_at is None:
             self._visual_pending_started_at = now
+        if allow_handoff and self._visual_pending_started_at is None:
+            self._visual_pending_started_at = now
+            self._handoff_started_at = now
         if (
             allow_handoff
             and self._handoff_started_at is not None
@@ -325,7 +347,7 @@ class PearLidarHandoffProvider:
                     )
                 self._last_cluster = cluster
                 self._last_cluster_at = captured_at
-                if centered_visual:
+                if centered_visual or allow_handoff:
                     self._visual_hits.append(captured_at)
             elif reason == "pear_lidar_cluster_ambiguous":
                 self._disarm()
@@ -352,6 +374,20 @@ class PearLidarHandoffProvider:
                 )
             return self._unavailable(
                 "pear_lidar_visual_association_pending", age_s=cloud_age
+            )
+
+        if allow_handoff and self._association_armed_at is None:
+            assert self._visual_pending_started_at is not None
+            if (
+                now - self._visual_pending_started_at
+                > self.calibration.visual_association_window_s
+            ):
+                self._disarm()
+                return self._unavailable(
+                    "pear_lidar_loss_association_failed", age_s=cloud_age
+                )
+            return self._unavailable(
+                "pear_lidar_loss_association_pending", age_s=cloud_age
             )
 
         if (

@@ -47,9 +47,19 @@ def test_floor_only_and_lateral_objects_are_not_pear_clusters() -> None:
     assert detect_centered_pear_cluster(lateral, config())[0] is None
 
 
-def test_multiple_vertical_clusters_are_ambiguous() -> None:
+def test_nearest_well_separated_cluster_wins_after_sight_loss() -> None:
     cluster, reason = detect_centered_pear_cluster(
         (*pear_points(0.80), *pear_points(1.10)), config()
+    )
+
+    assert cluster is not None
+    assert cluster.body_x_m == pytest.approx(0.803, abs=0.01)
+    assert reason == "pear_lidar_nearest_cluster_separated"
+
+
+def test_near_tied_vertical_clusters_remain_ambiguous() -> None:
+    cluster, reason = detect_centered_pear_cluster(
+        (*pear_points(0.80), *pear_points(0.95)), config()
     )
 
     assert cluster is None
@@ -92,36 +102,30 @@ def provider(now: list[float]) -> PearLidarHandoffProvider:
     return result
 
 
-def observe_visible(subject: PearLidarHandoffProvider):
+def observe_loss(subject: PearLidarHandoffProvider):
     return subject.observe(
-        visual_close_authorized=True,
-        visual_center_error_ratio=0.02,
-        allow_handoff=False,
-    )
-
-
-def test_two_fresh_visual_associations_arm_handoff_then_camera_may_disappear() -> None:
-    now = [10.0]
-    subject = provider(now)
-    subject.ingest(PointCloud(pear_points(1.08)))
-    first = observe_visible(subject)
-    now[0] += 0.20
-    subject.ingest(PointCloud(pear_points(1.00)))
-    second = observe_visible(subject)
-    now[0] += 0.10
-    lost = subject.observe(
         visual_close_authorized=False,
         visual_center_error_ratio=None,
         allow_handoff=True,
     )
 
+
+def test_two_fresh_lidar_frames_are_required_after_camera_disappears() -> None:
+    now = [10.0]
+    subject = provider(now)
+    subject.ingest(PointCloud(pear_points(1.08)))
+    first = observe_loss(subject)
+    now[0] += 0.20
+    subject.ingest(PointCloud(pear_points(1.00)))
+    second = observe_loss(subject)
+
     assert first.available is False
-    assert first.reason == "pear_lidar_visual_association_pending"
+    assert first.reason == "pear_lidar_loss_association_pending"
     assert first.handoff_active is False
+    assert second.available is True
     assert second.handoff_active is True
-    assert lost.available is True
-    assert lost.association_mode == "lidar_handoff"
-    assert lost.front_clearance_m == pytest.approx(0.70, abs=0.02)
+    assert second.association_mode == "lidar_handoff"
+    assert second.front_clearance_m == pytest.approx(0.70, abs=0.02)
 
 
 def test_one_missing_cloud_holds_but_persistent_loss_fails_closed() -> None:
@@ -129,7 +133,7 @@ def test_one_missing_cloud_holds_but_persistent_loss_fails_closed() -> None:
     subject = provider(now)
     for x_m in (1.08, 1.00):
         subject.ingest(PointCloud(pear_points(x_m)))
-        observe_visible(subject)
+        observe_loss(subject)
         now[0] += 0.20
     subject.ingest(PointCloud(((0.8, 0.0, -0.18),)))
     held = subject.observe(
@@ -155,9 +159,9 @@ def test_discontinuous_or_ambiguous_handoff_disarms_immediately() -> None:
     subject = provider(now)
     for x_m in (1.08, 1.00):
         subject.ingest(PointCloud(pear_points(x_m)))
-        observe_visible(subject)
+        observe_loss(subject)
         now[0] += 0.20
-    subject.ingest(PointCloud((*pear_points(0.95), *pear_points(1.25))))
+    subject.ingest(PointCloud((*pear_points(0.95), *pear_points(1.10))))
     result = subject.observe(
         visual_close_authorized=False,
         visual_center_error_ratio=None,
@@ -174,7 +178,7 @@ def test_handoff_expires_even_with_fresh_clouds() -> None:
     subject = provider(now)
     for x_m in (1.08, 1.00):
         subject.ingest(PointCloud(pear_points(x_m)))
-        observe_visible(subject)
+        observe_loss(subject)
         now[0] += 0.20
     subject.observe(
         visual_close_authorized=False,

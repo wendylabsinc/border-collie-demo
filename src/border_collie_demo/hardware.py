@@ -889,9 +889,15 @@ class HardwareManager:
                         and decision.reason in LIDAR_HANDOFF_TRACKING_REASONS
                     )
                     metric_path_active = bool(
-                        decision.recommendation
-                        in {MotionRecommendation.SLOW, MotionRecommendation.ARRIVAL}
-                        or allow_lidar_handoff
+                        allow_lidar_handoff
+                        or (
+                            self._metric_range_provider is None
+                            and decision.recommendation
+                            in {
+                                MotionRecommendation.SLOW,
+                                MotionRecommendation.ARRIVAL,
+                            }
+                        )
                     )
                     if metric_arrival_required and metric_path_active:
                         assert self._metric_arrival_gate is not None
@@ -903,13 +909,7 @@ class HardwareManager:
                             ),
                             last_command=last_authorized_command,
                             close_speed_mps=close_range_mps,
-                            visual_close_authorized=(
-                                decision.recommendation
-                                in {
-                                    MotionRecommendation.SLOW,
-                                    MotionRecommendation.ARRIVAL,
-                                }
-                            ),
+                            visual_close_authorized=False,
                             allow_lidar_handoff=allow_lidar_handoff,
                         )
                         metric_decision = self._metric_arrival_gate.observe(
@@ -928,10 +928,10 @@ class HardwareManager:
                             }
                         )
                         if metric_decision.action is MetricArrivalAction.UNAVAILABLE:
-                            if (
-                                metric_decision.reason
-                                == "pear_lidar_visual_association_pending"
-                            ):
+                            if metric_decision.reason in {
+                                "pear_lidar_visual_association_pending",
+                                "pear_lidar_loss_association_pending",
+                            }:
                                 last_authorized_command = (
                                     await self._send_motion_command(
                                         lease,
@@ -1141,11 +1141,21 @@ class HardwareManager:
                     if (
                         metric_arrival_required
                         and decision.recommendation is MotionRecommendation.ARRIVAL
-                        and metric_decision is not None
-                        and metric_decision.action is MetricArrivalAction.ADVANCE
+                        and (
+                            self._metric_range_provider is not None
+                            or (
+                                metric_decision is not None
+                                and metric_decision.action
+                                is MetricArrivalAction.ADVANCE
+                            )
+                        )
                     ):
                         commanded_scale = slow_speed_scale
-                        command_reason = "metric_final_approach"
+                        command_reason = (
+                            "visual_close_until_sight_loss"
+                            if metric_decision is None
+                            else "metric_final_approach"
+                        )
                         metric_final_approach_pulses += 1
                     last_authorized_command = await self._send_motion_command(
                         lease,
