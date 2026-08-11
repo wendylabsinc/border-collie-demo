@@ -17,6 +17,7 @@ def test_activation_key_reuses_the_same_durable_run(tmp_path) -> None:
     activation = RunActivation(
         target_fruit="pear",
         activation_source="audience_ui",
+        search_policy="fast-lock",
         idempotency_key="soak-42-run-3",
     )
 
@@ -26,6 +27,7 @@ def test_activation_key_reuses_the_same_durable_run(tmp_path) -> None:
     assert first.created is True
     assert second.created is False
     assert second.run["run_id"] == first.run["run_id"]
+    assert second.run["search_policy"] == "fast-lock"
     assert len(results.list_results()) == 1
     assert machine.phase is MissionPhase.PREFLIGHT
 
@@ -46,6 +48,28 @@ def test_activation_key_cannot_be_reused_for_different_intent(tmp_path) -> None:
                 target_fruit="apple",
                 activation_source="audience_ui",
                 idempotency_key="fixed-key",
+            )
+        )
+
+
+def test_activation_key_cannot_change_search_policy(tmp_path) -> None:
+    coordinator = RunCoordinator(MissionMachine(), RunResultStore(tmp_path))
+    coordinator.activate(
+        RunActivation(
+            target_fruit="pear",
+            activation_source="audience_ui",
+            search_policy="fast-lock",
+            idempotency_key="policy-key",
+        )
+    )
+
+    with pytest.raises(ActiveRunError, match="different Demo Run"):
+        coordinator.activate(
+            RunActivation(
+                target_fruit="pear",
+                activation_source="audience_ui",
+                search_policy="double-back",
+                idempotency_key="policy-key",
             )
         )
 

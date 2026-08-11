@@ -304,8 +304,15 @@ def search_handoff_from_status(
     target_fruit: str,
     *,
     qualified_monotonic_s: float,
+    minimum_stable_detections: int = SEARCH_QUALIFICATION_MINIMUM_DETECTIONS,
 ) -> SearchQualificationHandoff | None:
     """Capture only a complete, motion-qualified search observation."""
+    if (
+        isinstance(minimum_stable_detections, bool)
+        or not isinstance(minimum_stable_detections, int)
+        or minimum_stable_detections < 1
+    ):
+        raise ValueError("minimum search detections must be positive")
     target = target_fruit.casefold().strip()
     detection = status.get("detection")
     source = status.get("source")
@@ -373,7 +380,7 @@ def search_handoff_from_status(
     policy = fruit_policy(target)
     if (
         handoff.confidence < policy.acquisition_confidence
-        or handoff.stable_detections < SEARCH_QUALIFICATION_MINIMUM_DETECTIONS
+        or handoff.stable_detections < minimum_stable_detections
     ):
         return None
     return handoff

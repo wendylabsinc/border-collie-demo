@@ -451,6 +451,77 @@ def test_activate_demo_completes_every_stage_with_simulated_adapters(tmp_path) -
         ]
 
 
+def test_success_summary_retains_search_policy_attribution(tmp_path) -> None:
+    class PolicyStages(SimulatedStageExecutor):
+        async def execute(self, phase, context):
+            evidence = await super().execute(phase, context)
+            if phase is MissionPhase.TURN_TO_FRUIT:
+                evidence["search_policy"] = "double-back"
+            return evidence
+
+    with TestClient(
+        create_app(
+            runs_root=tmp_path,
+            hardware=ReadyHardwareBoundary(),
+            camera_perception_status=ready_camera_perception,
+            stage_executor=PolicyStages(),
+            search_policy=SearchPolicy.named("double-back"),
+        )
+    ) as client:
+        run_id = client.post("/api/run", json={"target_fruit": "pear"}).json()[
+            "run"
+        ]["run_id"]
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            run = client.get(f"/api/results/{run_id}").json()["run"]
+            if run["outcome"] is not None:
+                break
+            time.sleep(0.01)
+
+    assert run["record_type"] == "success_summary"
+    assert run["key_values"]["search_policy"] == "double-back"
+
+
+def test_run_can_override_default_search_policy_and_carries_it_in_context(
+    tmp_path,
+) -> None:
+    seen: list[str] = []
+
+    class ContextStages(SimulatedStageExecutor):
+        async def execute(self, phase, context):
+            seen.append(context.search_policy)
+            evidence = await super().execute(phase, context)
+            if phase is MissionPhase.TURN_TO_FRUIT:
+                evidence["search_policy"] = context.search_policy
+            return evidence
+
+    with TestClient(
+        create_app(
+            runs_root=tmp_path,
+            hardware=ReadyHardwareBoundary(),
+            camera_perception_status=ready_camera_perception,
+            stage_executor=ContextStages(),
+            search_policy=SearchPolicy.named("slow-sweep"),
+        )
+    ) as client:
+        response = client.post(
+            "/api/run",
+            json={"target_fruit": "pear", "search_policy": "fast-lock"},
+        )
+        assert response.status_code == 201
+        run_id = response.json()["run"]["run_id"]
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            run = client.get(f"/api/results/{run_id}").json()["run"]
+            if run["outcome"] is not None:
+                break
+            time.sleep(0.01)
+
+    assert run["search_policy"] == "fast-lock"
+    assert seen and set(seen) == {"fast-lock"}
+    assert run["key_values"]["search_policy"] == "fast-lock"
+
+
 def test_demo_run_carries_outbound_forward_pulses_into_return_playback(
     tmp_path,
 ) -> None:

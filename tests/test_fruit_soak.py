@@ -38,6 +38,7 @@ class FakeClient:
         self.activated: list[str] = []
         self.orientation_degrees: list[float] = []
         self.idempotency_keys: list[str | None] = []
+        self.search_policies: list[str | None] = []
         self.stop_calls = 0
 
     def status(self):
@@ -57,10 +58,17 @@ class FakeClient:
     def fruits(self):
         return {"qualified_fruits": self._qualified}
 
-    def activate(self, fruit, orientation_degrees=0.0, idempotency_key=None):
+    def activate(
+        self,
+        fruit,
+        orientation_degrees=0.0,
+        idempotency_key=None,
+        search_policy=None,
+    ):
         self.activated.append(fruit)
         self.orientation_degrees.append(orientation_degrees)
         self.idempotency_keys.append(idempotency_key)
+        self.search_policies.append(search_policy)
         run_id = f"run-{len(self.activated)}"
         return {"run": {"run_id": run_id}}
 
@@ -426,6 +434,32 @@ def test_session_requires_and_records_expected_search_policy(tmp_path: Path):
     assert session["search_policy"] == "double-back"
 
 
+def test_session_selects_one_immutable_search_policy_for_every_run(tmp_path: Path):
+    status = {**READY, "search_policy": "slow-sweep"}
+    client = FakeClient(
+        [status],
+        results_by_id={
+            "run-1": [terminal("run-1")],
+            "run-2": [terminal("run-2")],
+        },
+        sidecar=SIDECAR,
+    )
+
+    session = run_session(
+        client,
+        runs=2,
+        seed=3,
+        output_path=tmp_path / "fast-lock.json",
+        search_policy="fast-lock",
+        sleep=lambda _: None,
+        log=lambda *_: None,
+    )
+
+    assert session["search_policy"] == "fast-lock"
+    assert session["default_search_policy"] == "slow-sweep"
+    assert client.search_policies == ["fast-lock", "fast-lock"]
+
+
 def test_session_rejects_unexpected_search_policy_before_motion(tmp_path: Path):
     status = {**READY, "search_policy": "slow-sweep"}
     client = FakeClient([status], sidecar=SIDECAR)
@@ -564,10 +598,17 @@ def test_ambiguous_activation_retries_once_with_the_same_key(tmp_path: Path):
     class AmbiguousClient(FakeClient):
         calls = 0
 
-        def activate(self, fruit, orientation_degrees=0.0, idempotency_key=None):
+        def activate(
+            self,
+            fruit,
+            orientation_degrees=0.0,
+            idempotency_key=None,
+            search_policy=None,
+        ):
             self.activated.append(fruit)
             self.orientation_degrees.append(orientation_degrees)
             self.idempotency_keys.append(idempotency_key)
+            self.search_policies.append(search_policy)
             self.calls += 1
             if self.calls == 1:
                 raise TimeoutError("request timed out after server acceptance")

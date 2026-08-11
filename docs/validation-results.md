@@ -669,3 +669,30 @@ the separate failed-run Home-recovery or heading-restoration repairs.
 
 Full evidence:
 `benchmarks/results/fruit-soak-v19-five-attempt-characterization-2026081103.json`.
+
+## STAGE-CAMERA-V21-SEARCH-POLICY-ABC-2026-08-11 — software checkpoint
+
+- Lineage: v20 evidence tip `c96d881`, extended on
+  `codex/stage-camera-v21-search-policy-abc`.
+- Release identity: `stage-camera-v21-search-policy-abc`, configuration schema
+  5, app version `1.0.24-stage-camera`; root/media descriptors and both
+  Stagefiles use one cohort. The safe startup default is `slow-sweep`.
+- Experiment surface: `BORDER_COLLIE_SEARCH_POLICY` or application
+  `--search-policy` chooses the default. The soak CLI `--search-policy` chooses
+  an immutable per-run policy without restarting the app. CLI activation
+  persists the policy before preflight and idempotency rejects policy drift.
+- Track A: `fast-lock` reduces completed search acquisition from five to three
+  frames only after the complete freshness, identity, confidence, inference,
+  generation/timebase/PTS, and geometry evaluator passes.
+- Track B: `slow-sweep` retains five-frame acquisition and full `2 pi` coverage
+  while reducing broad yaw from `1.0` to `0.50 rad/s` under the same 30 second
+  deadline.
+- Track C: `double-back` retains five-frame acquisition and adds a bounded
+  candidate dwell/reverse episode. It never commands translation, never
+  extends the absolute deadline, and fails closed on generation change.
+- Comparison tooling requires matched seed, fruit sequence, and orientation
+  sequence, then reports error rates and failures by reason, phase, and fruit
+  alongside acquisition, Home, recovery, and network metrics.
+- Qualification boundary: deterministic tests do not establish a winner. The
+  planned acceptance is one deployed cohort followed by ten matched physical
+  runs for each policy, with disarm and bounded Home recovery between attempts.

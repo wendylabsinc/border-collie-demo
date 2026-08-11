@@ -48,6 +48,7 @@ class RunRequest(BaseModel):
     target_fruit: Literal["apple", "banana", "pear"] = "pear"
     activation_source: Literal["audience_ui", "voice"] = "audience_ui"
     orientation_degrees: float = Field(default=0.0, ge=0.0, lt=360.0)
+    search_policy: Literal["fast-lock", "slow-sweep", "double-back"] | None = None
     idempotency_key: str | None = Field(default=None, min_length=1, max_length=128)
 
 
@@ -319,6 +320,9 @@ def create_app(
                     target_fruit=request.target_fruit,
                     activation_source=request.activation_source,
                     orientation_degrees=request.orientation_degrees,
+                    search_policy=(
+                        request.search_policy or selected_search_policy.name
+                    ),
                     idempotency_key=request.idempotency_key,
                 )
             )

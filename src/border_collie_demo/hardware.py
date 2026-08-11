@@ -40,6 +40,11 @@ from .return_home import (
     normalize_angle,
     plan_return_step,
 )
+from .search_policy import (
+    DoubleBackSearchController,
+    SearchGenerationChanged,
+    SearchPolicy,
+)
 from .target_range import (
     MetricArrivalAction,
     MetricArrivalControlMode,
@@ -191,6 +196,7 @@ class HardwareManager:
         visual_odometry: VisualOdometryAdapter | None = None,
         metric_arrival_gate: MetricArrivalGate | None = None,
         metric_range_provider: MetricRangeProviderProtocol | None = None,
+        search_policy: SearchPolicy | None = None,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self.config = config or HardwareConfig()
@@ -214,6 +220,7 @@ class HardwareManager:
         )
         self._metric_arrival_gate = metric_arrival_gate or self._configured_range_gate()
         self._metric_range_provider = metric_range_provider
+        self._search_policy = search_policy or SearchPolicy.named("slow-sweep")
         self._monotonic = monotonic
         self._motion: MotionAdapterProtocol | None = None
         self._pose: PoseProviderProtocol | None = None
@@ -502,6 +509,7 @@ class HardwareManager:
         yaw_rps: float,
         sweep_rad: float,
         timeout_s: float,
+        search_policy: SearchPolicy | None = None,
     ) -> dict[str, object]:
         """Run one measured bounded search until fresh target evidence locks."""
         rate = float(yaw_rps)
@@ -514,6 +522,7 @@ class HardwareManager:
         if sweep <= 0.0 or sweep > 2.0 * math.pi or timeout <= 0.0:
             raise ValueError("search bounds are invalid")
         self._require_autonomy_ready()
+        policy = search_policy or self._search_policy
 
         async with self._operation_lock:
             if self._active_operation is not None:
@@ -531,6 +540,16 @@ class HardwareManager:
             candidate_lock_active = False
             candidate_hold_until: float | None = None
             candidate_last_seen_at: float | None = None
+            double_back_controller = (
+                DoubleBackSearchController(
+                    target_fruit,
+                    rate,
+                    policy,
+                    started_at=started,
+                )
+                if policy.candidate_mode == "double-back"
+                else None
+            )
             recognition: dict[str, object] = {
                 "samples": 0,
                 "pear_candidate_samples": 0,
@@ -538,7 +557,13 @@ class HardwareManager:
                 "maximum_consecutive_detections": 0,
                 "maximum_bbox_area_ratio": None,
                 "closest_detection": None,
+                "search_policy": policy.name,
+                "search_lock_minimum_detections": (
+                    policy.minimum_consecutive_detections
+                ),
             }
+            if double_back_controller is not None:
+                recognition.update(double_back_controller.evidence())
             try:
                 assert self._pose is not None and self._motion is not None
                 initial = self._pose.status()
@@ -553,6 +578,7 @@ class HardwareManager:
                     status = status_reader()
                     sampled_at = self._monotonic()
                     self._record_perception_sample(status, target_fruit)
+                    search_lock = policy.evaluate(status, target_fruit)
                     plausible_candidate = False
                     recognition["samples"] = int(recognition["samples"]) + 1
                     if not status.get("camera_healthy"):
@@ -563,6 +589,15 @@ class HardwareManager:
                             )
                         )
                     detection = status.get("detection")
+                    if (
+                        double_back_controller is not None
+                        and status.get("target_ready") is not True
+                    ):
+                        try:
+                            double_back_controller.sample(status, now_s=sampled_at)
+                        except SearchGenerationChanged as exc:
+                            raise CameraFailure(str(exc)) from exc
+                        recognition.update(double_back_controller.evidence())
                     if isinstance(detection, dict):
                         label = str(detection.get("label") or "").casefold()
                         if label == target_fruit.casefold():
@@ -571,13 +606,16 @@ class HardwareManager:
                             )
                         confidence = _finite_float(detection.get("confidence"))
                         detection_age_s = _finite_float(detection.get("age_s"))
-                        plausible_candidate = bool(
-                            label == target_fruit.casefold()
-                            and confidence is not None
-                            and confidence >= SEARCH_CROP_CANDIDATE_CONFIDENCE
-                            and detection_age_s is not None
-                            and 0.0 <= detection_age_s <= SEARCH_CANDIDATE_MAXIMUM_AGE_S
-                        )
+                        if double_back_controller is None:
+                            plausible_candidate = bool(
+                                label == target_fruit.casefold()
+                                and confidence is not None
+                                and confidence >= SEARCH_CROP_CANDIDATE_CONFIDENCE
+                                and detection_age_s is not None
+                                and 0.0
+                                <= detection_age_s
+                                <= SEARCH_CANDIDATE_MAXIMUM_AGE_S
+                            )
                         if confidence is not None:
                             current_maximum = _finite_float(
                                 recognition["maximum_confidence"]
@@ -639,13 +677,25 @@ class HardwareManager:
                                 recognition["crop_candidate_confidence_threshold"] = (
                                     SEARCH_CROP_CANDIDATE_CONFIDENCE
                                 )
-                    if status.get("target_ready") and isinstance(detection, dict):
+                    search_target_ready = (
+                        status.get("target_ready") is True
+                        if policy.name != "fast-lock"
+                        else search_lock.qualified
+                    )
+                    if search_target_ready and isinstance(detection, dict):
                         label = str(detection.get("label") or "").casefold()
                         if label == target_fruit.casefold():
                             handoff = search_handoff_from_status(
-                                status,
+                                (
+                                    status
+                                    if status.get("target_ready") is True
+                                    else {**status, "target_ready": True}
+                                ),
                                 target_fruit,
                                 qualified_monotonic_s=sampled_at,
+                                minimum_stable_detections=(
+                                    policy.minimum_consecutive_detections
+                                ),
                             )
                             evidence = {
                                 "motion_path": "sport_client",
@@ -658,6 +708,7 @@ class HardwareManager:
                                 "recognition": {
                                     **recognition,
                                     "search_progress_rad": progress,
+                                    "search_lock_reason": search_lock.reason,
                                 },
                                 "motion_commands_sent": commands_sent,
                             }
@@ -681,13 +732,11 @@ class HardwareManager:
                         raise HardwareUnavailable(
                             sample.error or "Go2 pose became stale during search"
                         )
-                    progress += max(
-                        0.0,
-                        math.atan2(
-                            math.sin(sample.pose.yaw_rad - previous_yaw),
-                            math.cos(sample.pose.yaw_rad - previous_yaw),
-                        ),
+                    yaw_step = math.atan2(
+                        math.sin(sample.pose.yaw_rad - previous_yaw),
+                        math.cos(sample.pose.yaw_rad - previous_yaw),
                     )
+                    progress += max(0.0, yaw_step)
                     previous_yaw = sample.pose.yaw_rad
                     if progress >= sweep:
                         raise TargetLost(
@@ -698,6 +747,19 @@ class HardwareManager:
                             },
                         )
                     now = self._monotonic()
+                    if double_back_controller is not None:
+                        directive = double_back_controller.command(
+                            now_s=now,
+                            measured_yaw_step_rad=yaw_step,
+                        )
+                        recognition.update(double_back_controller.evidence())
+                        await self._send_motion_command(
+                            lease,
+                            VelocityCommand(0.0, directive.yaw_rps, directive.reason),
+                        )
+                        commands_sent = commands_sent or directive.yaw_rps != 0.0
+                        await asyncio.sleep(self.config.command_heartbeat_s)
+                        continue
                     if plausible_candidate:
                         candidate_last_seen_at = now
                         if not candidate_lock_active:

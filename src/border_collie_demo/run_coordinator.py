@@ -21,6 +21,7 @@ class RunActivation:
     target_fruit: str
     activation_source: str
     orientation_degrees: float = 0.0
+    search_policy: str = "slow-sweep"
     idempotency_key: str | None = None
 
 
@@ -52,6 +53,7 @@ class RunCoordinator:
             target_fruit=activation.target_fruit,
             activation_source=activation.activation_source,
             orientation_degrees=activation.orientation_degrees,
+            search_policy=activation.search_policy,
             idempotency_key=activation.idempotency_key,
         )
         if not created:

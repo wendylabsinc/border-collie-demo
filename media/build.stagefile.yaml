@@ -13,8 +13,8 @@ stages:
       BANANA_SPECIALIST_MIN_CONFIDENCE: "0.55"
       BANANA_SPECIALIST_MIN_IOU: "0.10"
       BORDER_COLLIE_MEDIA_PORT: "8111"
-      BORDER_COLLIE_RELEASE_ID: stage-camera-v20-continuous-track
-      BORDER_COLLIE_CONFIG_SCHEMA: "4"
+      BORDER_COLLIE_RELEASE_ID: stage-camera-v21-search-policy-abc
+      BORDER_COLLIE_CONFIG_SCHEMA: "5"
       BORDER_COLLIE_BARK_UUID: 161387de-21ab-4f0b-b4e9-97124b000d06
     install:
       apt:

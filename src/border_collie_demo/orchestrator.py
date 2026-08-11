@@ -22,6 +22,7 @@ class StageContext:
     home: dict[str, Any]
     run_epoch: str = "simulation"
     orientation_degrees: float = 0.0
+    search_policy: str = "slow-sweep"
     outbound_forward_pulses: int = 0
     search_qualification_handoff: SearchQualificationHandoff | None = None
 
@@ -118,6 +119,7 @@ class DemoOrchestrator:
             target_fruit=run["target_fruit"],
             home=run["home"],
             orientation_degrees=float(run.get("orientation_degrees", 0.0)),
+            search_policy=str(run.get("search_policy", "slow-sweep")),
         )
         try:
             for phase in EXECUTED_STAGES:

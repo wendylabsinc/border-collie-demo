@@ -52,6 +52,7 @@ def build_app_from_env(*, search_policy: SearchPolicy | None = None) -> FastAPI:
         hardware_config,
         visual_odometry=perception,
         metric_range_provider=metric_range_provider,
+        search_policy=selected_search_policy,
     )
     bark = BarkClient(BarkConfig.from_env(), release_cohort=release_cohort)
     terminal_evidence = TerminalEvidenceClient.from_env()
@@ -66,6 +67,7 @@ def build_app_from_env(*, search_policy: SearchPolicy | None = None) -> FastAPI:
             perception.status,
             bark,
             metric_arrival_required=hardware_config.metric_arrival_required,
+            search_policy=selected_search_policy,
         ),
         terminal_evidence=terminal_evidence.capture,
         release_cohort=release_cohort,

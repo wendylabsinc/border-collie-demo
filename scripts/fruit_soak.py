@@ -44,6 +44,7 @@ import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
+from itertools import pairwise
 from pathlib import Path
 
 try:  # package import (tests) or direct script execution
@@ -106,6 +107,7 @@ class ApiClient:
         fruit: str,
         orientation_degrees: float = 0.0,
         idempotency_key: str | None = None,
+        search_policy: str | None = None,
     ) -> dict:
         return self._request(
             f"{self.base_url}/api/run",
@@ -114,6 +116,7 @@ class ApiClient:
                 "target_fruit": fruit,
                 "orientation_degrees": orientation_degrees,
                 "idempotency_key": idempotency_key,
+                "search_policy": search_policy,
             },
         )
 
@@ -160,6 +163,7 @@ class TempSource:
                 completed = subprocess.run(
                     ["wendy", "device", "top", "--device", self.agent, "--json"],
                     capture_output=True,
+                    check=False,
                     timeout=20.0,
                     text=True,
                 )
@@ -180,7 +184,12 @@ class TempSource:
                     return json.loads(response.read()), None
             if self.command:
                 completed = subprocess.run(
-                    self.command, shell=True, capture_output=True, timeout=8.0, text=True
+                    self.command,
+                    shell=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=8.0,
+                    text=True,
                 )
                 if completed.returncode != 0:
                     return None, completed.stderr.strip() or "temp command failed"
@@ -250,6 +259,7 @@ class DeviceProbe:
             completed = subprocess.run(
                 ["wendy", *args, "--device", self.agent, "--json"],
                 capture_output=True,
+                check=False,
                 timeout=20.0,
                 text=True,
             )
@@ -337,7 +347,7 @@ def draw_orientation_sequence(runs: int, seed: int) -> list[int]:
 def take_sample(
     client: ApiClient,
     target_fruit: str,
-    temp_sampler: "ThreadedTempSampler | None",
+    temp_sampler: ThreadedTempSampler | None,
     *,
     clock=time.monotonic,
 ) -> dict:
@@ -464,7 +474,7 @@ def compute_stage_durations(events: list[dict] | None) -> dict[str, float]:
         if e.get("phase") is not None and e.get("seconds_since_start") is not None
     ]
     durations: dict[str, float] = {}
-    for (phase, started), (_, ended) in zip(transitions, transitions[1:]):
+    for (phase, started), (_, ended) in pairwise(transitions):
         durations[phase] = round(durations.get(phase, 0.0) + (ended - started), 3)
     return durations
 
@@ -535,7 +545,7 @@ def wait_for_ready(
     while True:
         try:
             status = client.status()
-        except Exception as exc:  # noqa: BLE001 - transient link errors are retried
+        except Exception as exc:
             last_blockers = [f"status unavailable: {exc}"]
             if clock() >= deadline:
                 raise HarnessAbort(
@@ -570,7 +580,7 @@ def wait_for_terminal(
     run_id: str,
     *,
     target_fruit: str,
-    temp_sampler: "ThreadedTempSampler | None" = None,
+    temp_sampler: ThreadedTempSampler | None = None,
     timeout_s: float = RUN_TIMEOUT_S,
     sleep=time.sleep,
     clock=time.monotonic,
@@ -657,6 +667,7 @@ def run_session(
     note: str | None = None,
     expected_build_label: str | None = None,
     expected_search_policy: str | None = None,
+    search_policy: str | None = None,
     expected_fruits: list[str] | None = None,
     randomize_orientation: bool = True,
     recover_failures: bool = False,
@@ -672,14 +683,14 @@ def run_session(
             f"expected build {expected_build_label!r}, got {build_label!r}; "
             "no run was activated"
         )
-    search_policy = status.get("search_policy")
+    default_search_policy = status.get("search_policy")
     if (
         expected_search_policy is not None
-        and search_policy != expected_search_policy
+        and default_search_policy != expected_search_policy
     ):
         raise HarnessAbort(
             f"expected search policy {expected_search_policy!r}, "
-            f"got {search_policy!r}; no run was activated"
+            f"got {default_search_policy!r}; no run was activated"
         )
     qualified = list(client.fruits().get("qualified_fruits", []))
     if expected_fruits is not None:
@@ -695,7 +706,8 @@ def run_session(
         draw_orientation_sequence(runs, seed) if randomize_orientation else [0] * runs
     )
     log(f"build: {build_label}")
-    log(f"search policy: {search_policy or 'unreported'}")
+    selected_search_policy = search_policy or default_search_policy
+    log(f"search policy: {selected_search_policy or 'unreported'}")
     log(f"qualified fruits: {', '.join(qualified)}")
     log(f"seed {seed} -> sequence: {', '.join(sequence)}")
     log(
@@ -708,7 +720,8 @@ def run_session(
         "schema_version": SCHEMA_VERSION,
         "session": session_id,
         "build_label": build_label,
-        "search_policy": search_policy,
+        "search_policy": selected_search_policy,
+        "default_search_policy": default_search_policy,
         "note": note,
         "qualified_fruits": qualified,
         "target_runs": runs,
@@ -772,14 +785,16 @@ def run_session(
                         fruit,
                         orientation_degrees,
                         idempotency_key=activation_key,
+                        search_policy=selected_search_policy,
                     )
-                except Exception:
+                except Exception:  # noqa: BLE001 - idempotency makes retry bounded
                     # The server contract makes this retry safe: the same key
                     # can only return the original Demo Run.
                     activation = client.activate(
                         fruit,
                         orientation_degrees,
                         idempotency_key=activation_key,
+                        search_policy=selected_search_policy,
                     )
                 run_id = activation["run"]["run_id"]
             except Exception as exc:
@@ -880,6 +895,12 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--search-policy",
+        choices=("fast-lock", "slow-sweep", "double-back"),
+        default=None,
+        help="select one immutable search policy for every run in this session",
+    )
+    parser.add_argument(
         "--expected-search-policy",
         choices=("fast-lock", "slow-sweep", "double-back"),
         default=None,
@@ -941,6 +962,7 @@ def main(argv: list[str] | None = None) -> int:
             note=args.note,
             expected_build_label=args.expected_build_label,
             expected_search_policy=args.expected_search_policy,
+            search_policy=args.search_policy,
             expected_fruits=args.expected_fruits,
             randomize_orientation=not args.no_orientation_randomization,
             recover_failures=args.recover_failures,

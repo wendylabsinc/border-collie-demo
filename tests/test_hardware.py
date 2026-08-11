@@ -21,6 +21,7 @@ from border_collie_demo.hardware import (
 )
 from border_collie_demo.models import Pose, VelocityCommand
 from border_collie_demo.qualified_tracking import SearchQualificationHandoff
+from border_collie_demo.search_policy import SearchPolicy
 from border_collie_demo.target_range import MetricArrivalGate, RangeCalibration
 
 
@@ -565,6 +566,315 @@ def test_find_target_turns_until_fresh_stable_perception_then_stops() -> None:
     asyncio.run(scenario())
 
 
+def test_find_target_fast_lock_replays_three_fresh_apple_observations() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: TurningPose(),
+            search_policy=SearchPolicy.named("fast-lock"),
+        )
+        await manager.start()
+
+        def apple_observation(consecutive: int, pts: int) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": False,
+                "generation": "camera-apple",
+                "source": {
+                    "pts": pts,
+                    "time_base": "1/90000",
+                    "age_s": 0.02,
+                },
+                "detection": {
+                    "label": "apple",
+                    "generation": "camera-apple",
+                    "source_pts": pts,
+                    "source_time_base": "1/90000",
+                    "confidence": 0.78,
+                    "consecutive_detections": consecutive,
+                    "inference_s": 0.08,
+                    "age_s": 0.03,
+                    "center_x_ratio": 0.48,
+                    "center_y_ratio": 0.55,
+                    "bottom_ratio": 0.67,
+                    "bbox_area_ratio": 0.04,
+                },
+            }
+
+        statuses = iter(
+            (
+                apple_observation(1, 100),
+                apple_observation(2, 200),
+                apple_observation(3, 300),
+            )
+        )
+
+        result = await manager.find_target(
+            lambda: next(statuses),
+            "apple",
+            yaw_rps=1.0,
+            sweep_rad=2.0 * math.pi,
+            timeout_s=1.0,
+        )
+
+        assert result["stable_detections"] == 3
+        assert result["recognition"]["search_policy"] == "fast-lock"
+        assert result["recognition"]["search_lock_minimum_detections"] == 3
+        assert result["search_qualification"]["stable_detections"] == 3
+        assert all(command.forward_mps == 0.0 for command in motion.commands)
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_find_target_double_back_revisits_a_high_confidence_apple_bearing() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        clock = 0.0
+
+        def monotonic() -> float:
+            return clock
+
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+            search_policy=SearchPolicy.named("double-back"),
+            monotonic=monotonic,
+        )
+        await manager.start()
+
+        def apple(
+            source_pts: int,
+            consecutive: int,
+            *,
+            ready: bool = False,
+        ) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": ready,
+                "generation": "camera-1",
+                "source": {
+                    "pts": source_pts,
+                    "time_base": "1/90000",
+                    "age_s": 0.02,
+                },
+                "detection": {
+                    "label": "apple",
+                    "generation": "camera-1",
+                    "source_pts": source_pts,
+                    "source_time_base": "1/90000",
+                    "confidence": 0.806853175163269,
+                    "consecutive_detections": consecutive,
+                    "inference_s": 0.08,
+                    "age_s": 0.01,
+                    "center_x_ratio": 0.44,
+                    "center_y_ratio": 0.50,
+                    "bottom_ratio": 0.64,
+                    "bbox_area_ratio": 0.04,
+                },
+            }
+
+        statuses = iter(
+            (
+                {"camera_healthy": True, "target_ready": False},
+                apple(100, 4),
+                {"camera_healthy": True, "target_ready": False},
+                {"camera_healthy": True, "target_ready": False},
+                {"camera_healthy": True, "target_ready": False},
+                {"camera_healthy": True, "target_ready": False},
+                apple(200, 2),
+                apple(300, 5, ready=True),
+            )
+        )
+
+        def read_status() -> dict[str, object]:
+            nonlocal clock
+            clock += 0.2
+            return next(statuses)
+
+        result = await manager.find_target(
+            read_status,
+            "apple",
+            yaw_rps=1.0,
+            sweep_rad=2.0 * math.pi,
+            timeout_s=5.0,
+        )
+
+        assert result["recognition"]["search_policy"] == "double-back"
+        assert result["recognition"]["double_back_episodes"] == 1
+        assert any(
+            command.reason == "candidate_double_back" and command.yaw_rps < 0.0
+            for command in motion.commands
+        )
+        assert all(command.forward_mps == 0.0 for command in motion.commands)
+        assert result["stable_detections"] == 5
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "candidate",
+    (
+        {"label": "apple", "confidence": 0.69, "age_s": 0.01},
+        {"label": "pear", "confidence": 0.95, "age_s": 0.01},
+        {"label": "apple", "confidence": 0.95, "age_s": 0.251},
+        {
+            "label": "apple",
+            "generation": "camera-old",
+            "confidence": 0.95,
+            "age_s": 0.01,
+        },
+    ),
+)
+def test_double_back_ignores_unsafe_candidate_evidence(
+    candidate: dict[str, object],
+) -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        configured_candidate = {
+            "generation": "camera-1",
+            "source_pts": 100,
+            "source_time_base": "1/90000",
+            "consecutive_detections": 1,
+            **candidate,
+        }
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+            search_policy=SearchPolicy.named("double-back"),
+        )
+        await manager.start()
+        statuses = iter(
+            (
+                {
+                    "camera_healthy": True,
+                    "target_ready": False,
+                    "generation": "camera-1",
+                    "source": {"pts": 100, "time_base": "1/90000"},
+                    "detection": configured_candidate,
+                },
+                {
+                    "camera_healthy": True,
+                    "target_ready": True,
+                    "generation": "camera-1",
+                    "source": {"pts": 200, "time_base": "1/90000"},
+                    "detection": {
+                        "label": "apple",
+                        "generation": "camera-1",
+                        "source_pts": 200,
+                        "source_time_base": "1/90000",
+                        "confidence": 0.85,
+                        "consecutive_detections": 5,
+                        "center_x_ratio": 0.5,
+                        "center_y_ratio": 0.5,
+                        "bottom_ratio": 0.65,
+                        "bbox_area_ratio": 0.04,
+                    },
+                },
+            )
+        )
+
+        result = await manager.find_target(
+            lambda: next(statuses),
+            "apple",
+            yaw_rps=1.0,
+            sweep_rad=2.0 * math.pi,
+            timeout_s=0.5,
+        )
+
+        assert [command.reason for command in motion.commands] == ["find_target"]
+        assert result["recognition"]["double_back_episodes"] == 0
+        assert all(command.forward_mps == 0.0 for command in motion.commands)
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_double_back_one_frame_noise_is_bounded_then_search_resumes() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        clock = 0.0
+        sample = 0
+
+        def monotonic() -> float:
+            return clock
+
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+            search_policy=SearchPolicy.named("double-back"),
+            monotonic=monotonic,
+        )
+        await manager.start()
+
+        def detection(pts: int, consecutive: int, ready: bool) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": ready,
+                "generation": "camera-1",
+                "source": {"pts": pts, "time_base": "1/90000"},
+                "detection": {
+                    "label": "apple",
+                    "generation": "camera-1",
+                    "source_pts": pts,
+                    "source_time_base": "1/90000",
+                    "confidence": 0.81,
+                    "consecutive_detections": consecutive,
+                    "age_s": 0.01,
+                    "center_x_ratio": 0.5,
+                    "center_y_ratio": 0.5,
+                    "bottom_ratio": 0.65,
+                    "bbox_area_ratio": 0.04,
+                },
+            }
+
+        def read_status() -> dict[str, object]:
+            nonlocal clock, sample
+            clock += 0.2
+            sample += 1
+            if sample == 1:
+                return detection(100, 1, False)
+            if sample == 14:
+                return detection(200, 5, True)
+            return {"camera_healthy": True, "target_ready": False}
+
+        result = await manager.find_target(
+            read_status,
+            "apple",
+            yaw_rps=1.0,
+            sweep_rad=2.0 * math.pi,
+            timeout_s=5.0,
+        )
+
+        reverse = [
+            command
+            for command in motion.commands
+            if command.reason == "candidate_double_back"
+        ]
+        assert 1 <= len(reverse) <= 4
+        assert any(command.reason == "find_target" for command in motion.commands[8:])
+        assert result["recognition"]["double_back_episodes"] == 1
+        assert result["recognition"]["double_back_maximum_episodes"] == 2
+        assert all(command.forward_mps == 0.0 for command in motion.commands)
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
 def test_find_target_holds_during_crop_confirmation() -> None:
     async def scenario() -> None:
         motion = FakeMotion()
@@ -1016,13 +1326,15 @@ def test_failed_search_reports_the_best_distant_pear_evidence() -> None:
                 timeout_s=0.25,
             )
 
-        assert failure.value.evidence == {
-            "samples": 2,
-            "pear_candidate_samples": 2,
-            "maximum_confidence": 0.03,
-            "maximum_consecutive_detections": 0,
-            "maximum_bbox_area_ratio": 0.04,
-            "closest_detection": {
+            assert failure.value.evidence == {
+                "samples": 2,
+                "pear_candidate_samples": 2,
+                "maximum_confidence": 0.03,
+                "maximum_consecutive_detections": 0,
+                "maximum_bbox_area_ratio": 0.04,
+                "search_policy": "slow-sweep",
+                "search_lock_minimum_detections": 5,
+                "closest_detection": {
                 "source_pts": 200,
                 "confidence": 0.03,
                 "bbox_xyxy": [100, 100, 356, 244],

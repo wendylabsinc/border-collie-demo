@@ -111,6 +111,7 @@ class RunResultStore:
         target_fruit: str,
         activation_source: str,
         orientation_degrees: float = 0.0,
+        search_policy: str = "slow-sweep",
         idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         if self._active_run_id is not None:
@@ -129,6 +130,7 @@ class RunResultStore:
             "idempotency_key": idempotency_key,
             "run_epoch": str(uuid4()),
             "orientation_degrees": float(orientation_degrees),
+            "search_policy": search_policy,
             "started_at_utc": started_utc,
             "started_monotonic_s": started_monotonic_s,
             "ended_at_utc": None,
@@ -163,6 +165,7 @@ class RunResultStore:
         target_fruit: str,
         activation_source: str,
         orientation_degrees: float = 0.0,
+        search_policy: str = "slow-sweep",
         idempotency_key: str | None = None,
     ) -> tuple[dict[str, Any], bool]:
         key = None if idempotency_key is None else idempotency_key.strip()
@@ -175,11 +178,13 @@ class RunResultStore:
                     target_fruit,
                     activation_source,
                     float(orientation_degrees),
+                    search_policy,
                 )
                 actual = (
                     existing.get("target_fruit"),
                     existing.get("activation_source"),
                     float(existing.get("orientation_degrees", 0.0)),
+                    existing.get("search_policy", "slow-sweep"),
                 )
                 if actual != expected:
                     raise ActiveRunError(
@@ -193,6 +198,7 @@ class RunResultStore:
                 target_fruit=target_fruit,
                 activation_source=activation_source,
                 orientation_degrees=orientation_degrees,
+                search_policy=search_policy,
                 idempotency_key=key,
             ),
             True,
@@ -626,6 +632,7 @@ class RunResultStore:
     def _compact_success(self, result: dict[str, Any]) -> dict[str, Any]:
         stages = result.get("stage_results") or {}
         orientation = stages.get("orient_for_run") or {}
+        broad_search = stages.get("turn_to_fruit") or {}
         recognition = stages.get("find_fruit") or {}
         approach = stages.get("approach_fruit") or {}
         action = stages.get("sit_and_bark") or {}
@@ -657,6 +664,11 @@ class RunResultStore:
             "measured_orientation_change_rad": orientation.get(
                 "measured_yaw_change_rad"
             ),
+            "search_policy": (
+                result.get("search_policy")
+                or broad_search.get("search_policy")
+                or recognition.get("search_policy")
+            ),
             "recognition_label": recognition.get("label"),
             "recognition_confidence": recognition.get("confidence"),
             "recognition_stable_detections": recognition.get("stable_detections"),
@@ -682,6 +694,7 @@ class RunResultStore:
             "idempotency_key": result.get("idempotency_key"),
             "run_epoch": result.get("run_epoch"),
             "orientation_degrees": result.get("orientation_degrees", 0.0),
+            "search_policy": result.get("search_policy", "slow-sweep"),
             "started_at_utc": result["started_at_utc"],
             "ended_at_utc": result["ended_at_utc"],
             "duration_s": result["duration_s"],

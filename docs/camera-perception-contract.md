@@ -4,6 +4,18 @@ Motion may be authorized only by perception derived from a camera source that
 proves source progress. Callback receipt, local counters, and changing HTTP
 responses are not source-progress evidence.
 
+## Search experiment boundary
+
+The v21 search-policy experiment may change only how bounded yaw search obtains
+a qualification handoff. Every policy continues to require camera health,
+current source and detection ages, matching fruit/generation/timebase, valid
+non-regressed PTS, per-fruit acquisition confidence, bounded inference time,
+and normalized geometry. `fast-lock` changes the consecutive-frame count only;
+`slow-sweep` changes broad yaw only; `double-back` adds bounded yaw-only revisit
+episodes. No policy weakens approach tracking, Final Approach, Arrival, or
+Home-return gates. The policy selected at run activation is immutable and is
+part of retained result evidence.
+
 ## Required frame identity
 
 Every accepted frame must carry:
