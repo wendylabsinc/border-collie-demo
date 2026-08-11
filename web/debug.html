@@ -2,20 +2,22 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Border Collie Diagnostics</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+    <meta name="theme-color" content="#171c23">
+    <title>Border Collie Diagnostics · Wendy</title>
+    <style>
+      :root{--cream:#f1eee7;--slate:#171c23;--muted:#aaa9a3;--line:#343a43;--seafoam:#9fe2bf;font-family:"Geist",ui-sans-serif,system-ui,sans-serif;background:var(--slate);color:var(--cream)}*{box-sizing:border-box}body{margin:0;min-height:100vh}main{margin:auto;max-width:1120px;padding:clamp(24px,5vw,64px)}header{align-items:end;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;padding-bottom:24px}h1{font-size:clamp(38px,6vw,68px);font-weight:500;letter-spacing:-.05em;margin:0}.eyebrow{color:var(--seafoam);font:600 11px ui-monospace,monospace;letter-spacing:.15em;text-transform:uppercase}nav{display:flex;gap:8px}a{border:1px solid var(--line);color:var(--cream);font-weight:650;min-height:48px;padding:13px 16px;text-decoration:none}pre{background:#11151b;border:1px solid var(--line);color:#d8ddd9;font:13px/1.55 ui-monospace,SFMono-Regular,monospace;margin:28px 0 0;min-height:360px;overflow:auto;padding:20px;white-space:pre-wrap}@media(max-width:640px){header{align-items:start;flex-direction:column;gap:18px}nav{width:100%}nav a{flex:1;text-align:center}}
+    </style>
   </head>
   <body>
     <main>
-      <h1>Diagnostics</h1>
-      <pre id="status">Loading…</pre>
-      <p><a href="/">Back to demo</a></p>
+      <header><div><p class="eyebrow">Wendy · Woof</p><h1>Diagnostics</h1></div><nav><a href="/">Demo</a><a href="http://127.0.0.1:8088/">← Home</a></nav></header>
+      <pre id="status">Loading current state…</pre>
     </main>
     <script>
       async function refresh() {
         const response = await fetch('/api/status', {cache: 'no-store'});
-        document.querySelector('#status').textContent =
-          JSON.stringify(await response.json(), null, 2);
+        document.querySelector('#status').textContent = JSON.stringify(await response.json(), null, 2);
       }
       refresh();
       setInterval(refresh, 1000);

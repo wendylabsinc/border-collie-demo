@@ -15,3 +15,13 @@ def test_scaffold_has_no_activate_endpoint() -> None:
     response = TestClient(create_app()).post("/api/run")
 
     assert response.status_code == 404
+
+
+def test_operator_page_uses_wendy_brand_and_home_navigation() -> None:
+    response = TestClient(create_app()).get("/")
+
+    assert response.status_code == 200
+    assert "WENDY" in response.text
+    assert "#f1eee7" in response.text
+    assert "http://127.0.0.1:8088/" in response.text
+    assert "Hardware control surface" in response.text
