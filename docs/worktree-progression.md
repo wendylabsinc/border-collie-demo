@@ -37,7 +37,7 @@ main (clean scaffold)
 | `demo/base` | Golden camera-driven behavior used for the supervised baseline. | Historical 3/3 pear success at the recorded 2026-08-08 snapshot; do not project that result onto newer commits. |
 | `codex/base-soak-recovery-harness` | Seeded randomized ten-run harness, compact success records, retained failure evidence, and bounded failed-run Home recovery. | Open PR #4. Local `demo/base` currently points at the same `c25a381` commit, while `origin/demo/base` is older; always identify the commit. |
 | `codex/durability-approach-cadence` | Integrated durability foundation, supervision, qualified tracking, Home fusion, fault injection, smoother approach control, and the later metric/LiDAR experiments. | Open PR #5. Deployed and physically iterated, but the LiDAR Arrival path did not achieve repeatable stage success. |
-| `codex/stage-camera-three-fruit` | Keeps PR #5's durability/recovery work while restoring a base-compatible camera closeout shared by apple, banana, and pear. | Open stacked PR #6. Commit `7a4686f` was built and deployed as `stage-camera-v15-base-compatible-arrival`; readiness and disarm were verified. No physical fruit run has yet qualified it. |
+| `codex/stage-camera-three-fruit` | Keeps PR #5's durability/recovery work while restoring a base-compatible camera closeout shared by apple, banana, and pear. | Open stacked PR #6. Commit `7a4686f` supplied the runtime change and `c6f70eb` added this lineage map; the latter was deployed with the same `stage-camera-v15-base-compatible-arrival` runtime identity. One supervised pear run physically exercised search, approach, Arrival, final push, sit/bark, and return translation, then failed during heading restoration when Home distance grew from 0.079 m to 0.124 m. It is physically executed once but not qualified. |
 
 PR #6 is based on PR #5, and PR #5 is based on `demo/base`. This keeps each
 review focused without pretending the latest stage candidate is already merged
@@ -64,7 +64,7 @@ These worktrees are direct ancestors of the current stage branch:
 | `border-collie-demo-durability-sensor-fusion` | `codex/durability-sensor-fusion` at `4524402` | Stateful planar fusion. |
 | `border-collie-demo-durability` | `codex/extreme-durability-foundation` at `0d13e49` | Primary integration through direct SportClient turns and widened tracking corridor. |
 | `border-collie-demo-durability-cadence` | `codex/durability-approach-cadence` at `f230493` | Cadence fixes followed by the metric/LiDAR Arrival experiments; head of PR #5. |
-| `border-collie-demo-stage-camera` | `codex/stage-camera-three-fruit` at `7a4686f` | Current stage-oriented camera closeout; head of PR #6. |
+| `border-collie-demo-stage-camera` | `codex/stage-camera-three-fruit` at `c6f70eb` (`7a4686f` runtime change) | Current stage-oriented camera closeout and lineage documentation; head of PR #6 at the recorded run. |
 
 Do not merge the source worktree branches again: their intended contributions
 are already present in PR #5. Compare behavior or tests there when debugging,
@@ -103,8 +103,11 @@ Use these terms precisely in issues and PR comments:
 - **Qualified:** the required consecutive physical acceptance set passed and
   its result artifacts were retained.
 
-Deployment is not qualification. In particular, v15 is deployed and readiness
-verified, but it is not yet physically executed or qualified.
+Deployment is not qualification. In particular, v15 is deployed,
+readiness-verified, and physically executed once. Run
+`7b5cfd93-7359-4f4c-908e-9b791e0bde93` proved the camera closeout and audience
+action but ended `RETURN_HOME_FAILURE` during heading restoration, so v15 is
+not qualified.
 
 ## Verifying the map
 
