@@ -1,0 +1,66 @@
+{
+  "recorded_at_utc": "2026-08-12T22:34:31Z",
+  "release": {
+    "release_id": "stage-camera-v31-frame-path-rollback",
+    "config_schema": 14,
+    "app_version": "1.0.34-stage-camera",
+    "source_checkpoint": "16f3586"
+  },
+  "experiment": {
+    "hypothesis": "Restoring the v28 scheduled full-frame/crop pipeline and phase-local qualified tracker removes the v29 confirmed_full_frame_loss regression.",
+    "comparison_release": "stage-camera-v30-center-corridor-env",
+    "comparison_failure": "ARRIVAL_FAILURE: persistent pear track was lost: confirmed_full_frame_loss"
+  },
+  "run": {
+    "run_id": "e94567c0-3c32-4d44-abb2-8f442459c430",
+    "target_fruit": "pear",
+    "orientation_degrees": 0.0,
+    "search_policy": "slow-sweep",
+    "duration_s": 20.930642902999807,
+    "outcome": "FAILED",
+    "reason": "TARGET_LOST_OFF_AXIS",
+    "message": "qualified pear left the centered close-range handoff corridor",
+    "final_safety_state": "DISARMED_CONFIRMED"
+  },
+  "search": {
+    "qualified": true,
+    "confidence": 0.726425290107727,
+    "stable_detections": 5,
+    "maximum_confidence": 0.81640625,
+    "search_progress_rad": 2.9097883701324463
+  },
+  "approach": {
+    "track_acquired": true,
+    "initial_centered": true,
+    "approach_authorized": true,
+    "acquisition_samples": 3,
+    "qualified_samples": 41,
+    "close_range_samples": 18,
+    "forward_command_heartbeats": 28,
+    "weak_samples": 12,
+    "duplicate_samples": 7,
+    "identity_resets": 0,
+    "discontinuity_stops": 1,
+    "minimum_tracking_confidence": 0.562176525592804,
+    "maximum_bottom_ratio": 0.8472222222222222,
+    "terminal_filtered_center_x_ratio": 0.6206384356813184,
+    "terminal_close_handoff_center_ratio": 0.08,
+    "terminal_reason": "target_lost_off_axis"
+  },
+  "recovery": {
+    "attempted": true,
+    "outcome": "FAILED",
+    "reason": "RECOVERY_FAILURE",
+    "message": "return Home stalled 0.132 m from its active waypoint",
+    "trusted_home_distance_m": 0.1328865055699121,
+    "application_home_gate_m": 0.10,
+    "operator_stage_margin_m": 0.50,
+    "final_safety_state": "DISARMED_CONFIRMED"
+  },
+  "conclusion": {
+    "persistent_full_frame_loss_reproduced": false,
+    "rollback_hypothesis_supported": true,
+    "end_to_end_success": false,
+    "next_failure_to_address": "The v28 close-range handoff uses a much tighter center corridor than the approach controller and fails off-axis after otherwise qualified forward motion."
+  }
+}
