@@ -951,6 +951,26 @@ Full evidence:
   blockers, fresh healthy pose, no active run/recovery/operation, guardian
   inactive, and exact zero/disarmed motion. Every other installed Go2 motion
   application remained stopped.
-- No physical Demo Run was started. The 0.20 rad/s SportClient recenter signal,
-  Apple false-positive rate, center-corridor behavior, and end-to-end fruit
-  reliability remain physically unqualified until a supervised run.
+- A supervised seeded five-run physical cohort used sequence Pear, Banana,
+  Pear, Apple, Apple and starting orientations 262, 204, 36, 9, and 241
+  degrees. It completed 1/5 end to end. The 9-degree Apple run completed at
+  Home distance 0.0867 m. The other Apple reached approach but timed out in
+  Arrival after 114 weak samples; recovery completed at 0.0476 m.
+- Pear at 262 degrees and Banana at 204 degrees failed
+  `TARGET_LOST_OFF_AXIS`; automatic recovery completed at 0.0827 m and
+  0.0782 m. Pear at 36 degrees failed bounded search after three consecutive
+  detections against the five-frame lock and was already recovered at
+  0.0278 m. Every recovery was safe to continue inside the 0.50 m stage gate.
+- The middle-40% behavior physically executed in the first Pear run: forward
+  authority was removed, three `0.20 rad/s` recenter commands were sent, the
+  track was reacquired, and close approach resumed. The run later failed the
+  separate tighter close-handoff corridor. Banana failed at filtered center
+  `0.6254`: inside global `0.30..0.70`, but just outside the closeout's
+  `+/-0.12` center rule. Thus v27 proves the recenter path can act, but it does
+  not yet reconcile global approach and terminal closeout corridors.
+- Failure totals were two `TARGET_LOST_OFF_AXIS`, one
+  `TARGET_RECOGNITION_FAILURE`, and one `ARRIVAL_FAILURE`. One laptop polling
+  cutout occurred; it was observational and not attributed as a mission cause.
+  Peak sampled Jetson temperature was 57.5 C with less than 0.5 C rise across
+  reported zones. The durable raw trace and start frames are in
+  `benchmarks/results/2026-08-11-v27-random-five-seed-202608112255.json`.

@@ -1,0 +1,82 @@
+{
+  "release_id": "stage-camera-v27-center-corridor-apple50",
+  "config_schema": 11,
+  "session": "fruit-soak-2026-08-12T065505Z",
+  "seed": 202608112255,
+  "search_policy": "slow-sweep",
+  "fruit_sequence": ["pear", "banana", "pear", "apple", "apple"],
+  "orientation_sequence_degrees": [262, 204, 36, 9, 241],
+  "attempted": 5,
+  "completed": 1,
+  "failure_counts": {
+    "TARGET_LOST_OFF_AXIS": 2,
+    "TARGET_RECOGNITION_FAILURE": 1,
+    "ARRIVAL_FAILURE": 1
+  },
+  "runs": [
+    {
+      "number": 1,
+      "run_id": "d8714e09-e395-4a3f-beee-b82d24f6305c",
+      "fruit": "pear",
+      "orientation_degrees": 262,
+      "outcome": "FAILED",
+      "reason": "TARGET_LOST_OFF_AXIS",
+      "recovery_reason": "HOME_POSITION_RECOVERED",
+      "recovery_home_distance_m": 0.08265704837945027
+    },
+    {
+      "number": 2,
+      "run_id": "bb2724fc-701b-4840-8072-927cf3281b73",
+      "fruit": "banana",
+      "orientation_degrees": 204,
+      "outcome": "FAILED",
+      "reason": "TARGET_LOST_OFF_AXIS",
+      "recovery_reason": "HOME_POSITION_RECOVERED",
+      "recovery_home_distance_m": 0.0781693773055007
+    },
+    {
+      "number": 3,
+      "run_id": "046a1a9c-40b0-4aa3-8130-66d2a7895d78",
+      "fruit": "pear",
+      "orientation_degrees": 36,
+      "outcome": "FAILED",
+      "reason": "TARGET_RECOGNITION_FAILURE",
+      "recovery_reason": "HOME_POSITION_ALREADY_RECOVERED",
+      "recovery_home_distance_m": 0.027802830119026112
+    },
+    {
+      "number": 4,
+      "run_id": "4cdc0cd3-1433-42e1-9691-10809d7f64e1",
+      "fruit": "apple",
+      "orientation_degrees": 9,
+      "outcome": "COMPLETED",
+      "reason": "SUCCESS",
+      "home_distance_m": 0.08665477352836508
+    },
+    {
+      "number": 5,
+      "run_id": "79af5dae-74b7-4a54-b01d-9992596d70e4",
+      "fruit": "apple",
+      "orientation_degrees": 241,
+      "outcome": "FAILED",
+      "reason": "ARRIVAL_FAILURE",
+      "recovery_reason": "HOME_POSITION_RECOVERED",
+      "recovery_home_distance_m": 0.04757702445945961
+    }
+  ],
+  "recovery": {
+    "attempted": 4,
+    "completed": 4,
+    "maximum_terminal_home_distance_m": 0.08265704837945027,
+    "all_safe_to_continue_inside_stage_margin": true,
+    "stage_home_margin_m": 0.5
+  },
+  "observations": {
+    "network_poll_cutouts": 1,
+    "worst_poll_p95_ms": 167.2,
+    "maximum_sampled_jetson_temperature_c": 57.5,
+    "middle_40_recenter_physically_executed": true,
+    "terminal_closeout_corridor_still_independent": true
+  },
+  "raw_evidence": "benchmarks/results/2026-08-11-v27-random-five-seed-202608112255.json"
+}
