@@ -2771,6 +2771,104 @@ def test_close_offset_uses_slew_limited_steering_without_in_place_pause() -> Non
     asyncio.run(scenario())
 
 
+def test_approach_pauses_outside_middle_forty_then_slow_recenters() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+
+        def seen(
+            source_pts: int,
+            *,
+            center_x: float,
+            center_y: float = 0.50,
+            bottom: float = 0.65,
+            area: float = 0.04,
+        ) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": True,
+                "generation": "camera-1",
+                "source": {"pts": source_pts, "age_s": 0.01},
+                "detection": {
+                    "label": "pear",
+                    "generation": "camera-1",
+                    "confidence": 0.81,
+                    "center_x_ratio": center_x,
+                    "center_y_ratio": center_y,
+                    "bottom_ratio": bottom,
+                    "bbox_area_ratio": area,
+                    "age_s": 0.01,
+                    "source_pts": source_pts,
+                },
+            }
+
+        statuses = iter(
+            (
+                seen(1, center_x=0.50),
+                seen(2, center_x=0.50),
+                seen(3, center_x=0.50),
+                seen(4, center_x=0.72),
+                seen(5, center_x=0.74, center_y=0.51, bottom=0.66, area=0.05),
+                seen(6, center_x=0.68, center_y=0.52, bottom=0.67, area=0.06),
+                seen(7, center_x=0.50, center_y=0.76, bottom=0.91, area=0.12),
+                seen(8, center_x=0.50, center_y=0.77, bottom=0.92, area=0.13),
+                seen(9, center_x=0.50, center_y=0.78, bottom=0.93, area=0.14),
+                seen(10, center_x=0.50, center_y=0.79, bottom=0.94, area=0.15),
+                {"camera_healthy": True, "target_ready": False},
+                {"camera_healthy": True, "target_ready": False},
+            )
+        )
+
+        with pytest.raises(TargetLost, match="Arrival timed out"):
+            await manager.approach_target(
+                lambda: next(
+                    statuses,
+                    {"camera_healthy": True, "target_ready": False},
+                ),
+                "pear",
+                forward_mps=1.0,
+                maximum_yaw_rps=0.50,
+                near_bottom_ratio=0.86,
+                near_center_ratio=0.72,
+                near_confirmations=3,
+                near_loss_grace_s=0.75,
+                close_range_mps=0.55,
+                final_push_mps=0.6,
+                final_push_duration_s=0.001,
+                timeout_s=1.0,
+            )
+
+        pause_index = next(
+            index
+            for index, command in enumerate(motion.commands)
+            if command.reason
+            == "qualified_track_confirming_center_corridor_exit"
+        )
+        recenter_index = next(
+            index
+            for index, command in enumerate(motion.commands)
+            if command.reason == "center_corridor_recenter"
+        )
+        assert motion.commands[pause_index].forward_mps == 0.0
+        assert motion.commands[pause_index].yaw_rps == 0.0
+        assert motion.commands[recenter_index].forward_mps == 0.0
+        assert abs(motion.commands[recenter_index].yaw_rps) == pytest.approx(0.20)
+        assert any(
+            command.forward_mps > 0.0
+            for command in motion.commands[recenter_index + 1 :]
+        )
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
 def test_healthy_4hz_camera_does_not_toggle_motion_in_10hz_control_loop() -> None:
     async def scenario() -> None:
         motion = FakeMotion()
@@ -3214,12 +3312,12 @@ def test_approach_steering_enters_and_exits_with_smooth_hysteresis() -> None:
             and command.yaw_rps == 0.0
             for command in motion.commands
         )
-        assert result["moving_steering_enter_ratio"] == 0.25
-        assert result["moving_steering_exit_ratio"] == 0.12
+        assert result["moving_steering_enter_ratio"] == 0.12
+        assert result["moving_steering_exit_ratio"] == 0.08
         assert result["moving_yaw_gain"] == 1.50
         assert result["moving_yaw_maximum_rps"] == 0.50
         assert result["moving_yaw_slew_rps_per_s"] == 2.0
-        assert result["stationary_recenter_error_ratio"] == 0.40
+        assert result["stationary_recenter_error_ratio"] == 0.20
         first_forward = next(
             index
             for index, command in enumerate(motion.commands)

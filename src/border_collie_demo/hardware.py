@@ -64,6 +64,7 @@ SEARCH_CROP_CANDIDATE_CONFIDENCE = 0.50
 APPROACH_YAW_GAIN = 1.50
 APPROACH_MOVING_MAX_YAW_RPS = 0.50
 APPROACH_YAW_SLEW_RPS_PER_S = 2.0
+APPROACH_RECENTER_YAW_RPS = 0.20
 FORWARD_CAPABLE_OPERATIONS = frozenset(
     {"forward_pulse", "approach_target", "return_home"}
 )
@@ -1198,6 +1199,10 @@ class HardwareManager:
                             "stationary_recenter_error_ratio": (
                                 tracker.config.stationary_recenter_error_ratio
                             ),
+                            "stationary_recenter_yaw_rps": min(
+                                maximum_yaw_rps,
+                                APPROACH_RECENTER_YAW_RPS,
+                            ),
                             "forward_pulse_count": forward_pulse_count,
                             "forward_pulse_period_s": self.config.command_heartbeat_s,
                             "motion_commands_sent": commands_sent,
@@ -1262,11 +1267,16 @@ class HardwareManager:
 
                     horizontal_error = decision.horizontal_error
                     if decision.recommendation is MotionRecommendation.ALIGN:
+                        recenter_yaw_rps = (
+                            min(maximum_yaw_rps, APPROACH_RECENTER_YAW_RPS)
+                            if decision.reason == "center_corridor_recenter"
+                            else maximum_yaw_rps
+                        )
                         yaw = (
                             0.0
                             if abs(horizontal_error) <= INITIAL_CENTER_TOLERANCE_RATIO
                             else -math.copysign(
-                                maximum_yaw_rps,
+                                recenter_yaw_rps,
                                 horizontal_error,
                             )
                         )
@@ -1276,8 +1286,8 @@ class HardwareManager:
                                 0.0,
                                 yaw,
                                 (
-                                    "recenter_target_large_error"
-                                    if decision.reason == "large_tracking_error"
+                                    "center_corridor_recenter"
+                                    if decision.reason == "center_corridor_recenter"
                                     else (
                                         "recenter_close_target"
                                         if decision.reason == "close_tracking_recenter"
