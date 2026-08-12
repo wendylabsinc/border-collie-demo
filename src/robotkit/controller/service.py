@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 from datetime import timedelta
+import math
+from datetime import datetime
 
 from robotkit.client import WorldStateClient
 from robotkit.contracts import Effect, Preconditions
@@ -16,6 +18,13 @@ from robotkit.runtime import (
     run_loop,
     world_state_url,
 )
+
+
+def control_tick(at: datetime, renewal_seconds: float) -> int:
+    """Replica-stable renewal identity derived only from A's capture time."""
+    if renewal_seconds <= 0:
+        raise ValueError("renewal_seconds must be positive")
+    return math.floor(at.timestamp() / renewal_seconds)
 
 
 def main() -> None:
@@ -39,6 +48,12 @@ def main() -> None:
         home_position_tolerance_m=float(os.getenv("HOME_POSITION_TOLERANCE_M", "0.15")),
         home_yaw_tolerance_rad=float(os.getenv("HOME_YAW_TOLERANCE_RAD", "0.15")),
     )
+    effect_ttl_seconds = float(os.getenv("EFFECT_TTL_SECONDS", "1"))
+    renewal_seconds = float(os.getenv("CONTROL_RENEWAL_SECONDS", "0.25"))
+    if renewal_seconds <= 0 or renewal_seconds >= effect_ttl_seconds:
+        raise ValueError(
+            "CONTROL_RENEWAL_SECONDS must be positive and less than EFFECT_TTL_SECONDS"
+        )
 
     def step() -> None:
         snapshot = client.snapshot()
@@ -46,11 +61,16 @@ def main() -> None:
         if goal is None or goal.status != "active" or goal.valid_until <= snapshot.captured_at:
             return
         decision = control(snapshot, goal, mission_config=mission_config)
+        # captured_at is supplied by durable A, not local process state. The
+        # bucket makes velocity renewal deterministic and replica-idempotent
+        # while allowing an unchanged world projection to keep the Go2's
+        # dead-man command alive.
+        tick = control_tick(snapshot.captured_at, renewal_seconds)
         client.publish_effect(
             Effect(
                 idempotency_key=(
                     f"{controller_id}:generation:{generation}:goal:{goal.goal_id}:"
-                    f"state:{snapshot.state_revision}"
+                    f"state:{snapshot.state_revision}:tick:{tick}"
                 ),
                 controller_id=controller_id,
                 instance_id=deployment,
@@ -60,7 +80,7 @@ def main() -> None:
                 effect_type=decision.effect_type,
                 created_at=snapshot.captured_at,
                 valid_until=snapshot.captured_at
-                + timedelta(seconds=float(os.getenv("EFFECT_TTL_SECONDS", "1"))),
+                + timedelta(seconds=effect_ttl_seconds),
                 parameters=decision.parameters,
                 preconditions=Preconditions(
                     max_world_revision_drift=int(os.getenv("MAX_STATE_DRIFT", "4")),

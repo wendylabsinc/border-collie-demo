@@ -3,9 +3,10 @@
 This B component consumes ROS2 `sensor_msgs/PointCloud2` and optional
 `nav_msgs/Odometry`, then publishes these versioned observations to A:
 
-- `lidar.proximity`: fixed, bounded angular sectors in the incoming scan frame,
-  with the nearest planar range in each sector. For camera-bearing fusion the
-  point cloud must be expressed in `base_link`; no unknown frame is relabelled.
+- `lidar.proximity`: fixed, bounded angular sectors in `base_link`, with the
+  nearest planar range in each sector. The Go2 runtime applies the documented
+  MID-360 13-degree mount rotation and body-centre translation to sensor-frame
+  clouds; inputs explicitly configured as `base_link` are not transformed.
   Missing ranges are `null` and must never be interpreted as free space.
 - `lidar.room_map`: a bounded sparse list of occupied voxels, never a full point
   cloud. `LIDAR_MAX_VOXELS` defaults to 512.
@@ -67,6 +68,12 @@ python -m robotkit.perception.lidar_voxel
 Proximity settings use the `LIDAR_PROXIMITY_*` environment prefix, including
 `SECTOR_WIDTH_RAD`, `MIN_BEARING_RAD`, `MAX_BEARING_RAD`, `MIN_RANGE_M`,
 `MAX_RANGE_M`, `MIN_Z_M`, `MAX_Z_M`, `MAX_SECTORS`, and `TTL_SECONDS`.
+
+Set `LIDAR_POINTS_FRAME=sensor` (the Go2 default) or `base_link`. Sensor mode
+uses `LIDAR_MOUNT_PITCH_RAD`, `LIDAR_MOUNT_X_M`, `LIDAR_MOUNT_Y_M`, and
+`LIDAR_MOUNT_Z_M`. Freshness is based on companion-computer receipt time while
+the ROS header stamp remains the immutable message identity; this prevents a
+robot/host wall-clock offset from making every live scan stale on arrival.
 
 The core modules have no ROS or numpy dependency. Unit tests use synthetic room
 scans and run with the normal RobotKit test environment.

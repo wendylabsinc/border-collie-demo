@@ -1,0 +1,4 @@
+version: 1
+sourceHash: sha256:d21ddd68d19f77eeff90da19a7c9e42fa7451fd70e297b34d421982882bb4210
+images:
+    ros:humble-ros-base: sha256:7bea3d9aa2483d3ca34c8e30d921b79273b0913bd7dc64bebf51d082b5d107e4

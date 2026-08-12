@@ -89,6 +89,81 @@ def test_find_apple_voice_starts_correlated_mission(
     }
 
 
+def test_find_apple_website_starts_correlated_mission(
+    observation_factory, snapshot_factory
+):
+    website = observation_factory(
+        stream="website.intent",
+        payload={
+            "intent": "find",
+            "slots": {"target": "apple"},
+            "source_text": "find apple",
+        },
+    )
+
+    decision = plan(snapshot_factory([website]), NOW)
+
+    assert decision.goal_type == "search_apple"
+    assert decision.parameters["trigger_event_id"] == str(website.event_id)
+    assert decision.parameters["trigger_stream"] == "website.intent"
+
+
+def test_unsupported_pear_is_an_explicit_idle_rejection(
+    observation_factory, snapshot_factory
+):
+    website = observation_factory(
+        stream="website.intent",
+        payload={"intent": "find", "slots": {"target": "pear"}},
+        ttl_seconds=30,
+    )
+
+    decision = plan(snapshot_factory([website]), NOW)
+
+    assert decision.goal_type == "idle_at_home"
+    assert decision.parameters["rejected_target"] == "pear"
+    assert decision.parameters["trigger_event_id"] == str(website.event_id)
+    assert "unsupported target 'pear'" in decision.rationale
+
+
+def test_unsupported_command_stops_an_active_apple_search(
+    observation_factory, snapshot_factory
+):
+    apple_command = _voice(observation_factory)
+    active = _goal(plan(snapshot_factory([apple_command]), NOW))
+    pear_command = observation_factory(
+        stream="website.intent",
+        key="pear-command",
+        revision=2,
+        observed_at=NOW + timedelta(milliseconds=1),
+        payload={"intent": "find", "slots": {"target": "pear"}},
+        ttl_seconds=30,
+    )
+
+    decision = plan(
+        snapshot_factory([apple_command, pear_command]),
+        NOW + timedelta(seconds=1),
+        current_goal=active,
+    )
+
+    assert decision.goal_type == "idle_at_home"
+    assert decision.parameters["rejected_target"] == "pear"
+
+
+def test_newest_command_channel_wins(observation_factory, snapshot_factory):
+    voice = _voice(observation_factory, revision=1)
+    website = observation_factory(
+        stream="website.intent",
+        key="website-newer",
+        revision=2,
+        observed_at=NOW + timedelta(milliseconds=1),
+        payload={"intent": "unknown", "slots": {}, "source_text": "never mind"},
+    )
+
+    assert plan(snapshot_factory([voice, website]), NOW + timedelta(seconds=1)).goal_type == (
+        "idle_at_home"
+    )
+
+
 def test_move_to_apple_transcript_is_accepted(observation_factory, snapshot_factory):
     voice = observation_factory(
         stream="voice.intent",

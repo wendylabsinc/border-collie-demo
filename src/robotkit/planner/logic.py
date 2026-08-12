@@ -136,25 +136,67 @@ def _offending_health(
     )
 
 
-def _apple_voice_intent(voice: ObservationRecord | None) -> bool:
-    if voice is None:
-        return False
-    payload = voice.payload
+def _command_target(command: ObservationRecord | None) -> str | None:
+    if command is None:
+        return None
+    payload = command.payload
     intent = str(payload.get("intent", payload.get("command", ""))).casefold()
     slots = payload.get("slots")
     slots = slots if isinstance(slots, Mapping) else {}
-    target = " ".join(
-        str(slots.get(key, payload.get(key, "")))
-        for key in ("target", "destination", "object")
-    ).casefold()
-    if "apple" in target and intent in {"find", "locate", "search", "go", "move", "walk"}:
-        return True
+    if intent in {"find", "locate", "search", "go", "move", "walk"}:
+        for key in ("target", "destination", "object"):
+            target = str(slots.get(key, payload.get(key, ""))).strip().casefold()
+            if target:
+                return target
     transcript = str(
         payload.get("source_transcript", payload.get("transcript", payload.get("command", "")))
     ).casefold()
-    return bool(
-        re.search(r"\b(?:find|locate|search for|look for)\s+(?:the\s+)?apple\b", transcript)
-        or re.search(r"\b(?:go|move|walk)\s+to\s+(?:the\s+)?apple\b", transcript)
+    match = re.search(
+        r"\b(?:find|locate|search for|look for)\s+(?:the\s+)?([\w-]+)",
+        transcript,
+    )
+    match = match or re.search(
+        r"\b(?:go|move|walk)\s+to\s+(?:the\s+)?([\w-]+)", transcript
+    )
+    return match.group(1).casefold() if match else None
+
+
+def _apple_command_intent(command: ObservationRecord | None) -> bool:
+    return _command_target(command) == "apple"
+
+
+def _unsupported_target_decision(
+    command: ObservationRecord, target: str
+) -> GoalDecision:
+    return GoalDecision(
+        "idle_at_home",
+        0,
+        {
+            "mission_schema_version": MISSION_SCHEMA_VERSION,
+            "mission_type": "idle",
+            "mission_stage": "idle_at_home",
+            "stage_index": 0,
+            "trigger_event_id": str(command.event_id),
+            "trigger_stream": command.stream,
+            "rejected_target": target,
+            "supported_targets": ["apple"],
+        },
+        f"unsupported target {target!r}; supported mission targets: apple",
+    )
+
+
+def _latest_command(
+    observations: Mapping[str, ObservationRecord],
+) -> ObservationRecord | None:
+    commands = [
+        observation
+        for stream in ("voice.intent", "website.intent")
+        if (observation := observations.get(stream)) is not None
+    ]
+    return max(
+        commands,
+        key=lambda item: (item.observed_at, item.revision, str(item.event_id)),
+        default=None,
     )
 
 
@@ -249,8 +291,14 @@ def plan(
             rationale=f"safety preemption from {health.stream}",
         )
 
-    voice = observations.get("voice.intent")
-    voice_requests_apple = _apple_voice_intent(voice)
+    command = _latest_command(observations)
+    command_target = _command_target(command)
+    command_requests_apple = _apple_command_intent(command)
+    unsupported_target = (
+        command_target
+        if command is not None and command_target is not None and command_target != "apple"
+        else None
+    )
     current_trigger = (
         str(current_goal.parameters.get("trigger_event_id"))
         if current_goal is not None and current_goal.parameters.get("trigger_event_id")
@@ -260,17 +308,16 @@ def plan(
     if current is not None and current[0] == "apple":
         # A distinct command starts a distinct mission. The same observation is
         # ignored at the terminal stage, so its TTL cannot retrigger forever.
-        if (
-            voice_requests_apple
-            and voice is not None
-            and str(voice.event_id) != current_trigger
-        ):
+        if command is not None and str(command.event_id) != current_trigger:
+            if unsupported_target is not None:
+                return _unsupported_target_decision(command, unsupported_target)
+        if command_requests_apple and command is not None and str(command.event_id) != current_trigger:
             return _decision(
                 "apple",
                 "search_apple",
                 priority=60,
-                trigger=voice,
-                rationale="new voice command requested an apple mission",
+                trigger=command,
+                rationale=f"new {command.stream} command requested an apple mission",
             )
         stage = _advance_stage(
             *current,
@@ -286,14 +333,17 @@ def plan(
             rationale="continue durable apple mission",
         )
 
-    if voice_requests_apple and voice is not None:
+    if command_requests_apple and command is not None:
         return _decision(
             "apple",
             "search_apple",
             priority=60,
-            trigger=voice,
-            rationale="voice command requested an apple mission",
+            trigger=command,
+            rationale=f"{command.stream} command requested an apple mission",
         )
+
+    if command is not None and unsupported_target is not None:
+        return _unsupported_target_decision(command, unsupported_target)
 
     return GoalDecision(
         "idle_at_home",

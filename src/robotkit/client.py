@@ -10,6 +10,7 @@ from robotkit.contracts import (
     Effect,
     EffectCompletion,
     EffectRecord,
+    EventRecord,
     Goal,
     GoalRecord,
     Observation,
@@ -39,6 +40,13 @@ class WorldStateClient:
         response = self._client.get("/v1/state")
         response.raise_for_status()
         return WorldSnapshot.model_validate(response.json())
+
+    def events(self, *, after: int = 0, limit: int = 100) -> list[EventRecord]:
+        response = self._client.get(
+            "/v1/events", params={"after": after, "limit": limit}
+        )
+        response.raise_for_status()
+        return [EventRecord.model_validate(item) for item in response.json()]
 
     def publish_goal(self, goal: Goal) -> PublishResult:
         response = self._client.post("/v1/goals", json=goal.model_dump(mode="json"))

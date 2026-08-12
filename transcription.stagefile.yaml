@@ -1,0 +1,50 @@
+version: 1
+stages:
+  - name: transcription
+    from: ros:humble-ros-base
+    workdir: /models
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      PYTHONPATH: /app/src
+      HF_HOME: /models/huggingface
+    install:
+      apt:
+        packages:
+          - python3-pip
+          - ffmpeg
+          - libportaudio2
+          - portaudio19-dev
+          - ros-humble-audio-common-msgs
+      pip:
+        - packages:
+            - "fastapi>=0.115,<1"
+            - "httpx>=0.27,<1"
+            - "pydantic>=2.9,<3"
+            - "uvicorn>=0.30,<1"
+            - "faster-whisper>=1.1,<2"
+            - "sounddevice>=0.5,<1"
+    copy:
+      - from: local
+        paths:
+          - src/robotkit/__init__.py
+          - src/robotkit/client.py
+          - src/robotkit/contracts.py
+          - src/robotkit/runtime.py
+        dest: /app/src/robotkit/
+      - from: local
+        paths: [src/robotkit/perception/__init__.py]
+        dest: /app/src/robotkit/perception/__init__.py
+      - from: local
+        paths:
+          - src/robotkit/perception/transcription/__init__.py
+          - src/robotkit/perception/transcription/__main__.py
+          - src/robotkit/perception/transcription/audio.py
+          - src/robotkit/perception/transcription/backend.py
+          - src/robotkit/perception/transcription/interpretation.py
+          - src/robotkit/perception/transcription/producer.py
+        dest: /app/src/robotkit/perception/transcription/
+    entrypoint:
+      source: /opt/ros/humble/setup.bash
+      exec: [python3, -m, robotkit.perception.transcription, --mode, ros2]
+    user: root

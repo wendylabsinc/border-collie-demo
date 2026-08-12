@@ -3,7 +3,7 @@
 RobotKit is a runnable, multi-container perception–planning–action app for a Unitree Go2 on Wendy. It consumes ROS2 camera, LIDAR, audio, temperature, and battery topics, persists their interpretations, runs a durable mission state machine, and emits bounded robot actions.
 
 ```text
-ROS2 / simulator
+ROS2 / simulator / command website
        │
        ▼
 B: replaceable interpreters ── immutable observations ──┐
@@ -25,13 +25,14 @@ B: replaceable interpreters ── immutable observations ──┐
 ## What is implemented
 
 - **A — `world-state`:** FastAPI plus SQLite in WAL mode with full synchronous writes. A Wendy named volume persists the database. Every observation, goal, effect, claim, rejection, and acknowledgement is revisioned in the event log. A transactional projection exposes the current interpretation for each `(producer_id, stream)`.
-- **B — `yolo-fruits`:** Ultralytics YOLO on ROS2 `sensor_msgs/Image`, filtered to the COCO apple, banana, and orange classes. It publishes normalized boxes on `vision.fruits`, including empty frames.
+- **B — `yolo-fruits`:** Ultralytics YOLO on the Go2 DDS video service or a standard ROS2 `sensor_msgs/Image`, filtered to the COCO apple, banana, and orange classes. It publishes normalized boxes on `vision.fruits`, including empty frames.
 - **B — `lidar-voxel`:** ROS2 `PointCloud2` plus odometry into a bounded sparse room map, planar voxel scan-matched `localization.pose`, and fixed angular `lidar.proximity` sectors for safe target ranging.
 - **B — `transcription`:** Local `faster-whisper` inference over ROS2 PCM audio, WAV/raw PCM, or microphone input. It publishes the transcript and an auditable command intent separately.
+- **B — `website-command`:** A stateless command page and JSON API. Typed instructions publish immutable `website.intent` observations, using the same deterministic intent parser as voice.
 - **B — `health-high-low`:** Standard ROS2 `Temperature` and `BatteryState` into validated critical-low/low/normal/high/critical-high observations.
 - **C — `planner`:** A pure state-machine function over snapshot, active durable goal, and latest durable effect. It has no process-local mission state.
 - **D — `controller`:** A pure function that turns the current mission stage and fresh perception into one bounded, short-lived effect.
-- **Executor:** claims exactly one durable effect, revalidates it against A, emits ROS2 velocity/posture or plays the configured bark WAV, then durably acknowledges the outcome.
+- **Executor:** claims exactly one durable effect, revalidates it against A, calls the Go2 high-level Unitree Sport API or plays the configured bark WAV, then durably acknowledges the outcome.
 
 The shared wire models are in [`src/robotkit/contracts.py`](src/robotkit/contracts.py). Unknown fields are rejected and each contract carries `schema_version: "1"`.
 
@@ -40,7 +41,7 @@ The shared wire models are in [`src/robotkit/contracts.py`](src/robotkit/contrac
 Local Docker:
 
 ```sh
-docker compose up --build
+docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
 curl http://localhost:8080/v1/state
 curl 'http://localhost:8080/v1/events?after=0&limit=100'
 ```
@@ -51,6 +52,52 @@ On a configured Wendy device:
 wendy run
 ```
 
+Open `http://<wendy-device>:8090` and submit `find apple` or `go to apple`.
+The page sends `POST /v1/command`; the service parses the text and publishes it
+to A. This endpoint is intentionally unauthenticated, so restrict port `8090`
+to a trusted robot network before physical operation.
+
+Open `http://<wendy-device>:8090/debug` to diagnose the robot without attaching
+a shell. It refreshes from A once per second and shows command → perception →
+planner → controller → executor as one pipeline, with observation freshness,
+the current goal/effect, and a bounded black-box event timeline. YOLO also
+publishes `diagnostics.yolo`, including model name, inference latency, frame age,
+detection count, supported classes, and runtime failures. Unsupported commands
+such as `find pear` are rejected explicitly and stop an active apple search;
+the bundled COCO mission currently supports only `apple`.
+
+The equivalent API call is:
+
+```sh
+curl -X POST http://<wendy-device>:8090/v1/command \
+  -H 'Content-Type: application/json' \
+  -d '{"command":"find apple","request_id":"93070866-7198-4c5e-8a6f-38cdfbf3295d"}'
+```
+
+Wendy builds each service from its own Stagefile. `build.stagefile.yaml` is A's
+world-state image; planner, controller, YOLO, LIDAR, transcription, website,
+high/low, and executor each use a named variant. Their `copy` declarations list
+only the service package and the shared modules it imports. That separation is
+intentional: changing website code invalidates only the website image instead
+of rebuilding and pushing every service that happens to live in the same source
+tree. Shared modules such as `contracts.py` still invalidate every consumer, as
+they should. This uses Wendy's Stagefile-family support because the services
+share one source context. If `wendy run --help` describes `--dockerfile` as
+accepting only Dockerfiles, update the CLI before deploying. Plain Docker
+Compose cannot compile Stagefiles, so `docker-compose.local.yml` selects the
+equivalent legacy Dockerfiles for local development.
+
+YOLO's CUDA stage resolves the target-specific PyTorch wheel index and runtime
+from the selected Wendy device; no Jetson URL is baked into this project. The
+Go2 does not expose its front camera as a standard ROS Image. The deployed YOLO
+producer obtains JPEG frames from Unitree's ROS 2-compatible DDS video service,
+so it does not compete for the robot's single WebRTC camera slot. It retains
+standard ROS Image, HTTP, direct WebRTC, and file modes for other hardware and
+tests.
+Neither YOLO nor Whisper weights are downloaded by tests or image builds. They
+are fetched by their model libraries on first use into the shared persistent
+`/models` cache, then survive blue/green image deployments.
+
 The companion [`wendy.json`](wendy.json) grants ROS2-compatible host networking, GPU access to YOLO, audio access to transcription/execution, and a persistent `/data` volume only to A. Adjust the ROS topic environment variables in [`docker-compose.yml`](docker-compose.yml) to match the installed Go2 driver.
 
 The deployed mission is:
@@ -59,14 +106,14 @@ The deployed mission is:
 unsafe temperature or critical-low battery
   └─ go_home → lie_down
 
-"find apple" or "go to apple"
+"find apple" or "go to apple" from voice or website
   └─ search_apple → approach_apple (≤ 0.30 m) → bark → go_home → lie_down
 
 otherwise
   └─ idle_at_home
 ```
 
-Search rotates until a fresh YOLO apple exists. Approach steers from the apple's normalized image bearing and uses the corresponding fresh LIDAR angular sector for range; it sends zero velocity rather than moving without a valid range. Home return recomputes a command from fresh `localization.pose` and the configured `HOME_X_M`, `HOME_Y_M`, and `HOME_YAW_RAD` on every cycle.
+Search rotates until a fresh YOLO apple exists. Approach steers from the apple's normalized image bearing and uses the corresponding fresh LIDAR angular sector for range; it sends zero velocity rather than moving without a valid range. Home return recomputes a command from fresh `localization.pose` and the configured `HOME_X_M`, `HOME_Y_M`, and `HOME_YAW_RAD` on every cycle. The stateless controller renews effects on A-derived time buckets so Unitree's velocity dead-man remains fed without process-local control state.
 
 Run without containers:
 
@@ -76,6 +123,50 @@ python3 -m venv .venv
 pip install -e '.[test]'
 pytest
 ```
+
+### Replay a ROS2 bag through perception containers
+
+The bag test runner starts an isolated world-state service plus only the
+perception containers named on the command line, replays a bag on an isolated
+ROS domain, and checks the observations that reached world-state. It never
+starts the planner, controller, or physical executor.
+
+```sh
+make test-bag BAG=/absolute/path/to/recording \
+  ARGS='--service lidar-voxel --expect lidar.proximity --expect lidar.room_map'
+```
+
+Repeat `--service` to exercise several producers from one recording. Available
+services are `yolo-fruits`, `lidar-voxel`, `transcription`, and
+`health-high-low`. The first run builds the selected service images and the
+small ROS2 bag-player image. YOLO and transcription may also fetch their model
+weights on their first inference.
+
+For payload assertions, pass `--expect-file`. Each item is a recursive JSON
+subset of an observation; arrays are treated as unordered subsets, so a test
+can name one expected detection without copying the entire frame:
+
+```json
+{
+  "observations": [
+    {
+      "stream": "vision.fruits",
+      "frame_id": "front_camera",
+      "payload": {"detections": [{"class_name": "apple"}]}
+    }
+  ]
+}
+```
+
+```sh
+make test-bag BAG=/absolute/path/to/camera-bag \
+  ARGS='--service yolo-fruits --expect-file tests/bags/apple.expected.json'
+```
+
+Use `--rate`, `--startup-seconds`, `--discovery-seconds`, and `--timeout` for
+slow inference, DDS discovery, or large recordings. `--keep` preserves the
+generated Compose project for inspecting logs; the runner otherwise removes
+its containers and ephemeral database.
 
 ## Swapping and scaling B/C/D
 
@@ -126,29 +217,30 @@ SQLite is appropriate for one Go2 edge node with a single A process and many HTT
 
 ## Physical ROS2 execution
 
-Each hardware-facing B component has a dedicated ROS2 image. [`Dockerfile.ros2`](Dockerfile.ros2) provides the executor selected by Compose:
+Each hardware-facing B component has a dedicated ROS2 stage. The executor is
+built from [`executor.stagefile.yaml`](executor.stagefile.yaml):
 
 ```yaml
 executor:
   build:
     context: .
-    dockerfile: Dockerfile.ros2
+    dockerfile: executor.stagefile.yaml
   environment:
-    ROBOTKIT_EXECUTOR_MODE: ros2
-    ROS2_CMD_VEL_TOPIC: /cmd_vel
-    ROS2_POSTURE_COMMAND_TOPIC: /robotkit/posture_command
+    ROBOTKIT_EXECUTOR_MODE: unitree_sport
+    GO2_NETWORK_INTERFACE: enP8p1s0
     BARK_WAV_PATH: /opt/robotkit/assets/bark.wav
 ```
 
-Velocity effects emit `geometry_msgs/Twist`. Bark uses a deployment-configured WAV; the image includes a short synthesized default. Lie-down publishes the narrow `std_msgs/String` command `lie_down` on the posture topic. Bridge that topic to the audited Unitree Sport API version installed on the robot. Confirm all topics and the bridge in simulation before enabling motors. This layer is not a substitute for the Go2 hardware emergency stop, command watchdog, collision layer, or Unitree low-level safety controls.
+Velocity effects call the high-level `SportClient.Move(vx, 0, yaw)` API; lie-down calls `SportClient.StandDown()`. The executor pins the same Unitree SDK and CycloneDDS versions as Wendy's proven Go2 motion template. A local 0.8-second dead-man issues `StopMove` if A-derived controller renewals cease; this ephemeral safety timer is not mission/progress state. Bark uses a deployment-configured WAV; the image includes a short synthesized default. Confirm the robot-facing interface and motion in simulation before enabling motors. This layer is not a substitute for the Go2 hardware emergency stop, collision/drop-off protection, or Unitree low-level safety controls.
 
 ## Test boundaries
 
 The suite independently covers:
 
-- YOLO filtering, ROS image decoding, and producer metadata without model downloads;
-- sparse voxel mapping, scan matching, and angular proximity using synthetic rooms;
+- YOLO filtering, ROS/DDS image decoding, DDS/WebRTC input plumbing, and producer metadata without model downloads;
+- sparse voxel mapping, Go2 mount transformation, scan matching, and angular proximity using synthetic rooms;
 - Whisper adaptation, PCM framing, transcript normalization, and intent extraction without model downloads;
+- website authentication, deterministic intent publication, and cross-channel command ordering;
 - temperature and battery band boundaries;
 - deterministic simulator output for offline development;
 - stateless mission transitions and durable trigger correlation;

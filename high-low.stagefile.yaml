@@ -1,0 +1,39 @@
+version: 1
+stages:
+  - name: high-low
+    from: ros:humble-ros-base
+    workdir: /app
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      PYTHONPATH: /app/src
+    install:
+      apt:
+        packages: [python3-pip, ros-humble-sensor-msgs]
+      pip:
+        - packages:
+            - "fastapi>=0.115,<1"
+            - "httpx>=0.27,<1"
+            - "pydantic>=2.9,<3"
+            - "uvicorn>=0.30,<1"
+    copy:
+      - from: local
+        paths:
+          - src/robotkit/__init__.py
+          - src/robotkit/client.py
+          - src/robotkit/contracts.py
+          - src/robotkit/runtime.py
+        dest: /app/src/robotkit/
+      - from: local
+        paths: [src/robotkit/perception/__init__.py]
+        dest: /app/src/robotkit/perception/__init__.py
+      - from: local
+        paths:
+          - src/robotkit/perception/high_low/__init__.py
+          - src/robotkit/perception/high_low/logic.py
+          - src/robotkit/perception/high_low/service.py
+        dest: /app/src/robotkit/perception/high_low/
+    entrypoint:
+      source: /opt/ros/humble/setup.bash
+      exec: [python3, -m, robotkit.perception.high_low.service]
+    user: root

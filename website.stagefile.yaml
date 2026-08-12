@@ -1,0 +1,45 @@
+version: 1
+stages:
+  - name: website
+    from: python:3.12-slim
+    workdir: /app
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      PYTHONPATH: /app/src
+    install:
+      pip:
+        - packages:
+            - "fastapi>=0.115,<1"
+            - "httpx>=0.27,<1"
+            - "pydantic>=2.9,<3"
+            - "uvicorn>=0.30,<1"
+    copy:
+      - from: local
+        paths:
+          - src/robotkit/__init__.py
+          - src/robotkit/client.py
+          - src/robotkit/contracts.py
+          - src/robotkit/runtime.py
+        dest: /app/src/robotkit/
+      - from: local
+        paths: [src/robotkit/perception/__init__.py]
+        dest: /app/src/robotkit/perception/__init__.py
+      - from: local
+        paths:
+          - src/robotkit/perception/transcription/__init__.py
+          - src/robotkit/perception/transcription/audio.py
+          - src/robotkit/perception/transcription/backend.py
+          - src/robotkit/perception/transcription/interpretation.py
+          - src/robotkit/perception/transcription/producer.py
+        dest: /app/src/robotkit/perception/transcription/
+      - from: local
+        paths:
+          - src/robotkit/perception/website/__init__.py
+          - src/robotkit/perception/website/__main__.py
+          - src/robotkit/perception/website/app.py
+          - src/robotkit/perception/website/diagnostics.py
+          - src/robotkit/perception/website/producer.py
+        dest: /app/src/robotkit/perception/website/
+    user: "65532:65532"
+    cmd: [python, -m, robotkit.perception.website]

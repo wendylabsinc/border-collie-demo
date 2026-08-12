@@ -1,17 +1,34 @@
 FROM ros:humble-ros-base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    CYCLONEDDS_HOME=/usr/local \
+    LD_LIBRARY_PATH=/usr/local/lib
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-       python3-pip ros-humble-sensor-msgs libgl1 libglib2.0-0 \
+       python3-pip python3-dev git cmake build-essential pkg-config libssl-dev \
+       ros-humble-sensor-msgs libgl1 libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
+
+RUN git clone https://github.com/eclipse-cyclonedds/cyclonedds.git /tmp/cyclonedds \
+    && cd /tmp/cyclonedds \
+    && git checkout 2cdd114cbd18340c606573b4cc8dc20cc161ec5a \
+    && cmake -S . -B build \
+       -DCMAKE_INSTALL_PREFIX=/usr/local \
+       -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF -DBUILD_IDLC=ON \
+    && cmake --build build -j2 \
+    && cmake --install build \
+    && rm -rf /tmp/cyclonedds
 
 WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src ./src
-RUN python3 -m pip install --no-cache-dir . 'ultralytics>=8.3,<9'
+RUN python3 -m pip install --no-cache-dir . 'ultralytics>=8.3,<9' \
+    'cyclonedds==0.10.5' \
+    'git+https://github.com/unitreerobotics/unitree_sdk2_python.git@db9b2d210081387fcd1e7ed9ac4c56a02983bb85' \
+    && mkdir -p /usr/local/lib/python3.10/dist-packages/unitree_sdk2py/b2
+COPY stage-assets/unitree_b2_init.py /usr/local/lib/python3.10/dist-packages/unitree_sdk2py/b2/__init__.py
 
 RUN useradd --create-home --uid 10001 robotkit \
     && mkdir -p /models \
@@ -19,4 +36,3 @@ RUN useradd --create-home --uid 10001 robotkit \
 USER robotkit
 
 CMD ["python3", "-m", "robotkit.perception.yolo.service"]
-

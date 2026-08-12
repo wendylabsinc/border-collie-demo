@@ -19,7 +19,14 @@ from robotkit.runtime import (
     world_state_url,
 )
 
-from .core import Pose2D, ProximityConfig, SearchConfig, SparseVoxelMap, VoxelConfig
+from .core import (
+    Pose2D,
+    ProximityConfig,
+    SearchConfig,
+    SparseVoxelMap,
+    VoxelConfig,
+    sensor_points_to_base,
+)
 from .producer import ProducerIdentity, interpret_scan
 
 
@@ -71,8 +78,8 @@ def main() -> None:
         max_bearing_rad=_env_float("LIDAR_PROXIMITY_MAX_BEARING_RAD", math.pi),
         min_range_m=_env_float("LIDAR_PROXIMITY_MIN_RANGE_M", 0.10),
         max_range_m=_env_float("LIDAR_PROXIMITY_MAX_RANGE_M", 10.0),
-        min_z_m=_env_float("LIDAR_PROXIMITY_MIN_Z_M", -0.30),
-        max_z_m=_env_float("LIDAR_PROXIMITY_MAX_Z_M", 1.50),
+        min_z_m=_env_float("LIDAR_PROXIMITY_MIN_Z_M", -0.20),
+        max_z_m=_env_float("LIDAR_PROXIMITY_MAX_Z_M", 0.28),
         max_sectors=_env_int("LIDAR_PROXIMITY_MAX_SECTORS", 72),
         ttl_seconds=_env_float("LIDAR_PROXIMITY_TTL_SECONDS", 0.75),
     )
@@ -111,6 +118,26 @@ def main() -> None:
                     message, field_names=("x", "y", "z"), skip_nans=True
                 )
             ]
+            incoming_frame = message.header.frame_id or "lidar"
+            points_frame = os.getenv("LIDAR_POINTS_FRAME", "sensor").casefold()
+            if points_frame == "sensor":
+                points = sensor_points_to_base(
+                    points,
+                    pitch_rad=_env_float(
+                        "LIDAR_MOUNT_PITCH_RAD", math.radians(13.0)
+                    ),
+                    x_offset_m=_env_float("LIDAR_MOUNT_X_M", 0.16143),
+                    y_offset_m=_env_float("LIDAR_MOUNT_Y_M", 0.0),
+                    z_offset_m=_env_float("LIDAR_MOUNT_Z_M", 0.12262),
+                )
+                scan_frame_id = "base_link"
+            elif points_frame == "base_link":
+                scan_frame_id = "base_link"
+            else:
+                raise ValueError(
+                    "LIDAR_POINTS_FRAME must be 'sensor' or 'base_link', got "
+                    f"{points_frame!r} for ROS frame {incoming_frame!r}"
+                )
             observed_at, message_key = _ros_stamp(message.header.stamp)
             observations, current_map = interpret_scan(
                 points,
@@ -119,7 +146,7 @@ def main() -> None:
                 message_key=message_key,
                 odometry_pose=self._odometry,
                 reference_map=self._reference_map,
-                scan_frame_id=message.header.frame_id or "lidar",
+                scan_frame_id=scan_frame_id,
                 map_frame_id=os.getenv("LIDAR_MAP_FRAME", "map"),
                 voxel_config=voxel_config,
                 search_config=search_config,
@@ -158,10 +185,11 @@ def _load_reference_map(client: WorldStateClient) -> SparseVoxelMap | None:
 
 
 def _ros_stamp(stamp: Any) -> tuple[datetime, str]:
+    """Receipt time drives freshness; the robot stamp drives idempotency."""
     seconds = int(stamp.sec)
     nanoseconds = int(stamp.nanosec)
     return (
-        datetime.fromtimestamp(seconds + nanoseconds / 1_000_000_000, timezone.utc),
+        datetime.now(timezone.utc),
         f"{seconds}.{nanoseconds:09d}",
     )
 

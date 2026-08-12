@@ -33,7 +33,14 @@ def validate_effect(
     if drift < 0 or drift > effect.preconditions.max_world_revision_drift:
         return SafetyVerdict(False, f"world-state drift is {drift} revisions")
 
-    by_stream = {item.stream: item for item in snapshot.observations}
+    by_stream = {}
+    for item in snapshot.observations:
+        current = by_stream.get(item.stream)
+        if current is None or (item.observed_at, item.revision) > (
+            current.observed_at,
+            current.revision,
+        ):
+            by_stream[item.stream] = item
     for stream in effect.preconditions.require_fresh_streams:
         observation = by_stream.get(stream)
         if observation is None:

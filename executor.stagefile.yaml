@@ -1,0 +1,75 @@
+version: 1
+stages:
+  - name: executor
+    from: ros:humble-ros-base
+    workdir: /app
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      PYTHONPATH: /app/src
+      CYCLONEDDS_HOME: /usr/local
+      LD_LIBRARY_PATH: /usr/local/lib
+    install:
+      apt:
+        packages:
+          - ca-certificates
+          - git
+          - cmake
+          - build-essential
+          - pkg-config
+          - libssl-dev
+          - python3-dev
+          - python3-pip
+          - alsa-utils
+          - ros-humble-geometry-msgs
+          - ros-humble-std-msgs
+      cmake:
+        # CycloneDDS 0.10.5 is the ABI paired with the pinned Unitree SDK.
+        - repository: https://github.com/eclipse-cyclonedds/cyclonedds.git
+          commit: 2cdd114cbd18340c606573b4cc8dc20cc161ec5a
+          prefix: /usr/local
+          defines:
+            BUILD_EXAMPLES: "OFF"
+            BUILD_TESTING: "OFF"
+            BUILD_IDLC: "ON"
+      pip:
+        - packages:
+            - "fastapi>=0.115,<1"
+            - "httpx>=0.27,<1"
+            - "pydantic>=2.9,<3"
+            - "uvicorn>=0.30,<1"
+            - "cyclonedds==0.10.5"
+        - index: https://pypi.org/simple
+          packages:
+            - "git+https://github.com/unitreerobotics/unitree_sdk2_python.git@db9b2d210081387fcd1e7ed9ac4c56a02983bb85"
+    copy:
+      - from: local
+        paths:
+          - src/robotkit/__init__.py
+          - src/robotkit/client.py
+          - src/robotkit/contracts.py
+          - src/robotkit/runtime.py
+        dest: /app/src/robotkit/
+      - from: local
+        paths:
+          - src/robotkit/executor/__init__.py
+          - src/robotkit/executor/adapters.py
+          - src/robotkit/executor/mission.py
+          - src/robotkit/executor/safety.py
+          - src/robotkit/executor/service.py
+        dest: /app/src/robotkit/executor/
+      - from: local
+        paths: [stage-assets/bark.wav]
+        dest: /opt/robotkit/assets/bark.wav
+        owner: "0:0"
+        mode: "0644"
+      # Upstream's package omits b2/__init__.py, which breaks its own root
+      # import. This empty module is the same workaround used by Wendy's
+      # proven Go2 motion template.
+      - from: local
+        paths: [stage-assets/unitree_b2_init.py]
+        dest: /usr/local/lib/python3.10/dist-packages/unitree_sdk2py/b2/__init__.py
+    entrypoint:
+      source: /opt/ros/humble/setup.bash
+      exec: [python3, -m, robotkit.executor.service]
+    user: root

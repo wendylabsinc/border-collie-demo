@@ -13,6 +13,7 @@ from .core import (
     VoxelConfig,
     angular_proximity,
     estimate_pose,
+    sensor_points_to_base,
     transform_points,
     voxelize,
 )
@@ -33,6 +34,7 @@ __all__ = [
     "angular_proximity",
     "estimate_pose",
     "interpret_scan",
+    "sensor_points_to_base",
     "transform_points",
     "voxelize",
 ]

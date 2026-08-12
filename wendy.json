@@ -10,21 +10,58 @@
       ]
     },
     "yolo-fruits": {
+      "frameworks": {
+        "ros2": {
+          "domainId": 0,
+          "rmw": "cyclonedds",
+          "distro": "humble",
+          "discoveryScope": "host"
+        }
+      },
       "entitlements": [
         { "type": "network", "mode": "host" },
-        { "type": "gpu" }
+        { "type": "gpu" },
+        { "type": "persist", "name": "robotkit-model-cache", "path": "/models" }
       ]
     },
     "lidar-voxel": {
+      "frameworks": {
+        "ros2": {
+          "domainId": 0,
+          "rmw": "cyclonedds",
+          "distro": "humble",
+          "discoveryScope": "host"
+        }
+      },
       "entitlements": [{ "type": "network", "mode": "host" }]
     },
     "transcription": {
+      "frameworks": {
+        "ros2": {
+          "domainId": 0,
+          "rmw": "cyclonedds",
+          "distro": "humble",
+          "discoveryScope": "host"
+        }
+      },
       "entitlements": [
         { "type": "network", "mode": "host" },
-        { "type": "audio" }
+        { "type": "audio" },
+        { "type": "persist", "name": "robotkit-model-cache", "path": "/models" }
       ]
     },
+    "website-command": {
+      "entitlements": [{ "type": "network", "mode": "host" }]
+    },
     "health-high-low": {
+      "frameworks": {
+        "ros2": {
+          "domainId": 0,
+          "rmw": "cyclonedds",
+          "distro": "humble",
+          "discoveryScope": "host"
+        }
+      },
       "entitlements": [{ "type": "network", "mode": "host" }]
     },
     "planner": {

@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -7,6 +8,7 @@ from robotkit.contracts import PublishResult
 from robotkit.perception.yolo.adapters import DetectionFrame, UltralyticsDetector
 from robotkit.perception.yolo.core import Detection, interpret_detections
 from robotkit.perception.yolo.producer import YoloProducer
+from robotkit.perception.yolo import run
 
 
 def test_interpretation_filters_coco_fruits_and_normalizes_boxes():
@@ -130,4 +132,181 @@ def test_producer_builds_versioned_idempotent_observation():
     assert observation.observation_type == "vision.coco_fruits.v1"
     assert observation.frame_id == "front_camera"
     assert observation.payload["detections"][0]["class_name"] == "orange"
-    assert observation.idempotency_key == publisher.observations[1].idempotency_key
+    assert observation.idempotency_key == publisher.observations[2].idempotency_key
+    diagnostic = publisher.observations[1]
+    assert diagnostic.stream == "diagnostics.yolo"
+    assert diagnostic.payload["status"] == "ok"
+    assert diagnostic.payload["detection_count"] == 1
+    assert diagnostic.idempotency_key == publisher.observations[3].idempotency_key
+
+
+def test_producer_publishes_durable_failure_diagnostic_before_reraising():
+    class BrokenDetector:
+        def detect(self, image):
+            raise RuntimeError("model unavailable")
+
+    class FakePublisher:
+        def __init__(self):
+            self.observations = []
+
+        def publish_observation(self, observation):
+            self.observations.append(observation)
+            return PublishResult(revision=len(self.observations), duplicate=False)
+
+    publisher = FakePublisher()
+    producer = YoloProducer(
+        BrokenDetector(), publisher, instance_id="green-1", model_name="yolo11n.pt"
+    )
+
+    with pytest.raises(RuntimeError, match="model unavailable"):
+        producer.process_image(b"pixels", source_key="camera:broken")
+
+    assert len(publisher.observations) == 1
+    diagnostic = publisher.observations[0]
+    assert diagnostic.stream == "diagnostics.yolo"
+    assert diagnostic.payload["status"] == "failed"
+    assert diagnostic.payload["model"] == "yolo11n.pt"
+    assert "model unavailable" in diagnostic.payload["error"]
+
+
+def test_go2_webrtc_retries_transient_connection_failure(monkeypatch):
+    attempts = []
+    diagnostics = []
+    sleeps = []
+
+    async def fail_session(producer):
+        attempts.append(producer)
+        if len(attempts) == 3:
+            raise asyncio.CancelledError
+        raise RuntimeError("ICE still checking")
+
+    async def record_sleep(seconds):
+        sleeps.append(seconds)
+
+    class FakeProducer:
+        def publish_failure(self, error, *, source_key):
+            diagnostics.append((str(error), source_key))
+
+    producer = FakeProducer()
+    monkeypatch.setattr(run, "_run_go2_webrtc_async", fail_session)
+    monkeypatch.setattr(run.asyncio, "sleep", record_sleep)
+    monkeypatch.setenv("GO2_RETRY_SECONDS", "0.25")
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(run._run_go2_webrtc_forever(producer))
+
+    assert attempts == [producer, producer, producer]
+    assert sleeps == [0.25, 0.25]
+    assert [message for message, _ in diagnostics] == [
+        "ICE still checking",
+        "ICE still checking",
+    ]
+    assert all(key.startswith("go2-webrtc:") for _, key in diagnostics)
+
+
+def test_http_camera_reuses_existing_feed(monkeypatch):
+    requests = []
+    processed = []
+
+    class FakeResponse:
+        content = b"jpeg-frame"
+
+        def raise_for_status(self):
+            return None
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.closed = False
+
+        def get(self, url, *, headers):
+            requests.append((url, headers))
+            return FakeResponse()
+
+        def close(self):
+            self.closed = True
+
+    class FakeProducer:
+        def process_image(self, image, **kwargs):
+            processed.append((image, kwargs))
+
+        def publish_failure(self, error, *, source_key):
+            raise AssertionError(f"unexpected failure: {error} ({source_key})")
+
+    clients = []
+
+    def make_client(**kwargs):
+        client = FakeClient(**kwargs)
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr(run.httpx, "Client", make_client)
+    monkeypatch.setattr(run, "decode_image_bytes", lambda payload: ("image", payload))
+    monkeypatch.setattr(run, "run_loop", lambda step, interval: step())
+    monkeypatch.setenv("YOLO_CAMERA_URL", "http://127.0.0.1:8111/frame.jpg")
+
+    run.run_http(FakeProducer())
+
+    assert requests == [
+        (
+            "http://127.0.0.1:8111/frame.jpg",
+            {"Accept": "image/jpeg,image/*", "Cache-Control": "no-cache"},
+        )
+    ]
+    assert processed[0][0] == ("image", b"jpeg-frame")
+    assert processed[0][1]["source_key"].startswith(
+        "http:http://127.0.0.1:8111/frame.jpg:"
+    )
+    assert processed[0][1]["frame_id"] == "camera_link"
+    assert clients[0].closed is True
+
+
+def test_go2_dds_camera_uses_video_service(monkeypatch):
+    processed = []
+    failures = []
+
+    class FakeClient:
+        def GetImageSample(self):
+            return 0, [0xFF, 0xD8, 0xFF, 0xE0]
+
+    class FakeProducer:
+        def process_image(self, image, **kwargs):
+            processed.append((image, kwargs))
+
+        def publish_failure(self, error, *, source_key):
+            failures.append((error, source_key))
+
+    monkeypatch.setattr(run, "_make_go2_video_client", FakeClient)
+    monkeypatch.setattr(run, "decode_image_bytes", lambda payload: ("image", payload))
+    monkeypatch.setattr(run, "run_loop", lambda step, interval: step())
+
+    run.run_go2_dds(FakeProducer())
+
+    assert failures == []
+    assert processed[0][0] == ("image", b"\xff\xd8\xff\xe0")
+    assert processed[0][1]["source_key"].startswith("go2-dds:")
+    assert processed[0][1]["frame_id"] == "camera_link"
+
+
+def test_go2_dds_camera_reports_video_service_error(monkeypatch):
+    failures = []
+
+    class FakeClient:
+        def GetImageSample(self):
+            return 3104, []
+
+    class FakeProducer:
+        def process_image(self, image, **kwargs):
+            raise AssertionError("failed frame must not be processed")
+
+        def publish_failure(self, error, *, source_key):
+            failures.append((str(error), source_key))
+
+    monkeypatch.setattr(run, "_make_go2_video_client", FakeClient)
+    monkeypatch.setattr(run, "run_loop", lambda step, interval: step())
+
+    with pytest.raises(RuntimeError, match="3104"):
+        run.run_go2_dds(FakeProducer())
+
+    assert failures[0][0] == "Go2 video service returned error code 3104"
+    assert failures[0][1].startswith("go2-dds:")

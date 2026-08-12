@@ -1,0 +1,45 @@
+version: 1
+stages:
+  - name: lidar
+    from: ros:humble-ros-base
+    workdir: /app
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      PYTHONPATH: /app/src
+    install:
+      apt:
+        packages:
+          - python3-pip
+          - ros-humble-sensor-msgs
+          - ros-humble-sensor-msgs-py
+          - ros-humble-nav-msgs
+      pip:
+        - packages:
+            - "fastapi>=0.115,<1"
+            - "httpx>=0.27,<1"
+            - "pydantic>=2.9,<3"
+            - "uvicorn>=0.30,<1"
+    copy:
+      - from: local
+        paths:
+          - src/robotkit/__init__.py
+          - src/robotkit/client.py
+          - src/robotkit/contracts.py
+          - src/robotkit/runtime.py
+        dest: /app/src/robotkit/
+      - from: local
+        paths: [src/robotkit/perception/__init__.py]
+        dest: /app/src/robotkit/perception/__init__.py
+      - from: local
+        paths:
+          - src/robotkit/perception/lidar_voxel/__init__.py
+          - src/robotkit/perception/lidar_voxel/__main__.py
+          - src/robotkit/perception/lidar_voxel/core.py
+          - src/robotkit/perception/lidar_voxel/producer.py
+          - src/robotkit/perception/lidar_voxel/ros2.py
+        dest: /app/src/robotkit/perception/lidar_voxel/
+    entrypoint:
+      source: /opt/ros/humble/setup.bash
+      exec: [python3, -m, robotkit.perception.lidar_voxel]
+    user: root

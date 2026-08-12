@@ -12,6 +12,7 @@ from robotkit.executor.adapters import (
     Ros2StringCommandAdapter,
     Ros2TwistAdapter,
     RoutingAdapter,
+    UnitreeSportAdapter,
     WavPlaybackAdapter,
 )
 from robotkit.executor.safety import validate_effect
@@ -35,6 +36,24 @@ def _adapter() -> EffectAdapter:
                     os.getenv("ROS2_POSTURE_COMMAND_TOPIC", "/robotkit/posture_command")
                 ),
                 "cmd_vel": twist,
+                "unitree_bark": bark,
+                "audio": bark,
+            }
+        )
+    if mode == "unitree_sport":
+        sport = UnitreeSportAdapter(
+            os.getenv("GO2_NETWORK_INTERFACE", "enP8p1s0"),
+            watchdog_seconds=float(os.getenv("UNITREE_MOTION_WATCHDOG_SECONDS", "0.8")),
+        )
+        bark = WavPlaybackAdapter(
+            os.getenv("BARK_WAV_PATH", "/opt/robotkit/assets/bark.wav"),
+            player=os.getenv("AUDIO_PLAYER") or None,
+            max_duration_seconds=float(os.getenv("MAX_BARK_SECONDS", "10")),
+        )
+        return RoutingAdapter(
+            {
+                "cmd_vel": sport,
+                "unitree_lie_down": sport,
                 "unitree_bark": bark,
                 "audio": bark,
             }

@@ -15,6 +15,39 @@ Point3D = tuple[float, float, float]
 VoxelIndex = tuple[int, int, int]
 
 
+def sensor_points_to_base(
+    points: Iterable[Point3D],
+    *,
+    pitch_rad: float = math.radians(13.0),
+    x_offset_m: float = 0.16143,
+    y_offset_m: float = 0.0,
+    z_offset_m: float = 0.12262,
+) -> list[Point3D]:
+    """Apply the documented Go2 MID-360 sensor-to-body mount transform.
+
+    The input is in the lidar's axes. The output is body-centred
+    ``base_link`` (x forward, y left, z up). Keeping this pure makes the
+    hardware calibration independently testable without ROS or numpy.
+    """
+    values = (pitch_rad, x_offset_m, y_offset_m, z_offset_m)
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("lidar mount values must be finite")
+    cosine = math.cos(pitch_rad)
+    sine = math.sin(pitch_rad)
+    transformed: list[Point3D] = []
+    for x, y, z in points:
+        if not all(math.isfinite(value) for value in (x, y, z)):
+            continue
+        transformed.append(
+            (
+                cosine * x + sine * z + x_offset_m,
+                y + y_offset_m,
+                -sine * x + cosine * z + z_offset_m,
+            )
+        )
+    return transformed
+
+
 @dataclass(frozen=True)
 class Pose2D:
     x_m: float
@@ -52,8 +85,10 @@ class ProximityConfig:
     max_bearing_rad: float = math.pi
     min_range_m: float = 0.10
     max_range_m: float = 10.0
-    min_z_m: float = -0.30
-    max_z_m: float = 1.50
+    # Torso-height slab in body-centred base_link. With a standing body
+    # centre ~0.28 m above the floor, this is 0.08-0.56 m above the floor.
+    min_z_m: float = -0.20
+    max_z_m: float = 0.28
     max_sectors: int = 72
     ttl_seconds: float = 0.75
 

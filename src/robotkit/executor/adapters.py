@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import subprocess
+import threading
 import wave
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
@@ -82,6 +84,136 @@ class Ros2TwistAdapter:
     def close(self) -> None:
         self._node.destroy_node()
         self._rclpy.shutdown()
+
+
+class UnitreeSportAdapter:
+    """Apply bounded RobotKit motion through Unitree's high-level Sport API.
+
+    The SDK owns the robot-facing CycloneDDS participant. No joint-level topic
+    is used: ``Move`` and ``StandDown`` retain the Go2 firmware's balance and
+    fall-protection controllers. The adapter contains connection plumbing only;
+    every command remains completely described by its durable Effect.
+    """
+
+    def __init__(
+        self,
+        network_interface: str = "enP8p1s0",
+        *,
+        client: object | None = None,
+        watchdog_seconds: float = 0.8,
+        timer_factory: Callable[[float, Callable[[], None]], object] = threading.Timer,
+    ) -> None:
+        if watchdog_seconds <= 0:
+            raise ValueError("watchdog_seconds must be positive")
+        self._network_interface = network_interface
+        self._client = client
+        self._connected = client is not None
+        self._watchdog_seconds = watchdog_seconds
+        self._timer_factory = timer_factory
+        self._watchdog: object | None = None
+        self._watchdog_generation = 0
+        self._lock = threading.Lock()
+
+    def _cancel_watchdog(self) -> None:
+        self._watchdog_generation += 1
+        if self._watchdog is not None:
+            self._watchdog.cancel()  # type: ignore[attr-defined]
+            self._watchdog = None
+
+    def _watchdog_stop(self, generation: int) -> None:
+        with self._lock:
+            # A cancelled timer can already be queued on another thread. It
+            # must not stop a newer, successfully renewed velocity command.
+            if generation != self._watchdog_generation:
+                return
+            self._watchdog = None
+            self._watchdog_generation += 1
+            try:
+                self._client.StopMove()  # type: ignore[union-attr]
+            except Exception:
+                logging.getLogger("robotkit.executor").exception(
+                    "Unitree motion watchdog failed to stop the robot"
+                )
+
+    def _arm_watchdog(self) -> None:
+        self._cancel_watchdog()
+        generation = self._watchdog_generation
+        watchdog = self._timer_factory(
+            self._watchdog_seconds,
+            lambda: self._watchdog_stop(generation),
+        )
+        watchdog.daemon = True  # type: ignore[attr-defined]
+        self._watchdog = watchdog
+        watchdog.start()  # type: ignore[attr-defined]
+
+    def _connect(self) -> object:
+        if self._connected:
+            return self._client  # type: ignore[return-value]
+        try:
+            from unitree_sdk2py.core.channel import ChannelFactoryInitialize
+            from unitree_sdk2py.go2.sport.sport_client import SportClient
+        except ImportError as exc:
+            raise RuntimeError(
+                "Unitree Sport mode requires unitree_sdk2_python in the executor image"
+            ) from exc
+        logging.getLogger("robotkit.executor").info(
+            "initializing Unitree Sport DDS on interface %s", self._network_interface
+        )
+        ChannelFactoryInitialize(0, self._network_interface)
+        client = SportClient()
+        client.SetTimeout(float(os.getenv("UNITREE_SPORT_TIMEOUT_SECONDS", "3")))
+        client.Init()
+        self._client = client
+        self._connected = True
+        return client
+
+    def apply(self, effect: EffectRecord) -> dict[str, object]:
+        with self._lock:
+            client = self._connect()
+            if effect.effect_type == "cmd_vel":
+                vx = float(effect.parameters["linear_x_mps"])
+                yaw = float(effect.parameters["angular_z_rps"])
+                # RobotKit currently has no lateral command in its effect
+                # contract, so y is deliberately and visibly fixed to zero.
+                moving = vx != 0.0 or yaw != 0.0
+                if moving:
+                    result = client.Move(vx, 0.0, yaw)  # type: ignore[attr-defined]
+                else:
+                    result = client.StopMove()  # type: ignore[attr-defined]
+                if result not in (None, 0):
+                    api = "Move" if moving else "StopMove"
+                    raise RuntimeError(f"Unitree Sport {api} returned {result}")
+                if moving:
+                    self._arm_watchdog()
+                else:
+                    self._cancel_watchdog()
+                return {
+                    "adapter": "unitree_sport",
+                    "api": "Move" if moving else "StopMove",
+                    "linear_x_mps": vx,
+                    "angular_z_rps": yaw,
+                }
+            if effect.effect_type == "unitree_lie_down":
+                self._cancel_watchdog()
+                result = client.StandDown()  # type: ignore[attr-defined]
+                if result not in (None, 0):
+                    raise RuntimeError(f"Unitree Sport StandDown returned {result}")
+                return {"adapter": "unitree_sport", "api": "StandDown"}
+            raise ValueError(
+                "UnitreeSportAdapter only accepts cmd_vel and unitree_lie_down"
+            )
+
+    def close(self) -> None:
+        if not self._connected:
+            return
+        try:
+            with self._lock:
+                self._cancel_watchdog()
+                self._client.StopMove()  # type: ignore[union-attr]
+        except Exception:
+            logging.getLogger("robotkit.executor").exception(
+                "failed to stop Unitree motion while closing executor"
+            )
 
 
 class Ros2StringCommandAdapter:

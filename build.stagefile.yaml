@@ -1,0 +1,36 @@
+version: 1
+stages:
+  - name: app
+    from: python:3.12-slim
+    workdir: /app
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      PYTHONPATH: /app/src
+    install:
+      pip:
+        - packages:
+            - "fastapi>=0.115,<1"
+            - "httpx>=0.27,<1"
+            - "pydantic>=2.9,<3"
+            - "uvicorn>=0.30,<1"
+    copy:
+      - from: local
+        paths:
+          - src/robotkit/__init__.py
+          - src/robotkit/contracts.py
+        dest: /app/src/robotkit/
+      - from: local
+        paths:
+          - src/robotkit/world_state/__init__.py
+          - src/robotkit/world_state/app.py
+          - src/robotkit/world_state/store.py
+        dest: /app/src/robotkit/world_state/
+      # Seed the named volume with a directory writable by Stagefile's
+      # non-root runtime UID. SQLite is the only durable state in this image.
+      - from: local
+        paths: [stage-assets/data/.keep]
+        dest: /data/.keep
+        owner: "65532:65532"
+    user: "65532:65532"
+    cmd: [uvicorn, "robotkit.world_state.app:app", --host, 0.0.0.0, --port, "8080"]

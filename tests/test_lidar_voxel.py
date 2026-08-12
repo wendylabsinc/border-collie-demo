@@ -14,6 +14,7 @@ from robotkit.perception.lidar_voxel import (
     angular_proximity,
     estimate_pose,
     interpret_scan,
+    sensor_points_to_base,
     voxelize,
 )
 from tests.conftest import NOW
@@ -30,6 +31,19 @@ def _synthetic_room(width: float = 5.0, height: float = 3.0) -> list[tuple[float
     # An asymmetric interior feature removes rectangular-room aliases.
     points.extend((1.0, 0.8 + step * 0.04, 0.5) for step in range(16))
     return points
+
+
+def test_go2_lidar_mount_transform_is_body_centred_and_filters_nonfinite():
+    transformed = sensor_points_to_base(
+        [(1.0, 0.0, 0.0), (float("nan"), 0.0, 0.0)],
+        pitch_rad=math.pi / 2,
+        x_offset_m=0.16,
+        y_offset_m=0.0,
+        z_offset_m=0.12,
+    )
+
+    assert len(transformed) == 1
+    assert transformed[0] == pytest.approx((0.16, 0.0, -0.88))
 
 
 def _to_robot_frame(

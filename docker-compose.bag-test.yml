@@ -1,0 +1,60 @@
+# Test-only overlay used by robotkit.testing.bag_replay. It deliberately does
+# not start the planner, controller, or executor.
+services:
+  world-state:
+    network_mode: !reset null
+    networks: [bag-test]
+    ports: !override
+      - "127.0.0.1:${ROBOTKIT_BAG_TEST_PORT}:${ROBOTKIT_BAG_TEST_PORT}"
+    command:
+      - uvicorn
+      - robotkit.world_state.app:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "${ROBOTKIT_BAG_TEST_PORT}"
+    environment:
+      ROBOTKIT_DB_PATH: /data/bag-test.sqlite3
+
+  yolo-fruits:
+    network_mode: !reset null
+    networks: [bag-test]
+    environment:
+      WORLD_STATE_URL: "http://world-state:${ROBOTKIT_BAG_TEST_PORT}"
+      ROS_DOMAIN_ID: "${ROBOTKIT_BAG_TEST_ROS_DOMAIN_ID}"
+      YOLO_INPUT_MODE: ros2
+      YOLO_DEVICE: cpu
+
+  lidar-voxel:
+    network_mode: !reset null
+    networks: [bag-test]
+    environment:
+      WORLD_STATE_URL: "http://world-state:${ROBOTKIT_BAG_TEST_PORT}"
+      ROS_DOMAIN_ID: "${ROBOTKIT_BAG_TEST_ROS_DOMAIN_ID}"
+
+  transcription:
+    network_mode: !reset null
+    networks: [bag-test]
+    environment:
+      WORLD_STATE_URL: "http://world-state:${ROBOTKIT_BAG_TEST_PORT}"
+      ROS_DOMAIN_ID: "${ROBOTKIT_BAG_TEST_ROS_DOMAIN_ID}"
+
+  health-high-low:
+    network_mode: !reset null
+    networks: [bag-test]
+    environment:
+      WORLD_STATE_URL: "http://world-state:${ROBOTKIT_BAG_TEST_PORT}"
+      ROS_DOMAIN_ID: "${ROBOTKIT_BAG_TEST_ROS_DOMAIN_ID}"
+
+  bag-replay:
+    build:
+      context: .
+      dockerfile: Dockerfile.bag-replay
+    environment:
+      ROS_DOMAIN_ID: "${ROBOTKIT_BAG_TEST_ROS_DOMAIN_ID}"
+    networks: [bag-test]
+    volumes:
+      - "${ROBOTKIT_BAG_MOUNT}:/bags:ro"
+
+networks:
+  bag-test:

@@ -134,3 +134,19 @@ def decode_ros_image(message: Any) -> Any:
     elif encoding == "bgra8":
         image = image[:, :, :3]
     return np.ascontiguousarray(image)
+
+
+def decode_image_bytes(payload: bytes) -> Any:
+    """Decode a JPEG/PNG payload into an Ultralytics-compatible BGR array."""
+
+    try:
+        import cv2
+        import numpy as np
+    except ImportError as exc:  # pragma: no cover - depends on runtime image
+        raise RuntimeError("OpenCV and NumPy are required to decode HTTP images") from exc
+
+    encoded = np.frombuffer(payload, dtype=np.uint8)
+    image = cv2.imdecode(encoded, cv2.IMREAD_COLOR)
+    if image is None:
+        raise ValueError("camera endpoint returned an invalid image")
+    return image

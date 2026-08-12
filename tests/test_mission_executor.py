@@ -5,7 +5,7 @@ from datetime import timedelta
 
 import pytest
 
-from robotkit.executor.adapters import WavPlaybackAdapter
+from robotkit.executor.adapters import UnitreeSportAdapter, WavPlaybackAdapter
 from robotkit.executor.mission import (
     MissionConfig,
     approach_apple,
@@ -230,3 +230,148 @@ def test_wav_adapter_never_uses_an_effect_supplied_path(tmp_path, effect_factory
     )
     adapter.apply(effect)
     assert commands == [["/bin/player", str(configured)]]
+
+
+def test_unitree_sport_adapter_maps_velocity_and_lie_down(effect_factory):
+    class FakeSportClient:
+        def __init__(self):
+            self.calls = []
+
+        def Move(self, x, y, yaw):
+            self.calls.append(("Move", x, y, yaw))
+            return 0
+
+        def StandDown(self):
+            self.calls.append(("StandDown",))
+            return 0
+
+        def StopMove(self):
+            self.calls.append(("StopMove",))
+            return 0
+
+    client = FakeSportClient()
+    adapter = UnitreeSportAdapter(client=client)
+    velocity = effect_factory().model_copy(
+        update={
+            "effect_type": "cmd_vel",
+            "parameters": {"linear_x_mps": 0.2, "angular_z_rps": -0.3},
+        }
+    )
+    lie = effect_factory().model_copy(
+        update={"effect_type": "unitree_lie_down", "parameters": {}}
+    )
+
+    velocity_result = adapter.apply(velocity)
+    lie_result = adapter.apply(lie)
+    adapter.close()
+
+    assert client.calls == [
+        ("Move", 0.2, 0.0, -0.3),
+        ("StandDown",),
+        ("StopMove",),
+    ]
+    assert velocity_result["api"] == "Move"
+    assert lie_result["api"] == "StandDown"
+
+
+def test_unitree_sport_adapter_deadman_stops_unrenewed_motion(effect_factory):
+    class FakeSportClient:
+        def __init__(self):
+            self.calls = []
+
+        def Move(self, x, y, yaw):
+            self.calls.append(("Move", x, y, yaw))
+            return 0
+
+        def StopMove(self):
+            self.calls.append(("StopMove",))
+            return 0
+
+    class FakeTimer:
+        def __init__(self, interval, callback):
+            self.interval = interval
+            self.callback = callback
+            self.daemon = False
+            self.cancelled = False
+
+        def start(self):
+            pass
+
+        def cancel(self):
+            self.cancelled = True
+
+    timers = []
+
+    def timer_factory(interval, callback):
+        timer = FakeTimer(interval, callback)
+        timers.append(timer)
+        return timer
+
+    client = FakeSportClient()
+    adapter = UnitreeSportAdapter(
+        client=client,
+        watchdog_seconds=0.8,
+        timer_factory=timer_factory,
+    )
+    velocity = effect_factory().model_copy(
+        update={
+            "effect_type": "cmd_vel",
+            "parameters": {"linear_x_mps": 0.2, "angular_z_rps": 0.0},
+        }
+    )
+
+    adapter.apply(velocity)
+    assert timers[0].interval == 0.8
+    timers[0].callback()
+
+    assert client.calls == [("Move", 0.2, 0.0, 0.0), ("StopMove",)]
+
+
+def test_unitree_sport_adapter_ignores_cancelled_watchdog_race(effect_factory):
+    class FakeSportClient:
+        def __init__(self):
+            self.calls = []
+
+        def Move(self, x, y, yaw):
+            self.calls.append(("Move", x, y, yaw))
+            return 0
+
+        def StopMove(self):
+            self.calls.append(("StopMove",))
+            return 0
+
+    class FakeTimer:
+        def __init__(self, interval, callback):
+            self.callback = callback
+            self.daemon = False
+
+        def start(self):
+            pass
+
+        def cancel(self):
+            pass
+
+    timers = []
+
+    def timer_factory(interval, callback):
+        timer = FakeTimer(interval, callback)
+        timers.append(timer)
+        return timer
+
+    client = FakeSportClient()
+    adapter = UnitreeSportAdapter(client=client, timer_factory=timer_factory)
+    velocity = effect_factory().model_copy(
+        update={
+            "effect_type": "cmd_vel",
+            "parameters": {"linear_x_mps": 0.0, "angular_z_rps": 0.45},
+        }
+    )
+
+    adapter.apply(velocity)
+    adapter.apply(velocity)
+    timers[0].callback()
+
+    assert client.calls == [
+        ("Move", 0.0, 0.0, 0.45),
+        ("Move", 0.0, 0.0, 0.45),
+    ]

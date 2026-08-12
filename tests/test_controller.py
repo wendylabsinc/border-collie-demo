@@ -1,4 +1,6 @@
 from robotkit.controller.logic import control
+from robotkit.controller.service import control_tick
+from tests.conftest import NOW
 
 
 def _mission_goal(goal_factory, stage, *, mission_type="apple"):
@@ -34,6 +36,13 @@ def test_search_rotates_until_an_apple_is_visible(snapshot_factory, goal_factory
     assert effect.parameters["linear_x_mps"] == 0.0
     assert 0 < effect.parameters["angular_z_rps"] <= 1.0
     assert effect.parameters["stage_complete"] is False
+
+
+def test_control_renewal_tick_is_time_bucketed_and_replica_stable():
+    assert control_tick(NOW, 0.25) == control_tick(NOW, 0.25)
+    assert control_tick(NOW, 0.25) != control_tick(
+        NOW.replace(microsecond=NOW.microsecond + 250_000), 0.25
+    )
 
 
 def test_approach_refuses_blind_motion_without_lidar(

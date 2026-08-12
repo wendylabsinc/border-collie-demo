@@ -1,0 +1,84 @@
+version: 1
+stages:
+  - name: yolo
+    from: ros:humble-ros-base
+    workdir: /models
+    cuda: true
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      PYTHONPATH: /app/src
+      CYCLONEDDS_HOME: /usr/local
+    install:
+      apt:
+        packages:
+          - python3-pip
+          - python3-dev
+          - git
+          - cmake
+          - build-essential
+          - pkg-config
+          - libssl-dev
+          - ros-humble-sensor-msgs
+          - libffi-dev
+          - portaudio19-dev
+          - libportaudio2
+          - libsrtp2-1
+          - libgl1
+          - libglib2.0-0
+      cmake:
+        # Match the CycloneDDS ABI used by Unitree's pinned SDK2 package.
+        - repository: https://github.com/eclipse-cyclonedds/cyclonedds.git
+          commit: 2cdd114cbd18340c606573b4cc8dc20cc161ec5a
+          prefix: /usr/local
+          defines:
+            BUILD_EXAMPLES: "OFF"
+            BUILD_TESTING: "OFF"
+            BUILD_IDLC: "ON"
+      pip:
+        # Wendy resolves the Jetson-compatible wheel index and CUDA runtime
+        # from the Go2 target instead of baking an Orin-specific URL here.
+        - packages: ["torch==2.8.0", "torchvision==0.23.0"]
+          cuda: true
+        - packages:
+            - "fastapi>=0.115,<1"
+            - "httpx>=0.27,<1"
+            - "aiortc==1.9.0"
+            - "numpy==1.26.4"
+            - "opencv-python==4.11.0.86"
+            - "pydantic>=2.9,<3"
+            - "unitree-webrtc-connect==2.1.2"
+            - "uvicorn>=0.30,<1"
+            - "ultralytics==8.3.0"
+        - packages:
+            - "cyclonedds==0.10.5"
+        - index: https://pypi.org/simple
+          packages:
+            - "git+https://github.com/unitreerobotics/unitree_sdk2_python.git@db9b2d210081387fcd1e7ed9ac4c56a02983bb85"
+    copy:
+      - from: local
+        paths:
+          - src/robotkit/__init__.py
+          - src/robotkit/client.py
+          - src/robotkit/contracts.py
+          - src/robotkit/runtime.py
+        dest: /app/src/robotkit/
+      - from: local
+        paths: [src/robotkit/perception/__init__.py]
+        dest: /app/src/robotkit/perception/__init__.py
+      - from: local
+        paths:
+          - src/robotkit/perception/yolo/__init__.py
+          - src/robotkit/perception/yolo/__main__.py
+          - src/robotkit/perception/yolo/adapters.py
+          - src/robotkit/perception/yolo/core.py
+          - src/robotkit/perception/yolo/producer.py
+          - src/robotkit/perception/yolo/run.py
+        dest: /app/src/robotkit/perception/yolo/
+      - from: local
+        paths: [stage-assets/unitree_b2_init.py]
+        dest: /usr/local/lib/python3.10/dist-packages/unitree_sdk2py/b2/__init__.py
+    entrypoint:
+      source: /opt/ros/humble/setup.bash
+      exec: [python3, -m, robotkit.perception.yolo]
+    user: root
