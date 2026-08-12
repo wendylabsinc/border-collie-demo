@@ -453,6 +453,63 @@ class QualifiedFruitTracker:
         self._search_handoff = search_handoff
         self._search_handoff_accepted = False
         self._search_handoff_rejection_reason: str | None = None
+        self._persistent_identity_adopted = False
+
+    def adopt_persistent_identity(self) -> None:
+        """Let the mission track own identity while this policy owns geometry."""
+        self._track_acquired = True
+        self._persistent_identity_adopted = True
+        self._acquisition_samples = 0
+
+    def confirm_persistent_loss(
+        self,
+        status: Mapping[str, object],
+        *,
+        now_s: float,
+        confirmed_fresh_misses: int,
+    ) -> TrackDecision:
+        """Consume a mission track's already-confirmed close-range loss.
+
+        The persistent tracker owns identity hysteresis, so its first degraded
+        frame is deliberately not replayed through this geometry policy.  Once
+        it has confirmed two fresh advancing misses, this method may complete
+        an existing final-approach latch.  It can never create that latch.
+        """
+        if (
+            isinstance(confirmed_fresh_misses, bool)
+            or not isinstance(confirmed_fresh_misses, int)
+            or confirmed_fresh_misses
+            < self.config.final_approach_loss_confirmations
+        ):
+            return self._decision(
+                MotionRecommendation.STOP,
+                "persistent_loss_not_confirmed",
+            )
+        if self._final_approach_latched_at is None:
+            return self._decision(
+                MotionRecommendation.STOP,
+                "persistent_loss_without_final_approach_latch",
+            )
+        if not math.isfinite(now_s):
+            raise ValueError("observation time must be finite")
+        if self._final_approach_expired(now_s):
+            self._cancel_final_approach("final_approach_expired")
+            return self._decision(
+                MotionRecommendation.STOP,
+                "final_approach_expired",
+            )
+        self._final_approach_loss_samples = max(
+            self._final_approach_loss_samples,
+            confirmed_fresh_misses - 1,
+        )
+        decision = self._confirm_final_approach_loss(status, now_s)
+        if decision.recommendation is not MotionRecommendation.ARRIVAL:
+            return decision
+        self._arrival_mode = "persistent_track_close_loss"
+        return self._decision(
+            MotionRecommendation.ARRIVAL,
+            "qualified_persistent_track_close_loss",
+        )
 
     def observe(
         self,
@@ -1453,6 +1510,7 @@ class QualifiedFruitTracker:
             "search_handoff_rejection_reason": (
                 self._search_handoff_rejection_reason
             ),
+            "persistent_identity_adopted": self._persistent_identity_adopted,
         }
         return TrackDecision(
             recommendation=recommendation,

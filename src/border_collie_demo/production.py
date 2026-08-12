@@ -22,7 +22,7 @@ from .orchestrator import (
     StageContext,
     StageFailure,
 )
-from .qualified_tracking import search_handoff_from_status
+from .persistent_fruit_tracker import PersistentFruitTracker
 from .search_policy import SearchPolicy
 
 
@@ -180,7 +180,7 @@ class ProductionStageExecutor:
                 "requested_angle_degrees": requested_degrees,
             }
         if phase is MissionPhase.TURN_TO_FRUIT:
-            if visible := self._visible_target_evidence(context.target_fruit):
+            if visible := self._visible_target_evidence(context):
                 return self._record_search_policy(visible, context)
             policy = self._policy_for(context)
             evidence = await self._hardware.find_target(
@@ -192,10 +192,11 @@ class ProductionStageExecutor:
                 ),
                 timeout_s=(30.0 if policy is None else policy.broad_timeout_s),
                 search_policy=policy,
+                fruit_tracker=self._fruit_tracker(context),
             )
             return self._record_search_policy(evidence, context)
         if phase is MissionPhase.FIND_FRUIT:
-            if visible := self._visible_target_evidence(context.target_fruit):
+            if visible := self._visible_target_evidence(context):
                 return self._record_search_policy(visible, context)
             evidence = await self._hardware.find_target(
                 self._perception_status,
@@ -204,6 +205,7 @@ class ProductionStageExecutor:
                 sweep_rad=math.radians(75.0),
                 timeout_s=9.0,
                 search_policy=self._policy_for(context),
+                fruit_tracker=self._fruit_tracker(context),
             )
             return self._record_search_policy(evidence, context)
         if phase is MissionPhase.APPROACH_FRUIT:
@@ -223,7 +225,7 @@ class ProductionStageExecutor:
                 final_push_duration_s=1.0,
                 timeout_s=20.0,
                 metric_arrival_required=self._metric_arrival_required,
-                search_handoff=context.search_qualification_handoff,
+                fruit_tracker=self._fruit_tracker(context),
             )
         if phase is MissionPhase.SIT_AND_BARK:
             stop_errors = await self._hardware.emergency_stop()
@@ -288,9 +290,10 @@ class ProductionStageExecutor:
             return SearchPolicy.named(context.search_policy)
         return self._search_policy or SearchPolicy.named("slow-sweep")
 
-    def _visible_target_evidence(self, target_fruit: str) -> dict[str, Any] | None:
+    def _visible_target_evidence(self, context: StageContext) -> dict[str, Any] | None:
         """Skip broad search only for current, fully qualified target evidence."""
         status = self._perception_status()
+        target_fruit = context.target_fruit
         detection = status.get("detection")
         selected_target = str(status.get("target_fruit") or "").casefold()
         detection_label = (
@@ -307,12 +310,11 @@ class ProductionStageExecutor:
             and isinstance(detection, dict)
         ):
             return None
-        handoff = search_handoff_from_status(
-            status,
-            target_fruit,
-            qualified_monotonic_s=self._clock(),
-        )
-        if handoff is None:
+        report = self._fruit_tracker(context).observe(status, now_s=self._clock())
+        if not report.same_identity or report.state.value not in {
+            "locked",
+            "locked_off_axis",
+        }:
             return None
         return {
             "label": target_fruit,
@@ -326,13 +328,22 @@ class ProductionStageExecutor:
             "generation": status.get("generation"),
             "source_pts": detection.get("source_pts"),
             "source_time_base": detection.get("source_time_base"),
-            "qualified_monotonic_s": handoff.qualified_monotonic_s,
-            "search_qualification": handoff.to_evidence(),
+            "persistent_track": report.to_evidence(),
             "search_progress_rad": 0.0,
             "search_skipped": True,
             "skip_reason": "target_already_visible",
             "motion_commands_sent": False,
         }
+
+    def _fruit_tracker(self, context: StageContext) -> PersistentFruitTracker:
+        if context.fruit_track is not None:
+            return context.fruit_track
+        return PersistentFruitTracker.for_fruit(
+            context.target_fruit,
+            acquisition_confirmations=(
+                3 if context.target_fruit.casefold() == "apple" else 5
+            ),
+        )
 
     async def stop(self) -> list[str]:
         return await self._hardware.emergency_stop()

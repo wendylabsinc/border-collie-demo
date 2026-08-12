@@ -306,6 +306,22 @@ def acquire(target: QualifiedFruitTracker, *, start_pts: int = 1) -> int:
     return start_pts + 3
 
 
+def test_persistent_identity_enters_geometry_alignment_without_reacquisition() -> None:
+    target = apple_tracker()
+
+    target.adopt_persistent_identity()
+    decision = target.observe(
+        apple_observation(confidence=0.55, source_pts=101, center_x=0.60),
+        now_s=0.10,
+    )
+
+    assert decision.recommendation is MotionRecommendation.ALIGN
+    assert decision.reason == "centering_acquired_target"
+    assert decision.evidence["track_acquired"] is True
+    assert decision.evidence["acquisition_samples"] == 0
+    assert decision.evidence["persistent_identity_adopted"] is True
+
+
 def missing_observation(*, source_pts: int, age_s: float = 0.01) -> dict[str, object]:
     return {
         "camera_healthy": True,
@@ -591,6 +607,36 @@ def latch_bottom_edge(target: QualifiedFruitTracker) -> int:
     )
     assert decision.reason == "qualified_visible_arrival"
     return pts + 1
+
+
+def test_persistent_track_confirms_close_loss_without_counting_degraded_frame() -> None:
+    target = tracker()
+    pts = latch_final_approach(target)
+
+    arrived = target.confirm_persistent_loss(
+        missing_observation(source_pts=pts + 2),
+        now_s=0.75,
+        confirmed_fresh_misses=2,
+    )
+
+    assert arrived.recommendation is MotionRecommendation.ARRIVAL
+    assert arrived.reason == "qualified_persistent_track_close_loss"
+    assert arrived.evidence["final_approach_loss_samples"] == 2
+    assert arrived.evidence["arrival_mode"] == "persistent_track_close_loss"
+
+
+def test_persistent_loss_without_close_latch_cannot_authorize_arrival() -> None:
+    target = tracker()
+    acquire(target)
+
+    stopped = target.confirm_persistent_loss(
+        missing_observation(source_pts=100),
+        now_s=0.75,
+        confirmed_fresh_misses=2,
+    )
+
+    assert stopped.recommendation is MotionRecommendation.STOP
+    assert stopped.reason == "persistent_loss_without_final_approach_latch"
 
 
 def test_stale_or_frozen_evidence_never_confirms_final_approach_loss() -> None:

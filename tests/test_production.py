@@ -8,7 +8,10 @@ from border_collie_demo.hardware import CameraFailure, TargetLost
 from border_collie_demo.models import MissionPhase
 from border_collie_demo.orchestrator import StageContext, StageFailure
 from border_collie_demo.production import ProductionStageExecutor
-from border_collie_demo.qualified_tracking import SearchQualificationHandoff
+from border_collie_demo.persistent_fruit_tracker import (
+    PersistentFruitTracker,
+    PersistentFruitTrackerConfig,
+)
 from border_collie_demo.search_policy import SearchPolicy
 
 
@@ -67,7 +70,7 @@ def context(
     outbound_forward_pulses: int = 0,
     orientation_degrees: float = 0.0,
     target_fruit: str = "pear",
-    search_handoff: SearchQualificationHandoff | None = None,
+    fruit_track: PersistentFruitTracker | None = None,
 ) -> StageContext:
     return StageContext(
         run_id="run-1",
@@ -75,7 +78,7 @@ def context(
         home={"x_m": 0.0, "y_m": 0.0, "yaw_rad": 0.0},
         orientation_degrees=orientation_degrees,
         outbound_forward_pulses=outbound_forward_pulses,
-        search_qualification_handoff=search_handoff,
+        fruit_track=fruit_track,
     )
 
 
@@ -136,6 +139,8 @@ def test_turn_to_fruit_rotates_until_the_pear_is_recognized() -> None:
             status_reader,
             "pear",
         )
+        fruit_tracker = options.pop("fruit_tracker")
+        assert isinstance(fruit_tracker, PersistentFruitTracker)
         assert options == {
             "yaw_rps": 0.50,
             "sweep_rad": pytest.approx(2.0 * 3.141592653589793),
@@ -165,6 +170,8 @@ def test_slow_sweep_policy_preserves_full_search_coverage_and_attribution() -> N
 
         name, reader, fruit, options = hardware.calls[0]
         assert (name, reader, fruit) == ("find_target", status_reader, "apple")
+        fruit_tracker = options.pop("fruit_tracker")
+        assert isinstance(fruit_tracker, PersistentFruitTracker)
         assert options == {
             "yaw_rps": 0.50,
             "sweep_rad": pytest.approx(2.0 * 3.141592653589793),
@@ -205,16 +212,22 @@ def test_search_stage_skips_motion_when_target_is_already_visible(
 ) -> None:
     async def scenario() -> None:
         hardware = FakeProductionHardware()
-        status_reader = lambda: {
+        pts = 1
+
+        def status() -> dict[str, object]:
+            nonlocal pts
+            current = pts
+            pts += 1
+            return {
             "camera_healthy": True,
             "target_ready": True,
             "target_fruit": "pear",
             "generation": "camera-1",
-            "source": {"pts": 123, "time_base": "1/90000"},
+            "source": {"pts": current, "time_base": "1/90000", "age_s": 0.01},
             "detection": {
                 "label": "pear",
                 "generation": "camera-1",
-                "source_pts": 123,
+                "source_pts": current,
                 "source_time_base": "1/90000",
                 "confidence": 0.82,
                 "consecutive_detections": 7,
@@ -223,8 +236,16 @@ def test_search_stage_skips_motion_when_target_is_already_visible(
                 "center_y_ratio": 0.61,
                 "bottom_ratio": 0.70,
                 "bbox_area_ratio": 0.04,
+                "bbox_xyxy": [480, 360, 800, 700],
             },
         }
+        fruit_track = PersistentFruitTracker.for_fruit(
+            "pear",
+            acquisition_confirmations=5,
+        )
+        for index in range(5):
+            fruit_track.observe(status(), now_s=9.0 + index * 0.1)
+        status_reader = status
         stages = ProductionStageExecutor(
             hardware,
             status_reader,
@@ -232,42 +253,15 @@ def test_search_stage_skips_motion_when_target_is_already_visible(
             clock=lambda: 10.0,
         )
 
-        evidence = await stages.execute(phase, context())
+        evidence = await stages.execute(phase, context(fruit_track=fruit_track))
 
         assert hardware.calls == []
-        assert evidence == {
-            "label": "pear",
-            "confidence": 0.82,
-            "stable_detections": 7,
-            "detection_age_s": 0.04,
-            "center_x_ratio": 0.54,
-            "center_y_ratio": 0.61,
-            "bottom_ratio": 0.70,
-            "bbox_area_ratio": 0.04,
-            "generation": "camera-1",
-            "source_pts": 123,
-            "source_time_base": "1/90000",
-            "qualified_monotonic_s": 10.0,
-            "search_qualification": {
-                "search_qualified": True,
-                "target_fruit": "pear",
-                "generation": "camera-1",
-                "source_pts": 123,
-                "source_time_base": "1/90000",
-                "qualified_monotonic_s": 10.0,
-                "stable_detections": 7,
-                "confidence": 0.82,
-                "center_x_ratio": 0.54,
-                "center_y_ratio": 0.61,
-                "bottom_ratio": 0.70,
-                "bbox_area_ratio": 0.04,
-            },
-            "search_progress_rad": 0.0,
-            "search_skipped": True,
-                "skip_reason": "target_already_visible",
-                "search_policy": "slow-sweep",
-                "motion_commands_sent": False,
-        }
+        assert evidence["label"] == "pear"
+        assert evidence["search_skipped"] is True
+        assert evidence["skip_reason"] == "target_already_visible"
+        assert evidence["persistent_track"]["acquisition_epoch"] == 1
+        assert evidence["persistent_track"]["track_state_after"] == "locked"
+        assert "search_qualification" not in evidence
 
     asyncio.run(scenario())
 
@@ -282,6 +276,8 @@ def test_find_fruit_runs_bounded_camera_guided_search() -> None:
 
         name, reader, fruit, options = hardware.calls[0]
         assert (name, reader, fruit) == ("find_target", status_reader, "pear")
+        fruit_tracker = options.pop("fruit_tracker")
+        assert isinstance(fruit_tracker, PersistentFruitTracker)
         assert options == {
             "yaw_rps": 0.20,
             "sweep_rad": pytest.approx(1.308997),
@@ -342,6 +338,8 @@ def test_approach_pins_full_and_close_range_speeds_independently() -> None:
 
         name, reader, fruit, options = hardware.calls[0]
         assert (name, reader, fruit) == ("approach_target", status_reader, "pear")
+        fruit_tracker = options.pop("fruit_tracker")
+        assert isinstance(fruit_tracker, PersistentFruitTracker)
         assert options == {
             # Normal tracking retains the qualified profile; close-range
             # geometry selects its own explicit speed before Arrival stops it.
@@ -356,39 +354,38 @@ def test_approach_pins_full_and_close_range_speeds_independently() -> None:
             "final_push_duration_s": 1.0,
             "timeout_s": 20.0,
             "metric_arrival_required": True,
-            "search_handoff": None,
         }
         assert evidence["arrival_confirmed"] is True
 
     asyncio.run(scenario())
 
 
-def test_approach_receives_the_explicit_search_qualification_handoff() -> None:
+def test_search_and_approach_receive_the_same_persistent_track() -> None:
     async def scenario() -> None:
         hardware = FakeProductionHardware()
-        handoff = SearchQualificationHandoff(
-            search_qualified=True,
-            target_fruit="apple",
-            generation="camera-1",
-            source_pts=100,
-            source_time_base="1/90000",
-            qualified_monotonic_s=10.0,
-            stable_detections=5,
-            confidence=0.710628867149353,
-            center_x_ratio=0.5,
-            center_y_ratio=0.5,
-            bottom_ratio=0.65,
-            bbox_area_ratio=0.04,
+        fruit_track = PersistentFruitTracker(
+            PersistentFruitTrackerConfig(
+                target_fruit="apple",
+                acquisition_confidence=0.50,
+                maintenance_confidence=0.40,
+                acquisition_confirmations=3,
+            )
         )
         stages = ProductionStageExecutor(hardware, dict, FakeBark())
 
         await stages.execute(
+            MissionPhase.FIND_FRUIT,
+            context(target_fruit="apple", fruit_track=fruit_track),
+        )
+        await stages.execute(
             MissionPhase.APPROACH_FRUIT,
-            context(target_fruit="apple", search_handoff=handoff),
+            context(target_fruit="apple", fruit_track=fruit_track),
         )
 
-        options = hardware.calls[0][3]
-        assert options["search_handoff"] is handoff
+        search_options = hardware.calls[0][3]
+        approach_options = hardware.calls[1][3]
+        assert search_options["fruit_tracker"] is fruit_track
+        assert approach_options["fruit_tracker"] is fruit_track
 
     asyncio.run(scenario())
 
@@ -418,7 +415,7 @@ def test_stage_camera_profile_uses_one_shared_arrival_contract() -> None:
             assert options["final_push_mps"] == 0.6
             assert options["final_push_duration_s"] == 1.0
             assert options["metric_arrival_required"] is False
-            assert options["search_handoff"] is None
+            assert isinstance(options["fruit_tracker"], PersistentFruitTracker)
 
     asyncio.run(scenario())
 

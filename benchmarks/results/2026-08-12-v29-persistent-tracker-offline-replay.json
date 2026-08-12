@@ -1,0 +1,153 @@
+{
+  "schema_version": 1,
+  "release_candidate": "stage-camera-v29-persistent-fruit-track",
+  "scope": "offline sparse replay of all five saved v28 physical records",
+  "limitations": [
+    "v28 retained operator-cadence API samples, not every detector frame",
+    "exact after command counts require one new v29 physical run",
+    "sparse replay cannot reconstruct crop/full-frame route separation that v28 did not record"
+  ],
+  "baseline_highlights": {
+    "apple_tracking_confidence_low_zero_commands": 116,
+    "pear_center_corridor_recenter_commands": 130,
+    "banana_detection_missing_zero_commands": 6,
+    "pear_candidate_alignment_hold_losses": 27
+  },
+  "runs": [
+    {
+      "run_id": "ede9df31-7ee7-490c-8e43-722d2e9fb0a9",
+      "target_fruit": "pear",
+      "physical_outcome": "TARGET_RECOGNITION_FAILURE",
+      "saved_api_samples": 24,
+      "before_command_counts": {
+        "candidate_alignment_hold": 4,
+        "candidate_alignment_hold_lost": 27,
+        "candidate_alignment_turn": 127,
+        "find_target": 95,
+        "measured_turn": 51
+      },
+      "sparse_persistent_replay": {
+        "processed_frames": 24,
+        "acquisition_epochs": 0,
+        "phase_identity_resets": 0,
+        "degraded_recoveries": 0,
+        "off_axis_identity_preserved": 0,
+        "confirmed_losses": 0,
+        "maximum_confirmed_loss_s": 0.0,
+        "degraded_arrival_advances": 0
+      }
+    },
+    {
+      "run_id": "f67ee922-3890-497e-ad77-d5c59abb08c3",
+      "target_fruit": "banana",
+      "physical_outcome": "RETURN_HOME_FAILURE",
+      "saved_api_samples": 34,
+      "before_command_counts": {
+        "approach_target_slow": 27,
+        "camera_final_push": 10,
+        "candidate_alignment_hold": 6,
+        "candidate_alignment_hold_lost": 1,
+        "candidate_alignment_turn": 2,
+        "center_target_before_approach": 36,
+        "find_target": 6,
+        "measured_turn": 238,
+        "qualified_arrival_stop": 1,
+        "qualified_track_detection_missing": 30,
+        "return_course_correction": 1,
+        "return_home": 24
+      },
+      "sparse_persistent_replay": {
+        "processed_frames": 34,
+        "acquisition_epochs": 0,
+        "phase_identity_resets": 0,
+        "degraded_recoveries": 0,
+        "off_axis_identity_preserved": 0,
+        "confirmed_losses": 0,
+        "maximum_confirmed_loss_s": 0.0,
+        "degraded_arrival_advances": 0
+      }
+    },
+    {
+      "run_id": "84de9af3-a2bc-4604-b817-04d2a4d916a1",
+      "target_fruit": "pear",
+      "physical_outcome": "ARRIVAL_FAILURE",
+      "saved_api_samples": 16,
+      "before_command_counts": {
+        "approach_target_slow": 23,
+        "candidate_alignment_centered": 3,
+        "candidate_alignment_hold": 5,
+        "candidate_alignment_hold_lost": 2,
+        "center_corridor_recenter": 130,
+        "center_target_before_approach": 2,
+        "find_target": 2,
+        "measured_turn": 12,
+        "qualified_track_confirming_center_corridor_exit": 2,
+        "qualified_track_confirming_target_reacquisition": 3,
+        "qualified_track_track_discontinuous": 1
+      },
+      "sparse_persistent_replay": {
+        "processed_frames": 16,
+        "acquisition_epochs": 1,
+        "phase_identity_resets": 0,
+        "degraded_recoveries": 0,
+        "off_axis_identity_preserved": 0,
+        "confirmed_losses": 0,
+        "maximum_confirmed_loss_s": 0.0,
+        "degraded_arrival_advances": 0
+      }
+    },
+    {
+      "run_id": "203d79ea-f5fd-4ecc-b276-5be2c534a66a",
+      "target_fruit": "banana",
+      "physical_outcome": "TARGET_LOST_OFF_AXIS",
+      "saved_api_samples": 13,
+      "before_command_counts": {
+        "approach_target": 13,
+        "approach_target_slow": 13,
+        "candidate_alignment_hold": 5,
+        "center_target_before_approach": 33,
+        "find_target": 68,
+        "measured_turn": 4,
+        "qualified_track_detection_missing": 6,
+        "qualified_track_target_lost_off_axis": 1,
+        "visual_close_until_sight_loss": 1
+      },
+      "sparse_persistent_replay": {
+        "processed_frames": 13,
+        "acquisition_epochs": 0,
+        "phase_identity_resets": 0,
+        "degraded_recoveries": 0,
+        "off_axis_identity_preserved": 0,
+        "confirmed_losses": 0,
+        "maximum_confirmed_loss_s": 0.0,
+        "degraded_arrival_advances": 0
+      }
+    },
+    {
+      "run_id": "c0706fec-7de6-4d24-95bd-03bf44b815d2",
+      "target_fruit": "apple",
+      "physical_outcome": "ARRIVAL_FAILURE",
+      "saved_api_samples": 19,
+      "before_command_counts": {
+        "approach_target": 13,
+        "approach_target_slow": 13,
+        "candidate_alignment_hold": 3,
+        "candidate_alignment_hold_lost": 3,
+        "center_target_before_approach": 13,
+        "find_target": 43,
+        "measured_turn": 21,
+        "qualified_track_tracking_confidence_low": 116
+      },
+      "sparse_persistent_replay": {
+        "processed_frames": 19,
+        "acquisition_epochs": 1,
+        "phase_identity_resets": 0,
+        "degraded_recoveries": 1,
+        "off_axis_identity_preserved": 0,
+        "confirmed_losses": 1,
+        "maximum_confirmed_loss_s": 0.09999999999999987,
+        "degraded_arrival_advances": 0
+      }
+    }
+  ]
+}

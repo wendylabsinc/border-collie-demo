@@ -13,6 +13,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 
+from .fruits import fruit_policy
+
 
 class FruitTrackState(StrEnum):
     UNSEEN = "unseen"
@@ -81,6 +83,7 @@ class FruitTrackReport:
     source_pts: int | None
     generation: str | None
     acquisition_epoch: int
+    degraded_failures: int
     degraded_elapsed_s: float
     full_frame_detection: Mapping[str, object] | None
     crop_detection: Mapping[str, object] | None
@@ -105,6 +108,7 @@ class FruitTrackReport:
             "source_pts": self.source_pts,
             "generation": self.generation,
             "acquisition_epoch": self.acquisition_epoch,
+            "degraded_failures": self.degraded_failures,
             "degraded_elapsed_s": self.degraded_elapsed_s,
             "full_frame_detection": (
                 None
@@ -153,6 +157,27 @@ class PersistentFruitTracker:
     @property
     def state(self) -> FruitTrackState:
         return self._state
+
+    @classmethod
+    def for_fruit(
+        cls,
+        target_fruit: str,
+        *,
+        acquisition_confirmations: int,
+    ) -> PersistentFruitTracker:
+        policy = fruit_policy(target_fruit)
+        # The persistent track owns identity hysteresis.  The existing fruit
+        # policy remains the maintenance floor until each lower value has
+        # physical evidence; EMA and the one-frame degraded state remove the
+        # raw-frame threshold oscillation without silently weakening it.
+        return cls(
+            PersistentFruitTrackerConfig(
+                target_fruit=target_fruit.casefold().strip(),
+                acquisition_confidence=policy.acquisition_confidence,
+                maintenance_confidence=policy.close_range_tracking_confidence,
+                acquisition_confirmations=acquisition_confirmations,
+            )
+        )
 
     def observe(
         self,
@@ -507,6 +532,7 @@ class PersistentFruitTracker:
                 else self._generation
             ),
             acquisition_epoch=self._acquisition_epoch,
+            degraded_failures=self._degraded_failures,
             degraded_elapsed_s=degraded_elapsed,
             full_frame_detection=(None if full is None else full.raw),
             crop_detection=(None if crop is None else crop.raw),
@@ -579,21 +605,32 @@ class PersistentFruitTracker:
             and not isinstance(source_pts, bool)
             and isinstance(generation, str)
             and generation
-            and isinstance(bbox_raw, (list, tuple))
-            and len(bbox_raw) == 4
         ):
-            return None
-        bbox_values = tuple(_number(value) for value in bbox_raw)
-        if any(value is None for value in bbox_values):
             return None
         assert confidence is not None
         assert center_x is not None and center_y is not None and bottom is not None
         assert area is not None and age_s is not None
+        if isinstance(bbox_raw, (list, tuple)) and len(bbox_raw) == 4:
+            bbox_values = tuple(_number(value) for value in bbox_raw)
+            if any(value is None for value in bbox_values):
+                return None
+            bbox = tuple(float(value) for value in bbox_values if value is not None)
+        else:
+            # Normalized saved/test evidence can predate raw box retention.
+            # This approximation is used only for temporal overlap; current
+            # media evidence always includes the authoritative pixel box.
+            side = math.sqrt(max(area, 1e-9))
+            bbox = (
+                center_x - side / 2.0,
+                center_y - side / 2.0,
+                center_x + side / 2.0,
+                center_y + side / 2.0,
+            )
         return _Detection(
             raw=raw,
             label=label,
             confidence=confidence,
-            bbox=tuple(float(value) for value in bbox_values if value is not None),
+            bbox=bbox,
             center_x=center_x,
             center_y=center_y,
             bottom=bottom,
