@@ -796,6 +796,28 @@ Full evidence:
   qualified samples under `slow-sweep`; search handoff still requires current
   fresh matching tracking-floor evidence and three centered approach samples
   before translation. Raw weak sidecar publication remains diagnostic-only.
-- Qualification boundary: software tests establish threshold propagation
-  through media stability, app readiness, and the temporal tracker. A supervised
-  randomized Apple/Pear run is required before claiming physical improvement.
+- Supervised randomized result: seed `202608111726` selected Apple for run
+  `9a55f553-0ad8-43bf-b711-ea657962caf6`. Search observed confidence up to
+  `0.7892334` but held only two consecutive qualifying detections against the
+  five-frame `slow-sweep` lock, completed `6.3098 rad` of bounded yaw-only
+  search, and failed `TARGET_RECOGNITION_FAILURE`. No forward command was sent.
+  The terminal state was `DISARMED_CONFIRMED`; trusted fused Home distance was
+  `0.0143 m` in the final live check.
+- Evidence: `benchmarks/results/2026-08-11-v23-apple-pear-random-9a55f553.json`
+  and its matching `-trace.ndjson` black box.
+- Qualification boundary: lowering the Apple confidence floor alone did not
+  produce a five-frame search lock in this placement. The reversible scheduler
+  comparison will test whether evidence cadence, rather than peak confidence,
+  is the limiting factor.
+
+## STAGE-CAMERA-V24-PIPELINE-BASELINE-2026-08-11 — planned physical cohort
+
+- Release identity: `stage-camera-v24-apple-pear-pipeline-baseline`, schema 8,
+  app version `1.0.27-stage-camera`.
+- The merged scheduler is present but explicitly selected as
+  `PERCEPTION_PIPELINE_PROFILE=baseline`. Apple/Pear confidence policy remains
+  0.65 acquisition and 0.55 continued tracking.
+- Plan: deploy with the normal Stagefile-aware `wendy run --detach`, then run
+  Apple, Pear, and Banana once each. Persist all terminal results and black-box
+  traces, request only bounded Home recovery after failures, and continue only
+  from a disarmed no-active-operation state.

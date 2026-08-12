@@ -90,23 +90,24 @@ def test_atomic_release_store_promotes_only_verified_pair_and_rolls_back(tmp_pat
     assert store.current() == first
 
 
-def test_v23_release_identity_matches_root_media_and_stagefiles() -> None:
+def test_v24_release_identity_matches_root_media_and_stagefiles() -> None:
     root = Path(__file__).resolve().parents[1]
     descriptor = json.loads((root / "wendy.json").read_text(encoding="utf-8"))
-    release_id = "stage-camera-v23-apple-pear-confidence"
+    release_id = "stage-camera-v24-apple-pear-pipeline-baseline"
     build_label = (
-        "stage-camera-v23-apple-pear-confidence "
+        "stage-camera-v24-apple-pear-pipeline-baseline "
         "(codex/stage-camera-v21-search-policy-abc)"
     )
 
-    assert descriptor["version"] == "1.0.26-stage-camera"
+    assert descriptor["version"] == "1.0.27-stage-camera"
     app_env = descriptor["services"]["app"]["env"]
     media_env = descriptor["services"]["media"]["env"]
     assert app_env["BORDER_COLLIE_BUILD_LABEL"] == build_label
     for environment in (app_env, media_env):
         assert environment["BORDER_COLLIE_RELEASE_ID"] == release_id
-        assert environment["BORDER_COLLIE_CONFIG_SCHEMA"] == "7"
+        assert environment["BORDER_COLLIE_CONFIG_SCHEMA"] == "8"
     assert app_env["BORDER_COLLIE_SEARCH_POLICY"] == "slow-sweep"
+    assert media_env["PERCEPTION_PIPELINE_PROFILE"] == "baseline"
 
     root_stagefile_path = root / "build.stagefile.yaml"
     media_stagefile_path = root / "media/build.stagefile.yaml"
@@ -115,8 +116,9 @@ def test_v23_release_identity_matches_root_media_and_stagefiles() -> None:
     assert f"BORDER_COLLIE_BUILD_LABEL: {build_label}" in root_stagefile
     for stagefile in (root_stagefile, media_stagefile):
         assert f"BORDER_COLLIE_RELEASE_ID: {release_id}" in stagefile
-        assert 'BORDER_COLLIE_CONFIG_SCHEMA: "7"' in stagefile
+        assert 'BORDER_COLLIE_CONFIG_SCHEMA: "8"' in stagefile
     assert "BORDER_COLLIE_SEARCH_POLICY: slow-sweep" in root_stagefile
+    assert "PERCEPTION_PIPELINE_PROFILE: baseline" in media_stagefile
     for stagefile_path in (root_stagefile_path, media_stagefile_path):
         digest = sha256(stagefile_path.read_bytes()).hexdigest()
         lockfile = stagefile_path.with_name("build.stagefile.lock.yaml").read_text(

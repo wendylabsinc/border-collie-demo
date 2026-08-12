@@ -1,14 +1,14 @@
 {
   "appId": "border-collie-demo",
-  "version": "1.0.26-stage-camera",
+  "version": "1.0.27-stage-camera",
   "services": {
     "app": {
       "context": ".",
       "env": {
         "BORDER_COLLIE_PORT": "8110",
-        "BORDER_COLLIE_BUILD_LABEL": "stage-camera-v23-apple-pear-confidence (codex/stage-camera-v21-search-policy-abc)",
-        "BORDER_COLLIE_RELEASE_ID": "stage-camera-v23-apple-pear-confidence",
-        "BORDER_COLLIE_CONFIG_SCHEMA": "7",
+        "BORDER_COLLIE_BUILD_LABEL": "stage-camera-v24-apple-pear-pipeline-baseline (codex/stage-camera-v21-search-policy-abc)",
+        "BORDER_COLLIE_RELEASE_ID": "stage-camera-v24-apple-pear-pipeline-baseline",
+        "BORDER_COLLIE_CONFIG_SCHEMA": "8",
         "BORDER_COLLIE_SEARCH_POLICY": "slow-sweep",
         "BORDER_COLLIE_RUNTIME_MODE": "production",
         "BORDER_COLLIE_HARDWARE_ENABLED": "1",
@@ -67,12 +67,13 @@
       "context": "./media",
       "env": {
         "UNITREE_ROBOT_IP": "192.168.123.161",
-        "BORDER_COLLIE_RELEASE_ID": "stage-camera-v23-apple-pear-confidence",
-        "BORDER_COLLIE_CONFIG_SCHEMA": "7",
+        "BORDER_COLLIE_RELEASE_ID": "stage-camera-v24-apple-pear-pipeline-baseline",
+        "BORDER_COLLIE_CONFIG_SCHEMA": "8",
         "PEAR_MODEL_PATH": "/media/model.engine",
         "BANANA_SPECIALIST_MODEL_PATH": "/media/banana-specialist.pt",
         "BANANA_SPECIALIST_MIN_CONFIDENCE": "0.55",
         "BANANA_SPECIALIST_MIN_IOU": "0.10",
+        "PERCEPTION_PIPELINE_PROFILE": "baseline",
         "BORDER_COLLIE_BARK_UUID": "161387de-21ab-4f0b-b4e9-97124b000d06",
         "MEDIA_CONNECT_TIMEOUT_S": "15.0",
         "MEDIA_CLEANUP_TIMEOUT_S": "5.0",

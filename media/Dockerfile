@@ -20,13 +20,14 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 WORKDIR /app
 COPY model/model.engine /media/model.engine
 COPY model/banana-specialist.pt /media/banana-specialist.pt
-COPY __init__.py model_router.py perception_sidecar.py service_supervision.py visual_odometry.py ./media/
+COPY __init__.py model_router.py perception_pipeline.py perception_sidecar.py service_supervision.py visual_odometry.py ./media/
 
 ENV UNITREE_ROBOT_IP=192.168.123.161 \
     PEAR_MODEL_PATH=/media/model.engine \
     BANANA_SPECIALIST_MODEL_PATH=/media/banana-specialist.pt \
     BANANA_SPECIALIST_MIN_CONFIDENCE=0.55 \
     BANANA_SPECIALIST_MIN_IOU=0.10 \
+    PERCEPTION_PIPELINE_PROFILE=throughput-v1 \
     BORDER_COLLIE_MEDIA_PORT=8111 \
     BORDER_COLLIE_BARK_UUID=161387de-21ab-4f0b-b4e9-97124b000d06
 
