@@ -1,0 +1,40 @@
+{
+  "recorded_at_utc": "2026-08-12T06:50:24Z",
+  "release_id": "stage-camera-v27-center-corridor-apple50",
+  "config_schema": 11,
+  "app_version": "1.0.30-stage-camera",
+  "git_commit": "7cd0bbc75e1452195f54c8083fddada86e832904",
+  "deployment": {
+    "command": "wendy run --detach",
+    "stagefiles": [
+      "build.stagefile.yaml",
+      "media/build.stagefile.yaml"
+    ],
+    "result": "installed_and_runtime_verified"
+  },
+  "app": {
+    "running": true,
+    "activation_ready": true,
+    "activation_blockers": [],
+    "active_run_id": null,
+    "active_recovery": null,
+    "active_operation": null,
+    "pose_healthy": true,
+    "motion_armed": false,
+    "last_command_forward_mps": 0.0,
+    "last_command_yaw_rps": 0.0,
+    "guardian_active": false
+  },
+  "media": {
+    "running": true,
+    "supervisor_state": "ready",
+    "generation": "9cfdbc8403084b1da26c74aca4d0bf4b",
+    "total_restarts": 0,
+    "source_pts_samples": [10020, 11760, 13500],
+    "processed_frame_samples": [104, 133, 162],
+    "processed_fps_samples": [8.241188289440219, 9.07447609795322, 9.705183915416463],
+    "error": null
+  },
+  "physical_motion_started": false,
+  "qualification": "deployed_not_physically_qualified"
+}

@@ -912,11 +912,11 @@ Full evidence:
   three-frame Apple lock remain physically unqualified pending the supervised
   five-run test.
 
-## STAGE-CAMERA-V27-CENTER-CORRIDOR-APPLE50-2026-08-11 — software candidate
+## STAGE-CAMERA-V27-CENTER-CORRIDOR-APPLE50-2026-08-11 — deployed candidate
 
 - Release identity: `stage-camera-v27-center-corridor-apple50`, schema 11, app
   version `1.0.30-stage-camera`; root/media descriptors and both Stagefiles use
-  the same cohort. No deployment or physical motion was performed.
+  the same cohort.
 - The red-apple experiment lowers acquisition from 0.65 to 0.50 in both the
   application policy and media stability counter. Continued tracking also uses
   0.50. Keeping tracking at 0.55 would invert the normal hysteresis contract:
@@ -939,5 +939,18 @@ Full evidence:
   Stagefile identity and hashes.
 - Full local suite: 390 passed, 1 skipped because NumPy was unavailable for the
   optional visual-odometry test. Changed-file Ruff checks and `git diff --check`
-  pass. Physical false-positive rate and end-to-end Apple reliability remain
-  unqualified until a supervised run.
+  pass.
+- Direct whole-project deployment used `wendy run --detach`; Wendy selected and
+  compiled both Stagefiles through their generated Dockerfiles. Post-deployment
+  device evidence matched the app and media release/schema, with both services
+  RUNNING and app version `1.0.30-stage-camera`.
+- The media supervisor was ready on one stable generation with zero restarts.
+  Source PTS advanced `10020 -> 11760 -> 13500`; processed frames advanced
+  `104 -> 133 -> 162`, with observed processed cadence rising from 8.24 to
+  9.71 FPS during warm-up. The application was activation-ready with no
+  blockers, fresh healthy pose, no active run/recovery/operation, guardian
+  inactive, and exact zero/disarmed motion. Every other installed Go2 motion
+  application remained stopped.
+- No physical Demo Run was started. The 0.20 rad/s SportClient recenter signal,
+  Apple false-positive rate, center-corridor behavior, and end-to-end fruit
+  reliability remain physically unqualified until a supervised run.
