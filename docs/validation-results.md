@@ -1001,3 +1001,22 @@ Full evidence:
   available Python 3.14 interpreter instead of failing on macOS Python 3.9.
 - This candidate was prepared while Woof was offline. No build, deployment,
   device access, or physical motion was performed.
+## 2026-08-12: v28 randomized five-run cohort
+
+Five randomized activations completed on Woof with `slow-sweep`: pear, banana,
+pear, banana, apple. Machine success was 0/5. Failures were two
+`ARRIVAL_FAILURE`, one `RETURN_HOME_FAILURE`, one `TARGET_LOST_OFF_AXIS`, and
+one `TARGET_RECOGNITION_FAILURE`; operator-side network polling had zero
+errors. The primary harness stopped after run four because recovery reported a
+stalled active waypoint and a 1.542 m Home value. Live trusted fusion instead
+read 0.225 m, inside the operator-qualified 0.50 m stage margin, so the fifth
+seeded activation was completed separately. Final recovery reached 0.028 m;
+post-cohort trusted Home distance was 0.084 m with exact zero motion.
+
+V28 produced useful failure-position images for pear, banana, and apple. All
+three fruits remained visible when Woof lay down, showing that at least these
+failures were policy/geometry closeout problems rather than true camera loss.
+The banana audience-action photo from run two was described in result metadata
+but its artifact endpoint returned HTTP 404, which is a new evidence-retention
+defect to fix. See
+`benchmarks/results/2026-08-12-v28-random-five-summary.json`.

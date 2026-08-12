@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "release_id": "stage-camera-v28-lie-down-evidence",
+  "config_schema": 12,
+  "search_policy": "slow-sweep",
+  "requested_runs": 5,
+  "completed_activations": 5,
+  "mission_successes": 0,
+  "mission_failures": 5,
+  "network_poll_errors": 0,
+  "cohort_note": "The primary harness stopped after run 4 when automatic recovery reported RECOVERY_FAILURE. Live trusted Home fusion was 0.225 m, inside the operator-qualified 0.50 m stage margin, with motion disarmed and activation ready. Run 5 was then completed as a separate seeded one-run cohort.",
+  "runs": [
+    {
+      "number": 1,
+      "fruit": "pear",
+      "orientation_degrees": 264,
+      "run_id": "ede9df31-7ee7-490c-8e43-722d2e9fb0a9",
+      "outcome": "FAILED",
+      "reason": "TARGET_RECOGNITION_FAILURE",
+      "failed_phase": "turn_to_fruit",
+      "recovery": "HOME_POSITION_ALREADY_RECOVERED",
+      "recovery_home_distance_m": 0.0436,
+      "lie_down_photo": null
+    },
+    {
+      "number": 2,
+      "fruit": "banana",
+      "orientation_degrees": 18,
+      "run_id": "f67ee922-3890-497e-ad77-d5c59abb08c3",
+      "outcome": "FAILED",
+      "reason": "RETURN_HOME_FAILURE",
+      "failed_phase": "restore_heading",
+      "arrival_was_confirmed": true,
+      "recovery": "HOME_POSITION_RECOVERED",
+      "recovery_home_distance_m": 0.0725,
+      "lie_down_photo": "unavailable: artifact endpoint returned HTTP 404"
+    },
+    {
+      "number": 3,
+      "fruit": "pear",
+      "orientation_degrees": 61,
+      "run_id": "84de9af3-a2bc-4604-b817-04d2a4d916a1",
+      "outcome": "FAILED",
+      "reason": "ARRIVAL_FAILURE",
+      "failed_phase": "approach_fruit",
+      "recovery": "HOME_POSITION_RECOVERED",
+      "recovery_home_distance_m": 0.0333,
+      "lie_down_photo": "2026-08-12-v28-random-five-frames/run-03-lie-down.jpg",
+      "photo_observation": "Pear remained visible and right of image center at lie-down."
+    },
+    {
+      "number": 4,
+      "fruit": "banana",
+      "orientation_degrees": 15,
+      "run_id": "203d79ea-f5fd-4ecc-b276-5be2c534a66a",
+      "outcome": "FAILED",
+      "reason": "TARGET_LOST_OFF_AXIS",
+      "failed_phase": "approach_fruit",
+      "recovery": "RECOVERY_FAILURE",
+      "reported_recovery_home_distance_m": 1.5422,
+      "live_trusted_home_distance_after_recovery_m": 0.2251,
+      "lie_down_photo": "2026-08-12-v28-random-five-frames/run-04-lie-down.jpg",
+      "photo_observation": "Banana remained visible near the horizontal center at lie-down."
+    },
+    {
+      "number": 5,
+      "fruit": "apple",
+      "orientation_degrees": 105,
+      "run_id": "c0706fec-7de6-4d24-95bd-03bf44b815d2",
+      "outcome": "FAILED",
+      "reason": "ARRIVAL_FAILURE",
+      "failed_phase": "approach_fruit",
+      "recovery": "HOME_POSITION_RECOVERED",
+      "recovery_home_distance_m": 0.0278,
+      "lie_down_photo": "2026-08-12-v28-random-five-run-05-frames/run-01-lie-down.jpg",
+      "photo_observation": "Apple remained visible right of image center at lie-down."
+    }
+  ],
+  "failure_counts": {
+    "ARRIVAL_FAILURE": 2,
+    "RETURN_HOME_FAILURE": 1,
+    "TARGET_LOST_OFF_AXIS": 1,
+    "TARGET_RECOGNITION_FAILURE": 1
+  },
+  "final_state": {
+    "active_run": null,
+    "active_recovery": null,
+    "motion_disarmed": true,
+    "last_command_forward_mps": 0.0,
+    "last_command_yaw_rps": 0.0,
+    "trusted_home_distance_m": 0.0845
+  }
+}
