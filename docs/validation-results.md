@@ -1021,7 +1021,7 @@ but its artifact endpoint returned HTTP 404, which is a new evidence-retention
 defect to fix. See
 `benchmarks/results/2026-08-12-v28-random-five-summary.json`.
 
-## STAGE-CAMERA-V29-PERSISTENT-FRUIT-TRACK-2026-08-12 — offline candidate
+## STAGE-CAMERA-V29-PERSISTENT-FRUIT-TRACK-2026-08-12 — physical Apple reproduction
 
 - Release identity is `stage-camera-v29-persistent-fruit-track`, schema 13,
   app version `1.0.32-stage-camera`.
@@ -1042,6 +1042,28 @@ defect to fix. See
   losses. V28 did not retain every detector frame or full/crop channels, so no
   physical after-count is claimed by that replay.
 - The runtime-environment commit `0468bee` is intentionally sequenced after
-  this candidate because it overlaps the same runtime modules. This candidate
-  is not deployed or physically qualified until the separate device gates and
-  one supervised Apple run complete.
+  this candidate because it overlaps the same runtime modules.
+- The whole app and media cohort was deployed with direct `wendy run --detach`.
+  A checked-in preflight then proved the exact release/schema, advancing
+  camera, fresh pose, readiness, and exact-zero disarm before activation.
+- Seed `2026081206` selected Apple at 105 degrees for supervised run
+  `3ed9a3bb-116c-409f-81f2-149508e8a648`. The run failed after 15.795 s with
+  `ARRIVAL_FAILURE: confirmed_full_frame_loss`, sent no forward pulse, and
+  ended disarmed at a trusted fused Home distance of 0.0928 m.
+- The persistent identity contract worked: acquisition epoch 1 survived turn,
+  find, and approach without a phase-transition reset. The failure was instead
+  an over-aggressive live loss decision. The first weak frame entered
+  `DEGRADED`; a second fresh frame forced `LOST` only 0.127 s later, before the
+  0.250 s degraded deadline. Both frames still contained centered,
+  geometrically safe Apple detections. On the terminal frame, full-frame
+  confidence was 0.3007, crop confidence 0.4630, and filtered confidence
+  remained 0.6291, above the configured 0.50 tracking floor.
+- A secondary physical-control finding is that search locked the Apple at
+  full-frame center `x=0.0438`, far outside the approach corridor. Approach
+  therefore emitted 74 zero-forward persistent-track alignment commands and
+  11 additional zero-forward centering commands, with no translation, before
+  the false loss. The next experiment should require a better-centered search
+  handoff or make the alignment contract converge without discarding the
+  still-valid identity.
+- Evidence is retained in
+  `benchmarks/results/2026-08-12-v29-current-apple-repro.json`.
