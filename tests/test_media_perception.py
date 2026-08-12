@@ -689,14 +689,14 @@ def test_switching_supported_fruit_clears_old_detection_stability() -> None:
     assert status["detection"]["consecutive_detections"] == 1
 
 
-def test_apple_detection_stability_starts_at_shared_pear_acquisition_floor() -> None:
+def test_apple_detection_stability_starts_at_fifty_percent_confidence() -> None:
     evidence = PerceptionEvidence(generation="camera-1")
     evidence.select_target("apple")
 
     detection = evidence.note_detection(
         pts=100,
         label="apple",
-        confidence=0.65,
+        confidence=0.50,
         bbox_xyxy=(480, 360, 800, 700),
         inference_s=0.08,
         completed_monotonic_s=10.08,

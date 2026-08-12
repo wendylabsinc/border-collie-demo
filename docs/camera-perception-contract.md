@@ -272,11 +272,12 @@ never converts the failed fruit attempt into success.
 
 ## Evidence and remaining qualification
 
-The provisioned engine also represents apple and banana. The current v26
-candidate requires apple acquisition at 0.65 confidence by three fresh fully
-qualified detections and pear acquisition at 0.65 by five; both continue
-tracking at 0.55. Banana remains separately gated by its resident specialist
-and requires five search detections. The
+The provisioned engine also represents apple and banana. The current v27
+candidate requires apple acquisition at 0.50 confidence by three fresh fully
+qualified detections and continues apple tracking at the same 0.50 floor.
+Pear remains at 0.65 acquisition by five detections and 0.55 continued
+tracking. Banana remains separately gated by its resident specialist and
+requires five search detections. The
 green apple trial produced no apple proposal and was classified as pear when
 class filtering was removed, so green apple is outside the qualified operating
 envelope. The `/fruit-test` surface remains motion-free. Selecting a different

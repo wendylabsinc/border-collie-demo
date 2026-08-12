@@ -34,9 +34,9 @@ stages:
       PYTHONPATH: /app/src
       PYTHONUNBUFFERED: "1"
       BORDER_COLLIE_PORT: "8110"
-      BORDER_COLLIE_BUILD_LABEL: stage-camera-v26-centered-second-scan (codex/stage-camera-v21-search-policy-abc)
-      BORDER_COLLIE_RELEASE_ID: stage-camera-v26-centered-second-scan
-      BORDER_COLLIE_CONFIG_SCHEMA: "10"
+      BORDER_COLLIE_BUILD_LABEL: stage-camera-v27-apple-confidence-50 (codex/apple-confidence-50)
+      BORDER_COLLIE_RELEASE_ID: stage-camera-v27-apple-confidence-50
+      BORDER_COLLIE_CONFIG_SCHEMA: "11"
       BORDER_COLLIE_SEARCH_POLICY: slow-sweep
       BORDER_COLLIE_HARDWARE_ENABLED: "0"
       BORDER_COLLIE_LAB_MOTION_ENABLED: "0"

@@ -849,7 +849,7 @@ def test_find_target_double_back_revisits_a_high_confidence_apple_bearing() -> N
 @pytest.mark.parametrize(
     "candidate",
     (
-        {"label": "apple", "confidence": 0.64, "age_s": 0.01},
+        {"label": "apple", "confidence": 0.49, "age_s": 0.01},
         {"label": "pear", "confidence": 0.95, "age_s": 0.01},
         {"label": "apple", "confidence": 0.95, "age_s": 0.251},
         {
@@ -2545,7 +2545,7 @@ def test_approach_replays_search_qualified_apple_confidence_drop() -> None:
         ) -> dict[str, object]:
             return {
                 "camera_healthy": True,
-                "target_ready": confidence >= 0.65,
+                "target_ready": confidence >= 0.50,
                 "generation": "camera-1",
                 "source": {
                     "pts": source_pts,
@@ -3386,7 +3386,7 @@ def test_approach_uses_close_range_continuity_at_new_apple_tracking_floor() -> (
                     0.57, center_x=0.65, center_y=0.83, bottom=0.87, target_ready=False
                 ),
                 apple(
-                    0.55, center_x=0.65, center_y=0.89, bottom=0.93, target_ready=False
+                    0.50, center_x=0.65, center_y=0.89, bottom=0.93, target_ready=False
                 ),
                 apple(
                     0.60, center_x=0.67, center_y=0.87, bottom=0.91, target_ready=False
@@ -3414,8 +3414,9 @@ def test_approach_uses_close_range_continuity_at_new_apple_tracking_floor() -> (
         )
 
         assert result["arrival_confirmed"] is True
+        assert result["tracking_minimum_confidence"] == pytest.approx(0.50)
         assert result["close_range_continuation_samples"] >= 4
-        assert result["minimum_observed_tracking_confidence"] == pytest.approx(0.55)
+        assert result["minimum_observed_tracking_confidence"] == pytest.approx(0.50)
         await manager.close()
 
     asyncio.run(scenario())

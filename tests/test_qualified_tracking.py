@@ -120,7 +120,7 @@ def apple_observation(
 ) -> dict[str, object]:
     return {
         "camera_healthy": True,
-        "target_ready": confidence >= 0.65,
+        "target_ready": confidence >= 0.50,
         "generation": generation,
         "source": {
             "pts": source_pts,
@@ -162,11 +162,28 @@ def apple_handoff(**changes: object) -> SearchQualificationHandoff:
     return SearchQualificationHandoff(**values)
 
 
-def test_apple_uses_shared_pear_confidence_floors() -> None:
+def test_apple_uses_a_consistent_fifty_percent_confidence_floor() -> None:
     target = apple_tracker()
 
-    assert target.config.acquisition_confidence == 0.65
-    assert target.config.tracking_confidence == 0.55
+    assert target.config.acquisition_confidence == 0.50
+    assert target.config.tracking_confidence == 0.50
+
+
+def test_apple_can_continue_at_the_same_confidence_that_acquired_it() -> None:
+    target = apple_tracker()
+
+    decisions = [
+        target.observe(
+            apple_observation(confidence=0.50, source_pts=source_pts),
+            now_s=now_s,
+        )
+        for source_pts, now_s in ((100, 0.10), (101, 0.20), (102, 0.30), (103, 0.40))
+    ]
+
+    assert decisions[-1].recommendation is MotionRecommendation.APPROACH
+    assert decisions[-1].reason == "qualified_track"
+    assert decisions[-1].evidence["track_acquired"] is True
+    assert decisions[-1].evidence["minimum_observed_tracking_confidence"] == 0.50
 
 
 def test_search_handoff_replays_real_apple_confidence_drop_after_acquisition() -> None:
@@ -184,7 +201,7 @@ def test_search_handoff_replays_real_apple_confidence_drop_after_acquisition() -
         )
     ]
 
-    assert target.config.acquisition_confidence == 0.65
+    assert target.config.acquisition_confidence == 0.50
     assert [decision.recommendation for decision in decisions] == [
         MotionRecommendation.ALIGN,
         MotionRecommendation.ALIGN,
@@ -259,8 +276,12 @@ def test_invalid_search_handoff_falls_back_to_ordinary_acquisition(
 
     decision = target.observe(apple_observation(**status_options), now_s=now_s)
 
-    assert decision.recommendation is MotionRecommendation.SEARCH
-    assert decision.reason == "target_unqualified"
+    if status_options["confidence"] < 0.50:
+        assert decision.recommendation is MotionRecommendation.SEARCH
+        assert decision.reason == "target_unqualified"
+    else:
+        assert decision.recommendation is MotionRecommendation.ALIGN
+        assert decision.reason == "confirming_target_identity"
     assert decision.evidence["search_handoff_accepted"] is False
     assert decision.evidence["search_handoff_rejection_reason"] == rejection_reason
     assert decision.forward_scale == 0.0
@@ -273,7 +294,8 @@ def test_search_handoff_rejects_missing_current_geometry() -> None:
 
     decision = target.observe(status, now_s=10.01)
 
-    assert decision.recommendation is MotionRecommendation.SEARCH
+    assert decision.recommendation is MotionRecommendation.ALIGN
+    assert decision.reason == "confirming_target_identity"
     assert decision.evidence["search_handoff_rejection_reason"] == "geometry_invalid"
 
 

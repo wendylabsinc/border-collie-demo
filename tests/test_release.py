@@ -90,22 +90,22 @@ def test_atomic_release_store_promotes_only_verified_pair_and_rolls_back(tmp_pat
     assert store.current() == first
 
 
-def test_v26_release_identity_matches_root_media_and_stagefiles() -> None:
+def test_v27_release_identity_matches_root_media_and_stagefiles() -> None:
     root = Path(__file__).resolve().parents[1]
     descriptor = json.loads((root / "wendy.json").read_text(encoding="utf-8"))
-    release_id = "stage-camera-v26-centered-second-scan"
+    release_id = "stage-camera-v27-apple-confidence-50"
     build_label = (
-        "stage-camera-v26-centered-second-scan "
-        "(codex/stage-camera-v21-search-policy-abc)"
+        "stage-camera-v27-apple-confidence-50 "
+        "(codex/apple-confidence-50)"
     )
 
-    assert descriptor["version"] == "1.0.29-stage-camera"
+    assert descriptor["version"] == "1.0.30-stage-camera"
     app_env = descriptor["services"]["app"]["env"]
     media_env = descriptor["services"]["media"]["env"]
     assert app_env["BORDER_COLLIE_BUILD_LABEL"] == build_label
     for environment in (app_env, media_env):
         assert environment["BORDER_COLLIE_RELEASE_ID"] == release_id
-        assert environment["BORDER_COLLIE_CONFIG_SCHEMA"] == "10"
+        assert environment["BORDER_COLLIE_CONFIG_SCHEMA"] == "11"
     assert app_env["BORDER_COLLIE_SEARCH_POLICY"] == "slow-sweep"
     assert media_env["PERCEPTION_PIPELINE_PROFILE"] == "throughput-v1"
 
@@ -116,7 +116,7 @@ def test_v26_release_identity_matches_root_media_and_stagefiles() -> None:
     assert f"BORDER_COLLIE_BUILD_LABEL: {build_label}" in root_stagefile
     for stagefile in (root_stagefile, media_stagefile):
         assert f"BORDER_COLLIE_RELEASE_ID: {release_id}" in stagefile
-        assert 'BORDER_COLLIE_CONFIG_SCHEMA: "10"' in stagefile
+        assert 'BORDER_COLLIE_CONFIG_SCHEMA: "11"' in stagefile
     assert "BORDER_COLLIE_SEARCH_POLICY: slow-sweep" in root_stagefile
     assert "PERCEPTION_PIPELINE_PROFILE: throughput-v1" in media_stagefile
     for stagefile_path in (root_stagefile_path, media_stagefile_path):

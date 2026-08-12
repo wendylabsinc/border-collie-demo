@@ -102,7 +102,7 @@ def test_slow_sweep_requires_three_apple_frames_but_five_pear_frames() -> None:
     (
         (("camera_healthy",), False, "camera_unhealthy"),
         (("detection", "label"), "pear", "wrong_target_fruit"),
-        (("detection", "confidence"), 0.64, "confidence_below_acquisition_floor"),
+        (("detection", "confidence"), 0.49, "confidence_below_acquisition_floor"),
         (("detection", "age_s"), 0.251, "detection_stale"),
         (("source", "age_s"), 0.351, "source_stale"),
         (("detection", "generation"), "camera-old", "generation_mismatch"),

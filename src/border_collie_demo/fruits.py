@@ -9,11 +9,17 @@ class FruitPolicy:
     close_range_tracking_confidence: float
     motion_qualified: bool
 
+    def __post_init__(self) -> None:
+        if self.acquisition_confidence < self.close_range_tracking_confidence:
+            raise ValueError(
+                "acquisition confidence must not be below tracking confidence"
+            )
+
 
 FRUIT_POLICIES: dict[str, FruitPolicy] = {
     "apple": FruitPolicy(
-        acquisition_confidence=0.65,
-        close_range_tracking_confidence=0.55,
+        acquisition_confidence=0.50,
+        close_range_tracking_confidence=0.50,
         motion_qualified=True,
     ),
     # Banana is motion-qualified only because every published banana detection

@@ -100,10 +100,10 @@ Record the visible confidence, whether the box stays on the correct fruit, and
 whether five consecutive detections are reached. Switching fruit clears prior
 detection stability so evidence from one class cannot qualify another. The
 historical red-apple qualification passed `RED-APPLE-001` at 0.70 and reached
-15 consecutive qualifying detections. The v23 candidate intentionally tests a
-0.65 acquisition floor and requires 0.55 for continued tracking.
+15 consecutive qualifying detections. The v27 candidate intentionally tests a
+single 0.50 confidence floor for red-apple acquisition and continued tracking.
 
-The acquisition thresholds are 0.65 for apple, 0.20 for banana, and 0.65 for
+The acquisition thresholds are 0.50 for apple, 0.20 for banana, and 0.65 for
 pear. Banana's low app-side value rides on top of the specialist's 0.55 floor
 rather than standing alone. Fruit-specific thresholds require fresh physical
 acceptance evidence before they are treated as qualified.
@@ -215,8 +215,8 @@ that tracking floor stricter but cannot lower it, while
 `BORDER_COLLIE_PEAR_TRACKING_CONFIRMATIONS` controls application-side temporal
 acquisition. Neither setting alters the sidecar acquisition rule.
 
-Red apple acquisition is 0.65 confidence for five fresh frames. After
-acquisition, a close red-apple track may continue at 0.55 confidence
+Red apple acquisition is 0.50 confidence for three fully qualified fresh
+frames. After acquisition, a red-apple track may continue at 0.50 confidence
 only while fresh observations remain spatially continuous: its horizontal
 center cannot jump by more than 0.20 of the frame, its lower edge or vertical
 center cannot retreat by more than 0.08, and its box area cannot collapse by

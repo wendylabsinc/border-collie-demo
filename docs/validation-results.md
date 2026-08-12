@@ -911,3 +911,25 @@ Full evidence:
 - No physical Demo Run was started. The 0.20 rad/s SportClient fine yaw and
   three-frame Apple lock remain physically unqualified pending the supervised
   five-run test.
+
+## STAGE-CAMERA-V27-APPLE-CONFIDENCE-50-2026-08-11 — software candidate
+
+- Release identity: `stage-camera-v27-apple-confidence-50`, schema 11, app
+  version `1.0.30-stage-camera`; root/media descriptors and both Stagefiles use
+  the same cohort. No deployment or physical motion was performed.
+- The red-apple experiment lowers acquisition from 0.65 to 0.50 in both the
+  application policy and media stability counter. Continued tracking also uses
+  0.50. Keeping tracking at 0.55 would invert the normal hysteresis contract:
+  evidence could acquire at 0.50 and then be rejected immediately by approach.
+- A policy invariant now rejects any fruit configuration whose acquisition
+  floor is below its continued-tracking floor. Pear remains 0.65/0.55 and
+  banana remains 0.20/0.20 behind its unchanged 0.55 specialist gate.
+- Deterministic tests cover sidecar stability at 0.50, application readiness,
+  three-frame search qualification, search-to-approach handoff fallback,
+  continued tracking at exactly 0.50, the hardware approach evidence, the
+  stage scorecard, unchanged pear/banana policy, and matching root/media
+  Stagefile identity and hashes.
+- Full local suite: 390 passed, 1 skipped because NumPy was unavailable for the
+  optional visual-odometry test. Changed-file Ruff checks and `git diff --check`
+  pass. Physical false-positive rate and end-to-end Apple reliability remain
+  unqualified until a supervised run.
