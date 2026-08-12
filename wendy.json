@@ -1,15 +1,16 @@
 {
   "appId": "border-collie-demo",
-  "version": "1.0.32-stage-camera",
+  "version": "1.0.33-stage-camera",
   "services": {
     "app": {
       "context": ".",
       "env": {
         "BORDER_COLLIE_PORT": "8110",
-        "BORDER_COLLIE_BUILD_LABEL": "stage-camera-v29-persistent-fruit-track (codex/stage-camera-v29-persistent-fruit-track)",
-        "BORDER_COLLIE_RELEASE_ID": "stage-camera-v29-persistent-fruit-track",
+        "BORDER_COLLIE_BUILD_LABEL": "stage-camera-v30-center-corridor-env (codex/stage-camera-v29-persistent-fruit-track)",
+        "BORDER_COLLIE_RELEASE_ID": "stage-camera-v30-center-corridor-env",
         "BORDER_COLLIE_CONFIG_SCHEMA": "13",
         "BORDER_COLLIE_SEARCH_POLICY": "slow-sweep",
+        "BORDER_COLLIE_PERSISTENT_TRACK_CENTER_CORRIDOR_RATIO": "0.35",
         "BORDER_COLLIE_RUNTIME_MODE": "production",
         "BORDER_COLLIE_HARDWARE_ENABLED": "1",
         "BORDER_COLLIE_AUTONOMY_ENABLED": "1",
@@ -67,7 +68,7 @@
       "context": "./media",
       "env": {
         "UNITREE_ROBOT_IP": "192.168.123.161",
-        "BORDER_COLLIE_RELEASE_ID": "stage-camera-v29-persistent-fruit-track",
+        "BORDER_COLLIE_RELEASE_ID": "stage-camera-v30-center-corridor-env",
         "BORDER_COLLIE_CONFIG_SCHEMA": "13",
         "PEAR_MODEL_PATH": "/media/model.engine",
         "BANANA_SPECIALIST_MODEL_PATH": "/media/banana-specialist.pt",

@@ -34,10 +34,11 @@ stages:
       PYTHONPATH: /app/src
       PYTHONUNBUFFERED: "1"
       BORDER_COLLIE_PORT: "8110"
-      BORDER_COLLIE_BUILD_LABEL: stage-camera-v29-persistent-fruit-track (codex/stage-camera-v29-persistent-fruit-track)
-      BORDER_COLLIE_RELEASE_ID: stage-camera-v29-persistent-fruit-track
+      BORDER_COLLIE_BUILD_LABEL: stage-camera-v30-center-corridor-env (codex/stage-camera-v29-persistent-fruit-track)
+      BORDER_COLLIE_RELEASE_ID: stage-camera-v30-center-corridor-env
       BORDER_COLLIE_CONFIG_SCHEMA: "13"
       BORDER_COLLIE_SEARCH_POLICY: slow-sweep
+      BORDER_COLLIE_PERSISTENT_TRACK_CENTER_CORRIDOR_RATIO: "0.35"
       BORDER_COLLIE_HARDWARE_ENABLED: "0"
       BORDER_COLLIE_LAB_MOTION_ENABLED: "0"
       GO2_NETWORK_INTERFACE: enP8p1s0

@@ -21,6 +21,29 @@ def tracker(*, confirmations: int = 2) -> PersistentFruitTracker:
     )
 
 
+def test_runtime_center_corridor_override_changes_forward_authority(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv(
+        "BORDER_COLLIE_PERSISTENT_TRACK_CENTER_CORRIDOR_RATIO",
+        "0.35",
+    )
+    target = PersistentFruitTracker.for_fruit(
+        "pear",
+        acquisition_confirmations=2,
+    )
+
+    target.observe(observation(pts=1, center_x=0.18, label="pear"), now_s=0.00)
+    report = target.observe(
+        observation(pts=2, center_x=0.18, label="pear"),
+        now_s=0.10,
+    )
+
+    assert target.config.center_corridor_ratio == 0.35
+    assert report.state is FruitTrackState.LOCKED
+    assert report.motion_authorized is True
+
+
 def observation(
     *,
     pts: int,

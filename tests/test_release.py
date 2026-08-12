@@ -90,16 +90,16 @@ def test_atomic_release_store_promotes_only_verified_pair_and_rolls_back(tmp_pat
     assert store.current() == first
 
 
-def test_v29_release_identity_matches_root_media_and_stagefiles() -> None:
+def test_v30_release_identity_matches_root_media_and_stagefiles() -> None:
     root = Path(__file__).resolve().parents[1]
     descriptor = json.loads((root / "wendy.json").read_text(encoding="utf-8"))
-    release_id = "stage-camera-v29-persistent-fruit-track"
+    release_id = "stage-camera-v30-center-corridor-env"
     build_label = (
-        "stage-camera-v29-persistent-fruit-track "
+        "stage-camera-v30-center-corridor-env "
         "(codex/stage-camera-v29-persistent-fruit-track)"
     )
 
-    assert descriptor["version"] == "1.0.32-stage-camera"
+    assert descriptor["version"] == "1.0.33-stage-camera"
     app_env = descriptor["services"]["app"]["env"]
     media_env = descriptor["services"]["media"]["env"]
     assert app_env["BORDER_COLLIE_BUILD_LABEL"] == build_label
@@ -107,6 +107,9 @@ def test_v29_release_identity_matches_root_media_and_stagefiles() -> None:
         assert environment["BORDER_COLLIE_RELEASE_ID"] == release_id
         assert environment["BORDER_COLLIE_CONFIG_SCHEMA"] == "13"
     assert app_env["BORDER_COLLIE_SEARCH_POLICY"] == "slow-sweep"
+    assert (
+        app_env["BORDER_COLLIE_PERSISTENT_TRACK_CENTER_CORRIDOR_RATIO"] == "0.35"
+    )
     assert media_env["PERCEPTION_PIPELINE_PROFILE"] == "throughput-v1"
 
     root_stagefile_path = root / "build.stagefile.yaml"
@@ -118,6 +121,10 @@ def test_v29_release_identity_matches_root_media_and_stagefiles() -> None:
         assert f"BORDER_COLLIE_RELEASE_ID: {release_id}" in stagefile
         assert 'BORDER_COLLIE_CONFIG_SCHEMA: "13"' in stagefile
     assert "BORDER_COLLIE_SEARCH_POLICY: slow-sweep" in root_stagefile
+    assert (
+        'BORDER_COLLIE_PERSISTENT_TRACK_CENTER_CORRIDOR_RATIO: "0.35"'
+        in root_stagefile
+    )
     assert "PERCEPTION_PIPELINE_PROFILE: throughput-v1" in media_stagefile
     for stagefile_path in (root_stagefile_path, media_stagefile_path):
         digest = sha256(stagefile_path.read_bytes()).hexdigest()

@@ -3,6 +3,14 @@
 Release `stage-camera-v29-persistent-fruit-track` treats a detector result as
 an observation of one mission-lifetime track, not as the track itself.
 
+Release `stage-camera-v30-center-corridor-env` makes the forward-authority
+half-width runtime tunable with
+`BORDER_COLLIE_PERSISTENT_TRACK_CENTER_CORRIDOR_RATIO`. The normalized value
+defaults to `0.20`, must be finite and strictly between `0` and `0.5`, and
+requires only an app restart after an environment change. The deployed v30
+profile uses `0.35` (`center_x` from `0.15` through `0.85`). Tighter
+close-range Arrival gates remain independent and unchanged.
+
 ## Public seam
 
 `PersistentFruitTracker.observe(status, now_s)` consumes a full-frame

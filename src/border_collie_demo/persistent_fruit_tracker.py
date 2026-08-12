@@ -9,6 +9,7 @@ a weak frame look like a new fruit.
 from __future__ import annotations
 
 import math
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
@@ -166,6 +167,19 @@ class PersistentFruitTracker:
         acquisition_confirmations: int,
     ) -> PersistentFruitTracker:
         policy = fruit_policy(target_fruit)
+        center_corridor_ratio = float(
+            os.environ.get(
+                "BORDER_COLLIE_PERSISTENT_TRACK_CENTER_CORRIDOR_RATIO",
+                "0.20",
+            )
+        )
+        if not math.isfinite(center_corridor_ratio) or not (
+            0.0 < center_corridor_ratio < 0.5
+        ):
+            raise ValueError(
+                "BORDER_COLLIE_PERSISTENT_TRACK_CENTER_CORRIDOR_RATIO "
+                "must be finite and between 0 and 0.5"
+            )
         # The persistent track owns identity hysteresis.  The existing fruit
         # policy remains the maintenance floor until each lower value has
         # physical evidence; EMA and the one-frame degraded state remove the
@@ -176,6 +190,7 @@ class PersistentFruitTracker:
                 acquisition_confidence=policy.acquisition_confidence,
                 maintenance_confidence=policy.close_range_tracking_confidence,
                 acquisition_confirmations=acquisition_confirmations,
+                center_corridor_ratio=center_corridor_ratio,
             )
         )
 
