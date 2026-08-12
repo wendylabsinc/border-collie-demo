@@ -30,6 +30,20 @@ def build_label() -> str:
     return os.environ.get("BORDER_COLLIE_BUILD_LABEL", "unlabelled").strip() or "unlabelled"
 
 
+def release_identity() -> dict[str, object]:
+    """Return the stable API identity used by companion services."""
+    release_id = (
+        os.environ.get("BORDER_COLLIE_RELEASE_ID", "demo-base-voice-v1").strip()
+        or "demo-base-voice-v1"
+    )
+    config_schema = int(os.environ.get("BORDER_COLLIE_CONFIG_SCHEMA", "1"))
+    return {
+        "release_id": release_id,
+        "config_schema": config_schema,
+        "service": "app",
+    }
+
+
 class ForwardPulseRequest(BaseModel):
     confirmation: str
 
@@ -191,6 +205,7 @@ def create_app(
         preflight = evaluate_preflight(robot.status(), camera_perception, media)
         return {
             "build_label": build_label(),
+            "release": release_identity(),
             "runtime_mode": runtime_mode,
             "mission": machine.status(),
             "hardware": robot.status(),

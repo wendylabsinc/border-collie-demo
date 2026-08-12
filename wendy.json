@@ -1,12 +1,14 @@
 {
   "appId": "border-collie-demo",
-  "version": "1.0.0-base",
+  "version": "1.1.0-base-voice",
   "services": {
     "app": {
       "context": ".",
       "env": {
         "BORDER_COLLIE_PORT": "8110",
-        "BORDER_COLLIE_BUILD_LABEL": "base (demo/base)",
+        "BORDER_COLLIE_BUILD_LABEL": "base+hey-wendy (codex/demo-base-hey-wendy-voice)",
+        "BORDER_COLLIE_RELEASE_ID": "demo-base-voice-v1",
+        "BORDER_COLLIE_CONFIG_SCHEMA": "1",
         "BORDER_COLLIE_RUNTIME_MODE": "production",
         "BORDER_COLLIE_HARDWARE_ENABLED": "1",
         "BORDER_COLLIE_AUTONOMY_ENABLED": "1",
@@ -46,6 +48,29 @@
       "entitlements": [
         {"type": "network", "mode": "host"},
         {"type": "gpu"}
+      ]
+    },
+    "voice": {
+      "context": "./voice",
+      "dependsOn": ["app", "media"],
+      "env": {
+        "PORT": "8092",
+        "ACTION_MODE": "border_collie",
+        "BORDER_COLLIE_URL": "http://127.0.0.1:8110",
+        "BORDER_COLLIE_EXPECTED_RELEASE_ID": "demo-base-voice-v1",
+        "BORDER_COLLIE_EXPECTED_CONFIG_SCHEMA": "1",
+        "CONTINUOUS_TRANSCRIPTION": "0",
+        "AUTO_ARM_ACTIONS": "1",
+        "AUDIO_DEVICE": "DJI MIC MINI"
+      },
+      "entitlements": [
+        {"type": "network", "mode": "host"},
+        {"type": "audio"},
+        {
+          "type": "persist",
+          "name": "parakeet-voice-mcp-models",
+          "path": "/models"
+        }
       ]
     }
   },

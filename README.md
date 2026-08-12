@@ -1,5 +1,11 @@
 # Border Collie Demo
 
+This branch includes the local **Hey Wendy** companion service in the same
+Wendy multi-service application. Open `http://woof.local:8092`, say “Hey Wendy,”
+then say a phrase containing exactly one of apple, banana, or pear. The voice
+service calls the same `/api/run` safety and preflight boundary as the audience
+UI; it does not own a separate motion path.
+
 A clean-room implementation of the Wendy Labs Border Collie routine for the
 Unitree Go2.
 
