@@ -878,7 +878,7 @@ Full evidence:
 - Durable comparison:
   `benchmarks/results/2026-08-11-v24-baseline-vs-v25-throughput-apple-pear-banana.json`.
 
-## STAGE-CAMERA-V26-CENTERED-SECOND-SCAN-2026-08-11 — software candidate
+## STAGE-CAMERA-V26-CENTERED-SECOND-SCAN-2026-08-11 — deployed candidate
 
 - Release identity: `stage-camera-v26-centered-second-scan`, schema 10, app
   version `1.0.29-stage-camera`; root/media descriptors and both Stagefiles use
@@ -900,6 +900,14 @@ Full evidence:
 - Deterministic hardware tests replay left-to-center-to-right evidence, brief
   candidate loss, Apple three-frame lock, unsafe double-back evidence, and
   bounded episode behavior. The full software suite and changed-file Ruff
-  checks pass. No deployment or physical motion was performed for v26, so the
-  0.20 rad/s SportClient fine yaw and three-frame Apple lock remain physically
-  unqualified.
+  checks pass: 386 passed and 1 skipped.
+- Direct whole-project deployment used `wendy run --detach`; Wendy compiled the
+  root and media Stagefiles and reported success. Both services then reported
+  release `stage-camera-v26-centered-second-scan` and schema 10. Media recovered
+  from one bounded first-session timeout, reached ready on attempt two, held a
+  stable generation, and advanced source PTS from 12720 to 14460 with bark
+  ready. The application reported no activation blockers, no active run or
+  recovery, guardian inactive, and exact zero/disarmed motion.
+- No physical Demo Run was started. The 0.20 rad/s SportClient fine yaw and
+  three-frame Apple lock remain physically unqualified pending the supervised
+  five-run test.
