@@ -877,3 +877,29 @@ Full evidence:
   services still running and the run terminal with zero/disarmed motion.
 - Durable comparison:
   `benchmarks/results/2026-08-11-v24-baseline-vs-v25-throughput-apple-pear-banana.json`.
+
+## STAGE-CAMERA-V26-CENTERED-SECOND-SCAN-2026-08-11 — software candidate
+
+- Release identity: `stage-camera-v26-centered-second-scan`, schema 10, app
+  version `1.0.29-stage-camera`; root/media descriptors and both Stagefiles use
+  the same cohort. The perception scheduler remains `throughput-v1`.
+- V25 Apple trace `ddf8214c-dc02-4913-9164-2e5f2f644147` showed the broad scan
+  and candidate scan both commanding 0.50 rad/s. Across repeated candidate
+  episodes, the detected center progressed from the left side through center
+  to the right while blind positive yaw continued, causing visible wiggle and
+  repeated repositioning.
+- V26 preserves the 0.50 candidate trigger as yaw-only evidence, holds 0.75
+  seconds, then centers at 0.20 rad/s after two agreeing off-center samples.
+  It commands zero yaw inside +/-0.12 frame width, holds zero through at most
+  1.0 second of brief loss, and permits at most two alignment episodes. It
+  never authorizes translation before acquisition.
+- Apple acquisition now requires three fully qualified fresh frames at its
+  unchanged 0.65 confidence floor. Pear and banana remain at five frames;
+  freshness, generation, timebase, PTS, inference, label, and geometry gates
+  are unchanged for every fruit.
+- Deterministic hardware tests replay left-to-center-to-right evidence, brief
+  candidate loss, Apple three-frame lock, unsafe double-back evidence, and
+  bounded episode behavior. The full software suite and changed-file Ruff
+  checks pass. No deployment or physical motion was performed for v26, so the
+  0.20 rad/s SportClient fine yaw and three-frame Apple lock remain physically
+  unqualified.

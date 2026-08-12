@@ -49,10 +49,17 @@ class SearchPolicy:
     broad_sweep_rad: float = 2.0 * math.pi
     broad_timeout_s: float = 30.0
     minimum_consecutive_detections: int = 5
+    apple_minimum_consecutive_detections: int = 3
     candidate_mode: str = "baseline"
     candidate_hold_s: float = 0.75
     candidate_loss_grace_s: float = 0.50
     candidate_maximum_age_s: float = 0.25
+    candidate_alignment_trigger_confidence: float = 0.50
+    candidate_alignment_yaw_rps: float = 0.20
+    candidate_alignment_center_ratio: float = 0.12
+    candidate_alignment_direction_confirmations: int = 2
+    candidate_alignment_loss_grace_s: float = 1.0
+    candidate_alignment_maximum_episodes: int = 2
     double_back_yaw_rps: float = 0.50
     double_back_maximum_angle_rad: float = 0.35
     double_back_maximum_s: float = 0.75
@@ -64,6 +71,8 @@ class SearchPolicy:
             raise ValueError("search policy name must be canonical")
         if self.minimum_consecutive_detections < 1:
             raise ValueError("search confirmation count must be positive")
+        if self.apple_minimum_consecutive_detections < 1:
+            raise ValueError("apple search confirmation count must be positive")
         if self.candidate_mode not in {"baseline", "double-back"}:
             raise ValueError("candidate mode is invalid")
         positive = (
@@ -73,6 +82,9 @@ class SearchPolicy:
             self.candidate_hold_s,
             self.candidate_loss_grace_s,
             self.candidate_maximum_age_s,
+            self.candidate_alignment_trigger_confidence,
+            self.candidate_alignment_yaw_rps,
+            self.candidate_alignment_loss_grace_s,
             self.double_back_yaw_rps,
             self.double_back_maximum_angle_rad,
             self.double_back_maximum_s,
@@ -84,6 +96,12 @@ class SearchPolicy:
             raise ValueError("search policy sweep cannot exceed one full rotation")
         if self.broad_timeout_s <= self.broad_sweep_rad / self.broad_yaw_rps:
             raise ValueError("search policy timeout must include full-sweep margin")
+        if not 0.0 < self.candidate_alignment_center_ratio < 0.5:
+            raise ValueError("candidate alignment center ratio must be inside frame")
+        if self.candidate_alignment_direction_confirmations < 1:
+            raise ValueError("candidate alignment confirmation count must be positive")
+        if self.candidate_alignment_maximum_episodes < 1:
+            raise ValueError("candidate alignment episode count must be positive")
         if self.double_back_maximum_episodes < 1:
             raise ValueError("double-back episode count must be positive")
 
@@ -204,10 +222,186 @@ class SearchPolicy:
         if (
             isinstance(count, bool)
             or not isinstance(count, int)
-            or count < self.minimum_consecutive_detections
+            or count < self.required_consecutive_detections(target)
         ):
             return SearchLockDecision(False, "insufficient_consecutive_detections")
         return SearchLockDecision(True, "search_lock_qualified")
+
+    def required_consecutive_detections(self, target_fruit: str) -> int:
+        if target_fruit.casefold().strip() == "apple":
+            return min(
+                self.minimum_consecutive_detections,
+                self.apple_minimum_consecutive_detections,
+            )
+        return self.minimum_consecutive_detections
+
+
+class CandidateAlignmentController:
+    """Turn one plausible proposal into a bounded center-seeking second scan."""
+
+    def __init__(
+        self,
+        target_fruit: str,
+        sweep_yaw_rps: float,
+        policy: SearchPolicy,
+    ) -> None:
+        if policy.candidate_mode != "baseline":
+            raise ValueError("candidate alignment requires the baseline candidate mode")
+        self._target = target_fruit.casefold().strip()
+        self._sweep_yaw_rps = float(sweep_yaw_rps)
+        self._policy = policy
+        self._active = False
+        self._hold_until: float | None = None
+        self._last_seen_at: float | None = None
+        self._center_x_ratio: float | None = None
+        self._pending_direction = 0
+        self._pending_direction_samples = 0
+        self._evidence: dict[str, object] = {
+            "candidate_lock_count": 0,
+            "candidate_lock_losses": 0,
+            "candidate_lock_confidence_threshold": (
+                policy.candidate_alignment_trigger_confidence
+            ),
+            "candidate_lock_hold_s": policy.candidate_hold_s,
+            "candidate_lock_maximum_age_s": policy.candidate_maximum_age_s,
+            "candidate_lock_yaw_rps": policy.candidate_alignment_yaw_rps,
+            "candidate_alignment_yaw_rps": policy.candidate_alignment_yaw_rps,
+            "candidate_alignment_center_ratio": (
+                policy.candidate_alignment_center_ratio
+            ),
+            "candidate_alignment_direction_confirmations": (
+                policy.candidate_alignment_direction_confirmations
+            ),
+            "candidate_alignment_loss_grace_s": (
+                policy.candidate_alignment_loss_grace_s
+            ),
+            "candidate_alignment_maximum_episodes": (
+                policy.candidate_alignment_maximum_episodes
+            ),
+            "candidate_alignment_hold_samples": 0,
+            "candidate_alignment_loss_hold_samples": 0,
+            "candidate_alignment_centered_samples": 0,
+            "candidate_alignment_direction_wait_samples": 0,
+            "candidate_alignment_turn_samples": 0,
+            # Compatibility fields retained for existing result consumers.
+            "crop_slowdown_hold_samples": 0,
+            "crop_slowdown_turn_samples": 0,
+        }
+
+    def command(
+        self,
+        status: Mapping[str, object],
+        *,
+        now_s: float,
+    ) -> SearchDirective:
+        center_x = self._candidate_center(status)
+        candidate_seen = center_x is not None
+        if candidate_seen:
+            self._center_x_ratio = center_x
+            self._last_seen_at = now_s
+            if not self._active:
+                episodes = int(self._evidence["candidate_lock_count"])
+                if episodes >= self._policy.candidate_alignment_maximum_episodes:
+                    return SearchDirective(self._sweep_yaw_rps, "find_target")
+                self._active = True
+                self._hold_until = now_s + self._policy.candidate_hold_s
+                self._pending_direction = 0
+                self._pending_direction_samples = 0
+                self._evidence["candidate_lock_count"] = episodes + 1
+            self._observe_direction(center_x)
+        elif self._active:
+            assert self._last_seen_at is not None
+            if (
+                now_s - self._last_seen_at
+                > self._policy.candidate_alignment_loss_grace_s
+            ):
+                self._active = False
+                self._hold_until = None
+                self._last_seen_at = None
+                self._center_x_ratio = None
+                self._pending_direction = 0
+                self._pending_direction_samples = 0
+                self._evidence["candidate_lock_losses"] = (
+                    int(self._evidence["candidate_lock_losses"]) + 1
+                )
+                return SearchDirective(self._sweep_yaw_rps, "find_target")
+            self._increment("candidate_alignment_loss_hold_samples")
+            return SearchDirective(0.0, "candidate_alignment_hold_lost")
+
+        if not self._active:
+            return SearchDirective(self._sweep_yaw_rps, "find_target")
+
+        assert self._hold_until is not None
+        if now_s < self._hold_until:
+            self._increment("candidate_alignment_hold_samples")
+            self._increment("crop_slowdown_hold_samples")
+            return SearchDirective(0.0, "candidate_alignment_hold")
+
+        center_x = self._center_x_ratio
+        if center_x is None:
+            self._increment("candidate_alignment_loss_hold_samples")
+            return SearchDirective(0.0, "candidate_alignment_hold_lost")
+        error = center_x - 0.5
+        if abs(error) <= self._policy.candidate_alignment_center_ratio:
+            self._pending_direction = 0
+            self._pending_direction_samples = 0
+            self._increment("candidate_alignment_centered_samples")
+            return SearchDirective(0.0, "candidate_alignment_centered")
+        if (
+            self._pending_direction_samples
+            < self._policy.candidate_alignment_direction_confirmations
+        ):
+            self._increment("candidate_alignment_direction_wait_samples")
+            return SearchDirective(0.0, "candidate_alignment_confirm_direction")
+        yaw_rps = -math.copysign(self._policy.candidate_alignment_yaw_rps, error)
+        self._increment("candidate_alignment_turn_samples")
+        self._increment("crop_slowdown_turn_samples")
+        return SearchDirective(yaw_rps, "candidate_alignment_turn")
+
+    def evidence(self) -> dict[str, object]:
+        return dict(self._evidence)
+
+    def _candidate_center(self, status: Mapping[str, object]) -> float | None:
+        if status.get("camera_healthy") is not True:
+            return None
+        detection = status.get("detection")
+        if not isinstance(detection, Mapping):
+            return None
+        if str(detection.get("label") or "").casefold().strip() != self._target:
+            return None
+        confidence = _number(detection.get("confidence"))
+        if (
+            confidence is None
+            or confidence < self._policy.candidate_alignment_trigger_confidence
+        ):
+            return None
+        age_s = _number(detection.get("age_s"))
+        if (
+            age_s is None
+            or age_s < 0.0
+            or age_s > self._policy.candidate_maximum_age_s
+        ):
+            return None
+        center_x = _number(detection.get("center_x_ratio"))
+        if center_x is None or not 0.0 <= center_x <= 1.0:
+            return None
+        return center_x
+
+    def _observe_direction(self, center_x: float) -> None:
+        error = center_x - 0.5
+        if abs(error) <= self._policy.candidate_alignment_center_ratio:
+            self._pending_direction = 0
+            self._pending_direction_samples = 0
+            return
+        direction = -1 if error > 0.0 else 1
+        if direction != self._pending_direction:
+            self._pending_direction = direction
+            self._pending_direction_samples = 1
+            return
+        self._pending_direction_samples += 1
+
+    def _increment(self, name: str) -> None:
+        self._evidence[name] = int(self._evidence[name]) + 1
 
 
 class DoubleBackSearchController:

@@ -42,6 +42,7 @@ from .return_home import (
     plan_return_step,
 )
 from .search_policy import (
+    CandidateAlignmentController,
     DoubleBackSearchController,
     SearchGenerationChanged,
     SearchPolicy,
@@ -58,10 +59,6 @@ FORWARD_PULSE_CONFIRMATION = "PATH CLEAR - MOVE WOOF FORWARD"
 INITIAL_CENTER_TOLERANCE_RATIO = 0.05
 INITIAL_CENTER_CONFIRMATIONS = 3
 SEARCH_CROP_CANDIDATE_CONFIDENCE = 0.50
-SEARCH_CANDIDATE_HOLD_S = 0.75
-SEARCH_CANDIDATE_YAW_RPS = 0.50
-SEARCH_CANDIDATE_LOSS_GRACE_S = 0.50
-SEARCH_CANDIDATE_MAXIMUM_AGE_S = 0.25
 # QualifiedFruitTracker owns the filtered hysteresis state. Hardware translates
 # its authorized steering error to a bounded, slew-limited moving command.
 APPROACH_YAW_GAIN = 1.50
@@ -552,9 +549,6 @@ class HardwareManager:
             progress = 0.0
             started = self._monotonic()
             evidence: dict[str, object] | None = None
-            candidate_lock_active = False
-            candidate_hold_until: float | None = None
-            candidate_last_seen_at: float | None = None
             double_back_controller = (
                 DoubleBackSearchController(
                     target_fruit,
@@ -565,6 +559,14 @@ class HardwareManager:
                 if policy.candidate_mode == "double-back"
                 else None
             )
+            candidate_alignment_controller = (
+                CandidateAlignmentController(target_fruit, rate, policy)
+                if double_back_controller is None
+                else None
+            )
+            required_search_detections = policy.required_consecutive_detections(
+                target_fruit
+            )
             recognition: dict[str, object] = {
                 "samples": 0,
                 "pear_candidate_samples": 0,
@@ -574,7 +576,7 @@ class HardwareManager:
                 "closest_detection": None,
                 "search_policy": policy.name,
                 "search_lock_minimum_detections": (
-                    policy.minimum_consecutive_detections
+                    required_search_detections
                 ),
             }
             if double_back_controller is not None:
@@ -594,7 +596,6 @@ class HardwareManager:
                     sampled_at = self._monotonic()
                     self._record_perception_sample(status, target_fruit)
                     search_lock = policy.evaluate(status, target_fruit)
-                    plausible_candidate = False
                     recognition["samples"] = int(recognition["samples"]) + 1
                     if not status.get("camera_healthy"):
                         raise CameraFailure(
@@ -620,17 +621,6 @@ class HardwareManager:
                                 int(recognition["pear_candidate_samples"]) + 1
                             )
                         confidence = _finite_float(detection.get("confidence"))
-                        detection_age_s = _finite_float(detection.get("age_s"))
-                        if double_back_controller is None:
-                            plausible_candidate = bool(
-                                label == target_fruit.casefold()
-                                and confidence is not None
-                                and confidence >= SEARCH_CROP_CANDIDATE_CONFIDENCE
-                                and detection_age_s is not None
-                                and 0.0
-                                <= detection_age_s
-                                <= SEARCH_CANDIDATE_MAXIMUM_AGE_S
-                            )
                         if confidence is not None:
                             current_maximum = _finite_float(
                                 recognition["maximum_confidence"]
@@ -693,9 +683,10 @@ class HardwareManager:
                                     SEARCH_CROP_CANDIDATE_CONFIDENCE
                                 )
                     search_target_ready = (
-                        status.get("target_ready") is True
-                        if policy.name != "fast-lock"
-                        else search_lock.qualified
+                        search_lock.qualified
+                        if target_fruit.casefold() == "apple"
+                        or policy.name == "fast-lock"
+                        else status.get("target_ready") is True
                     )
                     if search_target_ready and isinstance(detection, dict):
                         label = str(detection.get("label") or "").casefold()
@@ -709,7 +700,7 @@ class HardwareManager:
                                 target_fruit,
                                 qualified_monotonic_s=sampled_at,
                                 minimum_stable_detections=(
-                                    policy.minimum_consecutive_detections
+                                    required_search_detections
                                 ),
                             )
                             evidence = {
@@ -775,61 +766,17 @@ class HardwareManager:
                         commands_sent = commands_sent or directive.yaw_rps != 0.0
                         await asyncio.sleep(self.config.command_heartbeat_s)
                         continue
-                    if plausible_candidate:
-                        candidate_last_seen_at = now
-                        if not candidate_lock_active:
-                            candidate_lock_active = True
-                            candidate_hold_until = now + SEARCH_CANDIDATE_HOLD_S
-                            recognition["candidate_lock_count"] = (
-                                int(recognition.get("candidate_lock_count", 0)) + 1
-                            )
-                            recognition["candidate_lock_confidence_threshold"] = (
-                                SEARCH_CROP_CANDIDATE_CONFIDENCE
-                            )
-                            recognition["candidate_lock_hold_s"] = (
-                                SEARCH_CANDIDATE_HOLD_S
-                            )
-                            recognition["candidate_lock_maximum_age_s"] = (
-                                SEARCH_CANDIDATE_MAXIMUM_AGE_S
-                            )
-                            recognition["candidate_lock_yaw_rps"] = min(
-                                rate,
-                                SEARCH_CANDIDATE_YAW_RPS,
-                            )
-                    elif (
-                        candidate_lock_active
-                        and candidate_last_seen_at is not None
-                        and now - candidate_last_seen_at > SEARCH_CANDIDATE_LOSS_GRACE_S
-                    ):
-                        candidate_lock_active = False
-                        candidate_hold_until = None
-                        candidate_last_seen_at = None
-                        recognition["candidate_lock_losses"] = (
-                            int(recognition.get("candidate_lock_losses", 0)) + 1
-                        )
-                    command_rate = rate
-                    command_reason = "find_target"
-                    if candidate_lock_active:
-                        assert candidate_hold_until is not None
-                        if now < candidate_hold_until:
-                            command_rate = 0.0
-                            command_reason = "crop_confirm_hold"
-                            recognition["crop_slowdown_hold_samples"] = (
-                                int(recognition.get("crop_slowdown_hold_samples", 0))
-                                + 1
-                            )
-                        else:
-                            command_rate = min(rate, SEARCH_CANDIDATE_YAW_RPS)
-                            command_reason = "crop_confirm_slow_turn"
-                            recognition["crop_slowdown_turn_samples"] = (
-                                int(recognition.get("crop_slowdown_turn_samples", 0))
-                                + 1
-                            )
+                    assert candidate_alignment_controller is not None
+                    directive = candidate_alignment_controller.command(
+                        status,
+                        now_s=now,
+                    )
+                    recognition.update(candidate_alignment_controller.evidence())
                     await self._send_motion_command(
                         lease,
-                        VelocityCommand(0.0, command_rate, command_reason),
+                        VelocityCommand(0.0, directive.yaw_rps, directive.reason),
                     )
-                    commands_sent = commands_sent or command_rate != 0.0
+                    commands_sent = commands_sent or directive.yaw_rps != 0.0
                     await asyncio.sleep(self.config.command_heartbeat_s)
                 else:
                     raise TargetLost(

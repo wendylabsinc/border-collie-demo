@@ -156,12 +156,16 @@ may be relaxed only after new acceptance evidence is recorded.
   promoted only when it reaches 0.55, improves the proposal, and overlaps it by
   at least 0.10 IoU. The combined time for both passes is the reported detector
   execution time; crop confirmation does not relax any freshness deadline.
-- During bounded search, a crop-confirmed full-frame proposal at or above 0.50
-  slows rotation with alternating reliable-rate yaw and zero-yaw heartbeats.
-  The controller does not substitute a weaker yaw signal because smaller turn
-  commands have not moved Woof reliably. If the enlarged result does not reach
-  the unchanged 0.65 acquisition threshold for five frames, bounded rotation
-  continues. Only qualified acquisition stops the search.
+- During bounded search, a same-fruit proposal at or above 0.50 enters a
+  yaw-only second scan; this threshold cannot acquire a fruit or authorize
+  translation. The controller first holds for 0.75 seconds, then turns toward
+  the proposal at 0.20 rad/s only after two samples agree that its horizontal
+  center is outside +/-0.12 of frame center. It commands zero yaw inside that
+  band. A brief proposal loss holds zero for at most 1.0 second instead of
+  immediately restarting the broad sweep, and no more than two alignment
+  episodes may start. Search uses direct SportClient yaw, where 0.20 rad/s is
+  the existing fine-search setting; this does not revise the separate
+  factory-avoidance yaw deadband. Only qualified acquisition stops the search.
 - After acquisition is complete, approach tracking uses hysteresis: **3
   consecutive pear detections at or above 0.55** may extend tracking. This
   lower threshold cannot acquire a pear, start a search result, or bypass any
@@ -170,7 +174,7 @@ may be relaxed only after new acceptance evidence is recorded.
   pear or confirms a bounded sight-lost-close Arrival.
 - Search qualification crosses into approach through one explicit, immutable
   handoff. It records the requested fruit, camera generation, source PTS and
-  time base, qualification monotonic time, five-frame stability count,
+  time base, qualification monotonic time, the fruit-specific stability count,
   acquisition-grade confidence, and normalized geometry. Approach consumes
   that handoff at most once and only within 0.250 seconds when a current fresh
   same-fruit sample matches generation/time base, has non-regressed source
@@ -268,10 +272,11 @@ never converts the failed fruit attempt into success.
 
 ## Evidence and remaining qualification
 
-The provisioned engine also represents apple and banana. The current v23
-candidate requires apple and pear acquisition at 0.65 confidence by five fresh
-detections, and continued tracking at 0.55. Banana remains separately gated by
-its resident specialist. The
+The provisioned engine also represents apple and banana. The current v26
+candidate requires apple acquisition at 0.65 confidence by three fresh fully
+qualified detections and pear acquisition at 0.65 by five; both continue
+tracking at 0.55. Banana remains separately gated by its resident specialist
+and requires five search detections. The
 green apple trial produced no apple proposal and was classified as pear when
 class filtering was removed, so green apple is outside the qualified operating
 envelope. The `/fruit-test` surface remains motion-free. Selecting a different

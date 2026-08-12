@@ -1,6 +1,6 @@
 # Search policy A/B/C experiment
 
-Release `stage-camera-v25-apple-pear-throughput-v1` compares three bounded Target Fruit
+Release `stage-camera-v26-centered-second-scan` compares three bounded Target Fruit
 search policies without changing approach, Arrival, action, or Home behavior.
 The application default is configured by `BORDER_COLLIE_SEARCH_POLICY`; a run
 may select one canonical policy in `POST /api/run`. The selected policy is
@@ -10,9 +10,9 @@ with a different policy is rejected.
 
 | Policy | Experimental change | Unchanged safety gates |
 | --- | --- | --- |
-| `fast-lock` | Reduce completed search acquisition from five to three consecutive fully qualified fresh frames. | Per-fruit acquisition confidence, camera health, source/detection freshness, generation, timebase, advancing PTS, inference budget, fruit identity, and normalized geometry. |
-| `slow-sweep` | Use `0.50 rad/s` for the full `2 pi` broad sweep instead of `1.00 rad/s`; retain the 30 second deadline. | Five-frame acquisition and every perception validity gate. |
-| `double-back` | Dwell up to `0.75 s` on a qualified proposal, then reverse toward it after `0.50 s` loss. A reverse is capped at `0.35 rad`, `0.75 s`, two episodes, and a two-second absolute episode budget. | Five-frame acquisition, full freshness/identity checks, absolute search deadline, yaw-only search, and fail-closed generation changes. |
+| `fast-lock` | Use three consecutive fully qualified fresh frames for acquisition. | Per-fruit acquisition confidence, camera health, source/detection freshness, generation, timebase, advancing PTS, inference budget, fruit identity, and normalized geometry. |
+| `slow-sweep` | Use `0.50 rad/s` for the broad sweep. A same-fruit proposal at `0.50` confidence enters a yaw-only second scan: hold for `0.75 s`, then center at `0.20 rad/s` after two samples outside `+/-0.12` frame width. Brief loss holds zero for at most `1.0 s`; at most two alignment episodes may start. | Apple requires three fully qualified acquisition frames; pear and banana require five. Candidate alignment cannot authorize translation or relax any perception gate. |
+| `double-back` | Dwell up to `0.75 s` on a qualified proposal, then reverse toward it after `0.50 s` loss. A reverse is capped at `0.35 rad`, `0.75 s`, two episodes, and a two-second absolute episode budget. | Apple requires three fully qualified acquisition frames; pear and banana require five. Full freshness/identity checks, absolute search deadline, yaw-only search, and fail-closed generation changes remain. |
 
 The matched physical trial uses one deployment, one seed, the same fruit and
 orientation sequence, and ten runs per policy:
@@ -20,7 +20,7 @@ orientation sequence, and ten runs per policy:
 ```bash
 python3 scripts/fruit_soak.py --host woof.local --runs 10 --seed 2026081104 \
   --no-orientation-randomization --recover-failures \
-  --expected-build-label "stage-camera-v25-apple-pear-throughput-v1 (codex/stage-camera-v21-search-policy-abc)" \
+  --expected-build-label "stage-camera-v26-centered-second-scan (codex/stage-camera-v21-search-policy-abc)" \
   --expected-search-policy slow-sweep --expected-fruits apple banana pear \
   --search-policy fast-lock --output benchmarks/results/search-fast-lock.json
 ```

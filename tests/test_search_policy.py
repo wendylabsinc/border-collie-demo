@@ -80,6 +80,23 @@ def test_fast_lock_recovers_four_frame_apple_but_not_one_frame_noise() -> None:
     assert one_frame.reason == "insufficient_consecutive_detections"
 
 
+def test_slow_sweep_requires_three_apple_frames_but_five_pear_frames() -> None:
+    policy = SearchPolicy.named("slow-sweep")
+
+    apple = policy.evaluate(qualified_apple_status(consecutive=3), "apple")
+    pear_status = qualified_apple_status(consecutive=3)
+    pear_detection = pear_status["detection"]
+    assert isinstance(pear_detection, dict)
+    pear_detection["label"] = "pear"
+    pear = policy.evaluate(pear_status, "pear")
+
+    assert apple.qualified is True
+    assert policy.required_consecutive_detections("apple") == 3
+    assert pear.qualified is False
+    assert pear.reason == "insufficient_consecutive_detections"
+    assert policy.required_consecutive_detections("pear") == 5
+
+
 @pytest.mark.parametrize(
     ("path", "unsafe_value", "reason"),
     (
