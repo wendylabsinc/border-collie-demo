@@ -46,6 +46,7 @@ class HardwareConfig:
     stationary_maximum_yaw_rate_rps: float = 0.08
     pear_tracking_minimum_confidence: float = 0.55
     pear_tracking_confirmations: int = 3
+    tracking_confidence_window_frames: int = 10
     forward_range_index: int | None = None
     range_sensor_to_front_envelope_m: float | None = None
     range_sensor_latency_s: float | None = None
@@ -100,6 +101,10 @@ class HardwareConfig:
             )
         if self.pear_tracking_confirmations < 1:
             raise ValueError("pear_tracking_confirmations must be positive")
+        if not 1 <= self.tracking_confidence_window_frames <= 120:
+            raise ValueError(
+                "tracking_confidence_window_frames must be between 1 and 120"
+            )
         if self.maximum_breadcrumbs < 2:
             raise ValueError("maximum_breadcrumbs must be at least two")
         calibration = (
@@ -195,6 +200,12 @@ class HardwareConfig:
                 os.environ.get(
                     "BORDER_COLLIE_PEAR_TRACKING_CONFIRMATIONS",
                     "3",
+                )
+            ),
+            tracking_confidence_window_frames=int(
+                os.environ.get(
+                    "BORDER_COLLIE_TRACKING_CONFIDENCE_WINDOW_FRAMES",
+                    "10",
                 )
             ),
             forward_range_index=optional_env_int(

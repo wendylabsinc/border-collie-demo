@@ -903,6 +903,9 @@ class HardwareManager:
                         if target_fruit.casefold().strip() == "pear"
                         else None
                     ),
+                    tracking_confidence_window_frames=(
+                        self.config.tracking_confidence_window_frames
+                    ),
                     final_approach_latch_enabled=not metric_arrival_required,
                 ),
                 search_handoff=search_handoff,

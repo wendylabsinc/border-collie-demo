@@ -1030,3 +1030,17 @@ defect to fix. See
 - The rollback restores v28's throughput-v1 scheduled full-frame/crop routes
   and phase-local qualified tracker. It does not claim that v28 was reliable;
   it isolates whether v29's `confirmed_full_frame_loss` regression disappears.
+
+## 2026-08-12: v32 tracking-confidence average candidate
+
+- Release identity is `stage-camera-v32-confidence-average`, schema 15, app
+  version `1.0.35-stage-camera`.
+- The exact ten fresh terminal Pear observations from v31 average
+  `0.6002081841`, above the `0.55` Pear tracking threshold even though the last
+  raw observation is `0.5253688693`.
+- The public tracker replay now remains in `SLOW / close_range_steering` for
+  that sequence. The configurable frame window defaults to 10; duplicate,
+  stale, wrong-identity/generation, unhealthy-camera, and invalid-geometry
+  evidence cannot use the confidence average to bypass their independent stop.
+- This is software evidence only. No v32 deployment or physical motion has
+  occurred.

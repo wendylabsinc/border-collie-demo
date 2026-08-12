@@ -186,6 +186,60 @@ def test_apple_can_continue_at_the_same_confidence_that_acquired_it() -> None:
     assert decisions[-1].evidence["minimum_observed_tracking_confidence"] == 0.50
 
 
+def test_locked_pear_uses_ten_fresh_frame_confidence_average_for_safety() -> None:
+    target = tracker()
+    for source_pts, now_s in ((100, 0.10), (101, 0.20), (102, 0.30)):
+        target.observe(
+            observation(
+                confidence=0.80,
+                center_x=0.50,
+                center_y=0.60,
+                bottom=0.65,
+                area=0.001,
+                source_pts=source_pts,
+            ),
+            now_s=now_s,
+        )
+
+    physical_terminal_frames = (
+        (0.6791782379150391, 0.668359375, 0.7750000000000000, 0.0019270833),
+        (0.5448012948036194, 0.652343750, 0.8013888888888889, 0.0019791667),
+        (0.7634811401367188, 0.638671875, 0.8083333333333333, 0.0021158854),
+        (0.5621765255928040, 0.627343750, 0.8055555555555556, 0.0023697917),
+        (0.4186967313289642, 0.618750000, 0.8291666666666667, 0.0026258681),
+        (0.6001884341239929, 0.625781250, 0.8166666666666667, 0.0026736111),
+        (0.7799931764602661, 0.627343750, 0.8347222222222223, 0.0029448785),
+        (0.5640987157821655, 0.618750000, 0.8472222222222222, 0.0029947917),
+        (0.5640987157821655, 0.620312500, 0.8472222222222222, 0.0031250000),
+        (0.5253688693046570, 0.616796875, 0.8638888888888889, 0.0030598958),
+    )
+    decision = None
+    for offset, (confidence, center_x, bottom, area) in enumerate(
+        physical_terminal_frames,
+        start=1,
+    ):
+        decision = target.observe(
+            observation(
+                confidence=confidence,
+                center_x=center_x,
+                center_y=bottom - 0.04,
+                bottom=bottom,
+                area=area,
+                source_pts=102 + offset,
+            ),
+            now_s=0.30 + offset * 0.10,
+        )
+
+    assert decision is not None
+    assert decision.recommendation is MotionRecommendation.SLOW
+    assert decision.reason == "close_range_steering"
+    assert decision.evidence["tracking_confidence_window_frames"] == 10
+    assert decision.evidence["tracking_confidence_window_samples"] == 10
+    assert decision.evidence["tracking_confidence_average"] == pytest.approx(
+        0.6002081841230392
+    )
+
+
 def test_search_handoff_replays_real_apple_confidence_drop_after_acquisition() -> None:
     target = apple_tracker(apple_handoff())
 
@@ -368,15 +422,17 @@ def test_final_approach_latch_survives_weak_and_stale_frames_until_fresh_loss() 
 
     assert visible[-1].reason == "qualified_visible_arrival"
     assert visible[-1].evidence["final_approach_latched"] is True
-    assert weak.recommendation is MotionRecommendation.STOP
-    assert weak.evidence["final_approach_loss_samples"] == 1
+    assert weak.recommendation is MotionRecommendation.ARRIVAL
+    assert weak.reason == "qualified_visible_arrival"
+    assert weak.evidence["tracking_confidence_average"] > 0.55
+    assert weak.evidence["final_approach_loss_samples"] == 0
     assert stale.recommendation is MotionRecommendation.STOP
-    assert stale.evidence["final_approach_loss_samples"] == 1
-    assert arrived.recommendation is MotionRecommendation.ARRIVAL
-    assert arrived.reason == "qualified_final_approach_loss"
-    assert arrived.evidence["arrival_mode"] == "final_approach_loss_confirmed"
-    assert repeated.recommendation is MotionRecommendation.STOP
-    assert repeated.reason == "arrival_already_confirmed"
+    assert stale.evidence["final_approach_loss_samples"] == 0
+    assert arrived.recommendation is MotionRecommendation.STOP
+    assert arrived.evidence["final_approach_loss_samples"] == 1
+    assert repeated.recommendation is MotionRecommendation.ARRIVAL
+    assert repeated.reason == "qualified_final_approach_loss"
+    assert repeated.evidence["arrival_mode"] == "final_approach_loss_confirmed"
 
 
 def test_bottom_clipped_area_retreat_counts_as_final_approach_loss() -> None:
@@ -726,7 +782,7 @@ def test_weak_phantom_never_authorizes_motion_or_acquires_a_track() -> None:
     assert inconsistent_ready.evidence["track_acquired"] is False
 
 
-def test_pear_close_range_confidence_collapse_confirms_no_motion_arrival() -> None:
+def test_pear_close_range_average_collapse_confirms_no_motion_arrival() -> None:
     target = tracker()
     pts = acquire(target)
     target.observe(
@@ -750,25 +806,32 @@ def test_pear_close_range_confidence_collapse_confirms_no_motion_arrival() -> No
         now_s=0.5,
     )
 
-    decision = target.observe(
-        observation(
-            confidence=0.27,
-            center_y=0.91,
-            bottom=0.997,
-            area=0.24,
-            source_pts=pts + 2,
-        ),
-        now_s=0.6,
-    )
+    decisions = [
+        target.observe(
+            observation(
+                confidence=0.27,
+                center_y=0.78,
+                bottom=0.84,
+                area=0.12 + offset * 0.01,
+                source_pts=pts + 2 + offset,
+            ),
+            now_s=0.6 + offset * 0.1,
+        )
+        for offset in range(4)
+    ]
+    decision = decisions[-1]
 
     assert decision.recommendation is MotionRecommendation.ARRIVAL
     assert decision.forward_scale == 0.0
     assert decision.reason == "qualified_close_track_confidence_collapsed"
     assert decision.evidence["arrival_mode"] == ("confidence_collapse_at_close_range")
     assert decision.evidence["close_range_tracking_confidence"] == 0.55
+    assert decisions[0].evidence["tracking_confidence_raw"] == 0.27
+    assert decisions[0].evidence["tracking_confidence_average"] > 0.55
+    assert decision.evidence["tracking_confidence_average"] < 0.55
 
 
-def test_duplicate_weak_close_frame_holds_before_fresh_collapse_arrives() -> None:
+def test_duplicate_low_confidence_frame_does_not_advance_average_window() -> None:
     target = tracker()
     pts = acquire(target)
     target.observe(
@@ -802,7 +865,7 @@ def test_duplicate_weak_close_frame_holds_before_fresh_collapse_arrives() -> Non
         ),
         now_s=0.55,
     )
-    arrived = target.observe(
+    continued = target.observe(
         observation(
             confidence=0.27,
             center_y=0.91,
@@ -814,9 +877,10 @@ def test_duplicate_weak_close_frame_holds_before_fresh_collapse_arrives() -> Non
     )
 
     assert duplicate.recommendation is MotionRecommendation.HOLD
-    assert duplicate.reason == "duplicate_weak_close_frame"
-    assert arrived.recommendation is MotionRecommendation.ARRIVAL
-    assert arrived.reason == "qualified_close_track_confidence_collapsed"
+    assert duplicate.reason == "duplicate_detection_frame"
+    assert duplicate.evidence["tracking_confidence_window_samples"] == 5
+    assert continued.recommendation is MotionRecommendation.SLOW
+    assert continued.evidence["tracking_confidence_window_samples"] == 6
 
 
 def test_stale_detection_stops_without_reusing_close_range_evidence() -> None:

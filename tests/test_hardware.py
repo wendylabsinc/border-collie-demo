@@ -3161,6 +3161,7 @@ def test_approach_centers_pear_before_first_forward_command() -> None:
 def test_approach_tracks_an_acquired_pear_at_sixty_percent_confidence() -> None:
     async def scenario() -> None:
         motion = FakeMotion()
+        source_pts = 0
         manager = HardwareManager(
             live_config(),
             dds_initializer=lambda _interface: None,
@@ -3175,6 +3176,8 @@ def test_approach_tracks_an_acquired_pear_at_sixty_percent_confidence() -> None:
             near: bool = False,
             target_ready: bool,
         ) -> dict[str, object]:
+            nonlocal source_pts
+            source_pts += 1
             return {
                 "camera_healthy": True,
                 "target_ready": target_ready,
@@ -3185,6 +3188,7 @@ def test_approach_tracks_an_acquired_pear_at_sixty_percent_confidence() -> None:
                     "center_y_ratio": 0.76 if near else 0.50,
                     "bottom_ratio": 0.91 if near else 0.65,
                     "age_s": 0.01,
+                    "source_pts": source_pts,
                 },
             }
 
@@ -3336,6 +3340,7 @@ def test_approach_uses_close_range_continuity_at_new_apple_tracking_floor() -> (
 ):
     async def scenario() -> None:
         motion = FakeMotion()
+        source_pts = 0
         manager = HardwareManager(
             live_config(),
             dds_initializer=lambda _interface: None,
@@ -3352,6 +3357,8 @@ def test_approach_uses_close_range_continuity_at_new_apple_tracking_floor() -> (
             bottom: float,
             target_ready: bool,
         ) -> dict[str, object]:
+            nonlocal source_pts
+            source_pts += 1
             return {
                 "camera_healthy": True,
                 "target_ready": target_ready,
@@ -3362,6 +3369,7 @@ def test_approach_uses_close_range_continuity_at_new_apple_tracking_floor() -> (
                     "center_y_ratio": center_y,
                     "bottom_ratio": bottom,
                     "age_s": 0.01,
+                    "source_pts": source_pts,
                 },
             }
 

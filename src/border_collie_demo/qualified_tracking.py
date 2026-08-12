@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import math
 import time
+from collections import deque
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
@@ -67,6 +68,7 @@ class QualifiedTrackingConfig:
     maximum_vertical_retreat_ratio: float = 0.08
     maximum_area_retreat_fraction: float = 0.35
     slow_speed_scale: float = 0.30
+    tracking_confidence_window_frames: int = 10
 
     @classmethod
     def for_fruit(
@@ -82,6 +84,7 @@ class QualifiedTrackingConfig:
         sight_loss_grace_s: float,
         slow_speed_scale: float,
         minimum_tracking_confidence: float | None = None,
+        tracking_confidence_window_frames: int = 10,
         final_approach_latch_enabled: bool = False,
     ) -> QualifiedTrackingConfig:
         policy: FruitPolicy = fruit_policy(target_fruit)
@@ -111,6 +114,7 @@ class QualifiedTrackingConfig:
             near_confirmations=near_confirmations,
             sight_loss_grace_s=sight_loss_grace_s,
             slow_speed_scale=slow_speed_scale,
+            tracking_confidence_window_frames=tracking_confidence_window_frames,
             final_approach_latch_enabled=final_approach_latch_enabled,
         )
 
@@ -151,6 +155,10 @@ class QualifiedTrackingConfig:
             < 1
         ):
             raise ValueError("tracking confirmation counts must be positive")
+        if not 1 <= self.tracking_confidence_window_frames <= 120:
+            raise ValueError(
+                "tracking_confidence_window_frames must be between 1 and 120"
+            )
         if self.stationary_recenter_error_ratio <= self.center_tolerance_ratio:
             raise ValueError(
                 "stationary recenter error must exceed initial center tolerance"
@@ -439,6 +447,13 @@ class QualifiedFruitTracker:
         self._last_source_pts: int | None = None
         self._last_qualified_at: float | None = None
         self._minimum_tracking_confidence: float | None = None
+        self._tracking_confidences: deque[float] = deque(
+            maxlen=config.tracking_confidence_window_frames
+        )
+        self._tracking_confidence_source_pts: int | None = None
+        self._tracking_confidence_generation: str | None = None
+        self._tracking_confidence_average: float | None = None
+        self._latest_raw_confidence: float | None = None
         self._maximum_bottom_ratio = 0.0
         self._maximum_bbox_area_ratio = 0.0
         self._arrival_mode: str | None = None
@@ -559,6 +574,14 @@ class QualifiedFruitTracker:
         )
 
         confidence = observation.confidence
+        effective_tracking_confidence = self._note_tracking_confidence(
+            observation,
+            generation=(
+                detection_generation
+                if isinstance(detection_generation, str)
+                else generation if isinstance(generation, str) else None
+            ),
+        )
         acquisition_qualified = (
             freshness_attested
             if confidence is None
@@ -566,8 +589,8 @@ class QualifiedFruitTracker:
         )
         tracking_qualified = (
             freshness_attested
-            if confidence is None
-            else confidence >= self.config.tracking_confidence
+            if effective_tracking_confidence is None
+            else effective_tracking_confidence >= self.config.tracking_confidence
         )
 
         if self._final_approach_latched_at is not None:
@@ -1363,6 +1386,37 @@ class QualifiedFruitTracker:
         self._steering_active = False
         self._pending_center_jump_samples = 0
         self._pending_center_jump_pts = None
+        self._tracking_confidences.clear()
+        self._tracking_confidence_source_pts = None
+        self._tracking_confidence_generation = None
+        self._tracking_confidence_average = None
+        self._latest_raw_confidence = None
+
+    def _note_tracking_confidence(
+        self,
+        observation: _Observation,
+        *,
+        generation: str | None,
+    ) -> float | None:
+        """Return confidence safety authority from fresh advancing history."""
+        confidence = observation.confidence
+        self._latest_raw_confidence = confidence
+        if confidence is None or observation.source_pts is None:
+            return None
+        if generation != self._tracking_confidence_generation:
+            self._tracking_confidences.clear()
+            self._tracking_confidence_source_pts = None
+            self._tracking_confidence_generation = generation
+        if (
+            self._tracking_confidence_source_pts is None
+            or observation.source_pts > self._tracking_confidence_source_pts
+        ):
+            self._tracking_confidences.append(confidence)
+            self._tracking_confidence_source_pts = observation.source_pts
+        self._tracking_confidence_average = sum(self._tracking_confidences) / len(
+            self._tracking_confidences
+        )
+        return self._tracking_confidence_average
 
     def _invalidate_close_loss(self) -> None:
         """Prevent stale or ambiguous evidence from becoming a later Arrival."""
@@ -1433,6 +1487,12 @@ class QualifiedFruitTracker:
             "discontinuity_stops": self._discontinuity_stops,
             "bbox_growth_samples": self._bbox_growth_samples,
             "minimum_observed_tracking_confidence": self._minimum_tracking_confidence,
+            "tracking_confidence_raw": self._latest_raw_confidence,
+            "tracking_confidence_average": self._tracking_confidence_average,
+            "tracking_confidence_window_samples": len(self._tracking_confidences),
+            "tracking_confidence_window_frames": (
+                self.config.tracking_confidence_window_frames
+            ),
             "maximum_bottom_ratio": self._maximum_bottom_ratio,
             "maximum_bbox_area_ratio": self._maximum_bbox_area_ratio,
             "arrival_mode": self._arrival_mode,
