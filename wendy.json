@@ -1,0 +1,43 @@
+{
+  "appId": "sh.wendy.robotkit.go2",
+  "platform": "linux",
+  "version": "0.1.0",
+  "services": {
+    "world-state": {
+      "entitlements": [
+        { "type": "network", "mode": "host" },
+        { "type": "persist", "name": "robotkit-world-state", "path": "/data" }
+      ]
+    },
+    "yolo-fruits": {
+      "entitlements": [
+        { "type": "network", "mode": "host" },
+        { "type": "gpu" }
+      ]
+    },
+    "lidar-voxel": {
+      "entitlements": [{ "type": "network", "mode": "host" }]
+    },
+    "transcription": {
+      "entitlements": [
+        { "type": "network", "mode": "host" },
+        { "type": "audio" }
+      ]
+    },
+    "health-high-low": {
+      "entitlements": [{ "type": "network", "mode": "host" }]
+    },
+    "planner": {
+      "entitlements": [{ "type": "network", "mode": "host" }]
+    },
+    "controller": {
+      "entitlements": [{ "type": "network", "mode": "host" }]
+    },
+    "executor": {
+      "entitlements": [
+        { "type": "network", "mode": "host" },
+        { "type": "audio" }
+      ]
+    }
+  }
+}

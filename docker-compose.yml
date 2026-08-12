@@ -1,0 +1,126 @@
+services:
+  world-state:
+    build: .
+    command: ["uvicorn", "robotkit.world_state.app:app", "--host", "0.0.0.0", "--port", "8080"]
+    environment:
+      ROBOTKIT_DB_PATH: /data/world-state.sqlite3
+    ports:
+      - "8080:8080"
+    network_mode: host
+    volumes:
+      - robotkit-world-state:/data
+    restart: unless-stopped
+
+  yolo-fruits:
+    build:
+      context: .
+      dockerfile: Dockerfile.yolo
+    command: ["python3", "-m", "robotkit.perception.yolo"]
+    environment:
+      WORLD_STATE_URL: http://127.0.0.1:8080
+      YOLO_INPUT_MODE: ros2
+      YOLO_IMAGE_TOPIC: /camera/image_raw
+      YOLO_MODEL: yolo11n.pt
+      YOLO_CLASSES: apple,banana,orange
+      ROBOTKIT_PRODUCER_ID: yolo-coco-fruits
+      ROBOTKIT_DEPLOYMENT_GENERATION: "1"
+    network_mode: host
+    depends_on:
+      - world-state
+    restart: unless-stopped
+
+  lidar-voxel:
+    build:
+      context: .
+      dockerfile: Dockerfile.lidar
+    command: ["python3", "-m", "robotkit.perception.lidar_voxel"]
+    environment:
+      WORLD_STATE_URL: http://127.0.0.1:8080
+      LIDAR_POINT_CLOUD_TOPIC: /utlidar/cloud
+      LIDAR_ODOMETRY_TOPIC: /utlidar/robot_odom
+      ROBOTKIT_PRODUCER_ID: go2-lidar-voxel
+      ROBOTKIT_DEPLOYMENT_GENERATION: "1"
+    network_mode: host
+    depends_on:
+      - world-state
+    restart: unless-stopped
+
+  transcription:
+    build:
+      context: .
+      dockerfile: Dockerfile.transcription
+    command: ["python3", "-m", "robotkit.perception.transcription", "--mode", "ros2"]
+    environment:
+      WORLD_STATE_URL: http://127.0.0.1:8080
+      ROS_AUDIO_TOPIC: /audio/audio
+      WHISPER_MODEL: small.en
+      ROBOTKIT_PRODUCER_ID: go2-voice-transcription
+      ROBOTKIT_DEPLOYMENT_GENERATION: "1"
+    network_mode: host
+    depends_on:
+      - world-state
+    restart: unless-stopped
+
+  health-high-low:
+    build:
+      context: .
+      dockerfile: Dockerfile.high-low
+    command: ["python3", "-m", "robotkit.perception.high_low.service"]
+    environment:
+      WORLD_STATE_URL: http://127.0.0.1:8080
+      ROS2_TEMPERATURE_TOPIC: /temperature
+      ROS2_BATTERY_TOPIC: /battery_state
+      ROBOTKIT_PRODUCER_ID: go2-health-high-low
+      ROBOTKIT_DEPLOYMENT_GENERATION: "1"
+    network_mode: host
+    depends_on:
+      - world-state
+    restart: unless-stopped
+
+  planner:
+    build: .
+    command: ["python", "-m", "robotkit.planner.service"]
+    environment:
+      WORLD_STATE_URL: http://127.0.0.1:8080
+      ROBOTKIT_DEPLOYMENT_GENERATION: "1"
+      GOAL_TTL_SECONDS: "30"
+    network_mode: host
+    depends_on:
+      - world-state
+    restart: unless-stopped
+
+  controller:
+    build: .
+    command: ["python", "-m", "robotkit.controller.service"]
+    environment:
+      WORLD_STATE_URL: http://127.0.0.1:8080
+      ROBOTKIT_DEPLOYMENT_GENERATION: "1"
+      HOME_X_M: "0"
+      HOME_Y_M: "0"
+      HOME_YAW_RAD: "0"
+      APPLE_STOP_DISTANCE_M: "0.30"
+    network_mode: host
+    depends_on:
+      - world-state
+      - planner
+    restart: unless-stopped
+
+  executor:
+    build:
+      context: .
+      dockerfile: Dockerfile.ros2
+    command: ["python3", "-m", "robotkit.executor.service"]
+    environment:
+      WORLD_STATE_URL: http://127.0.0.1:8080
+      ROBOTKIT_EXECUTOR_MODE: ros2
+      ROS2_CMD_VEL_TOPIC: /cmd_vel
+      ROS2_POSTURE_COMMAND_TOPIC: /robotkit/posture_command
+      BARK_WAV_PATH: /opt/robotkit/assets/bark.wav
+    network_mode: host
+    depends_on:
+      - world-state
+      - controller
+    restart: unless-stopped
+
+volumes:
+  robotkit-world-state:

@@ -1,0 +1,22 @@
+FROM ros:humble-ros-base
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       python3-pip ffmpeg libportaudio2 portaudio19-dev \
+       ros-humble-audio-common-msgs \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY pyproject.toml README.md ./
+COPY src ./src
+RUN python3 -m pip install --no-cache-dir . \
+    'faster-whisper>=1.1,<2' 'sounddevice>=0.5,<1'
+
+RUN useradd --create-home --uid 10001 robotkit \
+    && chown -R robotkit:robotkit /app
+USER robotkit
+
+CMD ["python3", "-m", "robotkit.perception.transcription.service"]

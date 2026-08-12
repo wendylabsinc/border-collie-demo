@@ -1,0 +1,22 @@
+FROM ros:humble-ros-base
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       python3-pip ros-humble-sensor-msgs libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY pyproject.toml README.md ./
+COPY src ./src
+RUN python3 -m pip install --no-cache-dir . 'ultralytics>=8.3,<9'
+
+RUN useradd --create-home --uid 10001 robotkit \
+    && mkdir -p /models \
+    && chown -R robotkit:robotkit /app /models
+USER robotkit
+
+CMD ["python3", "-m", "robotkit.perception.yolo.service"]
+

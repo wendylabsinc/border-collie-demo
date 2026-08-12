@@ -1,0 +1,25 @@
+FROM ros:humble-ros-base
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       python3-pip alsa-utils ros-humble-geometry-msgs ros-humble-std-msgs \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY pyproject.toml README.md ./
+COPY src ./src
+COPY scripts/generate_bark.py /tmp/generate_bark.py
+RUN python3 -m pip install --no-cache-dir .
+
+RUN mkdir -p /opt/robotkit/assets \
+    && python3 /tmp/generate_bark.py /opt/robotkit/assets/bark.wav \
+    && rm /tmp/generate_bark.py
+
+RUN useradd --create-home --uid 10001 robotkit \
+    && chown -R robotkit:robotkit /app
+USER robotkit
+
+CMD ["python3", "-m", "robotkit.executor.service"]

@@ -1,0 +1,2 @@
+# Runtime-only dependencies. RobotKit's base unit tests do not require these.
+ultralytics>=8.3,<9

@@ -1,0 +1,5 @@
+# Model inference (downloads the selected Whisper weights on first use)
+faster-whisper>=1.1,<2
+
+# Optional only for --mode microphone. ROS2 supplies rclpy in its own image.
+sounddevice>=0.5,<1
