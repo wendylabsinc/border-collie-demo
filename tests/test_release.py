@@ -93,10 +93,10 @@ def test_atomic_release_store_promotes_only_verified_pair_and_rolls_back(tmp_pat
 def test_v27_release_identity_matches_root_media_and_stagefiles() -> None:
     root = Path(__file__).resolve().parents[1]
     descriptor = json.loads((root / "wendy.json").read_text(encoding="utf-8"))
-    release_id = "stage-camera-v27-apple-confidence-50"
+    release_id = "stage-camera-v27-center-corridor-apple50"
     build_label = (
-        "stage-camera-v27-apple-confidence-50 "
-        "(codex/apple-confidence-50)"
+        "stage-camera-v27-center-corridor-apple50 "
+        "(codex/stage-camera-v21-search-policy-abc)"
     )
 
     assert descriptor["version"] == "1.0.30-stage-camera"

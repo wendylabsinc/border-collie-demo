@@ -14,7 +14,7 @@ stages:
       BANANA_SPECIALIST_MIN_IOU: "0.10"
       PERCEPTION_PIPELINE_PROFILE: throughput-v1
       BORDER_COLLIE_MEDIA_PORT: "8111"
-      BORDER_COLLIE_RELEASE_ID: stage-camera-v27-apple-confidence-50
+      BORDER_COLLIE_RELEASE_ID: stage-camera-v27-center-corridor-apple50
       BORDER_COLLIE_CONFIG_SCHEMA: "11"
       BORDER_COLLIE_BARK_UUID: 161387de-21ab-4f0b-b4e9-97124b000d06
     install:

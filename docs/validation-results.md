@@ -912,9 +912,9 @@ Full evidence:
   three-frame Apple lock remain physically unqualified pending the supervised
   five-run test.
 
-## STAGE-CAMERA-V27-APPLE-CONFIDENCE-50-2026-08-11 — software candidate
+## STAGE-CAMERA-V27-CENTER-CORRIDOR-APPLE50-2026-08-11 — software candidate
 
-- Release identity: `stage-camera-v27-apple-confidence-50`, schema 11, app
+- Release identity: `stage-camera-v27-center-corridor-apple50`, schema 11, app
   version `1.0.30-stage-camera`; root/media descriptors and both Stagefiles use
   the same cohort. No deployment or physical motion was performed.
 - The red-apple experiment lowers acquisition from 0.65 to 0.50 in both the
@@ -924,6 +924,14 @@ Full evidence:
 - A policy invariant now rejects any fruit configuration whose acquisition
   floor is below its continued-tracking floor. Pear remains 0.65/0.55 and
   banana remains 0.20/0.20 behind its unchanged 0.55 specialist gate.
+- Approach translation now requires the Target Fruit to remain in the middle
+  40% of the frame. A first fresh sample outside center `0.30..0.70` removes
+  forward authority; a second begins a `0.20 rad/s` in-place recenter. Forward
+  motion resumes only on fresh in-corridor evidence. Stale, wrong-label,
+  wrong-generation, or unhealthy-camera evidence still stops immediately.
+- The soak client now follows automatic recovery to its durable terminal state,
+  never duplicates an active or ambiguous recovery request, and requires exact
+  disarm plus the configured `0.50 m` stage margin before another activation.
 - Deterministic tests cover sidecar stability at 0.50, application readiness,
   three-frame search qualification, search-to-approach handoff fallback,
   continued tracking at exactly 0.50, the hardware approach evidence, the

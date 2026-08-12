@@ -6,8 +6,8 @@
       "context": ".",
       "env": {
         "BORDER_COLLIE_PORT": "8110",
-        "BORDER_COLLIE_BUILD_LABEL": "stage-camera-v27-apple-confidence-50 (codex/apple-confidence-50)",
-        "BORDER_COLLIE_RELEASE_ID": "stage-camera-v27-apple-confidence-50",
+        "BORDER_COLLIE_BUILD_LABEL": "stage-camera-v27-center-corridor-apple50 (codex/stage-camera-v21-search-policy-abc)",
+        "BORDER_COLLIE_RELEASE_ID": "stage-camera-v27-center-corridor-apple50",
         "BORDER_COLLIE_CONFIG_SCHEMA": "11",
         "BORDER_COLLIE_SEARCH_POLICY": "slow-sweep",
         "BORDER_COLLIE_RUNTIME_MODE": "production",
@@ -67,7 +67,7 @@
       "context": "./media",
       "env": {
         "UNITREE_ROBOT_IP": "192.168.123.161",
-        "BORDER_COLLIE_RELEASE_ID": "stage-camera-v27-apple-confidence-50",
+        "BORDER_COLLIE_RELEASE_ID": "stage-camera-v27-center-corridor-apple50",
         "BORDER_COLLIE_CONFIG_SCHEMA": "11",
         "PEAR_MODEL_PATH": "/media/model.engine",
         "BANANA_SPECIALIST_MODEL_PATH": "/media/banana-specialist.pt",

@@ -1,6 +1,6 @@
 # Search policy A/B/C experiment
 
-Release `stage-camera-v27-apple-confidence-50` compares three bounded Target Fruit
+Release `stage-camera-v27-center-corridor-apple50` compares three bounded Target Fruit
 search policies without changing approach, Arrival, action, or Home behavior.
 The application default is configured by `BORDER_COLLIE_SEARCH_POLICY`; a run
 may select one canonical policy in `POST /api/run`. The selected policy is
@@ -20,7 +20,7 @@ orientation sequence, and ten runs per policy:
 ```bash
 python3 scripts/fruit_soak.py --host woof.local --runs 10 --seed 2026081104 \
   --no-orientation-randomization --recover-failures \
-  --expected-build-label "stage-camera-v27-apple-confidence-50 (codex/apple-confidence-50)" \
+  --expected-build-label "stage-camera-v27-center-corridor-apple50 (codex/stage-camera-v21-search-policy-abc)" \
   --expected-search-policy slow-sweep --expected-fruits apple banana pear \
   --search-policy fast-lock --output benchmarks/results/search-fast-lock.json
 ```
