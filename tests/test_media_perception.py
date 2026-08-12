@@ -406,8 +406,9 @@ def test_camera_only_fruit_without_full_frame_proposal_gets_bounded_search_crop(
             self.sources = []
 
         def predict(self, **options):
-            self.sources.append(options["source"])
-            if len(self.sources) == 1:
+            source = options["source"]
+            self.sources.append(source)
+            if source.shape == (720, 1280, 3):
                 return [SimpleNamespace(boxes=FakeBoxes([], []))]
             return [SimpleNamespace(boxes=FakeBoxes([0.58], [[180, 280, 200, 300]]))]
 
@@ -428,6 +429,7 @@ def test_camera_only_fruit_without_full_frame_proposal_gets_bounded_search_crop(
 
     detection = runtime.evidence.status()["detection"]
     assert len(model.sources) == 2
+    assert model.sources[0].shape == (720, 1280, 3)
     assert model.sources[1].shape == (512, 512, 3)
     assert detection["confidence"] == 0.58
     assert detection["bbox_xyxy"] == [564, 488, 584, 508]
@@ -448,8 +450,9 @@ def test_throughput_routes_search_crop_on_the_next_advancing_frame() -> None:
             self.sources = []
 
         def predict(self, **options):
-            self.sources.append(options["source"])
-            if len(self.sources) == 1:
+            source = options["source"]
+            self.sources.append(source)
+            if source.shape == (720, 1280, 3):
                 return [SimpleNamespace(boxes=FakeBoxes([], []))]
             return [SimpleNamespace(boxes=FakeBoxes([0.58], [[180, 280, 200, 300]]))]
 
@@ -496,13 +499,73 @@ def test_throughput_routes_search_crop_on_the_next_advancing_frame() -> None:
     )
 
     detection = runtime.evidence.status()["detection"]
-    assert len(model.sources) == 2
-    assert model.sources[1].shape == (512, 512, 3)
+    assert len(model.sources) == 3
+    assert model.sources[1].shape == (720, 1280, 3)
+    assert model.sources[2].shape == (512, 512, 3)
     assert detection["source_pts"] == 101
     assert detection["confidence"] == 0.58
     assert detection["bbox_xyxy"] == [564, 488, 584, 508]
-    assert detection["inference_passes"] == 1
+    assert detection["inference_passes"] == 2
     assert detection["frame_route"] == "lower_center_search_crop"
+    assert detection["observations"]["full_frame"] is None
+    assert detection["observations"]["crop"]["route"] == "search_crop"
+    runtime._inference_executor.shutdown(wait=True, cancel_futures=True)
+
+
+def test_search_crop_route_keeps_full_frame_identity_authoritative() -> None:
+    full_frame = FakeImage(720, 1280)
+
+    class Model:
+        def __init__(self) -> None:
+            self.sources = []
+
+        def predict(self, **options):
+            source = options["source"]
+            self.sources.append(source)
+            if source.shape == (720, 1280, 3):
+                return [
+                    SimpleNamespace(
+                        boxes=FakeBoxes([0.61], [[500, 430, 620, 610]])
+                    )
+                ]
+            return [SimpleNamespace(boxes=FakeBoxes([], []))]
+
+    runtime = perception_sidecar.PerceptionRuntime()
+    model = Model()
+    runtime._model = model
+    runtime._fruit_class_ids = {"apple": 0}
+    runtime.select_target("apple")
+    runtime._publish_preview = lambda *_args, **_options: None
+    received = time.monotonic()
+    runtime.evidence.note_source(
+        pts=101,
+        time_base="1/90000",
+        received_monotonic_s=received,
+        width=1280,
+        height=720,
+    )
+
+    runtime._process_frame(
+        ArrayFrame(full_frame),
+        received,
+        101,
+        "1/90000",
+        route=FrameRoute.LOWER_CENTER_SEARCH_CROP,
+    )
+
+    detection = runtime.evidence.status()["detection"]
+    assert [source.shape for source in model.sources] == [
+        (720, 1280, 3),
+        (512, 512, 3),
+    ]
+    assert detection["observations"]["full_frame"] == {
+        "label": "apple",
+        "confidence": 0.61,
+        "bbox_xyxy": [500, 430, 620, 610],
+        "route": "full_frame",
+    }
+    assert detection["observations"]["crop"] is None
+    assert detection["inference_passes"] == 2
     runtime._inference_executor.shutdown(wait=True, cancel_futures=True)
 
 
