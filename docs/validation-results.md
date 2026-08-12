@@ -744,3 +744,42 @@ Full evidence:
 - Qualification boundary: deterministic tests do not establish a winner. The
   planned acceptance is one deployed cohort followed by ten matched physical
   runs for each policy, with disarm and bounded Home recovery between attempts.
+
+## STAGE-CAMERA-V22-BLACK-BOX-2026-08-11 — randomized five-attempt result
+
+- Deployed cohort: `stage-camera-v22-black-box`, configuration schema 6, app
+  version `1.0.25-stage-camera`, using the `slow-sweep` search policy and zero
+  pre-search orientation offset. Seed `2026081106` produced the balanced random
+  sequence `banana, pear, apple, pear, banana`.
+- Banana run `f90a3e96-4194-4722-a31b-22620c40ebd8` found and approached the
+  fruit, confirmed Arrival, completed the posture/bark sequence, and then failed
+  `RETURN_HOME_FAILURE`. Its manual bounded recovery also failed. The black box
+  showed a trusted physical Home distance near `0.379 m`, while recovery
+  restarted seven consumed breadcrumbs and selected a fruit-side waypoint
+  `1.305 m` away. The aggregate's `1.710 m` Home value is stale stage evidence,
+  not the terminal fused Home distance.
+- Pear run `f9ea2093-41d2-463d-a4ce-4f412d2d4f31` failed
+  `ARRIVAL_FAILURE` after finding and approaching the pear. Automatic recovery
+  failed `0.112 m` from its active waypoint and disarmed.
+- Apple run `b4a5b971-a926-468b-ad9b-593a2b5cf139` failed
+  `TARGET_RECOGNITION_FAILURE` in the bounded search sweep. It sent no approach
+  translation and disarmed.
+- Pear run `7978cb58-10ed-458b-a049-73ef9f540a67` failed
+  `TARGET_LOST_OFF_AXIS`. Automatic recovery completed at trusted Home distance
+  `0.0521 m` and disarmed.
+- Banana run `9aa357cc-96df-4fac-9543-22da422ac690` was externally stopped
+  during startup and is recorded as `STOPPED / OPERATOR_STOP`; it does not
+  qualify fruit behavior.
+- Score: five activations, zero completed end-to-end runs, four application
+  failures, and one externally stopped attempt. The harness observed no status
+  polling errors in the four-run continuation and one polling error in the
+  first attempt. Every terminal result reports `DISARMED_CONFIRMED`; final live
+  state was idle of active work, guardian inactive, motion disarmed, and exact
+  zero velocity.
+- Operator acceptance for this characterization was relaxed to a `0.50 m` Home
+  safety margin after the first attempt. This did not change the deployed
+  application's existing `0.10 m` completion gate and is not evidence that the
+  tighter gate is obsolete.
+- Full failed-run black boxes and the start frames are retained alongside the
+  two harness aggregates under
+  `benchmarks/results/fruit-soak-v22-random-5-seed-2026081106*`.
