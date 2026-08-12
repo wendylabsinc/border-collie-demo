@@ -7,11 +7,11 @@ import pytest
 from border_collie_demo.hardware import CameraFailure, TargetLost
 from border_collie_demo.models import MissionPhase
 from border_collie_demo.orchestrator import StageContext, StageFailure
-from border_collie_demo.production import ProductionStageExecutor
 from border_collie_demo.persistent_fruit_tracker import (
     PersistentFruitTracker,
     PersistentFruitTrackerConfig,
 )
+from border_collie_demo.production import ProductionStageExecutor
 from border_collie_demo.search_policy import SearchPolicy
 
 

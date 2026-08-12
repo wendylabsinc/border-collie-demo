@@ -18,7 +18,6 @@ from typing import Any
 from border_collie_demo.fruit_track_replay import FruitTrackReplay
 from border_collie_demo.persistent_fruit_tracker import PersistentFruitTracker
 
-
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_INPUTS = (
     ROOT / "benchmarks/results/2026-08-12-v28-random-five.json",

@@ -1020,3 +1020,28 @@ The banana audience-action photo from run two was described in result metadata
 but its artifact endpoint returned HTTP 404, which is a new evidence-retention
 defect to fix. See
 `benchmarks/results/2026-08-12-v28-random-five-summary.json`.
+
+## STAGE-CAMERA-V29-PERSISTENT-FRUIT-TRACK-2026-08-12 — offline candidate
+
+- Release identity is `stage-camera-v29-persistent-fruit-track`, schema 13,
+  app version `1.0.32-stage-camera`.
+- One persistent tracker now owns fruit identity across search and approach.
+  Full-frame inference is always the identity authority; an agreeing crop can
+  refine the track but a crop miss cannot erase it.
+- First weak/missing fresh evidence enters a bounded degraded state without
+  advancing Arrival or forcing reacquisition. A second fresh miss confirms
+  loss inside 250 ms. Off-axis geometry retains identity while disabling
+  translation and allowing alignment.
+- The black box pairs each processed track report with the exact resulting
+  command. The saved replay interface proves no phase reset, bounded degraded
+  recovery/loss, off-axis identity preservation, and zero degraded Arrival
+  advances in deterministic tests.
+- Sparse replay processed all five v28 records and retained exact baseline
+  highlights: 116 Apple low-confidence zero commands, 130 Pear recenter
+  heartbeats, six Banana missing-detection stops, and 27 Pear candidate-hold
+  losses. V28 did not retain every detector frame or full/crop channels, so no
+  physical after-count is claimed by that replay.
+- The runtime-environment commit `0468bee` is intentionally sequenced after
+  this candidate because it overlaps the same runtime modules. This candidate
+  is not deployed or physically qualified until the separate device gates and
+  one supervised Apple run complete.

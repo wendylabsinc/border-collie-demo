@@ -282,7 +282,6 @@ class PersistentFruitTracker:
 
         self._generation = generation_value
         self._last_source_pts = full.source_pts
-        same_identity = full.label == self.config.target_fruit.casefold()
         geometry = self._refined_geometry(full, crop)
         effective_confidence = self._refined_confidence(full, crop)
         maintenance_qualified = (
