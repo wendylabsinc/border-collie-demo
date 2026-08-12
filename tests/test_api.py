@@ -448,7 +448,7 @@ def test_activate_demo_completes_every_stage_with_simulated_adapters(tmp_path) -
         assert run["key_values"]["home_distance_m"] == 0.08
         assert run["key_values"]["outbound_forward_pulses"] == 7
         assert run["key_values"]["final_push_mps"] == 0.55
-        assert run["key_values"]["close_range_mps"] == 0.55
+        assert run["key_values"]["close_range_mps"] == 1.0
         assert run["key_values"]["final_push_duration_s"] == 1.0
         assert run["key_values"]["bark_played"] is True
         assert run["key_values"]["requested_return_pulses"] == 7

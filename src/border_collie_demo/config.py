@@ -29,6 +29,10 @@ class HardwareConfig:
     minimum_forward_mps: float = 0.55
     forward_pulse_mps: float = 0.55
     forward_pulse_duration_s: float = 0.40
+    approach_forward_mps: float = 1.0
+    close_range_mps: float = 1.0
+    final_push_mps: float = 0.6
+    final_push_duration_s: float = 1.0
     command_heartbeat_s: float = 0.10
     maximum_forward_mps: float = 1.0
     maximum_yaw_rps: float = 1.00
@@ -62,6 +66,10 @@ class HardwareConfig:
             "minimum_forward_mps",
             "forward_pulse_mps",
             "forward_pulse_duration_s",
+            "approach_forward_mps",
+            "close_range_mps",
+            "final_push_mps",
+            "final_push_duration_s",
             "command_heartbeat_s",
             "maximum_forward_mps",
             "maximum_yaw_rps",
@@ -89,6 +97,18 @@ class HardwareConfig:
             raise ValueError("minimum forward speed exceeds the configured motion limit")
         if self.forward_pulse_mps < self.minimum_forward_mps:
             raise ValueError("forward pulse is below the configured movement minimum")
+        for name in (
+            "approach_forward_mps",
+            "close_range_mps",
+            "final_push_mps",
+        ):
+            value = float(getattr(self, name))
+            if value < self.minimum_forward_mps:
+                raise ValueError(f"{name} is below the configured movement minimum")
+            if value > self.maximum_forward_mps:
+                raise ValueError(f"{name} exceeds the configured motion limit")
+        if self.close_range_mps > self.approach_forward_mps:
+            raise ValueError("close-range speed exceeds approach speed")
         if self.command_heartbeat_s >= self.command_watchdog_s:
             raise ValueError("command heartbeat must be faster than the watchdog")
         if self.motion_authority_ttl_s <= self.command_watchdog_s:
@@ -145,6 +165,18 @@ class HardwareConfig:
             ),
             forward_pulse_duration_s=float(
                 os.environ.get("BORDER_COLLIE_FORWARD_PULSE_DURATION_S", "0.40")
+            ),
+            approach_forward_mps=float(
+                os.environ.get("BORDER_COLLIE_APPROACH_FORWARD_MPS", "1.0")
+            ),
+            close_range_mps=float(
+                os.environ.get("BORDER_COLLIE_CLOSE_RANGE_MPS", "1.0")
+            ),
+            final_push_mps=float(
+                os.environ.get("BORDER_COLLIE_FINAL_PUSH_MPS", "0.6")
+            ),
+            final_push_duration_s=float(
+                os.environ.get("BORDER_COLLIE_FINAL_PUSH_DURATION_S", "1.0")
             ),
             command_heartbeat_s=float(
                 os.environ.get("BORDER_COLLIE_COMMAND_HEARTBEAT_S", "0.10")

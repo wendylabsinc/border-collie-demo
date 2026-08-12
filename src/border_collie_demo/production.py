@@ -46,6 +46,10 @@ class ProductionStageExecutor:
         *,
         metric_arrival_required: bool = True,
         search_policy: SearchPolicy | None = None,
+        approach_forward_mps: float = 1.0,
+        close_range_mps: float = 1.0,
+        final_push_mps: float = 0.6,
+        final_push_duration_s: float = 1.0,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
@@ -54,6 +58,10 @@ class ProductionStageExecutor:
         self._bark = bark
         self._metric_arrival_required = metric_arrival_required
         self._search_policy = search_policy
+        self._approach_forward_mps = approach_forward_mps
+        self._close_range_mps = close_range_mps
+        self._final_push_mps = final_push_mps
+        self._final_push_duration_s = final_push_duration_s
         self._sleep = sleep
         self._clock = clock
 
@@ -210,17 +218,19 @@ class ProductionStageExecutor:
             return await self._hardware.approach_target(
                 self._perception_status,
                 context.target_fruit,
-                # Keep the qualified approach brisk while slowing explicitly
-                # for close-range geometry. Arrival qualification owns stop.
-                forward_mps=1.0,
+                # Base proved that factory avoidance needs a sustained 1.0 m/s
+                # signal for reliable translation. Keep that authority through
+                # close-range tracking; Arrival qualification still owns stop
+                # and the one bounded final movement uses its separate speed.
+                forward_mps=self._approach_forward_mps,
                 maximum_yaw_rps=0.5,
                 near_bottom_ratio=0.86,
                 near_center_ratio=0.72,
                 near_confirmations=3,
                 near_loss_grace_s=0.75,
-                close_range_mps=0.55,
-                final_push_mps=0.6,
-                final_push_duration_s=1.0,
+                close_range_mps=self._close_range_mps,
+                final_push_mps=self._final_push_mps,
+                final_push_duration_s=self._final_push_duration_s,
                 timeout_s=20.0,
                 metric_arrival_required=self._metric_arrival_required,
                 search_handoff=context.search_qualification_handoff,

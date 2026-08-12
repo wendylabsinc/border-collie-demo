@@ -332,7 +332,7 @@ def test_stage_result_records_the_exact_velocity_commands() -> None:
     asyncio.run(scenario())
 
 
-def test_approach_pins_full_and_close_range_speeds_independently() -> None:
+def test_approach_uses_base_speed_until_the_bounded_final_push() -> None:
     async def scenario() -> None:
         hardware = FakeProductionHardware()
         status_reader = lambda: {"ready": True}
@@ -343,15 +343,15 @@ def test_approach_pins_full_and_close_range_speeds_independently() -> None:
         name, reader, fruit, options = hardware.calls[0]
         assert (name, reader, fruit) == ("approach_target", status_reader, "pear")
         assert options == {
-            # Normal tracking retains the qualified profile; close-range
-            # geometry selects its own explicit speed before Arrival stops it.
+            # Factory avoidance receives the base-proven continuous speed for
+            # both qualified approach states. Final closeout remains bounded.
             "forward_mps": 1.0,
             "maximum_yaw_rps": 0.5,
             "near_bottom_ratio": 0.86,
             "near_center_ratio": 0.72,
             "near_confirmations": 3,
             "near_loss_grace_s": 0.75,
-            "close_range_mps": 0.55,
+            "close_range_mps": 1.0,
             "final_push_mps": 0.6,
             "final_push_duration_s": 1.0,
             "timeout_s": 20.0,

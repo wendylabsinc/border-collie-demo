@@ -90,24 +90,28 @@ def test_atomic_release_store_promotes_only_verified_pair_and_rolls_back(tmp_pat
     assert store.current() == first
 
 
-def test_v32_confidence_average_release_matches_root_media_and_stagefiles() -> None:
+def test_v33_base_motion_release_matches_root_media_and_stagefiles() -> None:
     root = Path(__file__).resolve().parents[1]
     descriptor = json.loads((root / "wendy.json").read_text(encoding="utf-8"))
-    release_id = "stage-camera-v32-confidence-average"
+    release_id = "stage-camera-v33-base-motion-approach"
     build_label = (
-        "stage-camera-v32-confidence-average "
+        "stage-camera-v33-base-motion-approach "
         "(codex/stage-camera-v31-frame-path-rollback)"
     )
 
-    assert descriptor["version"] == "1.0.35-stage-camera"
+    assert descriptor["version"] == "1.0.36-stage-camera"
     app_env = descriptor["services"]["app"]["env"]
     media_env = descriptor["services"]["media"]["env"]
     assert app_env["BORDER_COLLIE_BUILD_LABEL"] == build_label
     for environment in (app_env, media_env):
         assert environment["BORDER_COLLIE_RELEASE_ID"] == release_id
-        assert environment["BORDER_COLLIE_CONFIG_SCHEMA"] == "15"
+        assert environment["BORDER_COLLIE_CONFIG_SCHEMA"] == "16"
     assert app_env["BORDER_COLLIE_SEARCH_POLICY"] == "slow-sweep"
     assert app_env["BORDER_COLLIE_TRACKING_CONFIDENCE_WINDOW_FRAMES"] == "10"
+    assert app_env["BORDER_COLLIE_APPROACH_FORWARD_MPS"] == "1.0"
+    assert app_env["BORDER_COLLIE_CLOSE_RANGE_MPS"] == "1.0"
+    assert app_env["BORDER_COLLIE_FINAL_PUSH_MPS"] == "0.6"
+    assert app_env["BORDER_COLLIE_FINAL_PUSH_DURATION_S"] == "1.0"
     assert media_env["PERCEPTION_PIPELINE_PROFILE"] == "throughput-v1"
 
     root_stagefile_path = root / "build.stagefile.yaml"
@@ -117,12 +121,16 @@ def test_v32_confidence_average_release_matches_root_media_and_stagefiles() -> N
     assert f"BORDER_COLLIE_BUILD_LABEL: {build_label}" in root_stagefile
     for stagefile in (root_stagefile, media_stagefile):
         assert f"BORDER_COLLIE_RELEASE_ID: {release_id}" in stagefile
-        assert 'BORDER_COLLIE_CONFIG_SCHEMA: "15"' in stagefile
+        assert 'BORDER_COLLIE_CONFIG_SCHEMA: "16"' in stagefile
     assert "BORDER_COLLIE_SEARCH_POLICY: slow-sweep" in root_stagefile
     assert (
         'BORDER_COLLIE_TRACKING_CONFIDENCE_WINDOW_FRAMES: "10"'
         in root_stagefile
     )
+    assert 'BORDER_COLLIE_APPROACH_FORWARD_MPS: "1.0"' in root_stagefile
+    assert 'BORDER_COLLIE_CLOSE_RANGE_MPS: "1.0"' in root_stagefile
+    assert 'BORDER_COLLIE_FINAL_PUSH_MPS: "0.6"' in root_stagefile
+    assert 'BORDER_COLLIE_FINAL_PUSH_DURATION_S: "1.0"' in root_stagefile
     assert "PERCEPTION_PIPELINE_PROFILE: throughput-v1" in media_stagefile
     for stagefile_path in (root_stagefile_path, media_stagefile_path):
         digest = sha256(stagefile_path.read_bytes()).hexdigest()

@@ -1071,3 +1071,20 @@ defect to fix. See
   Final recovery evidence measured `0.0556 m` from captured Home and confirmed
   disarm. The later stationary fused estimate was `0.0769 m`; no run,
   recovery, guardian, or nonzero command remained active.
+
+## 2026-08-12: v33 base-motion approach candidate
+
+- Release identity is `stage-camera-v33-base-motion-approach`, schema 16, app
+  version `1.0.36-stage-camera`.
+- Qualified normal and close-range tracking now both command the base-proven
+  `1.0 m/s` factory-avoidance speed. The bounded final push remains `0.6 m/s`
+  for one second. Current stale-frame, wrong-label/generation, camera-health,
+  geometry, continuity, confidence-average, Arrival, watchdog, authority, and
+  exact-zero disarm gates are unchanged.
+- The approach, close-range, and final-push speeds and final-push duration are
+  startup environment settings with validation against the configured hardware
+  motion envelope. Focused configuration, production, API, release, motion,
+  and approach tests passed before deployment.
+- This entry records software evidence only. Deployment and physical movement
+  are separate qualification steps; no Demo Run was authorized with this
+  candidate at the time of this entry.

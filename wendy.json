@@ -1,14 +1,14 @@
 {
   "appId": "border-collie-demo",
-  "version": "1.0.35-stage-camera",
+  "version": "1.0.36-stage-camera",
   "services": {
     "app": {
       "context": ".",
       "env": {
         "BORDER_COLLIE_PORT": "8110",
-        "BORDER_COLLIE_BUILD_LABEL": "stage-camera-v32-confidence-average (codex/stage-camera-v31-frame-path-rollback)",
-        "BORDER_COLLIE_RELEASE_ID": "stage-camera-v32-confidence-average",
-        "BORDER_COLLIE_CONFIG_SCHEMA": "15",
+        "BORDER_COLLIE_BUILD_LABEL": "stage-camera-v33-base-motion-approach (codex/stage-camera-v31-frame-path-rollback)",
+        "BORDER_COLLIE_RELEASE_ID": "stage-camera-v33-base-motion-approach",
+        "BORDER_COLLIE_CONFIG_SCHEMA": "16",
         "BORDER_COLLIE_SEARCH_POLICY": "slow-sweep",
         "BORDER_COLLIE_RUNTIME_MODE": "production",
         "BORDER_COLLIE_HARDWARE_ENABLED": "1",
@@ -28,6 +28,10 @@
         "BORDER_COLLIE_FORWARD_PULSE_MPS": "0.55",
         "BORDER_COLLIE_MIN_FORWARD_MPS": "0.55",
         "BORDER_COLLIE_FORWARD_PULSE_DURATION_S": "0.40",
+        "BORDER_COLLIE_APPROACH_FORWARD_MPS": "1.0",
+        "BORDER_COLLIE_CLOSE_RANGE_MPS": "1.0",
+        "BORDER_COLLIE_FINAL_PUSH_MPS": "0.6",
+        "BORDER_COLLIE_FINAL_PUSH_DURATION_S": "1.0",
         "BORDER_COLLIE_MAX_FORWARD_MPS": "1.0",
         "BORDER_COLLIE_COMMAND_WATCHDOG_S": "0.35",
         "BORDER_COLLIE_TRACKING_CONFIDENCE_WINDOW_FRAMES": "10",
@@ -68,8 +72,8 @@
       "context": "./media",
       "env": {
         "UNITREE_ROBOT_IP": "192.168.123.161",
-        "BORDER_COLLIE_RELEASE_ID": "stage-camera-v32-confidence-average",
-        "BORDER_COLLIE_CONFIG_SCHEMA": "15",
+        "BORDER_COLLIE_RELEASE_ID": "stage-camera-v33-base-motion-approach",
+        "BORDER_COLLIE_CONFIG_SCHEMA": "16",
         "PEAR_MODEL_PATH": "/media/model.engine",
         "BANANA_SPECIALIST_MODEL_PATH": "/media/banana-specialist.pt",
         "BANANA_SPECIALIST_MIN_CONFIDENCE": "0.55",
