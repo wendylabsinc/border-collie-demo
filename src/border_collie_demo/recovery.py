@@ -278,11 +278,15 @@ class FailedRunHomeRecovery:
         *,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         automatic_recovery_guard: Callable[[], str | None] | None = None,
+        lie_down_evidence: (
+            Callable[[str, str], Awaitable[dict[str, object]]] | None
+        ) = None,
     ) -> None:
         self._hardware = hardware
         self._results = results
         self._sleep = sleep
         self._automatic_recovery_guard = automatic_recovery_guard
+        self._lie_down_evidence = lie_down_evidence
 
     def _automatic_guard_blocker(self) -> str | None:
         if self._automatic_recovery_guard is None:
@@ -330,11 +334,24 @@ class FailedRunHomeRecovery:
                 {**down, "bark_played": False},
             )
             await self._sleep(FAILURE_DOWN_HOLD_S)
+            lie_down_snapshot = (
+                await self._lie_down_evidence(run_id, "failure_recovery")
+                if self._lie_down_evidence is not None
+                else None
+            )
             self._results.record_recovery_step(
                 run_id,
                 recovery_id,
                 "failure_posture_hold",
-                {"down_hold_s": FAILURE_DOWN_HOLD_S, "bark_played": False},
+                {
+                    "down_hold_s": FAILURE_DOWN_HOLD_S,
+                    "bark_played": False,
+                    **(
+                        {"lie_down_snapshot": lie_down_snapshot}
+                        if lie_down_snapshot is not None
+                        else {}
+                    ),
+                },
             )
             stood = await self._hardware.stand_up(settle_s=FAILURE_STAND_SETTLE_S)
             if stood.get("posture") != "balance_stand":

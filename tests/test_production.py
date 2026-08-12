@@ -9,6 +9,7 @@ from border_collie_demo.models import MissionPhase
 from border_collie_demo.orchestrator import StageContext, StageFailure
 from border_collie_demo.production import ProductionStageExecutor
 from border_collie_demo.qualified_tracking import SearchQualificationHandoff
+from border_collie_demo.search_policy import SearchPolicy
 
 
 class FakeProductionHardware:
@@ -136,11 +137,42 @@ def test_turn_to_fruit_rotates_until_the_pear_is_recognized() -> None:
             "pear",
         )
         assert options == {
-            "yaw_rps": 1.00,
+            "yaw_rps": 0.50,
             "sweep_rad": pytest.approx(2.0 * 3.141592653589793),
             "timeout_s": 30.0,
+            "search_policy": SearchPolicy.named("slow-sweep"),
         }
         assert evidence["stable_detections"] == 5
+
+    asyncio.run(scenario())
+
+
+def test_slow_sweep_policy_preserves_full_search_coverage_and_attribution() -> None:
+    async def scenario() -> None:
+        hardware = FakeProductionHardware()
+        status_reader = lambda: {"camera_healthy": True, "target_ready": False}
+        stages = ProductionStageExecutor(
+            hardware,
+            status_reader,
+            FakeBark(),
+            search_policy=SearchPolicy.named("slow-sweep"),
+        )
+
+        evidence = await stages.execute(
+            MissionPhase.TURN_TO_FRUIT,
+            context(target_fruit="apple"),
+        )
+
+        name, reader, fruit, options = hardware.calls[0]
+        assert (name, reader, fruit) == ("find_target", status_reader, "apple")
+        assert options == {
+            "yaw_rps": 0.50,
+            "sweep_rad": pytest.approx(2.0 * 3.141592653589793),
+            "timeout_s": 30.0,
+            "search_policy": SearchPolicy.named("slow-sweep"),
+        }
+        assert options["timeout_s"] > options["sweep_rad"] / options["yaw_rps"]
+        assert evidence["search_policy"] == "slow-sweep"
 
     asyncio.run(scenario())
 
@@ -232,8 +264,9 @@ def test_search_stage_skips_motion_when_target_is_already_visible(
             },
             "search_progress_rad": 0.0,
             "search_skipped": True,
-            "skip_reason": "target_already_visible",
-            "motion_commands_sent": False,
+                "skip_reason": "target_already_visible",
+                "search_policy": "slow-sweep",
+                "motion_commands_sent": False,
         }
 
     asyncio.run(scenario())
@@ -253,6 +286,7 @@ def test_find_fruit_runs_bounded_camera_guided_search() -> None:
             "yaw_rps": 0.20,
             "sweep_rad": pytest.approx(1.308997),
             "timeout_s": 9.0,
+            "search_policy": SearchPolicy.named("slow-sweep"),
         }
         assert evidence["stable_detections"] == 5
 

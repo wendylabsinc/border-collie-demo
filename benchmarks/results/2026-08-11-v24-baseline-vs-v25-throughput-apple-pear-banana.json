@@ -1,0 +1,173 @@
+{
+  "schema_version": 1,
+  "recorded_date": "2026-08-11",
+  "comparison": "PERCEPTION_PIPELINE_PROFILE baseline vs throughput-v1",
+  "matched_conditions": {
+    "fruit_order": [
+      "apple",
+      "pear",
+      "banana"
+    ],
+    "seed": 2026081105,
+    "orientation_degrees": 0.0,
+    "search_policy": "slow-sweep",
+    "apple_acquisition_confidence": 0.65,
+    "apple_tracking_confidence": 0.55,
+    "pear_acquisition_confidence": 0.65,
+    "pear_tracking_confidence": 0.55,
+    "final_push_mps": 0.6,
+    "application_home_gate_m": 0.1,
+    "operator_stage_margin_m": 0.5
+  },
+  "cohorts": [
+    {
+      "profile": "baseline",
+      "release_id": "stage-camera-v24-apple-pear-pipeline-baseline",
+      "config_schema": 8,
+      "app_version": "1.0.27-stage-camera",
+      "pipeline_snapshot": {
+        "source_frames": 3654,
+        "processed_frames": 1805,
+        "dropped_source_frames": 1847,
+        "source_fps": 14.177268013938106,
+        "processed_fps": 7.003275524126513,
+        "drop_ratio": 0.5054734537493158,
+        "average_inference_s": 0.09603876401883844,
+        "maximum_inference_s": 3.172519166999791,
+        "visual_odometry_worker_errors": 0,
+        "preview_worker_errors": 0
+      },
+      "scorecard": {
+        "runs": 3,
+        "completed": 0,
+        "failed": 3,
+        "end_to_end_success_rate": 0.0,
+        "failure_rate": 1.0
+      },
+      "runs": [
+        {
+          "fruit": "apple",
+          "run_id": "078c9f58-5eb9-488d-87d6-92344fad303d",
+          "outcome": "FAILED",
+          "reason": "TARGET_RECOGNITION_FAILURE",
+          "failed_phase": "turn_to_fruit",
+          "maximum_confidence": 0.7634811401367188,
+          "maximum_consecutive_detections": 3,
+          "required_consecutive_detections": 5,
+          "recovery_outcome": "COMPLETED",
+          "recovery_reason": "HOME_POSITION_ALREADY_RECOVERED",
+          "terminal_home_distance_m": 0.06150805955726128
+        },
+        {
+          "fruit": "pear",
+          "run_id": "e02e9d0b-4502-41e5-8cc6-44e2e331c077",
+          "outcome": "FAILED",
+          "reason": "ARRIVAL_FAILURE",
+          "failed_phase": "approach_fruit",
+          "recovery_outcome": "COMPLETED",
+          "recovery_reason": "HOME_POSITION_RECOVERED",
+          "terminal_home_distance_m": 0.07473331803626258
+        },
+        {
+          "fruit": "banana",
+          "run_id": "1979f519-de00-4137-9116-1200e15a7274",
+          "outcome": "FAILED",
+          "reason": "RETURN_HOME_FAILURE",
+          "failed_phase": "restore_heading",
+          "return_home_distance_before_heading_restore_m": 0.04230000358607228,
+          "recovery_outcome": "FAILED",
+          "recovery_reason": "RECOVERY_FAILURE",
+          "terminal_home_distance_m": 0.22089379334994846
+        }
+      ]
+    },
+    {
+      "profile": "throughput-v1",
+      "release_id": "stage-camera-v25-apple-pear-throughput-v1",
+      "config_schema": 9,
+      "app_version": "1.0.28-stage-camera",
+      "pipeline_snapshot": {
+        "source_frames": 3465,
+        "processed_frames": 3085,
+        "dropped_source_frames": 379,
+        "source_fps": 12.986128389741825,
+        "processed_fps": 11.561964237331466,
+        "drop_ratio": 0.10937950937950938,
+        "average_inference_s": 0.06870683350956135,
+        "maximum_inference_s": 3.2180977510001867,
+        "visual_odometry_worker_errors": 0,
+        "preview_worker_errors": 0,
+        "supervisor_total_restarts": 1
+      },
+      "scorecard": {
+        "runs": 3,
+        "completed": 0,
+        "failed": 3,
+        "end_to_end_success_rate": 0.0,
+        "failure_rate": 1.0
+      },
+      "runs": [
+        {
+          "fruit": "apple",
+          "run_id": "ddf8214c-dc02-4913-9164-2e5f2f644147",
+          "outcome": "FAILED",
+          "reason": "TARGET_RECOGNITION_FAILURE",
+          "failed_phase": "turn_to_fruit",
+          "maximum_confidence": 0.697608470916748,
+          "maximum_consecutive_detections": 2,
+          "required_consecutive_detections": 5,
+          "forward_motion_sent": false,
+          "terminal_home_distance_m": 0.0274
+        },
+        {
+          "fruit": "pear",
+          "run_id": "52d5ccad-961f-45ab-97b3-ed16eb97c16c",
+          "outcome": "FAILED",
+          "reason": "TARGET_LOST_OFF_AXIS",
+          "failed_phase": "approach_fruit",
+          "search_handoff_accepted": true,
+          "qualified_tracking_samples": 53,
+          "minimum_tracking_confidence": 0.5851011872291565,
+          "maximum_bottom_ratio": 0.9763888888888889,
+          "recovery_outcome": "FAILED",
+          "recovery_reason": "RECOVERY_FAILURE",
+          "terminal_home_distance_m": 0.3412604708655428
+        },
+        {
+          "fruit": "banana",
+          "run_id": "6c2a8dd1-1d3c-40e7-b48b-cfdf75770f14",
+          "outcome": "FAILED",
+          "reason": "RETURN_HOME_FAILURE",
+          "failed_phase": "restore_heading",
+          "arrival_confirmed": true,
+          "final_push_count": 1,
+          "final_push_mps": 0.6,
+          "return_home_distance_before_heading_restore_m": 0.06454799447145775,
+          "terminal_home_distance_m": 0.3826803330591155
+        }
+      ]
+    }
+  ],
+  "deltas": {
+    "processed_fps_absolute": 4.558688713204953,
+    "processed_fps_relative": 0.6509194643533678,
+    "drop_ratio_absolute": -0.3960939443698064,
+    "average_inference_s_relative": -0.2845957803569364,
+    "end_to_end_success_rate_absolute": 0.0
+  },
+  "decision": {
+    "pipeline_result": "throughput-v1 materially increased published motion-evidence cadence and reduced source-frame drops without worker errors",
+    "demo_result": "not qualified as more reliable because both matched cohorts completed zero of three runs",
+    "remaining_failure_classes": [
+      "five-frame apple search lock remains brittle",
+      "close pear tracking can still terminate off axis",
+      "heading restoration can move Woof away after the position Home gate has already passed"
+    ],
+    "comparability_notes": [
+      "pipeline FPS values are cumulative snapshots with different process uptimes and warm-up fractions",
+      "maximum inference includes one-time model warm-up",
+      "the throughput media supervisor recovered once before the cohort and remained ready afterward",
+      "one three-second app status poll timed out during Banana return; the next request confirmed both services running and a terminal disarmed result"
+    ]
+  }
+}

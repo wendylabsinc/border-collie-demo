@@ -31,7 +31,7 @@ MIN_SUCCESSES_PER_FRUIT = 2
 # Meaningful confidence floors per fruit. Banana's app-side threshold is 0.20,
 # but every published banana detection already passed the resident specialist
 # at 0.55, so 0.55 is the floor that tells us recognition is healthy.
-FRUIT_CONFIDENCE_FLOORS = {"apple": 0.70, "banana": 0.55, "pear": 0.65}
+FRUIT_CONFIDENCE_FLOORS = {"apple": 0.50, "banana": 0.55, "pear": 0.65}
 
 APPROACH_STAGES = ("approach_fruit",)
 ACQUISITION_STAGES = ("turn_to_fruit", "search_fruit", "search")

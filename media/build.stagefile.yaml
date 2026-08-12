@@ -12,9 +12,10 @@ stages:
       BANANA_SPECIALIST_MODEL_PATH: /media/banana-specialist.pt
       BANANA_SPECIALIST_MIN_CONFIDENCE: "0.55"
       BANANA_SPECIALIST_MIN_IOU: "0.10"
+      PERCEPTION_PIPELINE_PROFILE: throughput-v1
       BORDER_COLLIE_MEDIA_PORT: "8111"
-      BORDER_COLLIE_RELEASE_ID: stage-camera-v19-search-handoff
-      BORDER_COLLIE_CONFIG_SCHEMA: "4"
+      BORDER_COLLIE_RELEASE_ID: stage-camera-v28-lie-down-evidence
+      BORDER_COLLIE_CONFIG_SCHEMA: "12"
       BORDER_COLLIE_BARK_UUID: 161387de-21ab-4f0b-b4e9-97124b000d06
     install:
       apt:
@@ -39,7 +40,7 @@ stages:
         paths: [model/banana-specialist.pt]
         dest: /media/banana-specialist.pt
       - from: local
-        paths: [__init__.py, model_router.py, perception_sidecar.py, service_supervision.py, visual_odometry.py]
+        paths: [__init__.py, model_router.py, perception_pipeline.py, perception_sidecar.py, service_supervision.py, visual_odometry.py]
         dest: /app/media/
     user: root
     cmd: [uvicorn, "media.perception_sidecar:app", --host, 0.0.0.0, --port, "8111"]

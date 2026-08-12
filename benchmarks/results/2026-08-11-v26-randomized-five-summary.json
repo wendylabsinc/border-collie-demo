@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "release_id": "stage-camera-v26-centered-second-scan",
+  "config_schema": 10,
+  "build_label": "stage-camera-v26-centered-second-scan (codex/stage-camera-v21-search-policy-abc)",
+  "search_policy": "slow-sweep",
+  "physical_attempts": 5,
+  "mission_outcomes": {
+    "COMPLETED": 0,
+    "FAILED": 4,
+    "STOPPED": 1
+  },
+  "failures_by_reason": {
+    "TARGET_LOST_OFF_AXIS": 2,
+    "RETURN_HOME_FAILURE": 2,
+    "OPERATOR_STOP": 1
+  },
+  "fruit_path": {
+    "apple": {
+      "attempts": 2,
+      "arrival_and_action_completed": 2,
+      "mission_completed": 0
+    },
+    "banana": {
+      "attempts": 1,
+      "arrival_confirmed": 1,
+      "action_completed": 0,
+      "mission_completed": 0
+    },
+    "pear": {
+      "attempts": 2,
+      "arrival_confirmed": 0,
+      "mission_completed": 0
+    }
+  },
+  "runs": [
+    {
+      "attempt": 1,
+      "run_id": "5dbe80a6-fab2-4dc4-bd32-95c40b1da53c",
+      "fruit": "pear",
+      "orientation_degrees": 29,
+      "outcome": "FAILED",
+      "reason": "TARGET_LOST_OFF_AXIS",
+      "automatic_recovery": "COMPLETED",
+      "authoritative_recovery_home_distance_m": 0.031685491992644206
+    },
+    {
+      "attempt": 2,
+      "run_id": "bbfa4d49-c34c-4ebd-9cbc-6afbcb9ab05e",
+      "fruit": "apple",
+      "orientation_degrees": 4,
+      "outcome": "FAILED",
+      "reason": "RETURN_HOME_FAILURE",
+      "arrival_and_action_completed": true,
+      "reported_terminal_home_distance_m": 1.8067453252763763,
+      "reported_terminal_distance_is_stale_pre_return": true,
+      "next_run_capture_distance_from_saved_home_m": 0.2634930518076919,
+      "inside_operator_stage_margin_m": 0.5
+    },
+    {
+      "attempt": 3,
+      "run_id": "2faa33d0-e7c9-4b25-af25-bc819ae78645",
+      "fruit": "banana",
+      "orientation_degrees": 217,
+      "outcome": "STOPPED",
+      "reason": "OPERATOR_STOP",
+      "arrival_confirmed": true,
+      "action_started": true,
+      "action_completed": false,
+      "note": "Operator stop was issued after the stale Apple terminal summary was mistaken for current position."
+    },
+    {
+      "attempt": 4,
+      "run_id": "b1a5676a-1b76-4b60-bc37-d219769ab706",
+      "fruit": "apple",
+      "orientation_degrees": 215,
+      "outcome": "FAILED",
+      "reason": "RETURN_HOME_FAILURE",
+      "arrival_and_action_completed": true,
+      "reported_terminal_home_distance_m": 1.9947124907212277,
+      "reported_terminal_distance_is_stale_pre_return": true,
+      "fresh_post_run_fused_home_distance_m": 0.1144036349112925,
+      "inside_operator_stage_margin_m": 0.5
+    },
+    {
+      "attempt": 5,
+      "run_id": "fef8d737-fa26-4f85-a944-99507b09ede9",
+      "fruit": "pear",
+      "orientation_degrees": 34,
+      "outcome": "FAILED",
+      "reason": "TARGET_LOST_OFF_AXIS",
+      "automatic_recovery": "COMPLETED",
+      "authoritative_recovery_home_distance_m": 0.068998426267504,
+      "fresh_stationary_home_distance_m": 0.05118617467884882
+    }
+  ],
+  "qualification": {
+    "complete_demo_success_rate": 0.0,
+    "operator_stage_margin_m": 0.5,
+    "safe_terminal_state": "DISARMED_CONFIRMED",
+    "finding": "V26 is not qualified for the complete three-fruit stage demo. Apple acquisition and fruit action succeeded twice, but strict return completion and terminal Home reporting are defective. Pear approach continuity failed twice."
+  },
+  "source_files": [
+    "benchmarks/results/2026-08-11-v26-random-5-seed-202608111900.json",
+    "benchmarks/results/2026-08-11-v26-random-5-continuation-4-seed-202608111932.json",
+    "benchmarks/results/2026-08-11-v26-random-5-attempt-4-apple-seed-202608111936.json",
+    "benchmarks/results/2026-08-11-v26-random-5-attempt-5-pear-seed-202608111943.json"
+  ]
+}

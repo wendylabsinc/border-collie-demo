@@ -33,6 +33,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import random
@@ -42,8 +43,19 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
+
+try:
+    from itertools import pairwise
+except ImportError:  # Python 3.9 operator machines
+    def pairwise(iterable):
+        iterator = iter(iterable)
+        previous = next(iterator, None)
+        for current in iterator:
+            yield previous, current
+            previous = current
 from pathlib import Path
 
 try:  # package import (tests) or direct script execution
@@ -51,13 +63,15 @@ try:  # package import (tests) or direct script execution
 except ImportError:  # pragma: no cover - script-invocation path
     from stage_scorecard import score_session
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 POLL_INTERVAL_S = 1.5
 READY_TIMEOUT_S = 90.0
 RUN_TIMEOUT_S = 180.0
 RECOVERY_TIMEOUT_S = 90.0
+RECOVERY_DISCOVERY_POLLS = 4
 COOLDOWN_S = 10.0
 RECOVERY_CONFIRMATION = "RECOVER FAILED RUN TO CAPTURED HOME"
+DEFAULT_STAGE_HOME_MARGIN_M = 0.50
 
 
 class HarnessAbort(RuntimeError):
@@ -106,6 +120,7 @@ class ApiClient:
         fruit: str,
         orientation_degrees: float = 0.0,
         idempotency_key: str | None = None,
+        search_policy: str | None = None,
     ) -> dict:
         return self._request(
             f"{self.base_url}/api/run",
@@ -114,11 +129,21 @@ class ApiClient:
                 "target_fruit": fruit,
                 "orientation_degrees": orientation_degrees,
                 "idempotency_key": idempotency_key,
+                "search_policy": search_policy,
             },
         )
 
     def result(self, run_id: str) -> dict:
         return self._request(f"{self.base_url}/api/results/{run_id}")
+
+    def artifact(self, run_id: str, filename: str) -> bytes:
+        request = urllib.request.Request(
+            f"{self.base_url}/api/results/"
+            f"{urllib.parse.quote(run_id, safe='')}/artifacts/"
+            f"{urllib.parse.quote(filename, safe='')}"
+        )
+        with urllib.request.urlopen(request, timeout=self.timeout_s) as response:
+            return response.read()
 
     def recover_home(self, run_id: str) -> dict:
         return self._request(
@@ -134,6 +159,217 @@ class ApiClient:
 
     def stop(self) -> dict:
         return self._request(f"{self.base_url}/api/stop", "POST")
+
+
+def verify_live_preflight(
+    client: ApiClient,
+    *,
+    expected_build_label: str | None = None,
+    expected_search_policy: str | None = None,
+    expected_fruits: list[str] | None = None,
+    sleep=time.sleep,
+) -> dict[str, object]:
+    """Prove the deployed app/media are ready without activating motion."""
+    blockers: list[str] = []
+    status = client.status()
+    build_label = status.get("build_label")
+    if expected_build_label is not None and build_label != expected_build_label:
+        blockers.append(
+            f"expected build {expected_build_label!r}, got {build_label!r}"
+        )
+    search_policy = status.get("search_policy")
+    if (
+        expected_search_policy is not None
+        and search_policy != expected_search_policy
+    ):
+        blockers.append(
+            f"expected search policy {expected_search_policy!r}, "
+            f"got {search_policy!r}"
+        )
+    mission = status.get("mission")
+    if not isinstance(mission, dict):
+        blockers.append("mission status is unavailable")
+    else:
+        if mission.get("phase") != "idle":
+            blockers.append(f"mission phase is {mission.get('phase')!r}, not idle")
+        if mission.get("restart_required") is True:
+            blockers.append("application restart is required")
+        if mission.get("remote_takeover_latched") is True:
+            blockers.append("physical remote takeover is latched")
+    activation = status.get("activation")
+    if not isinstance(activation, dict) or activation.get("ready") is not True:
+        detail = (
+            activation.get("blockers") if isinstance(activation, dict) else None
+        )
+        blockers.append(f"activation is not ready: {detail!r}")
+    if status.get("active_run_id") is not None:
+        blockers.append("a Demo Run is active")
+    if status.get("active_recovery") is not None:
+        blockers.append("failed-run recovery is active")
+
+    hardware = status.get("hardware")
+    pose_age_s: float | None = None
+    if not isinstance(hardware, dict):
+        blockers.append("hardware status is unavailable")
+    else:
+        if hardware.get("connected") is not True:
+            blockers.append("Go2 hardware is disconnected")
+        if hardware.get("fault") is not None:
+            blockers.append(f"hardware fault: {hardware.get('fault')}")
+        if hardware.get("active_operation") is not None:
+            blockers.append("a hardware operation is active")
+        pose = hardware.get("pose")
+        if not isinstance(pose, dict) or pose.get("healthy") is not True:
+            blockers.append("fresh pose is unavailable")
+        else:
+            raw_pose_age = pose.get("age_s")
+            if (
+                not isinstance(raw_pose_age, (int, float))
+                or isinstance(raw_pose_age, bool)
+                or not 0.0 <= float(raw_pose_age) <= 0.5
+            ):
+                blockers.append("pose is stale or has invalid age evidence")
+            else:
+                pose_age_s = float(raw_pose_age)
+        motion = hardware.get("motion")
+        if not isinstance(motion, dict) or motion.get("armed") is not False:
+            blockers.append("motion is not disarmed")
+        else:
+            last = motion.get("last_command")
+            if (
+                not isinstance(last, dict)
+                or last.get("forward_mps") != 0.0
+                or last.get("yaw_rps") != 0.0
+            ):
+                blockers.append("last motion command is not exact zero")
+            guardian = motion.get("guardian")
+            if not isinstance(guardian, dict) or guardian.get("active") is not False:
+                blockers.append("motion guardian is active or unavailable")
+
+    app_release = status.get("release")
+    release_id = (
+        app_release.get("release_id") if isinstance(app_release, dict) else None
+    )
+    config_schema = (
+        app_release.get("config_schema") if isinstance(app_release, dict) else None
+    )
+    sidecar, sidecar_error = client.sidecar_status()
+    last_frame_age_s: float | None = None
+    camera_generation = None
+    source_pts = None
+    if sidecar_error is not None or not isinstance(sidecar, dict):
+        blockers.append(f"media status is unavailable: {sidecar_error}")
+    else:
+        media_release = sidecar.get("release")
+        if not isinstance(media_release, dict) or (
+            media_release.get("release_id"), media_release.get("config_schema")
+        ) != (release_id, config_schema):
+            blockers.append("app/media release identity does not match")
+        supervision = sidecar.get("supervision")
+        if (
+            not isinstance(supervision, dict)
+            or supervision.get("ready") is not True
+            or supervision.get("restart_required") is True
+        ):
+            blockers.append("media supervisor is not ready")
+        else:
+            raw_frame_age = supervision.get("last_frame_age_s")
+            if (
+                not isinstance(raw_frame_age, (int, float))
+                or isinstance(raw_frame_age, bool)
+                or not 0.0 <= float(raw_frame_age) <= 0.35
+            ):
+                blockers.append("camera frame is stale or has invalid age evidence")
+            else:
+                last_frame_age_s = float(raw_frame_age)
+        camera_generation = sidecar.get("generation")
+        if not isinstance(camera_generation, str) or not camera_generation:
+            blockers.append("camera generation is unavailable")
+        source = sidecar.get("source")
+        source_pts = source.get("pts") if isinstance(source, dict) else None
+        if not isinstance(source_pts, int) or isinstance(source_pts, bool):
+            blockers.append("camera source PTS is unavailable")
+        if sidecar.get("bark_ready") is not True:
+            blockers.append("bark media is not ready")
+        if sidecar.get("error") is not None:
+            blockers.append(f"media error: {sidecar.get('error')}")
+
+    qualified = sorted(set(client.fruits().get("qualified_fruits", [])))
+    if expected_fruits is not None and qualified != sorted(set(expected_fruits)):
+        blockers.append(
+            f"expected qualified fruits {sorted(set(expected_fruits))!r}, "
+            f"got {qualified!r}"
+        )
+    camera_frame_bytes = 0
+    try:
+        jpeg = client.camera_frame()
+        if (
+            len(jpeg) < 4
+            or not jpeg.startswith(b"\xff\xd8")
+            or not jpeg.endswith(b"\xff\xd9")
+        ):
+            raise ValueError("camera preview is not a complete JPEG")
+        camera_frame_bytes = len(jpeg)
+    except Exception as exc:  # noqa: BLE001 - preflight reports boundary failures
+        blockers.append(f"camera preview is unavailable: {exc}")
+
+    sleep(0.25)
+    next_sidecar, next_error = client.sidecar_status()
+    if next_error is not None or not isinstance(next_sidecar, dict):
+        blockers.append(f"second media sample is unavailable: {next_error}")
+    else:
+        next_release = next_sidecar.get("release")
+        if not isinstance(next_release, dict) or (
+            next_release.get("release_id"), next_release.get("config_schema")
+        ) != (release_id, config_schema):
+            blockers.append("second app/media release identity does not match")
+        if next_sidecar.get("generation") != camera_generation:
+            blockers.append("camera generation changed during readiness proof")
+        next_source = next_sidecar.get("source")
+        next_pts = next_source.get("pts") if isinstance(next_source, dict) else None
+        if (
+            not isinstance(next_pts, int)
+            or isinstance(next_pts, bool)
+            or not isinstance(source_pts, int)
+            or next_pts <= source_pts
+        ):
+            blockers.append("camera source PTS did not advance")
+        else:
+            source_pts = next_pts
+        next_supervision = next_sidecar.get("supervision")
+        if (
+            not isinstance(next_supervision, dict)
+            or next_supervision.get("ready") is not True
+            or next_supervision.get("restart_required") is True
+        ):
+            blockers.append("media supervisor lost readiness during proof")
+        else:
+            next_age = next_supervision.get("last_frame_age_s")
+            if (
+                not isinstance(next_age, (int, float))
+                or isinstance(next_age, bool)
+                or not 0.0 <= float(next_age) <= 0.35
+            ):
+                blockers.append("second camera frame is stale")
+            else:
+                last_frame_age_s = float(next_age)
+
+    if blockers:
+        raise HarnessAbort("; ".join(blockers))
+    return {
+        "ready": True,
+        "build_label": build_label,
+        "release_id": release_id,
+        "config_schema": config_schema,
+        "search_policy": search_policy,
+        "qualified_fruits": qualified,
+        "camera_generation": camera_generation,
+        "source_pts": source_pts,
+        "pose_age_s": pose_age_s,
+        "last_frame_age_s": last_frame_age_s,
+        "motion_disarmed": True,
+        "camera_frame_bytes": camera_frame_bytes,
+    }
 
 
 class TempSource:
@@ -160,6 +396,7 @@ class TempSource:
                 completed = subprocess.run(
                     ["wendy", "device", "top", "--device", self.agent, "--json"],
                     capture_output=True,
+                    check=False,
                     timeout=20.0,
                     text=True,
                 )
@@ -180,7 +417,12 @@ class TempSource:
                     return json.loads(response.read()), None
             if self.command:
                 completed = subprocess.run(
-                    self.command, shell=True, capture_output=True, timeout=8.0, text=True
+                    self.command,
+                    shell=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=8.0,
+                    text=True,
                 )
                 if completed.returncode != 0:
                     return None, completed.stderr.strip() or "temp command failed"
@@ -250,6 +492,7 @@ class DeviceProbe:
             completed = subprocess.run(
                 ["wendy", *args, "--device", self.agent, "--json"],
                 capture_output=True,
+                check=False,
                 timeout=20.0,
                 text=True,
             )
@@ -337,7 +580,7 @@ def draw_orientation_sequence(runs: int, seed: int) -> list[int]:
 def take_sample(
     client: ApiClient,
     target_fruit: str,
-    temp_sampler: "ThreadedTempSampler | None",
+    temp_sampler: ThreadedTempSampler | None,
     *,
     clock=time.monotonic,
 ) -> dict:
@@ -464,7 +707,7 @@ def compute_stage_durations(events: list[dict] | None) -> dict[str, float]:
         if e.get("phase") is not None and e.get("seconds_since_start") is not None
     ]
     durations: dict[str, float] = {}
-    for (phase, started), (_, ended) in zip(transitions, transitions[1:]):
+    for (phase, started), (_, ended) in pairwise(transitions):
         durations[phase] = round(durations.get(phase, 0.0) + (ended - started), 3)
     return durations
 
@@ -481,6 +724,57 @@ def capture_lighting_frame(
     path = frames_dir / f"run-{number:02d}-start.jpg"
     path.write_bytes(payload)
     return {"path": str(path), "bytes": len(payload)}
+
+
+def capture_lie_down_frame(
+    client: ApiClient,
+    run: dict,
+    frames_dir: Path,
+    number: int,
+) -> dict | None:
+    """Copy the run's lie-down JPEG beside the soak record for quick review."""
+    snapshot = next(
+        (
+            item
+            for item in run.get("snapshots", [])
+            if item.get("kind") == "lie_down"
+        ),
+        None,
+    )
+    if snapshot is None:
+        return None
+    result = {
+        "context": snapshot.get("context"),
+        "filename": snapshot.get("filename"),
+        "available": bool(snapshot.get("available")),
+    }
+    if not result["available"]:
+        result["reason"] = snapshot.get("reason", "lie-down image unavailable")
+        return result
+    run_id = run.get("run_id")
+    filename = snapshot.get("filename")
+    if not isinstance(run_id, str) or not isinstance(filename, str):
+        return {**result, "available": False, "reason": "invalid artifact metadata"}
+    try:
+        payload = client.artifact(run_id, filename)
+        if not payload.startswith(b"\xff\xd8") or not payload.endswith(b"\xff\xd9"):
+            raise ValueError("artifact is not a complete JPEG")
+        frames_dir.mkdir(parents=True, exist_ok=True)
+        path = frames_dir / f"run-{number:02d}-lie-down.jpg"
+        temporary_path = path.with_suffix(path.suffix + ".tmp")
+        with temporary_path.open("wb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, path)
+    except Exception as exc:  # noqa: BLE001 - evidence failures are data
+        return {**result, "available": False, "reason": str(exc)}
+    return {
+        **result,
+        "path": str(path),
+        "bytes": len(payload),
+        "sha256": hashlib.sha256(payload).hexdigest(),
+    }
 
 
 def summarize_run(
@@ -502,6 +796,7 @@ def summarize_run(
         "ended_at_utc": run.get("ended_at_utc"),
         "duration_s": run.get("duration_s"),
         "outcome": run.get("outcome"),
+        "mission_outcome": run.get("outcome"),
         "reason": run.get("reason"),
         "message": run.get("message"),
         "failed_phase": run.get("failed_phase"),
@@ -535,7 +830,7 @@ def wait_for_ready(
     while True:
         try:
             status = client.status()
-        except Exception as exc:  # noqa: BLE001 - transient link errors are retried
+        except Exception as exc:
             last_blockers = [f"status unavailable: {exc}"]
             if clock() >= deadline:
                 raise HarnessAbort(
@@ -570,7 +865,7 @@ def wait_for_terminal(
     run_id: str,
     *,
     target_fruit: str,
-    temp_sampler: "ThreadedTempSampler | None" = None,
+    temp_sampler: ThreadedTempSampler | None = None,
     timeout_s: float = RUN_TIMEOUT_S,
     sleep=time.sleep,
     clock=time.monotonic,
@@ -644,6 +939,273 @@ def wait_for_recovery(
         sleep(POLL_INTERVAL_S)
 
 
+def _recovery_home_distance(attempt: dict) -> float | None:
+    final_evidence = attempt.get("final_evidence") or {}
+    distance = final_evidence.get("home_distance_m")
+    if isinstance(distance, (int, float)):
+        return float(distance)
+    for step in reversed(attempt.get("steps") or []):
+        evidence = step.get("evidence") or {}
+        distance = evidence.get("home_distance_m")
+        if isinstance(distance, (int, float)):
+            return float(distance)
+    return None
+
+
+def _recovery_record(
+    attempt: dict,
+    *,
+    source: str,
+    status: dict,
+    stage_home_margin_m: float,
+) -> dict:
+    """Add the harness safety verdict without changing app recovery evidence."""
+    record = dict(attempt)
+    home_distance_m = _recovery_home_distance(attempt)
+    motion = ((status.get("hardware") or {}).get("motion") or {})
+    disarmed = (
+        attempt.get("final_safety_state") == "DISARMED_CONFIRMED"
+        and motion.get("armed") is False
+    )
+    within_margin = (
+        home_distance_m is not None
+        and home_distance_m <= stage_home_margin_m
+    )
+    recovery_cleared = status.get("active_recovery") is None
+    run_cleared = status.get("active_run_id") is None
+    record.update(
+        {
+            "source": source,
+            "home_distance_m": home_distance_m,
+            "stage_home_margin_m": stage_home_margin_m,
+            "within_stage_home_margin": within_margin,
+            "client_motion_disarmed": disarmed,
+            "client_recovery_cleared": recovery_cleared,
+            "client_run_cleared": run_cleared,
+            "safe_to_continue": (
+                attempt.get("outcome") == "COMPLETED"
+                and disarmed
+                and within_margin
+                and recovery_cleared
+                and run_cleared
+            ),
+        }
+    )
+    return record
+
+
+def _wait_for_recovery_clearance_status(
+    client: ApiClient,
+    *,
+    polls: int,
+    sleep,
+) -> tuple[dict, list[str]]:
+    """Wait for terminal recovery bookkeeping and motion disarm to agree."""
+    errors: list[str] = []
+    status: dict = {}
+    for poll_number in range(max(1, polls)):
+        try:
+            status = client.status()
+        except Exception as exc:  # noqa: BLE001 - clearance must be current
+            errors.append(f"terminal status: {exc}")
+            status = {}
+        motion = ((status.get("hardware") or {}).get("motion") or {})
+        if (
+            status.get("active_recovery") is None
+            and status.get("active_run_id") is None
+            and motion.get("armed") is False
+        ):
+            return status, errors
+        if poll_number + 1 < polls:
+            sleep(POLL_INTERVAL_S)
+    return status, errors
+
+
+def resolve_failed_run_recovery(
+    client: ApiClient,
+    run_id: str,
+    *,
+    request_manual: bool,
+    stage_home_margin_m: float = DEFAULT_STAGE_HOME_MARGIN_M,
+    discovery_polls: int = RECOVERY_DISCOVERY_POLLS,
+    sleep=time.sleep,
+) -> tuple[dict, list[str]]:
+    """Reconcile automatic recovery before considering one manual request.
+
+    A terminal Demo Run can become visible before the orchestrator has created
+    its automatic recovery attempt. Polling the durable run and ``/api/status``
+    closes that race. An observed active or recorded attempt always wins; the
+    harness never calls ``recover-home`` for that run.
+    """
+    poll_errors: list[str] = []
+    attempt: dict | None = None
+    source = "automatic"
+    status: dict = {}
+
+    for poll_number in range(max(1, discovery_polls)):
+        try:
+            run = client.result(run_id).get("run") or {}
+            attempts = [
+                item
+                for item in run.get("recovery_attempts", [])
+                if isinstance(item, dict)
+            ]
+            if attempts:
+                attempt = attempts[-1]
+        except Exception as exc:  # noqa: BLE001 - reconcile server-side work
+            poll_errors.append(f"result: {exc}")
+        try:
+            status = client.status()
+        except Exception as exc:  # noqa: BLE001 - reconcile server-side work
+            poll_errors.append(f"status: {exc}")
+            status = {}
+
+        active = status.get("active_recovery") or {}
+        if attempt is not None:
+            break
+        if active:
+            if active.get("run_id") != run_id:
+                return (
+                    {
+                        "outcome": "NOT_STARTED",
+                        "reason": "OTHER_RECOVERY_ACTIVE",
+                        "source": "observed",
+                        "stage_home_margin_m": stage_home_margin_m,
+                        "safe_to_continue": False,
+                    },
+                    poll_errors,
+                )
+            recovery_id = active.get("recovery_id")
+            if recovery_id:
+                attempt, wait_errors = wait_for_recovery(
+                    client,
+                    run_id,
+                    str(recovery_id),
+                    sleep=sleep,
+                )
+                poll_errors.extend(wait_errors)
+                break
+        if poll_number + 1 < discovery_polls:
+            sleep(POLL_INTERVAL_S)
+
+    if attempt is None and request_manual:
+        source = "manual"
+        try:
+            accepted = client.recover_home(run_id)
+            recovery_id = accepted["recovery"]["recovery_id"]
+        except Exception as exc:  # noqa: BLE001 - reconcile an ambiguous accept
+            poll_errors.append(f"manual request: {exc}")
+            source = "reconciled_after_ambiguous_manual_request"
+            for poll_number in range(max(1, discovery_polls)):
+                try:
+                    run = client.result(run_id).get("run") or {}
+                    attempts = [
+                        item
+                        for item in run.get("recovery_attempts", [])
+                        if isinstance(item, dict)
+                    ]
+                    if attempts:
+                        attempt = attempts[-1]
+                        break
+                except Exception as poll_exc:  # noqa: BLE001 - read-only reconcile
+                    poll_errors.append(f"result after manual request: {poll_exc}")
+                try:
+                    status = client.status()
+                except Exception as poll_exc:  # noqa: BLE001 - read-only reconcile
+                    poll_errors.append(f"status after manual request: {poll_exc}")
+                    status = {}
+                active = status.get("active_recovery") or {}
+                if active.get("run_id") == run_id and active.get("recovery_id"):
+                    attempt, wait_errors = wait_for_recovery(
+                        client,
+                        run_id,
+                        str(active["recovery_id"]),
+                        sleep=sleep,
+                    )
+                    poll_errors.extend(wait_errors)
+                    break
+                if poll_number + 1 < discovery_polls:
+                    sleep(POLL_INTERVAL_S)
+            if attempt is None:
+                return (
+                    {
+                        "outcome": "NOT_STARTED",
+                        "reason": "RECOVERY_REQUEST_AMBIGUOUS",
+                        "source": source,
+                        "stage_home_margin_m": stage_home_margin_m,
+                        "safe_to_continue": False,
+                    },
+                    poll_errors,
+                )
+            recovery_id = attempt.get("recovery_id")
+            if attempt.get("outcome") is None and recovery_id is not None:
+                attempt, wait_errors = wait_for_recovery(
+                    client,
+                    run_id,
+                    str(recovery_id),
+                    sleep=sleep,
+                )
+                poll_errors.extend(wait_errors)
+            accepted = None
+        if accepted is not None:
+            attempt, wait_errors = wait_for_recovery(
+                client,
+                run_id,
+                str(recovery_id),
+                sleep=sleep,
+            )
+            poll_errors.extend(wait_errors)
+
+    if attempt is None:
+        return (
+            {
+                "outcome": "NOT_STARTED",
+                "reason": "NO_RECOVERY_OBSERVED",
+                "source": "observed",
+                "stage_home_margin_m": stage_home_margin_m,
+                "safe_to_continue": False,
+            },
+            poll_errors,
+        )
+
+    if attempt.get("outcome") is None:
+        recovery_id = attempt.get("recovery_id")
+        if recovery_id is None:
+            return (
+                {
+                    **attempt,
+                    "reason": "RECOVERY_ID_MISSING",
+                    "source": source,
+                    "stage_home_margin_m": stage_home_margin_m,
+                    "safe_to_continue": False,
+                },
+                poll_errors,
+            )
+        attempt, wait_errors = wait_for_recovery(
+            client,
+            run_id,
+            str(recovery_id),
+            sleep=sleep,
+        )
+        poll_errors.extend(wait_errors)
+
+    status, clearance_errors = _wait_for_recovery_clearance_status(
+        client,
+        polls=discovery_polls,
+        sleep=sleep,
+    )
+    poll_errors.extend(clearance_errors)
+    return (
+        _recovery_record(
+            attempt,
+            source=source,
+            status=status,
+            stage_home_margin_m=stage_home_margin_m,
+        ),
+        poll_errors,
+    )
+
+
 def run_session(
     client: ApiClient,
     *,
@@ -656,9 +1218,12 @@ def run_session(
     dongle_match: str | None = None,
     note: str | None = None,
     expected_build_label: str | None = None,
+    expected_search_policy: str | None = None,
+    search_policy: str | None = None,
     expected_fruits: list[str] | None = None,
     randomize_orientation: bool = True,
     recover_failures: bool = False,
+    stage_home_margin_m: float = DEFAULT_STAGE_HOME_MARGIN_M,
     keep_samples: bool = True,
     sleep=time.sleep,
     log=print,
@@ -670,6 +1235,15 @@ def run_session(
         raise HarnessAbort(
             f"expected build {expected_build_label!r}, got {build_label!r}; "
             "no run was activated"
+        )
+    default_search_policy = status.get("search_policy")
+    if (
+        expected_search_policy is not None
+        and default_search_policy != expected_search_policy
+    ):
+        raise HarnessAbort(
+            f"expected search policy {expected_search_policy!r}, "
+            f"got {default_search_policy!r}; no run was activated"
         )
     qualified = list(client.fruits().get("qualified_fruits", []))
     if expected_fruits is not None:
@@ -685,6 +1259,8 @@ def run_session(
         draw_orientation_sequence(runs, seed) if randomize_orientation else [0] * runs
     )
     log(f"build: {build_label}")
+    selected_search_policy = search_policy or default_search_policy
+    log(f"search policy: {selected_search_policy or 'unreported'}")
     log(f"qualified fruits: {', '.join(qualified)}")
     log(f"seed {seed} -> sequence: {', '.join(sequence)}")
     log(
@@ -697,6 +1273,8 @@ def run_session(
         "schema_version": SCHEMA_VERSION,
         "session": session_id,
         "build_label": build_label,
+        "search_policy": selected_search_policy,
+        "default_search_policy": default_search_policy,
         "note": note,
         "qualified_fruits": qualified,
         "target_runs": runs,
@@ -705,6 +1283,7 @@ def run_session(
         "orientation_randomized": randomize_orientation,
         "orientation_sequence_degrees": orientation_sequence,
         "failure_recovery_enabled": recover_failures,
+        "stage_home_margin_m": stage_home_margin_m,
         "temperature_source": (
             temp_sampler.source.url
             or temp_sampler.source.command
@@ -760,14 +1339,16 @@ def run_session(
                         fruit,
                         orientation_degrees,
                         idempotency_key=activation_key,
+                        search_policy=selected_search_policy,
                     )
-                except Exception:
+                except Exception:  # noqa: BLE001 - idempotency makes retry bounded
                     # The server contract makes this retry safe: the same key
                     # can only return the original Demo Run.
                     activation = client.activate(
                         fruit,
                         orientation_degrees,
                         idempotency_key=activation_key,
+                        search_policy=selected_search_policy,
                     )
                 run_id = activation["run"]["run_id"]
             except Exception as exc:
@@ -790,6 +1371,11 @@ def run_session(
                 record["wifi_after"] = device_probe.wifi_status()
             if harness_note:
                 record["harness_note"] = harness_note
+            lie_down_frame = capture_lie_down_frame(
+                client, run, frames_dir, number
+            )
+            if lie_down_frame is not None:
+                record["lie_down_frame"] = lie_down_frame
             session["runs"].append(record)
             persist()
             log(
@@ -799,37 +1385,40 @@ def run_session(
                 f" (errors {record['network']['error_count']})"
             )
             if recover_failures and record["outcome"] == "FAILED":
-                log(f"run {number}/{runs}: requesting bounded Home recovery")
-                try:
-                    accepted = client.recover_home(run_id)
-                except Exception as exc:
-                    record["recovery"] = {
-                        "outcome": "NOT_STARTED",
-                        "error": str(exc),
-                    }
-                    persist()
-                    raise HarnessAbort(
-                        f"run {number} failed and Home recovery was not accepted: {exc}"
-                    ) from exc
-                recovery_id = accepted["recovery"]["recovery_id"]
-                attempt, recovery_poll_errors = wait_for_recovery(
+                log(f"run {number}/{runs}: reconciling Home recovery state")
+                recovery_record, recovery_poll_errors = resolve_failed_run_recovery(
                     client,
                     run_id,
-                    recovery_id,
+                    request_manual=True,
+                    stage_home_margin_m=stage_home_margin_m,
                     sleep=sleep,
                 )
-                record["recovery"] = attempt
+                record["recovery"] = recovery_record
                 if recovery_poll_errors:
                     record["recovery_poll_errors"] = recovery_poll_errors
+                try:
+                    recovered_run = client.result(run_id).get("run") or {}
+                    recovery_frame = capture_lie_down_frame(
+                        client, recovered_run, frames_dir, number
+                    )
+                    if recovery_frame is not None:
+                        record["lie_down_frame"] = recovery_frame
+                except Exception as exc:  # noqa: BLE001 - evidence failures are data
+                    record["lie_down_frame"] = {
+                        "available": False,
+                        "context": "failure_recovery",
+                        "reason": str(exc),
+                    }
                 persist()
                 log(
-                    f"run {number}/{runs}: recovery {attempt['outcome']} / "
-                    f"{attempt['reason']}"
+                    f"run {number}/{runs}: recovery {recovery_record['outcome']} / "
+                    f"{recovery_record['reason']}"
                 )
-                if attempt["outcome"] != "COMPLETED":
+                if not recovery_record.get("safe_to_continue"):
                     raise HarnessAbort(
                         f"run {number} failed and Home recovery ended "
-                        f"{attempt['outcome']} / {attempt['reason']}"
+                        f"{recovery_record['outcome']} / "
+                        f"{recovery_record['reason']}; next activation blocked"
                     )
     except HarnessAbort as abort:
         session["aborted"] = str(abort)
@@ -868,6 +1457,21 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--search-policy",
+        choices=("fast-lock", "slow-sweep", "double-back"),
+        default=None,
+        help="select one immutable search policy for every run in this session",
+    )
+    parser.add_argument(
+        "--expected-search-policy",
+        choices=("fast-lock", "slow-sweep", "double-back"),
+        default=None,
+        help=(
+            "abort before activation unless /api/status reports this exact "
+            "search policy"
+        ),
+    )
+    parser.add_argument(
         "--expected-fruits",
         nargs="+",
         default=None,
@@ -888,12 +1492,28 @@ def main(argv: list[str] | None = None) -> int:
         "--recover-failures",
         action="store_true",
         help=(
-            "after a failed run, explicitly request its bounded saved-Home "
-            "recovery before continuing"
+            "after a failed run, first observe automatic recovery and request "
+            "one bounded saved-Home recovery only when no attempt exists"
+        ),
+    )
+    parser.add_argument(
+        "--stage-home-margin",
+        type=float,
+        default=DEFAULT_STAGE_HOME_MARGIN_M,
+        help=(
+            "maximum recovered Home distance permitted before another "
+            f"activation (default: {DEFAULT_STAGE_HOME_MARGIN_M:.2f} m)"
         ),
     )
     parser.add_argument("--output", type=Path, default=None)
+    parser.add_argument(
+        "--check-only",
+        action="store_true",
+        help="perform the read-only live readiness proof and exit",
+    )
     args = parser.parse_args(argv)
+    if args.stage_home_margin <= 0:
+        parser.error("--stage-home-margin must be greater than zero")
 
     seed = args.seed if args.seed is not None else int(time.time())
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%SZ")
@@ -901,6 +1521,22 @@ def main(argv: list[str] | None = None) -> int:
     client = ApiClient(
         f"http://{args.host}:{args.port}", f"http://{args.host}:{args.sidecar_port}"
     )
+    if args.check_only:
+        try:
+            report = verify_live_preflight(
+                client,
+                expected_build_label=args.expected_build_label,
+                expected_search_policy=args.expected_search_policy,
+                expected_fruits=args.expected_fruits,
+            )
+        except HarnessAbort as exc:
+            print(f"preflight failed: {exc}", file=sys.stderr)
+            return 1
+        except urllib.error.URLError as exc:
+            print(f"cannot reach the demo app: {exc}", file=sys.stderr)
+            return 2
+        print(json.dumps(report, indent=2))
+        return 0
     agent = args.agent or f"{args.host}:50052"
     temp_agent = None
     if not args.no_temps and not args.temp_url and not args.temp_cmd:
@@ -919,9 +1555,12 @@ def main(argv: list[str] | None = None) -> int:
             dongle_match=args.dongle_match,
             note=args.note,
             expected_build_label=args.expected_build_label,
+            expected_search_policy=args.expected_search_policy,
+            search_policy=args.search_policy,
             expected_fruits=args.expected_fruits,
             randomize_orientation=not args.no_orientation_randomization,
             recover_failures=args.recover_failures,
+            stage_home_margin_m=args.stage_home_margin,
             keep_samples=not args.no_samples,
         )
     except HarnessAbort as exc:

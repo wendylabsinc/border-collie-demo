@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "release_id": "stage-camera-v22-black-box",
+  "config_schema": 6,
+  "search_policy": "slow-sweep",
+  "requested_runs": 5,
+  "seed": 2026081106,
+  "orientation_randomization": false,
+  "operator_home_margin_m": 0.5,
+  "deployed_home_completion_gate_m": 0.1,
+  "sequence": ["banana", "pear", "apple", "pear", "banana"],
+  "runs": [
+    {
+      "number": 1,
+      "fruit": "banana",
+      "run_id": "f90a3e96-4194-4722-a31b-22620c40ebd8",
+      "outcome": "FAILED",
+      "reason": "RETURN_HOME_FAILURE",
+      "message": "return Home stalled 0.372 m from its active waypoint",
+      "fruit_phase_completed": true,
+      "recovery_outcome": "FAILED",
+      "recovery_reason": "RECOVERY_FAILURE",
+      "terminal_safety": "DISARMED_CONFIRMED"
+    },
+    {
+      "number": 2,
+      "fruit": "pear",
+      "run_id": "f9ea2093-41d2-463d-a4ce-4f412d2d4f31",
+      "outcome": "FAILED",
+      "reason": "ARRIVAL_FAILURE",
+      "message": "qualified pear Arrival timed out",
+      "recovery_outcome": "FAILED",
+      "recovery_reason": "RECOVERY_FAILURE",
+      "terminal_safety": "DISARMED_CONFIRMED"
+    },
+    {
+      "number": 3,
+      "fruit": "apple",
+      "run_id": "b4a5b971-a926-468b-ad9b-593a2b5cf139",
+      "outcome": "FAILED",
+      "reason": "TARGET_RECOGNITION_FAILURE",
+      "message": "apple was not found in the bounded search sweep",
+      "terminal_safety": "DISARMED_CONFIRMED"
+    },
+    {
+      "number": 4,
+      "fruit": "pear",
+      "run_id": "7978cb58-10ed-458b-a049-73ef9f540a67",
+      "outcome": "FAILED",
+      "reason": "TARGET_LOST_OFF_AXIS",
+      "message": "qualified pear left the centered close-range handoff corridor",
+      "recovery_outcome": "COMPLETED",
+      "recovery_reason": "HOME_POSITION_RECOVERED",
+      "recovery_home_distance_m": 0.052088170016884525,
+      "terminal_safety": "DISARMED_CONFIRMED"
+    },
+    {
+      "number": 5,
+      "fruit": "banana",
+      "run_id": "9aa357cc-96df-4fac-9543-22da422ac690",
+      "outcome": "STOPPED",
+      "reason": "OPERATOR_STOP",
+      "message": "operator stopped the Demo Run",
+      "terminal_safety": "DISARMED_CONFIRMED"
+    }
+  ],
+  "counts": {
+    "completed": 0,
+    "failed": 4,
+    "stopped": 1,
+    "return_home_failure": 1,
+    "arrival_failure": 1,
+    "target_recognition_failure": 1,
+    "target_lost_off_axis": 1,
+    "operator_stop": 1
+  },
+  "source_aggregates": [
+    "fruit-soak-v22-random-5-seed-2026081106.json",
+    "fruit-soak-v22-random-5-seed-2026081106-continuation-4.json"
+  ],
+  "trace_directory": "fruit-soak-v22-random-5-seed-2026081106-traces"
+}

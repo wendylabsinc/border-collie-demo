@@ -17,6 +17,7 @@ def test_activation_key_reuses_the_same_durable_run(tmp_path) -> None:
     activation = RunActivation(
         target_fruit="pear",
         activation_source="audience_ui",
+        search_policy="fast-lock",
         idempotency_key="soak-42-run-3",
     )
 
@@ -26,6 +27,7 @@ def test_activation_key_reuses_the_same_durable_run(tmp_path) -> None:
     assert first.created is True
     assert second.created is False
     assert second.run["run_id"] == first.run["run_id"]
+    assert second.run["search_policy"] == "fast-lock"
     assert len(results.list_results()) == 1
     assert machine.phase is MissionPhase.PREFLIGHT
 
@@ -46,6 +48,28 @@ def test_activation_key_cannot_be_reused_for_different_intent(tmp_path) -> None:
                 target_fruit="apple",
                 activation_source="audience_ui",
                 idempotency_key="fixed-key",
+            )
+        )
+
+
+def test_activation_key_cannot_change_search_policy(tmp_path) -> None:
+    coordinator = RunCoordinator(MissionMachine(), RunResultStore(tmp_path))
+    coordinator.activate(
+        RunActivation(
+            target_fruit="pear",
+            activation_source="audience_ui",
+            search_policy="fast-lock",
+            idempotency_key="policy-key",
+        )
+    )
+
+    with pytest.raises(ActiveRunError, match="different Demo Run"):
+        coordinator.activate(
+            RunActivation(
+                target_fruit="pear",
+                activation_source="audience_ui",
+                search_policy="double-back",
+                idempotency_key="policy-key",
             )
         )
 
@@ -109,3 +133,34 @@ def test_journal_events_form_a_hash_chain(tmp_path) -> None:
     assert events[0]["previous_event_sha256"] is None
     assert events[1]["previous_event_sha256"] == events[0]["event_sha256"]
     assert len({event["event_id"] for event in events}) == len(events)
+
+
+def test_black_box_storage_failure_does_not_mask_terminal_safety(tmp_path) -> None:
+    class FailingBlackBoxStore(RunResultStore):
+        def record_black_box_unavailable(
+            self,
+            run_id: str,
+            message: str,
+        ) -> dict[str, object]:
+            raise OSError("result volume unavailable")
+
+    machine = MissionMachine()
+    results = FailingBlackBoxStore(tmp_path)
+    coordinator = RunCoordinator(machine, results)
+    run = coordinator.activate(
+        RunActivation(target_fruit="pear", activation_source="audience_ui")
+    ).run
+
+    terminal = coordinator.finish(
+        run["run_id"],
+        terminal_phase=MissionPhase.FAILED,
+        outcome="FAILED",
+        reason="TEST_FAILURE",
+        message="test failure was safely stopped",
+        final_safety_state="DISARMED_CONFIRMED",
+        failed_phase="preflight",
+    )
+
+    assert terminal["outcome"] == "FAILED"
+    assert terminal["final_safety_state"] == "DISARMED_CONFIRMED"
+    assert machine.phase is MissionPhase.FAILED

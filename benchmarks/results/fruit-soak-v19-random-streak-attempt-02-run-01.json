@@ -1,0 +1,1316 @@
+{
+  "schema_version": 4,
+  "session": "fruit-soak-2026-08-11T181302Z",
+  "build_label": "stage-camera-v19-search-handoff (codex/stage-camera-v19-search-handoff)",
+  "note": "attempt 02 after Woof reboot; battery 65%; host max 52.7C; IMU 79C; max motor 44C",
+  "qualified_fruits": [
+    "apple",
+    "banana",
+    "pear"
+  ],
+  "target_runs": 1,
+  "seed": 2026081102,
+  "fruit_sequence": [
+    "pear"
+  ],
+  "orientation_randomized": false,
+  "orientation_sequence_degrees": [
+    0
+  ],
+  "failure_recovery_enabled": true,
+  "temperature_source": null,
+  "runs": [
+    {
+      "number": 1,
+      "target_fruit": "pear",
+      "orientation_degrees": 0.0,
+      "run_id": "e3054a9a-5ecf-4526-ac5f-f3a980d6d22b",
+      "started_at_utc": "2026-08-11T18:13:02.595978Z",
+      "ended_at_utc": "2026-08-11T18:13:14.938379Z",
+      "duration_s": 12.342378058000008,
+      "outcome": "FAILED",
+      "reason": "TARGET_LOST_OFF_AXIS",
+      "message": "qualified pear left the centered close-range handoff corridor",
+      "failed_phase": "approach_fruit",
+      "final_safety_state": "DISARMED_CONFIRMED",
+      "home_distance_m": null,
+      "heading_error_rad": null,
+      "run_key_values": null,
+      "stage_results": {
+        "orient_for_run": {
+          "requested_angle_degrees": 0.0,
+          "requested_angle_rad": 0.0,
+          "measured_yaw_change_rad": 0.0,
+          "orientation_skipped": true,
+          "motion_commands_sent": false,
+          "motion_commands": []
+        },
+        "turn_to_fruit": {
+          "motion_path": "sport_client",
+          "label": "pear",
+          "confidence": 0.6636692881584167,
+          "stable_detections": 5,
+          "search_progress_rad": 3.270498321169065,
+          "recognition": {
+            "samples": 43,
+            "pear_candidate_samples": 30,
+            "maximum_confidence": 0.7505526542663574,
+            "maximum_consecutive_detections": 5,
+            "maximum_bbox_area_ratio": 0.008187934027777777,
+            "closest_detection": {
+              "source_pts": 86880,
+              "confidence": 0.02280205488204956,
+              "bbox_xyxy": [
+                575.0,
+                599.0,
+                673.0,
+                676.0
+              ],
+              "bbox_area_ratio": 0.008187934027777777
+            },
+            "crop_confirmation_samples": 12,
+            "crop_candidate_confidence_threshold": 0.5,
+            "candidate_lock_count": 1,
+            "candidate_lock_confidence_threshold": 0.5,
+            "candidate_lock_hold_s": 0.75,
+            "candidate_lock_maximum_age_s": 0.25,
+            "candidate_lock_yaw_rps": 0.5,
+            "crop_slowdown_hold_samples": 7,
+            "crop_slowdown_turn_samples": 4,
+            "search_progress_rad": 3.270498321169065
+          },
+          "motion_commands_sent": true,
+          "generation": "56424c2730a14aef879ee6c336883b39",
+          "source_pts": 88980,
+          "source_time_base": "1/90000",
+          "qualified_monotonic_s": 229.203642398,
+          "center_x_ratio": 0.7109375,
+          "center_y_ratio": 0.7083333333333334,
+          "bottom_ratio": 0.7361111111111112,
+          "bbox_area_ratio": 0.0012152777777777776,
+          "search_qualification": {
+            "search_qualified": true,
+            "target_fruit": "pear",
+            "generation": "56424c2730a14aef879ee6c336883b39",
+            "source_pts": 88980,
+            "source_time_base": "1/90000",
+            "qualified_monotonic_s": 229.203642398,
+            "stable_detections": 5,
+            "confidence": 0.6636692881584167,
+            "center_x_ratio": 0.7109375,
+            "center_y_ratio": 0.7083333333333334,
+            "bottom_ratio": 0.7361111111111112,
+            "bbox_area_ratio": 0.0012152777777777776
+          },
+          "motion_commands": [
+            {
+              "sequence": 1,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 224.327782763,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 2,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 224.440861717,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 3,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 224.553343497,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 4,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 224.670696461,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 5,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 224.786955915,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 6,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 224.904544824,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 7,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 225.017943536,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 8,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 225.134512345,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 9,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 225.250480205,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 10,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 225.361964417,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 11,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 225.474347606,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 12,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 225.584114093,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 13,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 225.694768583,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 14,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 225.811399382,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 15,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 225.927413038,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 16,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 226.037846433,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 17,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 226.150108468,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 18,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 226.260893747,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 19,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 226.371713203,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 20,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 226.487488483,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 21,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 226.602135563,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 22,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 226.720281811,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 23,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 226.831741325,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 24,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 226.947561921,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 25,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 227.060614548,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 26,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 227.177481294,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 27,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 227.357990206,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 28,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 227.482789778,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 29,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 227.59755805,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 30,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 227.711779585,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 31,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 227.827229388,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 32,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 227.942465935,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "crop_confirm_hold"
+            },
+            {
+              "sequence": 33,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 228.057360038,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "crop_confirm_hold"
+            },
+            {
+              "sequence": 34,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 228.172332224,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "crop_confirm_hold"
+            },
+            {
+              "sequence": 35,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 228.287118515,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "crop_confirm_hold"
+            },
+            {
+              "sequence": 36,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 228.40292209,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "crop_confirm_hold"
+            },
+            {
+              "sequence": 37,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 228.51974711,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "crop_confirm_hold"
+            },
+            {
+              "sequence": 38,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 228.634911816,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "crop_confirm_hold"
+            },
+            {
+              "sequence": 39,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 228.752886608,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "crop_confirm_slow_turn"
+            },
+            {
+              "sequence": 40,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 228.86757245,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "crop_confirm_slow_turn"
+            },
+            {
+              "sequence": 41,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 228.980348529,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "crop_confirm_slow_turn"
+            },
+            {
+              "sequence": 42,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 229.095689307,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "crop_confirm_slow_turn"
+            }
+          ]
+        },
+        "find_fruit": {
+          "label": "pear",
+          "confidence": 0.6636692881584167,
+          "stable_detections": 5,
+          "detection_age_s": 0.13540197200001103,
+          "center_x_ratio": 0.7109375,
+          "center_y_ratio": 0.7083333333333334,
+          "bottom_ratio": 0.7361111111111112,
+          "bbox_area_ratio": 0.0012152777777777776,
+          "generation": "56424c2730a14aef879ee6c336883b39",
+          "source_pts": 88980,
+          "source_time_base": "1/90000",
+          "qualified_monotonic_s": 229.251970934,
+          "search_qualification": {
+            "search_qualified": true,
+            "target_fruit": "pear",
+            "generation": "56424c2730a14aef879ee6c336883b39",
+            "source_pts": 88980,
+            "source_time_base": "1/90000",
+            "qualified_monotonic_s": 229.251970934,
+            "stable_detections": 5,
+            "confidence": 0.6636692881584167,
+            "center_x_ratio": 0.7109375,
+            "center_y_ratio": 0.7083333333333334,
+            "bottom_ratio": 0.7361111111111112,
+            "bbox_area_ratio": 0.0012152777777777776
+          },
+          "search_progress_rad": 0.0,
+          "search_skipped": true,
+          "skip_reason": "target_already_visible",
+          "motion_commands_sent": false,
+          "motion_commands": []
+        }
+      },
+      "failure_details": {
+        "recognition": {
+          "tracking_recommendation": "stop",
+          "tracking_reason": "target_lost_off_axis",
+          "track_acquired": true,
+          "initial_centered": true,
+          "approach_authorized": true,
+          "stationary_recenter_samples": 0,
+          "stationary_recenter_error_ratio": 0.4,
+          "stationary_recenter_confirmations": 2,
+          "filtered_center_x_ratio": 0.637240750472942,
+          "moving_steering_active": false,
+          "moving_steering_enter_ratio": 0.25,
+          "moving_steering_exit_ratio": 0.12,
+          "moving_steering_outside_samples": 0,
+          "pending_center_jump_samples": 0,
+          "acquisition_samples": 3,
+          "qualified_samples": 35,
+          "close_range_samples": 35,
+          "close_handoff_centered_samples": 0,
+          "close_handoff_center_ratio": 0.08,
+          "close_handoff_center_confirmations": 3,
+          "close_recenter_active": true,
+          "close_recenter_samples": 2,
+          "close_recenter_enter_ratio": 0.12,
+          "close_recenter_confirmations": 2,
+          "near_samples": 0,
+          "weak_samples": 9,
+          "stale_samples": 2,
+          "duplicate_samples": 10,
+          "identity_resets": 0,
+          "discontinuity_stops": 0,
+          "bbox_growth_samples": 18,
+          "minimum_observed_tracking_confidence": 0.6297757029533386,
+          "maximum_bottom_ratio": 0.8472222222222222,
+          "maximum_bbox_area_ratio": 0.0030078125,
+          "arrival_mode": null,
+          "final_approach_latched": false,
+          "final_approach_latched_at_s": null,
+          "final_approach_generation": null,
+          "final_approach_loss_samples": 0,
+          "final_approach_loss_confirmations": 2,
+          "final_approach_cancelled_reason": null,
+          "acquisition_confidence": 0.65,
+          "close_range_tracking_confidence": 0.55,
+          "detection_maximum_age_s": 0.25,
+          "search_handoff_accepted": false,
+          "search_handoff_rejection_reason": "handoff_stale",
+          "metric_arrival_control_mode": "camera_tracking",
+          "lidar_handoff_latched": false,
+          "lidar_handoff_trigger_reason": null,
+          "lidar_handoff_elapsed_s": null
+        },
+        "motion_commands": [
+          {
+            "sequence": 1,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 229.803887003,
+            "forward_mps": 0.0,
+            "yaw_rps": 0.0,
+            "reason": "qualified_track_target_unqualified"
+          },
+          {
+            "sequence": 2,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 229.920933508,
+            "forward_mps": 0.0,
+            "yaw_rps": 0.0,
+            "reason": "qualified_track_target_unqualified"
+          },
+          {
+            "sequence": 3,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 230.036375061,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.5,
+            "reason": "center_target_before_approach"
+          },
+          {
+            "sequence": 4,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 230.149493362,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.5,
+            "reason": "center_target_before_approach"
+          },
+          {
+            "sequence": 5,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 230.268302043,
+            "forward_mps": 0.0,
+            "yaw_rps": 0.0,
+            "reason": "qualified_track_target_unqualified"
+          },
+          {
+            "sequence": 6,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 230.381108333,
+            "forward_mps": 0.0,
+            "yaw_rps": 0.0,
+            "reason": "qualified_track_target_unqualified"
+          },
+          {
+            "sequence": 7,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 230.500405031,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.5,
+            "reason": "center_target_before_approach"
+          },
+          {
+            "sequence": 8,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 230.615930811,
+            "forward_mps": 0.0,
+            "yaw_rps": 0.0,
+            "reason": "qualified_track_target_unqualified"
+          },
+          {
+            "sequence": 9,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 230.731123589,
+            "forward_mps": 0.0,
+            "yaw_rps": 0.0,
+            "reason": "qualified_track_target_unqualified"
+          },
+          {
+            "sequence": 10,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 230.84874791,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.5,
+            "reason": "center_target_before_approach"
+          },
+          {
+            "sequence": 11,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 230.967043103,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.5,
+            "reason": "center_target_before_approach"
+          },
+          {
+            "sequence": 12,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 231.083868996,
+            "forward_mps": 0.0,
+            "yaw_rps": 0.0,
+            "reason": "qualified_track_target_unqualified"
+          },
+          {
+            "sequence": 13,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 231.196199784,
+            "forward_mps": 0.0,
+            "yaw_rps": 0.0,
+            "reason": "qualified_track_target_unqualified"
+          },
+          {
+            "sequence": 14,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 231.317479564,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.5,
+            "reason": "center_target_before_approach"
+          },
+          {
+            "sequence": 15,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 231.433722779,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.5,
+            "reason": "center_target_before_approach"
+          },
+          {
+            "sequence": 16,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 231.551432415,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.5,
+            "reason": "center_target_before_approach"
+          },
+          {
+            "sequence": 17,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 231.670663452,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.5,
+            "reason": "center_target_before_approach"
+          },
+          {
+            "sequence": 18,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 231.78722889,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.5,
+            "reason": "center_target_before_approach"
+          },
+          {
+            "sequence": 19,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 231.903801752,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.5,
+            "reason": "center_target_before_approach"
+          },
+          {
+            "sequence": 20,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 232.026524882,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.5,
+            "reason": "center_target_before_approach"
+          },
+          {
+            "sequence": 21,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 232.138560974,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.5,
+            "reason": "center_target_before_approach"
+          },
+          {
+            "sequence": 22,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 232.255155629,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.5,
+            "reason": "center_target_before_approach"
+          },
+          {
+            "sequence": 23,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 232.373642992,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.5,
+            "reason": "center_target_before_approach"
+          },
+          {
+            "sequence": 24,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 232.488039744,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.5,
+            "reason": "center_target_before_approach"
+          },
+          {
+            "sequence": 25,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 232.604206193,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.5,
+            "reason": "center_target_before_approach"
+          },
+          {
+            "sequence": 26,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 232.833903383,
+            "forward_mps": 0.0,
+            "yaw_rps": 0.0,
+            "reason": "qualified_track_detection_stale"
+          },
+          {
+            "sequence": 27,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 232.956675702,
+            "forward_mps": 0.0,
+            "yaw_rps": 0.0,
+            "reason": "qualified_track_detection_stale"
+          },
+          {
+            "sequence": 28,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 233.078854591,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.5,
+            "reason": "center_target_before_approach"
+          },
+          {
+            "sequence": 29,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 233.199355756,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.5,
+            "reason": "center_target_before_approach"
+          },
+          {
+            "sequence": 30,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 233.313995016,
+            "forward_mps": 0.0,
+            "yaw_rps": 0.0,
+            "reason": "center_target_before_approach"
+          },
+          {
+            "sequence": 31,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 233.426549721,
+            "forward_mps": 0.0,
+            "yaw_rps": 0.0,
+            "reason": "center_target_before_approach"
+          },
+          {
+            "sequence": 32,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 233.537789148,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.5,
+            "reason": "center_target_before_approach"
+          },
+          {
+            "sequence": 33,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 233.652517885,
+            "forward_mps": 0.0,
+            "yaw_rps": 0.0,
+            "reason": "center_target_before_approach"
+          },
+          {
+            "sequence": 34,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 233.767290016,
+            "forward_mps": 0.0,
+            "yaw_rps": 0.0,
+            "reason": "center_target_before_approach"
+          },
+          {
+            "sequence": 35,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 233.883745855,
+            "forward_mps": 0.0,
+            "yaw_rps": 0.0,
+            "reason": "center_target_before_approach"
+          },
+          {
+            "sequence": 36,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 234.010305415,
+            "forward_mps": 0.55,
+            "yaw_rps": 0.0,
+            "reason": "approach_target_slow"
+          },
+          {
+            "sequence": 37,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 234.135995537,
+            "forward_mps": 0.55,
+            "yaw_rps": 0.0,
+            "reason": "approach_target_slow"
+          },
+          {
+            "sequence": 38,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 234.272698595,
+            "forward_mps": 0.55,
+            "yaw_rps": 0.0,
+            "reason": "approach_target_slow"
+          },
+          {
+            "sequence": 39,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 234.400345682,
+            "forward_mps": 0.55,
+            "yaw_rps": 0.0,
+            "reason": "approach_target_slow"
+          },
+          {
+            "sequence": 40,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 234.520539031,
+            "forward_mps": 0.55,
+            "yaw_rps": 0.0,
+            "reason": "approach_target_slow"
+          },
+          {
+            "sequence": 41,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 234.644186584,
+            "forward_mps": 0.55,
+            "yaw_rps": 0.0,
+            "reason": "approach_target_slow"
+          },
+          {
+            "sequence": 42,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 234.767365771,
+            "forward_mps": 0.55,
+            "yaw_rps": 0.0,
+            "reason": "approach_target_slow"
+          },
+          {
+            "sequence": 43,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 234.885882198,
+            "forward_mps": 0.55,
+            "yaw_rps": 0.0,
+            "reason": "approach_target_slow"
+          },
+          {
+            "sequence": 44,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 234.999126501,
+            "forward_mps": 0.55,
+            "yaw_rps": 0.0,
+            "reason": "approach_target_slow"
+          },
+          {
+            "sequence": 45,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 235.117168608,
+            "forward_mps": 0.55,
+            "yaw_rps": 0.0,
+            "reason": "approach_target_slow"
+          },
+          {
+            "sequence": 46,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 235.234117363,
+            "forward_mps": 0.55,
+            "yaw_rps": 0.0,
+            "reason": "approach_target_slow"
+          },
+          {
+            "sequence": 47,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 235.349283719,
+            "forward_mps": 0.55,
+            "yaw_rps": 0.0,
+            "reason": "approach_target_slow"
+          },
+          {
+            "sequence": 48,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 235.469390795,
+            "forward_mps": 0.55,
+            "yaw_rps": 0.0,
+            "reason": "approach_target_slow"
+          },
+          {
+            "sequence": 49,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 235.584648738,
+            "forward_mps": 0.55,
+            "yaw_rps": 0.0,
+            "reason": "approach_target_slow"
+          },
+          {
+            "sequence": 50,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 235.703695203,
+            "forward_mps": 0.55,
+            "yaw_rps": 0.0,
+            "reason": "approach_target_slow"
+          },
+          {
+            "sequence": 51,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 235.823105361,
+            "forward_mps": 0.55,
+            "yaw_rps": 0.0,
+            "reason": "approach_target_slow"
+          },
+          {
+            "sequence": 52,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 235.938969152,
+            "forward_mps": 0.55,
+            "yaw_rps": 0.0,
+            "reason": "approach_target_slow"
+          },
+          {
+            "sequence": 53,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 236.051294769,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.5,
+            "reason": "recenter_close_target"
+          },
+          {
+            "sequence": 54,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 236.167692051,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.5,
+            "reason": "recenter_close_target"
+          },
+          {
+            "sequence": 55,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 236.283497536,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.5,
+            "reason": "recenter_close_target"
+          },
+          {
+            "sequence": 56,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 236.39998967,
+            "forward_mps": 0.0,
+            "yaw_rps": 0.0,
+            "reason": "qualified_track_target_lost_off_axis"
+          }
+        ]
+      },
+      "stage_durations": {
+        "idle": 0.007,
+        "preflight": 0.03,
+        "capture_home": 0.026,
+        "wait_for_command": 0.016,
+        "orient_for_run": 0.025,
+        "turn_to_fruit": 4.945,
+        "find_fruit": 0.036,
+        "approach_fruit": 7.248
+      },
+      "lighting_frame": {
+        "path": "benchmarks/results/fruit-soak-v19-random-streak-attempt-02-run-01-frames/run-01-start.jpg",
+        "bytes": 76771
+      },
+      "stage_telemetry": {
+        "turn_to_fruit": {
+          "target_confidence": {
+            "min": 0.1778,
+            "mean": 0.4434,
+            "max": 0.709,
+            "samples": 2
+          },
+          "bbox_bottom_ratio": {
+            "min": 0.7361,
+            "mean": 0.7409,
+            "max": 0.7458,
+            "samples": 2
+          },
+          "app_latency_ms": {
+            "min": 27.5,
+            "mean": 40.45,
+            "max": 55.2,
+            "samples": 4
+          },
+          "app_errors": 0,
+          "temps_c": null
+        },
+        "approach_fruit": {
+          "target_confidence": {
+            "min": 0.3576,
+            "mean": 0.6465,
+            "max": 0.8117,
+            "samples": 4
+          },
+          "bbox_bottom_ratio": {
+            "min": 0.7306,
+            "mean": 0.742,
+            "max": 0.7583,
+            "samples": 4
+          },
+          "app_latency_ms": {
+            "min": 25.2,
+            "mean": 28.0,
+            "max": 34.8,
+            "samples": 4
+          },
+          "app_errors": 0,
+          "temps_c": null
+        },
+        "failed": {
+          "target_confidence": {
+            "min": 0.6514,
+            "mean": 0.6514,
+            "max": 0.6514,
+            "samples": 1
+          },
+          "bbox_bottom_ratio": {
+            "min": 0.8181,
+            "mean": 0.8181,
+            "max": 0.8181,
+            "samples": 1
+          },
+          "app_latency_ms": {
+            "min": 26.7,
+            "mean": 26.7,
+            "max": 26.7,
+            "samples": 1
+          },
+          "app_errors": 0,
+          "temps_c": null
+        }
+      },
+      "network": {
+        "poll_count": 9,
+        "error_count": 0,
+        "errors": [],
+        "latency_ms": {
+          "min": 25.2,
+          "mean": 33.3889,
+          "max": 55.2,
+          "samples": 9
+        },
+        "latency_p95_ms": 49.2,
+        "cut_out": false
+      },
+      "samples": [
+        {
+          "t_monotonic_s": 0.382928916,
+          "phase": "turn_to_fruit",
+          "app_latency_ms": 55.2,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false
+        },
+        {
+          "t_monotonic_s": 1.953142083,
+          "phase": "turn_to_fruit",
+          "app_latency_ms": 27.5,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false
+        },
+        {
+          "t_monotonic_s": 3.555420916,
+          "phase": "turn_to_fruit",
+          "app_latency_ms": 49.2,
+          "app_error": null,
+          "detection_label": "pear",
+          "confidence": 0.17781168222427368,
+          "inference_s": 0.06637007099999437,
+          "target_matches": true,
+          "bbox_bottom_ratio": 0.7458
+        },
+        {
+          "t_monotonic_s": 5.142394125,
+          "phase": "turn_to_fruit",
+          "app_latency_ms": 29.9,
+          "app_error": null,
+          "detection_label": "pear",
+          "confidence": 0.7090195417404175,
+          "inference_s": 0.12844105199999944,
+          "target_matches": true,
+          "bbox_bottom_ratio": 0.7361
+        },
+        {
+          "t_monotonic_s": 6.705764291,
+          "phase": "approach_fruit",
+          "app_latency_ms": 25.2,
+          "app_error": null,
+          "detection_label": "pear",
+          "confidence": 0.3575683832168579,
+          "inference_s": 0.1321603560000142,
+          "target_matches": true,
+          "bbox_bottom_ratio": 0.7389
+        },
+        {
+          "t_monotonic_s": 8.289427791,
+          "phase": "approach_fruit",
+          "app_latency_ms": 34.8,
+          "app_error": null,
+          "detection_label": "pear",
+          "confidence": 0.8116765022277832,
+          "inference_s": 0.1272683480000012,
+          "target_matches": true,
+          "bbox_bottom_ratio": 0.7306
+        },
+        {
+          "t_monotonic_s": 9.859586333,
+          "phase": "approach_fruit",
+          "app_latency_ms": 26.4,
+          "app_error": null,
+          "detection_label": "pear",
+          "confidence": 0.6706076860427856,
+          "inference_s": 0.12890505199999325,
+          "target_matches": true,
+          "bbox_bottom_ratio": 0.7403
+        },
+        {
+          "t_monotonic_s": 11.447615833,
+          "phase": "approach_fruit",
+          "app_latency_ms": 25.6,
+          "app_error": null,
+          "detection_label": "pear",
+          "confidence": 0.7461398243904114,
+          "inference_s": 0.12889727800001083,
+          "target_matches": true,
+          "bbox_bottom_ratio": 0.7583
+        },
+        {
+          "t_monotonic_s": 13.023707833,
+          "phase": "failed",
+          "app_latency_ms": 26.7,
+          "app_error": null,
+          "detection_label": "pear",
+          "confidence": 0.651354193687439,
+          "inference_s": 0.1323557439999945,
+          "target_matches": true,
+          "bbox_bottom_ratio": 0.8181
+        }
+      ],
+      "preflight_probes": {
+        "dongle": {
+          "checked": true,
+          "usb_devices": null,
+          "audio_devices": null
+        },
+        "wifi_before": null
+      },
+      "wifi_after": null,
+      "recovery": {
+        "outcome": "NOT_STARTED",
+        "error": "HTTP Error 409: Conflict"
+      }
+    }
+  ],
+  "aborted": "run 1 failed and Home recovery was not accepted: HTTP Error 409: Conflict",
+  "scorecard": {
+    "recorded_only": true,
+    "note": "criteria are recorded, never enforced; the session continues regardless",
+    "criteria": {
+      "completion": {
+        "passed": false,
+        "completed": 0,
+        "attempted": 1,
+        "target_runs": 1,
+        "remote_takeovers": 0,
+        "harness_stops": 0
+      },
+      "home_gate": {
+        "passed": null,
+        "detail": "no terminal home measurements yet"
+      },
+      "fruit_coverage": {
+        "passed": false,
+        "minimum_successes": 2,
+        "required_fruits": [
+          "apple",
+          "banana",
+          "pear"
+        ],
+        "per_fruit": {
+          "apple": {
+            "attempts": 0,
+            "successes": 0
+          },
+          "banana": {
+            "attempts": 0,
+            "successes": 0
+          },
+          "pear": {
+            "attempts": 1,
+            "successes": 0
+          }
+        }
+      },
+      "approach_confidence_floor": {
+        "passed": false,
+        "per_run": [
+          {
+            "number": 1,
+            "fruit": "pear",
+            "floor": 0.65,
+            "min_confidence": 0.3576,
+            "held": false
+          }
+        ]
+      },
+      "network_stability": {
+        "passed": true,
+        "cutouts": 0,
+        "worst_p95_ms": 49.2,
+        "p95_limit_ms": 250.0
+      },
+      "thermal_trend": {
+        "passed": null,
+        "detail": "temperatures not measured (or <2 runs)"
+      },
+      "dongle_visible": {
+        "passed": null,
+        "detail": "dongle not probed (enable --device-probes and --dongle-match)"
+      }
+    },
+    "failure_counts": {
+      "total_failed_runs": 1,
+      "by_reason": {
+        "TARGET_LOST_OFF_AXIS": 1
+      },
+      "by_failed_phase": {
+        "approach_fruit": 1
+      },
+      "by_category": {
+        "other": 1
+      },
+      "by_category_and_fruit": {
+        "other:pear": 1
+      },
+      "observations_not_failure_causes": {
+        "network_poll_errors": 0,
+        "zero_degree_orientation_runs": 1
+      },
+      "attribution_note": "network polling errors and the 0-degree orientation setting are observations, not attributed mission failure causes"
+    },
+    "observations": {
+      "approach_min_confidence_by_fruit": {
+        "pear": {
+          "min": 0.358,
+          "mean": 0.358,
+          "runs": 1
+        }
+      },
+      "acquisition_seconds_by_fruit": {
+        "pear": [
+          4.95
+        ]
+      },
+      "lighting_frames": [
+        "benchmarks/results/fruit-soak-v19-random-streak-attempt-02-run-01-frames/run-01-start.jpg"
+      ]
+    }
+  },
+  "failure_counts": {
+    "total_failed_runs": 1,
+    "by_reason": {
+      "TARGET_LOST_OFF_AXIS": 1
+    },
+    "by_failed_phase": {
+      "approach_fruit": 1
+    },
+    "by_category": {
+      "other": 1
+    },
+    "by_category_and_fruit": {
+      "other:pear": 1
+    },
+    "observations_not_failure_causes": {
+      "network_poll_errors": 0,
+      "zero_degree_orientation_runs": 1
+    },
+    "attribution_note": "network polling errors and the 0-degree orientation setting are observations, not attributed mission failure causes"
+  }
+}

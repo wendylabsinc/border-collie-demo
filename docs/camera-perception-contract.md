@@ -4,6 +4,18 @@ Motion may be authorized only by perception derived from a camera source that
 proves source progress. Callback receipt, local counters, and changing HTTP
 responses are not source-progress evidence.
 
+## Search experiment boundary
+
+The v21 search-policy experiment may change only how bounded yaw search obtains
+a qualification handoff. Every policy continues to require camera health,
+current source and detection ages, matching fruit/generation/timebase, valid
+non-regressed PTS, per-fruit acquisition confidence, bounded inference time,
+and normalized geometry. `fast-lock` changes the consecutive-frame count only;
+`slow-sweep` changes broad yaw only; `double-back` adds bounded yaw-only revisit
+episodes. No policy weakens approach tracking, Final Approach, Arrival, or
+Home-return gates. The policy selected at run activation is immutable and is
+part of retained result evidence.
+
 ## Required frame identity
 
 Every accepted frame must carry:
@@ -144,12 +156,16 @@ may be relaxed only after new acceptance evidence is recorded.
   promoted only when it reaches 0.55, improves the proposal, and overlaps it by
   at least 0.10 IoU. The combined time for both passes is the reported detector
   execution time; crop confirmation does not relax any freshness deadline.
-- During bounded search, a crop-confirmed full-frame proposal at or above 0.50
-  slows rotation with alternating reliable-rate yaw and zero-yaw heartbeats.
-  The controller does not substitute a weaker yaw signal because smaller turn
-  commands have not moved Woof reliably. If the enlarged result does not reach
-  the unchanged 0.65 acquisition threshold for five frames, bounded rotation
-  continues. Only qualified acquisition stops the search.
+- During bounded search, a same-fruit proposal at or above 0.50 enters a
+  yaw-only second scan; this threshold cannot acquire a fruit or authorize
+  translation. The controller first holds for 0.75 seconds, then turns toward
+  the proposal at 0.20 rad/s only after two samples agree that its horizontal
+  center is outside +/-0.12 of frame center. It commands zero yaw inside that
+  band. A brief proposal loss holds zero for at most 1.0 second instead of
+  immediately restarting the broad sweep, and no more than two alignment
+  episodes may start. Search uses direct SportClient yaw, where 0.20 rad/s is
+  the existing fine-search setting; this does not revise the separate
+  factory-avoidance yaw deadband. Only qualified acquisition stops the search.
 - After acquisition is complete, approach tracking uses hysteresis: **3
   consecutive pear detections at or above 0.55** may extend tracking. This
   lower threshold cannot acquire a pear, start a search result, or bypass any
@@ -158,7 +174,7 @@ may be relaxed only after new acceptance evidence is recorded.
   pear or confirms a bounded sight-lost-close Arrival.
 - Search qualification crosses into approach through one explicit, immutable
   handoff. It records the requested fruit, camera generation, source PTS and
-  time base, qualification monotonic time, five-frame stability count,
+  time base, qualification monotonic time, the fruit-specific stability count,
   acquisition-grade confidence, and normalized geometry. Approach consumes
   that handoff at most once and only within 0.250 seconds when a current fresh
   same-fruit sample matches generation/time base, has non-regressed source
@@ -256,9 +272,12 @@ never converts the failed fruit attempt into success.
 
 ## Evidence and remaining qualification
 
-The provisioned engine also represents apple and banana. `RED-APPLE-001`
-qualifies red apple at 0.70 confidence by five fresh detections; pear remains
-qualified at 0.65 by five. Banana stays a camera-only **Supported Fruit**. The
+The provisioned engine also represents apple and banana. The current v27
+candidate requires apple acquisition at 0.50 confidence by three fresh fully
+qualified detections and continues apple tracking at the same 0.50 floor.
+Pear remains at 0.65 acquisition by five detections and 0.55 continued
+tracking. Banana remains separately gated by its resident specialist and
+requires five search detections. The
 green apple trial produced no apple proposal and was classified as pear when
 class filtering was removed, so green apple is outside the qualified operating
 envelope. The `/fruit-test` surface remains motion-free. Selecting a different
@@ -290,12 +309,9 @@ branch):
 
 - **Every motion-relevant consumer MUST apply its own explicit confidence
   floor.** Current floors live in `fruits.py` (acquisition and close-range
-  tracking per fruit) and in the arrival-visibility check. The lowest
-  legitimate consumer floor is apple's 0.10 close-range tracking confidence,
-  so a sidecar-side floor would have to sit below 0.10 to avoid starving the
-  close-range continuation path - at which point it filters only absolute
-  noise while adding a second policy location that must forever stay below
-  every app floor.
+  tracking per fruit) and in the arrival-visibility check. The sidecar remains
+  raw so policy stays consumer-owned and weak evidence remains observable for
+  diagnostics and the motion-free `/fruit-test` page.
 - Raw publication is what makes failures diagnosable from telemetry: the
   phantom above was identified from recorded sub-floor samples, and the
   close-range confidence collapse of a real pear (0.27 at bottom 0.997) was

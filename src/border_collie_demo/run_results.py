@@ -13,6 +13,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from .evidence import EvidenceArtifact
+from .flight_recorder import RunTrace
 
 
 class ActiveRunError(RuntimeError):
@@ -111,6 +112,7 @@ class RunResultStore:
         target_fruit: str,
         activation_source: str,
         orientation_degrees: float = 0.0,
+        search_policy: str = "slow-sweep",
         idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         if self._active_run_id is not None:
@@ -129,6 +131,7 @@ class RunResultStore:
             "idempotency_key": idempotency_key,
             "run_epoch": str(uuid4()),
             "orientation_degrees": float(orientation_degrees),
+            "search_policy": search_policy,
             "started_at_utc": started_utc,
             "started_monotonic_s": started_monotonic_s,
             "ended_at_utc": None,
@@ -163,6 +166,7 @@ class RunResultStore:
         target_fruit: str,
         activation_source: str,
         orientation_degrees: float = 0.0,
+        search_policy: str = "slow-sweep",
         idempotency_key: str | None = None,
     ) -> tuple[dict[str, Any], bool]:
         key = None if idempotency_key is None else idempotency_key.strip()
@@ -175,11 +179,13 @@ class RunResultStore:
                     target_fruit,
                     activation_source,
                     float(orientation_degrees),
+                    search_policy,
                 )
                 actual = (
                     existing.get("target_fruit"),
                     existing.get("activation_source"),
                     float(existing.get("orientation_degrees", 0.0)),
+                    existing.get("search_policy", "slow-sweep"),
                 )
                 if actual != expected:
                     raise ActiveRunError(
@@ -193,6 +199,7 @@ class RunResultStore:
                 target_fruit=target_fruit,
                 activation_source=activation_source,
                 orientation_degrees=orientation_degrees,
+                search_policy=search_policy,
                 idempotency_key=key,
             ),
             True,
@@ -423,6 +430,88 @@ class RunResultStore:
         self._write_result(result)
         return deepcopy(result)
 
+    def record_snapshot(
+        self,
+        run_id: str,
+        *,
+        kind: str,
+        context: str,
+        artifact: EvidenceArtifact,
+    ) -> dict[str, Any]:
+        """Append one bounded debug snapshot to an active or terminal run."""
+        result = self.get(run_id)
+        run_dir = self.root / str(UUID(run_id)) / "snapshots"
+        destination = run_dir / artifact.filename
+        temporary = run_dir / f".{artifact.filename}.tmp"
+        with temporary.open("wb") as output:
+            output.write(artifact.content)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, destination)
+        descriptor = {
+            "kind": kind,
+            "context": context,
+            "available": True,
+            "filename": artifact.filename,
+            "relative_path": f"snapshots/{artifact.filename}",
+            "content_type": artifact.content_type,
+            "size_bytes": len(artifact.content),
+            "sha256": sha256(artifact.content).hexdigest(),
+        }
+        snapshots = result.setdefault("snapshots", [])
+        snapshots[:] = [
+            item
+            for item in snapshots
+            if not (
+                isinstance(item, dict)
+                and item.get("kind") == kind
+                and item.get("context") == context
+            )
+        ]
+        snapshots.append(deepcopy(descriptor))
+        artifacts = result.setdefault("artifacts", [])
+        artifacts[:] = [
+            item
+            for item in artifacts
+            if not (
+                isinstance(item, dict)
+                and item.get("filename") == artifact.filename
+            )
+        ]
+        artifacts.append(deepcopy(descriptor))
+        self._write_result(result)
+        return deepcopy(descriptor)
+
+    def record_snapshot_unavailable(
+        self,
+        run_id: str,
+        *,
+        kind: str,
+        context: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        """Record a failed optional snapshot without changing run safety state."""
+        result = self.get(run_id)
+        descriptor = {
+            "kind": kind,
+            "context": context,
+            "available": False,
+            "unavailable_reason": reason,
+        }
+        snapshots = result.setdefault("snapshots", [])
+        snapshots[:] = [
+            item
+            for item in snapshots
+            if not (
+                isinstance(item, dict)
+                and item.get("kind") == kind
+                and item.get("context") == context
+            )
+        ]
+        snapshots.append(deepcopy(descriptor))
+        self._write_result(result)
+        return deepcopy(descriptor)
+
     def record_evidence_unavailable(
         self,
         run_id: str,
@@ -435,6 +524,48 @@ class RunResultStore:
         result["evidence_capture"] = {
             "available": False,
             "unavailable_reason": reason,
+        }
+        self._write_result(result)
+        return deepcopy(result)
+
+    def record_black_box_trace(
+        self,
+        run_id: str,
+        trace: RunTrace,
+    ) -> dict[str, Any]:
+        """Atomically retain the diagnostic trace for one run, terminal or active."""
+        result = self.get(run_id)
+        run_dir = self.root / str(UUID(run_id))
+        destination = run_dir / trace.artifact.filename
+        temporary = run_dir / f".{trace.artifact.filename}.tmp"
+        with temporary.open("wb") as output:
+            output.write(trace.artifact.content)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, destination)
+        result["black_box_trace"] = {
+            "filename": trace.artifact.filename,
+            "content_type": trace.artifact.content_type,
+            "size_bytes": len(trace.artifact.content),
+            "sha256": sha256(trace.artifact.content).hexdigest(),
+            "event_count": trace.event_count,
+            "first_sequence": trace.first_sequence,
+            "last_sequence": trace.last_sequence,
+            "captured_at_utc": _utc_now(),
+        }
+        self._write_result(result)
+        return deepcopy(result)
+
+    def record_black_box_unavailable(
+        self,
+        run_id: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        result = self.get(run_id)
+        result["black_box_trace"] = {
+            "available": False,
+            "unavailable_reason": reason,
+            "captured_at_utc": _utc_now(),
         }
         self._write_result(result)
         return deepcopy(result)
@@ -497,7 +628,15 @@ class RunResultStore:
         if outcome == "COMPLETED":
             result = self._compact_success(result)
             self._write_result(result)
-            cleanup_errors = self._discard_success_details(run_id)
+            retained_artifacts = {
+                item["filename"]
+                for item in result.get("artifacts", [])
+                if isinstance(item, dict) and isinstance(item.get("filename"), str)
+            }
+            cleanup_errors = self._discard_success_details(
+                run_id,
+                retained_artifacts=retained_artifacts,
+            )
             if cleanup_errors:
                 result["retention_cleanup"] = {
                     "complete": False,
@@ -564,6 +703,21 @@ class RunResultStore:
             raise RunResultNotFound(filename)
         return path, content_type
 
+    def black_box_trace_path(self, run_id: str) -> tuple[Path, str]:
+        result = self.get(run_id)
+        descriptor = result.get("black_box_trace")
+        if not isinstance(descriptor, dict):
+            raise RunResultNotFound("black-box trace")
+        filename = descriptor.get("filename")
+        content_type = descriptor.get("content_type")
+        if not isinstance(filename, str) or not isinstance(content_type, str):
+            raise RunResultNotFound("black-box trace")
+        run_dir = (self.root / str(UUID(run_id))).resolve()
+        path = (run_dir / filename).resolve()
+        if path.parent != run_dir or not path.is_file():
+            raise RunResultNotFound("black-box trace")
+        return path, content_type
+
     def _append_event(
         self,
         result: dict[str, Any],
@@ -626,6 +780,7 @@ class RunResultStore:
     def _compact_success(self, result: dict[str, Any]) -> dict[str, Any]:
         stages = result.get("stage_results") or {}
         orientation = stages.get("orient_for_run") or {}
+        broad_search = stages.get("turn_to_fruit") or {}
         recognition = stages.get("find_fruit") or {}
         approach = stages.get("approach_fruit") or {}
         action = stages.get("sit_and_bark") or {}
@@ -657,6 +812,11 @@ class RunResultStore:
             "measured_orientation_change_rad": orientation.get(
                 "measured_yaw_change_rad"
             ),
+            "search_policy": (
+                result.get("search_policy")
+                or broad_search.get("search_policy")
+                or recognition.get("search_policy")
+            ),
             "recognition_label": recognition.get("label"),
             "recognition_confidence": recognition.get("confidence"),
             "recognition_stable_detections": recognition.get("stable_detections"),
@@ -682,6 +842,7 @@ class RunResultStore:
             "idempotency_key": result.get("idempotency_key"),
             "run_epoch": result.get("run_epoch"),
             "orientation_degrees": result.get("orientation_degrees", 0.0),
+            "search_policy": result.get("search_policy", "slow-sweep"),
             "started_at_utc": result["started_at_utc"],
             "ended_at_utc": result["ended_at_utc"],
             "duration_s": result["duration_s"],
@@ -691,11 +852,20 @@ class RunResultStore:
             "message": result["message"],
             "failed_phase": None,
             "final_safety_state": result["final_safety_state"],
+            "black_box_trace": result.get("black_box_trace"),
             "key_values": key_values,
+            "snapshots": deepcopy(result.get("snapshots", [])),
+            "artifacts": deepcopy(result.get("artifacts", [])),
         }
 
-    def _discard_success_details(self, run_id: str) -> list[str]:
+    def _discard_success_details(
+        self,
+        run_id: str,
+        *,
+        retained_artifacts: set[str] | None = None,
+    ) -> list[str]:
         run_dir = self.root / str(UUID(run_id))
+        retained = retained_artifacts or set()
         errors: list[str] = []
         events = run_dir / "events.ndjson"
         if events.is_file():
@@ -705,10 +875,21 @@ class RunResultStore:
                 errors.append(f"events.ndjson: {exc}")
         snapshots = run_dir / "snapshots"
         if snapshots.is_dir():
-            try:
-                shutil.rmtree(snapshots)
-            except OSError as exc:
-                errors.append(f"snapshots: {exc}")
+            for artifact in snapshots.iterdir():
+                if artifact.name in retained:
+                    continue
+                try:
+                    if artifact.is_dir():
+                        shutil.rmtree(artifact)
+                    else:
+                        artifact.unlink()
+                except OSError as exc:
+                    errors.append(f"snapshots/{artifact.name}: {exc}")
+            if not retained:
+                try:
+                    snapshots.rmdir()
+                except OSError as exc:
+                    errors.append(f"snapshots: {exc}")
         return errors
 
     def _write_result(self, result: dict[str, Any]) -> None:

@@ -47,6 +47,13 @@ comparison with the current detector. JPEG and archive generation stay on the
 dedicated inference worker or a background thread so the `/status` safety
 deadline is not blocked.
 
+`/status.pipeline` exposes the active `baseline` or `throughput-v1` scheduling
+profile and its source, processed, dropped, inference-pass, route, odometry,
+and preview evidence. The throughput profile publishes source-bound motion
+evidence before latest-only visual-odometry and JPEG workers; those auxiliary
+workers can drop pending obsolete frames but cannot reorder or refresh motion
+evidence.
+
 Fieldmark may capture from
 `http://woof.local:8111/api/camera/raw.jpg`, or an operator may extract and
 upload `frames/*.jpg` from a failed Run Result. Fieldmark is perception-only;

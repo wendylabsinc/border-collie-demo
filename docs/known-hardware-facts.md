@@ -49,9 +49,11 @@ proof that this clean implementation works:
   tracker and observed 165 fresh same-label apple samples whose confidence
   peaked at 0.6477978. The unchanged 0.70 acquisition gate therefore produced
   zero qualified approach samples, zero forward pulses, and an Arrival timeout.
-  Preserve the 0.70 ordinary apple gate; transfer the completed search identity
-  through the bounded search-to-approach handoff and require current tracking-
-  floor geometry plus fresh centering before translation.
+  This historical v19 result motivated the bounded search-to-approach handoff.
+  The v23 experiment supersedes its threshold recommendation by testing apple
+  at the pear policy's 0.65 acquisition and 0.55 continued-tracking floors;
+  current tracking-floor geometry plus fresh centering remain mandatory before
+  translation.
 - Return success must include measured position, restored heading, and a final
   disarmed state.
 

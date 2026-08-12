@@ -27,6 +27,13 @@ from fastapi import FastAPI, HTTPException, Response
 from pydantic import BaseModel
 
 from media.model_router import FruitCandidate, FruitModelRouter, RoutedPrediction
+from media.perception_pipeline import (
+    FrameRoute,
+    InferenceOutcome,
+    PerceptionPipeline,
+    PipelineProfile,
+    SourceFrame,
+)
 from media.service_supervision import (
     ServiceState,
     ServiceSupervisionConfig,
@@ -35,7 +42,7 @@ from media.service_supervision import (
 from media.visual_odometry import SparseVisualOdometry, VisualOdometryConfig
 
 FRUIT_ACQUISITION_CONFIDENCE = {
-    "apple": 0.70,
+    "apple": 0.50,
     "banana": 0.20,
     "pear": 0.65,
 }
@@ -535,6 +542,10 @@ class PerceptionRuntime:
         self._fruit_class_ids: dict[str, int] = {}
         self._target_lock = Lock()
         self._target_fruit = "pear"
+        self._pipeline_profile = PipelineProfile.parse(
+            os.environ.get("PERCEPTION_PIPELINE_PROFILE", "baseline")
+        )
+        self._pipeline: PerceptionPipeline | None = None
         self._inference_executor = ThreadPoolExecutor(
             max_workers=1,
             thread_name_prefix="border-collie-inference",
@@ -610,7 +621,16 @@ class PerceptionRuntime:
                 self.banana_specialist_minimum_agreement_iou
             ),
         )
-        self._detector_task = asyncio.create_task(self._detect())
+        self._pipeline = PerceptionPipeline(
+            profile=self._pipeline_profile,
+            target_fruit=self._selected_target,
+            infer=self._infer_source_frame,
+            publish=self._publish_inference,
+            visual_odometry=self._observe_inference,
+            preview=self._preview_inference,
+            inference_executor=self._inference_executor,
+        )
+        await self._pipeline.start()
         self._supervisor_task = asyncio.create_task(self._supervise_sessions())
 
     async def close(self) -> None:
@@ -620,6 +640,9 @@ class PerceptionRuntime:
             await asyncio.gather(self._supervisor_task, return_exceptions=True)
             self._supervisor_task = None
         await self._cleanup_session()
+        if self._pipeline is not None:
+            await self._pipeline.close()
+            self._pipeline = None
         if self._detector_task is not None:
             self._detector_task.cancel()
             await asyncio.gather(self._detector_task, return_exceptions=True)
@@ -667,8 +690,20 @@ class PerceptionRuntime:
                     ),
                 }
             ),
+            "pipeline": (
+                self._pipeline.status()
+                if self._pipeline is not None
+                else {
+                    "profile": self._pipeline_profile.value,
+                    "state": "not_started",
+                }
+            ),
             "visual_odometry": self._visual_odometry.status(),
         }
+
+    def _selected_target(self) -> str:
+        with self._target_lock:
+            return self._target_fruit
 
     def select_target(self, target_fruit: str) -> dict[str, object]:
         normalized = target_fruit.casefold().strip()
@@ -859,6 +894,17 @@ class PerceptionRuntime:
                     pts,
                     now_s=received,
                 )
+                if self._pipeline is not None:
+                    self._pipeline.submit(
+                        SourceFrame(
+                            generation=active_generation,
+                            frame=frame,
+                            received_monotonic_s=received,
+                            pts=pts,
+                            time_base=str(frame.time_base),
+                        )
+                    )
+                    continue
                 if self._frames.full():
                     self._frames.get_nowait()
                 self._frames.put_nowait(
@@ -923,46 +969,48 @@ class PerceptionRuntime:
         pts: int,
         time_base: str,
         generation: str | None = None,
+        *,
+        route: FrameRoute = FrameRoute.BASELINE,
     ) -> None:
-        """Own all frame conversion, model, postprocess, and preview work."""
-        if generation is not None and generation != self.evidence.generation:
+        """Compatibility wrapper for deterministic single-frame tests."""
+        source = SourceFrame(
+            generation=generation or self.evidence.generation,
+            frame=frame,
+            received_monotonic_s=received_monotonic_s,
+            pts=pts,
+            time_base=time_base,
+        )
+        outcome = self._infer_source_frame(source, route)
+        if outcome is None:
             return
+        self._observe_inference(outcome)
+        self._publish_inference(outcome)
+        self._preview_inference(outcome)
+
+    def _infer_source_frame(
+        self,
+        source: SourceFrame,
+        route: FrameRoute,
+    ) -> InferenceOutcome | None:
+        """Run only model work and return immutable source-bound evidence."""
+        if source.generation != self.evidence.generation:
+            return None
         assert self._model is not None and self._fruit_class_ids
-        with self._target_lock:
-            target_fruit = self._target_fruit
-        bgr = frame.to_ndarray(format="bgr24")
+        target_fruit = self._selected_target()
+        bgr = source.frame.to_ndarray(format="bgr24")
         started = time.monotonic()
         try:
-            full_frame_prediction = self._predict_candidate(
-                source=bgr,
-                target_fruit=target_fruit,
-            )
-            candidate = full_frame_prediction.candidate
-            inference_passes = full_frame_prediction.inference_passes
             model_route: dict[str, object] = {
-                "full_frame": full_frame_prediction.route,
+                "full_frame": None,
                 "search_crop": None,
                 "crop_confirmation": None,
-            }
-            crop_confirmation: dict[str, object] = {
-                "attempted": False,
-                "promoted": False,
-                "full_frame_confidence": (
-                    None if candidate is None else candidate.confidence
-                ),
-                "crop_confidence": None,
-                "crop_xyxy": None,
-                "agreement_iou": None,
             }
             search_crop: dict[str, object] = {
                 "attempted": False,
                 "crop_xyxy": None,
             }
-            if (
-                candidate is None
-                and target_fruit in SEARCH_CROP_FRUITS
-                and not bool(full_frame_prediction.route.get("triggered"))
-            ):
+            route_triggered = False
+            if route is FrameRoute.LOWER_CENTER_SEARCH_CROP:
                 search_crop_xyxy = _lower_center_search_crop(
                     width=int(bgr.shape[1]),
                     height=int(bgr.shape[0]),
@@ -975,17 +1023,62 @@ class PerceptionRuntime:
                     x_offset=crop_x1,
                     y_offset=crop_y1,
                 )
-                inference_passes += search_prediction.inference_passes
                 candidate = search_prediction.candidate
+                inference_passes = search_prediction.inference_passes
+                route_triggered = bool(search_prediction.route.get("triggered"))
                 model_route["search_crop"] = search_prediction.route
                 search_crop = {
                     "attempted": True,
                     "crop_xyxy": list(search_crop_xyxy),
                 }
+            else:
+                full_frame_prediction = self._predict_candidate(
+                    source=bgr,
+                    target_fruit=target_fruit,
+                )
+                candidate = full_frame_prediction.candidate
+                inference_passes = full_frame_prediction.inference_passes
+                route_triggered = bool(full_frame_prediction.route.get("triggered"))
+                model_route["full_frame"] = full_frame_prediction.route
+                if (
+                    route is FrameRoute.BASELINE
+                    and candidate is None
+                    and target_fruit in SEARCH_CROP_FRUITS
+                    and not route_triggered
+                ):
+                    search_crop_xyxy = _lower_center_search_crop(
+                        width=int(bgr.shape[1]),
+                        height=int(bgr.shape[0]),
+                    )
+                    crop_x1, crop_y1, crop_x2, crop_y2 = search_crop_xyxy
+                    cropped_bgr = bgr[crop_y1:crop_y2, crop_x1:crop_x2]
+                    search_prediction = self._predict_candidate(
+                        source=cropped_bgr,
+                        target_fruit=target_fruit,
+                        x_offset=crop_x1,
+                        y_offset=crop_y1,
+                    )
+                    inference_passes += search_prediction.inference_passes
+                    candidate = search_prediction.candidate
+                    model_route["search_crop"] = search_prediction.route
+                    search_crop = {
+                        "attempted": True,
+                        "crop_xyxy": list(search_crop_xyxy),
+                    }
+            crop_confirmation: dict[str, object] = {
+                "attempted": False,
+                "promoted": False,
+                "full_frame_confidence": (
+                    None if candidate is None else candidate.confidence
+                ),
+                "crop_confidence": None,
+                "crop_xyxy": None,
+                "agreement_iou": None,
+            }
             if (
                 candidate is not None
                 and not search_crop["attempted"]
-                and not bool(full_frame_prediction.route.get("triggered"))
+                and not route_triggered
                 and self._should_crop_confirm(
                     candidate,
                     width=int(bgr.shape[1]),
@@ -1040,41 +1133,61 @@ class PerceptionRuntime:
                     assert crop_candidate is not None
                     candidate = crop_candidate
         except Exception as exc:  # noqa: BLE001 - detector errors are untyped
-            if generation is not None and generation != self.evidence.generation:
+            if source.generation != self.evidence.generation:
                 return
             self.evidence.fail(f"detector failure: {type(exc).__name__}: {exc}")
             self._publish_preview(
                 bgr,
                 message="MODEL ERROR",
                 color=(0, 0, 255),
-                pts=pts,
-                time_base=time_base,
-                received_monotonic_s=received_monotonic_s,
+                pts=source.pts,
+                time_base=source.time_base,
+                received_monotonic_s=source.received_monotonic_s,
                 detection={},
-                generation=generation,
+                generation=source.generation,
             )
             return
         completed = time.monotonic()
-        if generation is not None and generation != self.evidence.generation:
+        if source.generation != self.evidence.generation:
             return
-        self._visual_odometry.observe(
-            bgr,
-            captured_monotonic_s=received_monotonic_s,
-            source_pts=pts,
-            generation=generation or self.evidence.generation,
+        return InferenceOutcome(
+            source=source,
+            target_fruit=target_fruit,
+            route=route,
+            payload={
+                "bgr": bgr,
+                "candidate": candidate,
+                "model_route": model_route,
+                "crop_confirmation": crop_confirmation,
+                "search_crop": search_crop,
+                "completed_monotonic_s": completed,
+                "published_detection": None,
+            },
+            candidate_present=candidate is not None,
+            route_triggered=route_triggered,
+            inference_passes=inference_passes,
+            inference_s=completed - started,
         )
+
+    def _observe_inference(self, outcome: InferenceOutcome) -> None:
+        if outcome.source.generation != self.evidence.generation:
+            return
+        payload = outcome.payload
+        self._visual_odometry.observe(
+            payload["bgr"],
+            captured_monotonic_s=outcome.source.received_monotonic_s,
+            source_pts=outcome.source.pts,
+            generation=outcome.source.generation,
+        )
+
+    def _publish_inference(self, outcome: InferenceOutcome) -> None:
+        if outcome.source.generation != self.evidence.generation:
+            return
+        payload = outcome.payload
+        candidate = payload["candidate"]
         if candidate is None:
-            self.evidence.note_miss(target_fruit)
-            self._publish_preview(
-                bgr,
-                message=f"SEARCHING FOR {target_fruit.upper()}",
-                color=(0, 191, 255),
-                pts=pts,
-                time_base=time_base,
-                received_monotonic_s=received_monotonic_s,
-                detection={},
-                generation=generation,
-            )
+            self.evidence.note_miss(outcome.target_fruit)
+            payload["published_detection"] = {}
             return
         # Published raw by contract: consumers own their confidence floors.
         # See docs/camera-perception-contract.md, "Published detection
@@ -1083,21 +1196,46 @@ class PerceptionRuntime:
         confidence = candidate.confidence
         bbox = candidate.bbox_xyxy
         detection = self.evidence.note_detection(
-            pts=pts,
-            label=target_fruit,
+            pts=outcome.source.pts,
+            label=outcome.target_fruit,
             confidence=confidence,
             bbox_xyxy=bbox,
-            inference_s=completed - started,
-            completed_monotonic_s=completed,
+            inference_s=outcome.inference_s,
+            completed_monotonic_s=payload["completed_monotonic_s"],
             details={
-                "inference_passes": inference_passes,
-                "model_route": model_route,
-                "crop_confirmation": crop_confirmation,
-                "search_crop": search_crop,
+                "inference_passes": outcome.inference_passes,
+                "frame_route": outcome.route.value,
+                "model_route": payload["model_route"],
+                "crop_confirmation": payload["crop_confirmation"],
+                "search_crop": payload["search_crop"],
             },
         )
+        payload["published_detection"] = detection
+
+    def _preview_inference(self, outcome: InferenceOutcome) -> None:
+        if outcome.source.generation != self.evidence.generation:
+            return
+        payload = outcome.payload
+        candidate = payload["candidate"]
+        detection = payload["published_detection"]
+        if candidate is None:
+            self._publish_preview(
+                payload["bgr"],
+                message=f"SEARCHING FOR {outcome.target_fruit.upper()}",
+                color=(0, 191, 255),
+                pts=outcome.source.pts,
+                time_base=outcome.source.time_base,
+                received_monotonic_s=outcome.source.received_monotonic_s,
+                detection={},
+                generation=outcome.source.generation,
+            )
+            return
         if detection is None:
             return
+        confidence = candidate.confidence
+        bbox = candidate.bbox_xyxy
+        crop_confirmation = payload["crop_confirmation"]
+        search_crop = payload["search_crop"]
         crop_message = (
             " | CROP CONFIRMED"
             if crop_confirmation["promoted"]
@@ -1107,19 +1245,19 @@ class PerceptionRuntime:
         )
         search_crop_message = " | SEARCH CROP" if search_crop["attempted"] else ""
         self._publish_preview(
-            bgr,
+            payload["bgr"],
             bbox_xyxy=bbox,
             message=(
-                f"{target_fruit.upper()} {confidence:.0%} | "
+                f"{outcome.target_fruit.upper()} {confidence:.0%} | "
                 f"{detection['consecutive_detections']}/5"
                 f"{crop_message}{search_crop_message}"
             ),
             color=(0, 200, 0),
-            pts=pts,
-            time_base=time_base,
-            received_monotonic_s=received_monotonic_s,
+            pts=outcome.source.pts,
+            time_base=outcome.source.time_base,
+            received_monotonic_s=outcome.source.received_monotonic_s,
             detection=detection,
-            generation=generation,
+            generation=outcome.source.generation,
         )
 
     def _should_crop_confirm(

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
@@ -17,6 +18,16 @@ from .evidence import EvidenceArtifact
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+@dataclass(frozen=True)
+class RunTrace:
+    """One immutable, run-filtered view of the rolling flight recorder."""
+
+    artifact: EvidenceArtifact
+    event_count: int
+    first_sequence: int | None
+    last_sequence: int | None
 
 
 class FlightRecorder:
@@ -87,6 +98,45 @@ class FlightRecorder:
             filename="flight-recorder.ndjson",
             content_type="application/x-ndjson",
             content=content,
+        )
+
+    def snapshot_run(self, run_id: str) -> RunTrace:
+        """Freeze only events owned by one Demo Run, retaining original hashes."""
+        if not run_id.strip():
+            raise ValueError("run identifier is required")
+        selected: list[bytes] = []
+        sequences: list[int] = []
+        with self._lock:
+            paths = [
+                *sorted(self.root.glob("segment-*.ndjson")),
+                self.root / "active.ndjson",
+            ]
+            for path in paths:
+                if not path.is_file():
+                    continue
+                for raw_line in path.read_bytes().splitlines(keepends=True):
+                    if not raw_line.endswith(b"\n"):
+                        continue
+                    try:
+                        event = json.loads(raw_line)
+                    except json.JSONDecodeError:
+                        continue
+                    if event.get("run_id") != run_id:
+                        continue
+                    selected.append(raw_line)
+                    sequence = event.get("sequence")
+                    if isinstance(sequence, int):
+                        sequences.append(sequence)
+        content = b"".join(selected)
+        return RunTrace(
+            artifact=EvidenceArtifact(
+                filename="run-trace.ndjson",
+                content_type="application/x-ndjson",
+                content=content,
+            ),
+            event_count=len(selected),
+            first_sequence=min(sequences) if sequences else None,
+            last_sequence=max(sequences) if sequences else None,
         )
 
     def status(self) -> dict[str, object]:

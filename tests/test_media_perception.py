@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from media import perception_sidecar
 from media.model_router import FruitModelRouter
+from media.perception_pipeline import FrameRoute
 from media.perception_sidecar import EvidenceFrameBuffer, PerceptionEvidence, create_app
 from media.service_supervision import ServiceSupervisionConfig, ServiceSupervisor
 
@@ -439,6 +440,72 @@ def test_camera_only_fruit_without_full_frame_proposal_gets_bounded_search_crop(
     runtime._inference_executor.shutdown(wait=True, cancel_futures=True)
 
 
+def test_throughput_routes_search_crop_on_the_next_advancing_frame() -> None:
+    full_frame = FakeImage(720, 1280)
+
+    class Model:
+        def __init__(self) -> None:
+            self.sources = []
+
+        def predict(self, **options):
+            self.sources.append(options["source"])
+            if len(self.sources) == 1:
+                return [SimpleNamespace(boxes=FakeBoxes([], []))]
+            return [SimpleNamespace(boxes=FakeBoxes([0.58], [[180, 280, 200, 300]]))]
+
+    runtime = perception_sidecar.PerceptionRuntime()
+    model = Model()
+    runtime._model = model
+    runtime._fruit_class_ids = {"apple": 0}
+    runtime.select_target("apple")
+    runtime._publish_preview = lambda *_args, **_options: None
+
+    first_received = time.monotonic()
+    runtime.evidence.note_source(
+        pts=100,
+        time_base="1/90000",
+        received_monotonic_s=first_received,
+        width=1280,
+        height=720,
+    )
+    runtime._process_frame(
+        ArrayFrame(full_frame),
+        first_received,
+        100,
+        "1/90000",
+        route=FrameRoute.FULL_FRAME,
+    )
+
+    assert len(model.sources) == 1
+    assert runtime.evidence.status()["detection"] == {}
+
+    second_received = first_received + 0.07
+    runtime.evidence.note_source(
+        pts=101,
+        time_base="1/90000",
+        received_monotonic_s=second_received,
+        width=1280,
+        height=720,
+    )
+    runtime._process_frame(
+        ArrayFrame(full_frame),
+        second_received,
+        101,
+        "1/90000",
+        route=FrameRoute.LOWER_CENTER_SEARCH_CROP,
+    )
+
+    detection = runtime.evidence.status()["detection"]
+    assert len(model.sources) == 2
+    assert model.sources[1].shape == (512, 512, 3)
+    assert detection["source_pts"] == 101
+    assert detection["confidence"] == 0.58
+    assert detection["bbox_xyxy"] == [564, 488, 584, 508]
+    assert detection["inference_passes"] == 1
+    assert detection["frame_route"] == "lower_center_search_crop"
+    runtime._inference_executor.shutdown(wait=True, cancel_futures=True)
+
+
 def test_banana_specialist_confirmation_reaches_existing_evidence_pipeline() -> None:
     full_frame = FakeImage(720, 1280)
 
@@ -620,6 +687,23 @@ def test_switching_supported_fruit_clears_old_detection_stability() -> None:
     assert status["target_fruit"] == "apple"
     assert status["detection"]["label"] == "apple"
     assert status["detection"]["consecutive_detections"] == 1
+
+
+def test_apple_detection_stability_starts_at_fifty_percent_confidence() -> None:
+    evidence = PerceptionEvidence(generation="camera-1")
+    evidence.select_target("apple")
+
+    detection = evidence.note_detection(
+        pts=100,
+        label="apple",
+        confidence=0.50,
+        bbox_xyxy=(480, 360, 800, 700),
+        inference_s=0.08,
+        completed_monotonic_s=10.08,
+    )
+
+    assert detection is not None
+    assert detection["consecutive_detections"] == 1
 
 
 def test_in_flight_old_target_result_cannot_kill_the_preview_worker() -> None:

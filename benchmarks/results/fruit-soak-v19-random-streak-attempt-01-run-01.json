@@ -1,0 +1,934 @@
+{
+  "schema_version": 4,
+  "session": "fruit-soak-2026-08-11T174717Z",
+  "build_label": "stage-camera-v19-search-handoff (codex/stage-camera-v19-search-handoff)",
+  "note": null,
+  "qualified_fruits": [
+    "apple",
+    "banana",
+    "pear"
+  ],
+  "target_runs": 1,
+  "seed": 20260811,
+  "fruit_sequence": [
+    "apple"
+  ],
+  "orientation_randomized": false,
+  "orientation_sequence_degrees": [
+    0
+  ],
+  "failure_recovery_enabled": false,
+  "temperature_source": "wendy device top (woof.local:50052)",
+  "runs": [
+    {
+      "number": 1,
+      "target_fruit": "apple",
+      "orientation_degrees": 0.0,
+      "run_id": "bce597a9-aa51-4ab9-8d9e-18f11358c10e",
+      "started_at_utc": "2026-08-11T17:47:17.570404Z",
+      "ended_at_utc": "2026-08-11T17:47:50.017176Z",
+      "duration_s": 32.44675050900014,
+      "outcome": "FAILED",
+      "reason": "PROCESS_INTERRUPTED",
+      "message": "prior process ended before the Demo Run was sealed",
+      "failed_phase": "turn_to_fruit",
+      "final_safety_state": "DISARMED_CONFIRMED",
+      "home_distance_m": null,
+      "heading_error_rad": null,
+      "run_key_values": null,
+      "stage_results": {
+        "orient_for_run": {
+          "requested_angle_degrees": 0.0,
+          "requested_angle_rad": 0.0,
+          "measured_yaw_change_rad": 0.0,
+          "orientation_skipped": true,
+          "motion_commands_sent": false,
+          "motion_commands": []
+        }
+      },
+      "failure_details": null,
+      "stage_durations": {
+        "idle": 0.012,
+        "preflight": 0.033,
+        "capture_home": 0.022,
+        "wait_for_command": 0.013,
+        "orient_for_run": 0.021,
+        "turn_to_fruit": 32.334
+      },
+      "lighting_frame": {
+        "path": "benchmarks/results/fruit-soak-v19-random-streak-attempt-01-run-01-frames/run-01-start.jpg",
+        "bytes": 65242
+      },
+      "stage_telemetry": {
+        "turn_to_fruit": {
+          "target_confidence": null,
+          "bbox_bottom_ratio": null,
+          "app_latency_ms": {
+            "min": 27.1,
+            "mean": 78.96,
+            "max": 475.0,
+            "samples": 10
+          },
+          "app_errors": 0,
+          "temps_c": {
+            "go2/imu": {
+              "min": 80.0,
+              "mean": 80.0,
+              "max": 80.0,
+              "samples": 9
+            },
+            "soc1-thermal": {
+              "min": 55.968,
+              "mean": 56.041,
+              "max": 56.187,
+              "samples": 9
+            },
+            "tj-thermal": {
+              "min": 55.968,
+              "mean": 56.0513,
+              "max": 56.218,
+              "samples": 9
+            },
+            "cpu-thermal": {
+              "min": 55.75,
+              "mean": 55.781,
+              "max": 55.843,
+              "samples": 9
+            },
+            "soc0-thermal": {
+              "min": 54.406,
+              "mean": 54.5517,
+              "max": 54.843,
+              "samples": 9
+            },
+            "gpu-thermal": {
+              "min": 53.937,
+              "mean": 53.937,
+              "max": 53.937,
+              "samples": 9
+            },
+            "cv1-thermal": {
+              "min": 53.437,
+              "mean": 53.437,
+              "max": 53.437,
+              "samples": 9
+            },
+            "cv0-thermal": {
+              "min": 53.125,
+              "mean": 53.1667,
+              "max": 53.25,
+              "samples": 9
+            },
+            "cv2-thermal": {
+              "min": 52.812,
+              "mean": 52.864,
+              "max": 52.968,
+              "samples": 9
+            },
+            "soc2-thermal": {
+              "min": 52.781,
+              "mean": 52.8227,
+              "max": 52.906,
+              "samples": 9
+            },
+            "go2/motor/rl-hip": {
+              "min": 43.0,
+              "mean": 43.0,
+              "max": 43.0,
+              "samples": 9
+            },
+            "go2/motor/rr-hip": {
+              "min": 43.0,
+              "mean": 43.0,
+              "max": 43.0,
+              "samples": 9
+            },
+            "go2/motor/fl-calf": {
+              "min": 40.0,
+              "mean": 40.0,
+              "max": 40.0,
+              "samples": 9
+            },
+            "go2/motor/rl-calf": {
+              "min": 40.0,
+              "mean": 40.0,
+              "max": 40.0,
+              "samples": 9
+            },
+            "go2/motor/fl-thigh": {
+              "min": 38.0,
+              "mean": 38.0,
+              "max": 38.0,
+              "samples": 9
+            },
+            "go2/motor/fr-calf": {
+              "min": 37.0,
+              "mean": 37.0,
+              "max": 37.0,
+              "samples": 9
+            },
+            "go2/motor/fr-hip": {
+              "min": 37.0,
+              "mean": 37.0,
+              "max": 37.0,
+              "samples": 9
+            },
+            "go2/motor/rl-thigh": {
+              "min": 37.0,
+              "mean": 37.0,
+              "max": 37.0,
+              "samples": 9
+            },
+            "go2/motor/fl-hip": {
+              "min": 36.0,
+              "mean": 36.0,
+              "max": 36.0,
+              "samples": 9
+            },
+            "go2/motor/fr-thigh": {
+              "min": 35.0,
+              "mean": 35.0,
+              "max": 35.0,
+              "samples": 9
+            },
+            "go2/motor/rr-calf": {
+              "min": 35.0,
+              "mean": 35.0,
+              "max": 35.0,
+              "samples": 9
+            },
+            "go2/motor/rr-thigh": {
+              "min": 35.0,
+              "mean": 35.0,
+              "max": 35.0,
+              "samples": 9
+            }
+          }
+        },
+        "unknown": {
+          "target_confidence": null,
+          "bbox_bottom_ratio": null,
+          "app_latency_ms": {
+            "min": 2071.8,
+            "mean": 2077.4667,
+            "max": 2088.0,
+            "samples": 3
+          },
+          "app_errors": 3,
+          "temps_c": {
+            "go2/imu": {
+              "min": 79.0,
+              "mean": 79.6667,
+              "max": 80.0,
+              "samples": 3
+            },
+            "tj-thermal": {
+              "min": 55.0,
+              "mean": 55.5933,
+              "max": 56.218,
+              "samples": 3
+            },
+            "soc1-thermal": {
+              "min": 55.093,
+              "mean": 55.614,
+              "max": 56.187,
+              "samples": 3
+            },
+            "cpu-thermal": {
+              "min": 54.187,
+              "mean": 54.791,
+              "max": 55.843,
+              "samples": 3
+            },
+            "soc0-thermal": {
+              "min": 53.312,
+              "mean": 54.114,
+              "max": 54.843,
+              "samples": 3
+            },
+            "gpu-thermal": {
+              "min": 51.906,
+              "mean": 52.812,
+              "max": 53.937,
+              "samples": 3
+            },
+            "cv1-thermal": {
+              "min": 52.312,
+              "mean": 52.76,
+              "max": 53.437,
+              "samples": 3
+            },
+            "cv0-thermal": {
+              "min": 51.968,
+              "mean": 52.5517,
+              "max": 53.25,
+              "samples": 3
+            },
+            "cv2-thermal": {
+              "min": 51.687,
+              "mean": 52.2807,
+              "max": 52.968,
+              "samples": 3
+            },
+            "soc2-thermal": {
+              "min": 51.687,
+              "mean": 52.2497,
+              "max": 52.906,
+              "samples": 3
+            },
+            "go2/motor/rl-hip": {
+              "min": 43.0,
+              "mean": 43.0,
+              "max": 43.0,
+              "samples": 3
+            },
+            "go2/motor/rr-hip": {
+              "min": 43.0,
+              "mean": 43.0,
+              "max": 43.0,
+              "samples": 3
+            },
+            "go2/motor/fl-calf": {
+              "min": 40.0,
+              "mean": 40.0,
+              "max": 40.0,
+              "samples": 3
+            },
+            "go2/motor/rl-calf": {
+              "min": 40.0,
+              "mean": 40.0,
+              "max": 40.0,
+              "samples": 3
+            },
+            "go2/motor/fl-thigh": {
+              "min": 38.0,
+              "mean": 38.0,
+              "max": 38.0,
+              "samples": 3
+            },
+            "go2/motor/fr-calf": {
+              "min": 37.0,
+              "mean": 37.0,
+              "max": 37.0,
+              "samples": 3
+            },
+            "go2/motor/fr-hip": {
+              "min": 37.0,
+              "mean": 37.0,
+              "max": 37.0,
+              "samples": 3
+            },
+            "go2/motor/rl-thigh": {
+              "min": 37.0,
+              "mean": 37.0,
+              "max": 37.0,
+              "samples": 3
+            },
+            "go2/motor/fl-hip": {
+              "min": 36.0,
+              "mean": 36.0,
+              "max": 36.0,
+              "samples": 3
+            },
+            "go2/motor/fr-thigh": {
+              "min": 35.0,
+              "mean": 35.0,
+              "max": 35.0,
+              "samples": 3
+            },
+            "go2/motor/rr-calf": {
+              "min": 35.0,
+              "mean": 35.0,
+              "max": 35.0,
+              "samples": 3
+            },
+            "go2/motor/rr-thigh": {
+              "min": 35.0,
+              "mean": 35.0,
+              "max": 35.0,
+              "samples": 3
+            }
+          }
+        }
+      },
+      "network": {
+        "poll_count": 13,
+        "error_count": 3,
+        "errors": [
+          {
+            "t_monotonic_s": 18.787200916,
+            "error": "<urlopen error [Errno 61] Connection refused>"
+          },
+          {
+            "t_monotonic_s": 26.609326708,
+            "error": "<urlopen error [Errno 61] Connection refused>"
+          },
+          {
+            "t_monotonic_s": 34.336143208,
+            "error": "<urlopen error [Errno 61] Connection refused>"
+          }
+        ],
+        "latency_ms": {
+          "min": 27.1,
+          "mean": 78.96,
+          "max": 475.0,
+          "samples": 10
+        },
+        "latency_p95_ms": 53.3,
+        "cut_out": true
+      },
+      "samples": [
+        {
+          "t_monotonic_s": 0.50219225,
+          "phase": "turn_to_fruit",
+          "app_latency_ms": 53.3,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false
+        },
+        {
+          "t_monotonic_s": 2.064869166,
+          "phase": "turn_to_fruit",
+          "app_latency_ms": 27.1,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "go2/imu": 80,
+            "soc1-thermal": 55.968,
+            "tj-thermal": 55.968,
+            "cpu-thermal": 55.75,
+            "soc0-thermal": 54.406,
+            "gpu-thermal": 53.937,
+            "cv1-thermal": 53.437,
+            "cv0-thermal": 53.125,
+            "cv2-thermal": 52.812,
+            "soc2-thermal": 52.781,
+            "go2/motor/rl-hip": 43,
+            "go2/motor/rr-hip": 43,
+            "go2/motor/fl-calf": 40,
+            "go2/motor/rl-calf": 40,
+            "go2/motor/fl-thigh": 38,
+            "go2/motor/fr-calf": 37,
+            "go2/motor/fr-hip": 37,
+            "go2/motor/rl-thigh": 37,
+            "go2/motor/fl-hip": 36,
+            "go2/motor/fr-thigh": 35,
+            "go2/motor/rr-calf": 35,
+            "go2/motor/rr-thigh": 35
+          },
+          "temps_age_s": 1.0
+        },
+        {
+          "t_monotonic_s": 3.641458166,
+          "phase": "turn_to_fruit",
+          "app_latency_ms": 31.6,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "go2/imu": 80,
+            "soc1-thermal": 55.968,
+            "tj-thermal": 55.968,
+            "cpu-thermal": 55.75,
+            "soc0-thermal": 54.406,
+            "gpu-thermal": 53.937,
+            "cv1-thermal": 53.437,
+            "cv0-thermal": 53.125,
+            "cv2-thermal": 52.812,
+            "soc2-thermal": 52.781,
+            "go2/motor/rl-hip": 43,
+            "go2/motor/rr-hip": 43,
+            "go2/motor/fl-calf": 40,
+            "go2/motor/rl-calf": 40,
+            "go2/motor/fl-thigh": 38,
+            "go2/motor/fr-calf": 37,
+            "go2/motor/fr-hip": 37,
+            "go2/motor/rl-thigh": 37,
+            "go2/motor/fl-hip": 36,
+            "go2/motor/fr-thigh": 35,
+            "go2/motor/rr-calf": 35,
+            "go2/motor/rr-thigh": 35
+          },
+          "temps_age_s": 2.6
+        },
+        {
+          "t_monotonic_s": 5.212189333,
+          "phase": "turn_to_fruit",
+          "app_latency_ms": 28.1,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "go2/imu": 80,
+            "soc1-thermal": 55.968,
+            "tj-thermal": 55.968,
+            "cpu-thermal": 55.75,
+            "soc0-thermal": 54.406,
+            "gpu-thermal": 53.937,
+            "cv1-thermal": 53.437,
+            "cv0-thermal": 53.125,
+            "cv2-thermal": 52.812,
+            "soc2-thermal": 52.781,
+            "go2/motor/rl-hip": 43,
+            "go2/motor/rr-hip": 43,
+            "go2/motor/fl-calf": 40,
+            "go2/motor/rl-calf": 40,
+            "go2/motor/fl-thigh": 38,
+            "go2/motor/fr-calf": 37,
+            "go2/motor/fr-hip": 37,
+            "go2/motor/rl-thigh": 37,
+            "go2/motor/fl-hip": 36,
+            "go2/motor/fr-thigh": 35,
+            "go2/motor/rr-calf": 35,
+            "go2/motor/rr-thigh": 35
+          },
+          "temps_age_s": 4.2
+        },
+        {
+          "t_monotonic_s": 6.799957166,
+          "phase": "turn_to_fruit",
+          "app_latency_ms": 34.4,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "go2/imu": 80,
+            "soc1-thermal": 55.968,
+            "tj-thermal": 55.968,
+            "cpu-thermal": 55.75,
+            "soc0-thermal": 54.406,
+            "gpu-thermal": 53.937,
+            "cv1-thermal": 53.437,
+            "cv0-thermal": 53.125,
+            "cv2-thermal": 52.812,
+            "soc2-thermal": 52.781,
+            "go2/motor/rl-hip": 43,
+            "go2/motor/rr-hip": 43,
+            "go2/motor/fl-calf": 40,
+            "go2/motor/rl-calf": 40,
+            "go2/motor/fl-thigh": 38,
+            "go2/motor/fr-calf": 37,
+            "go2/motor/fr-hip": 37,
+            "go2/motor/rl-thigh": 37,
+            "go2/motor/fl-hip": 36,
+            "go2/motor/fr-thigh": 35,
+            "go2/motor/rr-calf": 35,
+            "go2/motor/rr-thigh": 35
+          },
+          "temps_age_s": 5.8
+        },
+        {
+          "t_monotonic_s": 8.376492166,
+          "phase": "turn_to_fruit",
+          "app_latency_ms": 37.5,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "go2/imu": 80,
+            "soc1-thermal": 55.968,
+            "tj-thermal": 55.968,
+            "cpu-thermal": 55.75,
+            "soc0-thermal": 54.406,
+            "gpu-thermal": 53.937,
+            "cv1-thermal": 53.437,
+            "cv0-thermal": 53.125,
+            "cv2-thermal": 52.812,
+            "soc2-thermal": 52.781,
+            "go2/motor/rl-hip": 43,
+            "go2/motor/rr-hip": 43,
+            "go2/motor/fl-calf": 40,
+            "go2/motor/rl-calf": 40,
+            "go2/motor/fl-thigh": 38,
+            "go2/motor/fr-calf": 37,
+            "go2/motor/fr-hip": 37,
+            "go2/motor/rl-thigh": 37,
+            "go2/motor/fl-hip": 36,
+            "go2/motor/fr-thigh": 35,
+            "go2/motor/rr-calf": 35,
+            "go2/motor/rr-thigh": 35
+          },
+          "temps_age_s": 7.4
+        },
+        {
+          "t_monotonic_s": 10.399337416,
+          "phase": "turn_to_fruit",
+          "app_latency_ms": 475.0,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "go2/imu": 80,
+            "soc1-thermal": 55.968,
+            "tj-thermal": 55.968,
+            "cpu-thermal": 55.75,
+            "soc0-thermal": 54.406,
+            "gpu-thermal": 53.937,
+            "cv1-thermal": 53.437,
+            "cv0-thermal": 53.125,
+            "cv2-thermal": 52.812,
+            "soc2-thermal": 52.781,
+            "go2/motor/rl-hip": 43,
+            "go2/motor/rr-hip": 43,
+            "go2/motor/fl-calf": 40,
+            "go2/motor/rl-calf": 40,
+            "go2/motor/fl-thigh": 38,
+            "go2/motor/fr-calf": 37,
+            "go2/motor/fr-hip": 37,
+            "go2/motor/rl-thigh": 37,
+            "go2/motor/fl-hip": 36,
+            "go2/motor/fr-thigh": 35,
+            "go2/motor/rr-calf": 35,
+            "go2/motor/rr-thigh": 35
+          },
+          "temps_age_s": 9.4
+        },
+        {
+          "t_monotonic_s": 11.989933166,
+          "phase": "turn_to_fruit",
+          "app_latency_ms": 41.6,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "go2/imu": 80,
+            "tj-thermal": 56.218,
+            "soc1-thermal": 56.187,
+            "cpu-thermal": 55.843,
+            "soc0-thermal": 54.843,
+            "gpu-thermal": 53.937,
+            "cv1-thermal": 53.437,
+            "cv0-thermal": 53.25,
+            "cv2-thermal": 52.968,
+            "soc2-thermal": 52.906,
+            "go2/motor/rl-hip": 43,
+            "go2/motor/rr-hip": 43,
+            "go2/motor/fl-calf": 40,
+            "go2/motor/rl-calf": 40,
+            "go2/motor/fl-thigh": 38,
+            "go2/motor/fr-calf": 37,
+            "go2/motor/fr-hip": 37,
+            "go2/motor/rl-thigh": 37,
+            "go2/motor/fl-hip": 36,
+            "go2/motor/fr-thigh": 35,
+            "go2/motor/rr-calf": 35,
+            "go2/motor/rr-thigh": 35
+          },
+          "temps_age_s": 0.1
+        },
+        {
+          "t_monotonic_s": 13.5645535,
+          "phase": "turn_to_fruit",
+          "app_latency_ms": 31.8,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "go2/imu": 80,
+            "tj-thermal": 56.218,
+            "soc1-thermal": 56.187,
+            "cpu-thermal": 55.843,
+            "soc0-thermal": 54.843,
+            "gpu-thermal": 53.937,
+            "cv1-thermal": 53.437,
+            "cv0-thermal": 53.25,
+            "cv2-thermal": 52.968,
+            "soc2-thermal": 52.906,
+            "go2/motor/rl-hip": 43,
+            "go2/motor/rr-hip": 43,
+            "go2/motor/fl-calf": 40,
+            "go2/motor/rl-calf": 40,
+            "go2/motor/fl-thigh": 38,
+            "go2/motor/fr-calf": 37,
+            "go2/motor/fr-hip": 37,
+            "go2/motor/rl-thigh": 37,
+            "go2/motor/fl-hip": 36,
+            "go2/motor/fr-thigh": 35,
+            "go2/motor/rr-calf": 35,
+            "go2/motor/rr-thigh": 35
+          },
+          "temps_age_s": 1.7
+        },
+        {
+          "t_monotonic_s": 15.141904,
+          "phase": "turn_to_fruit",
+          "app_latency_ms": 29.2,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "go2/imu": 80,
+            "tj-thermal": 56.218,
+            "soc1-thermal": 56.187,
+            "cpu-thermal": 55.843,
+            "soc0-thermal": 54.843,
+            "gpu-thermal": 53.937,
+            "cv1-thermal": 53.437,
+            "cv0-thermal": 53.25,
+            "cv2-thermal": 52.968,
+            "soc2-thermal": 52.906,
+            "go2/motor/rl-hip": 43,
+            "go2/motor/rr-hip": 43,
+            "go2/motor/fl-calf": 40,
+            "go2/motor/rl-calf": 40,
+            "go2/motor/fl-thigh": 38,
+            "go2/motor/fr-calf": 37,
+            "go2/motor/fr-hip": 37,
+            "go2/motor/rl-thigh": 37,
+            "go2/motor/fl-hip": 36,
+            "go2/motor/fr-thigh": 35,
+            "go2/motor/rr-calf": 35,
+            "go2/motor/rr-thigh": 35
+          },
+          "temps_age_s": 3.3
+        },
+        {
+          "t_monotonic_s": 18.787200916,
+          "phase": null,
+          "app_latency_ms": 2088.0,
+          "app_error": "<urlopen error [Errno 61] Connection refused>",
+          "sidecar_error": "<urlopen error [Errno 61] Connection refused>",
+          "temps": {
+            "go2/imu": 80,
+            "tj-thermal": 56.218,
+            "soc1-thermal": 56.187,
+            "cpu-thermal": 55.843,
+            "soc0-thermal": 54.843,
+            "gpu-thermal": 53.937,
+            "cv1-thermal": 53.437,
+            "cv0-thermal": 53.25,
+            "cv2-thermal": 52.968,
+            "soc2-thermal": 52.906,
+            "go2/motor/rl-hip": 43,
+            "go2/motor/rr-hip": 43,
+            "go2/motor/fl-calf": 40,
+            "go2/motor/rl-calf": 40,
+            "go2/motor/fl-thigh": 38,
+            "go2/motor/fr-calf": 37,
+            "go2/motor/fr-hip": 37,
+            "go2/motor/rl-thigh": 37,
+            "go2/motor/fl-hip": 36,
+            "go2/motor/fr-thigh": 35,
+            "go2/motor/rr-calf": 35,
+            "go2/motor/rr-thigh": 35
+          },
+          "temps_age_s": 9.0,
+          "result_error": "<urlopen error [Errno 61] Connection refused>"
+        },
+        {
+          "t_monotonic_s": 26.609326708,
+          "phase": null,
+          "app_latency_ms": 2071.8,
+          "app_error": "<urlopen error [Errno 61] Connection refused>",
+          "sidecar_error": "<urlopen error [Errno 61] Connection refused>",
+          "temps": {
+            "go2/imu": 80,
+            "soc1-thermal": 55.562,
+            "tj-thermal": 55.562,
+            "cpu-thermal": 54.343,
+            "soc0-thermal": 54.187,
+            "gpu-thermal": 52.593,
+            "cv1-thermal": 52.531,
+            "cv0-thermal": 52.437,
+            "cv2-thermal": 52.187,
+            "soc2-thermal": 52.156,
+            "go2/motor/rl-hip": 43,
+            "go2/motor/rr-hip": 43,
+            "go2/motor/fl-calf": 40,
+            "go2/motor/rl-calf": 40,
+            "go2/motor/fl-thigh": 38,
+            "go2/motor/fr-calf": 37,
+            "go2/motor/fr-hip": 37,
+            "go2/motor/rl-thigh": 37,
+            "go2/motor/fl-hip": 36,
+            "go2/motor/fr-thigh": 35,
+            "go2/motor/rr-calf": 35,
+            "go2/motor/rr-thigh": 35
+          },
+          "temps_age_s": 6.0,
+          "result_error": "<urlopen error [Errno 61] Connection refused>"
+        },
+        {
+          "t_monotonic_s": 34.336143208,
+          "phase": null,
+          "app_latency_ms": 2072.6,
+          "app_error": "<urlopen error [Errno 61] Connection refused>",
+          "sidecar_error": "<urlopen error [Errno 61] Connection refused>",
+          "temps": {
+            "go2/imu": 79,
+            "soc1-thermal": 55.093,
+            "tj-thermal": 55,
+            "cpu-thermal": 54.187,
+            "soc0-thermal": 53.312,
+            "cv1-thermal": 52.312,
+            "cv0-thermal": 51.968,
+            "gpu-thermal": 51.906,
+            "cv2-thermal": 51.687,
+            "soc2-thermal": 51.687,
+            "go2/motor/rl-hip": 43,
+            "go2/motor/rr-hip": 43,
+            "go2/motor/fl-calf": 40,
+            "go2/motor/rl-calf": 40,
+            "go2/motor/fl-thigh": 38,
+            "go2/motor/fr-calf": 37,
+            "go2/motor/fr-hip": 37,
+            "go2/motor/rl-thigh": 37,
+            "go2/motor/fl-hip": 36,
+            "go2/motor/fr-thigh": 35,
+            "go2/motor/rr-calf": 35,
+            "go2/motor/rr-thigh": 35
+          },
+          "temps_age_s": 2.9
+        }
+      ],
+      "preflight_probes": {
+        "dongle": {
+          "checked": true,
+          "usb_devices": null,
+          "audio_devices": null
+        },
+        "wifi_before": null
+      },
+      "wifi_after": null
+    }
+  ],
+  "aborted": null,
+  "scorecard": {
+    "recorded_only": true,
+    "note": "criteria are recorded, never enforced; the session continues regardless",
+    "criteria": {
+      "completion": {
+        "passed": false,
+        "completed": 0,
+        "attempted": 1,
+        "target_runs": 1,
+        "remote_takeovers": 0,
+        "harness_stops": 0
+      },
+      "home_gate": {
+        "passed": null,
+        "detail": "no terminal home measurements yet"
+      },
+      "fruit_coverage": {
+        "passed": false,
+        "minimum_successes": 2,
+        "required_fruits": [
+          "apple",
+          "banana",
+          "pear"
+        ],
+        "per_fruit": {
+          "apple": {
+            "attempts": 1,
+            "successes": 0
+          },
+          "banana": {
+            "attempts": 0,
+            "successes": 0
+          },
+          "pear": {
+            "attempts": 0,
+            "successes": 0
+          }
+        }
+      },
+      "approach_confidence_floor": {
+        "passed": null,
+        "per_run": [
+          {
+            "number": 1,
+            "fruit": "apple",
+            "floor": 0.7,
+            "min_confidence": null
+          }
+        ]
+      },
+      "network_stability": {
+        "passed": false,
+        "cutouts": 3,
+        "worst_p95_ms": 53.3,
+        "p95_limit_ms": 250.0
+      },
+      "thermal_trend": {
+        "passed": null,
+        "detail": "temperatures not measured (or <2 runs)"
+      },
+      "dongle_visible": {
+        "passed": null,
+        "detail": "dongle not probed (enable --device-probes and --dongle-match)"
+      }
+    },
+    "failure_counts": {
+      "total_failed_runs": 1,
+      "by_reason": {
+        "PROCESS_INTERRUPTED": 1
+      },
+      "by_failed_phase": {
+        "turn_to_fruit": 1
+      },
+      "by_category": {
+        "internal": 1
+      },
+      "by_category_and_fruit": {
+        "internal:apple": 1
+      },
+      "observations_not_failure_causes": {
+        "network_poll_errors": 3,
+        "zero_degree_orientation_runs": 1
+      },
+      "attribution_note": "network polling errors and the 0-degree orientation setting are observations, not attributed mission failure causes"
+    },
+    "observations": {
+      "approach_min_confidence_by_fruit": {},
+      "acquisition_seconds_by_fruit": {
+        "apple": [
+          32.33
+        ]
+      },
+      "lighting_frames": [
+        "benchmarks/results/fruit-soak-v19-random-streak-attempt-01-run-01-frames/run-01-start.jpg"
+      ]
+    }
+  },
+  "failure_counts": {
+    "total_failed_runs": 1,
+    "by_reason": {
+      "PROCESS_INTERRUPTED": 1
+    },
+    "by_failed_phase": {
+      "turn_to_fruit": 1
+    },
+    "by_category": {
+      "internal": 1
+    },
+    "by_category_and_fruit": {
+      "internal:apple": 1
+    },
+    "observations_not_failure_causes": {
+      "network_poll_errors": 3,
+      "zero_degree_orientation_runs": 1
+    },
+    "attribution_note": "network polling errors and the 0-degree orientation setting are observations, not attributed mission failure causes"
+  }
+}

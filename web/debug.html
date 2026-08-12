@@ -32,6 +32,18 @@
         flex-wrap: wrap;
         gap: 0.75rem;
       }
+      .evidence-image {
+        flex: 1 1 24rem;
+        margin: 0;
+      }
+      .evidence-image img {
+        display: block;
+        width: 100%;
+        max-width: 48rem;
+        height: auto;
+        margin-top: 0.5rem;
+        border-radius: 0.5rem;
+      }
       #stages {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
@@ -112,10 +124,25 @@
           const link = document.createElement('a');
           link.href = `/api/results/${run.run_id}/artifacts/` +
             encodeURIComponent(artifact.filename);
-          link.textContent = artifact.filename === 'evidence.zip'
-            ? 'Download raw evidence frames'
-            : 'View terminal model frame';
-          artifactLinks.append(link);
+          link.textContent = artifact.kind === 'lie_down'
+            ? 'Open lie-down fruit-position photo'
+            : artifact.filename === 'evidence.zip'
+              ? 'Download raw evidence frames'
+              : 'View terminal model frame';
+          if (artifact.kind === 'lie_down') {
+            const figure = document.createElement('figure');
+            figure.className = 'evidence-image';
+            const img = document.createElement('img');
+            img.src = link.href;
+            img.alt = 'Fruit position in Woof camera view after lying down';
+            img.loading = 'lazy';
+            const caption = document.createElement('figcaption');
+            caption.textContent = 'Fruit position when Woof lay down';
+            figure.append(link, img, caption);
+            artifactLinks.append(figure);
+          } else {
+            artifactLinks.append(link);
+          }
         }
       }
 
