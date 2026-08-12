@@ -102,10 +102,19 @@ def test_v29_release_identity_matches_root_media_and_stagefiles() -> None:
     assert descriptor["version"] == "1.0.32-stage-camera"
     app_env = descriptor["services"]["app"]["env"]
     media_env = descriptor["services"]["media"]["env"]
+    voice = descriptor["services"]["voice"]
+    voice_env = voice["env"]
     assert app_env["BORDER_COLLIE_BUILD_LABEL"] == build_label
     for environment in (app_env, media_env):
         assert environment["BORDER_COLLIE_RELEASE_ID"] == release_id
         assert environment["BORDER_COLLIE_CONFIG_SCHEMA"] == "13"
+    assert voice["dependsOn"] == ["app", "media"]
+    assert voice_env["ACTION_MODE"] == "border_collie"
+    assert voice_env["BORDER_COLLIE_URL"] == "http://127.0.0.1:8110"
+    assert voice_env["BORDER_COLLIE_EXPECTED_RELEASE_ID"] == release_id
+    assert voice_env["BORDER_COLLIE_EXPECTED_CONFIG_SCHEMA"] == "13"
+    assert voice_env["AUTO_ARM_ACTIONS"] == "1"
+    assert voice_env["AUDIO_DEVICE"] == "DJI MIC MINI"
     assert app_env["BORDER_COLLIE_SEARCH_POLICY"] == "slow-sweep"
     assert media_env["PERCEPTION_PIPELINE_PROFILE"] == "throughput-v1"
 
