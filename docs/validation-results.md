@@ -1020,3 +1020,13 @@ The banana audience-action photo from run two was described in result metadata
 but its artifact endpoint returned HTTP 404, which is a new evidence-retention
 defect to fix. See
 `benchmarks/results/2026-08-12-v28-random-five-summary.json`.
+
+## 2026-08-12: v31 frame-path rollback candidate
+
+- Source is the exact v28 cohort checkpoint `16f3586`, before the persistent
+  mission tracker and full-frame-first perception changes.
+- Release identity is `stage-camera-v31-frame-path-rollback`, schema 14, app
+  version `1.0.34-stage-camera`.
+- The rollback restores v28's throughput-v1 scheduled full-frame/crop routes
+  and phase-local qualified tracker. It does not claim that v28 was reliable;
+  it isolates whether v29's `confirmed_full_frame_loss` regression disappears.
