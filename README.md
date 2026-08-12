@@ -331,6 +331,20 @@ sequence, per-stage telemetry, lighting frames, network observations, device
 temperatures, dongle checks, terminal measurements, and the records-only
 scorecard.
 
+The short interface keeps the recovery contract and its regressions easy to
+run:
+
+```bash
+scripts/fruit-soak test
+scripts/fruit-soak run --host woof.local --runs 10 --seed 20260810 \
+  --expected-build-label "<exact deployed build label>" \
+  --expected-fruits apple banana pear
+```
+
+`run` enables failed-run recovery reconciliation and the `0.50 m` supervised
+stage Home margin. Override the margin only with an explicit operator decision
+using `FRUIT_SOAK_HOME_MARGIN_M` or `--stage-home-margin`.
+
 Use an exact expected build label so an old or experimental deployment cannot
 be activated accidentally:
 
@@ -351,12 +365,17 @@ python3 scripts/fruit_soak.py \
 The build label and qualified-fruit set are checked before the first activation.
 An activation request with an ambiguous response aborts the session without an
 automatic retry. A restart-required application state also aborts immediately.
-Individual terminal run failures are recorded and the supervised soak continues
-only after their saved-Home recovery completes when `--recover-failures` is
-enabled. A rejected, failed, stopped, or timed-out recovery aborts the soak
-before another run can capture a displaced Home. Without that flag, failures
-retain the earlier records-only behavior and the harness does not issue recovery
-motion.
+Individual terminal run failures are recorded separately from their recovery
+outcome. With `--recover-failures`, the harness first observes the app's
+automatic recovery lifecycle. It waits for an active or recorded attempt and
+never submits a duplicate manual request. Only when no attempt appears does it
+submit one manual request; an ambiguous response is reconciled through read-only
+status/result polling and is never retried. The next activation remains blocked
+until recovery is terminal, `active_recovery` is clear, motion is disarmed, and
+the attempt's authoritative Home distance is inside `--stage-home-margin`. A
+rejected, failed, stopped, timed-out, or out-of-margin recovery aborts the soak.
+Without the flag, failures retain the earlier records-only behavior and the
+harness does not issue recovery motion.
 Pass `--no-orientation-randomization` to run the original soak with a zero-degree
 pre-search turn on every mission.
 

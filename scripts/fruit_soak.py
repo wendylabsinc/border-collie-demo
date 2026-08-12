@@ -52,13 +52,15 @@ try:  # package import (tests) or direct script execution
 except ImportError:  # pragma: no cover - script-invocation path
     from stage_scorecard import score_session
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 POLL_INTERVAL_S = 1.5
 READY_TIMEOUT_S = 90.0
 RUN_TIMEOUT_S = 180.0
 RECOVERY_TIMEOUT_S = 90.0
+RECOVERY_DISCOVERY_POLLS = 4
 COOLDOWN_S = 10.0
 RECOVERY_CONFIRMATION = "RECOVER FAILED RUN TO CAPTURED HOME"
+DEFAULT_STAGE_HOME_MARGIN_M = 0.50
 
 
 class HarnessAbort(RuntimeError):
@@ -512,6 +514,7 @@ def summarize_run(
         "ended_at_utc": run.get("ended_at_utc"),
         "duration_s": run.get("duration_s"),
         "outcome": run.get("outcome"),
+        "mission_outcome": run.get("outcome"),
         "reason": run.get("reason"),
         "message": run.get("message"),
         "failed_phase": run.get("failed_phase"),
@@ -654,6 +657,273 @@ def wait_for_recovery(
         sleep(POLL_INTERVAL_S)
 
 
+def _recovery_home_distance(attempt: dict) -> float | None:
+    final_evidence = attempt.get("final_evidence") or {}
+    distance = final_evidence.get("home_distance_m")
+    if isinstance(distance, (int, float)):
+        return float(distance)
+    for step in reversed(attempt.get("steps") or []):
+        evidence = step.get("evidence") or {}
+        distance = evidence.get("home_distance_m")
+        if isinstance(distance, (int, float)):
+            return float(distance)
+    return None
+
+
+def _recovery_record(
+    attempt: dict,
+    *,
+    source: str,
+    status: dict,
+    stage_home_margin_m: float,
+) -> dict:
+    """Add the harness safety verdict without changing app recovery evidence."""
+    record = dict(attempt)
+    home_distance_m = _recovery_home_distance(attempt)
+    motion = ((status.get("hardware") or {}).get("motion") or {})
+    disarmed = (
+        attempt.get("final_safety_state") == "DISARMED_CONFIRMED"
+        and motion.get("armed") is False
+    )
+    within_margin = (
+        home_distance_m is not None
+        and home_distance_m <= stage_home_margin_m
+    )
+    recovery_cleared = status.get("active_recovery") is None
+    run_cleared = status.get("active_run_id") is None
+    record.update(
+        {
+            "source": source,
+            "home_distance_m": home_distance_m,
+            "stage_home_margin_m": stage_home_margin_m,
+            "within_stage_home_margin": within_margin,
+            "client_motion_disarmed": disarmed,
+            "client_recovery_cleared": recovery_cleared,
+            "client_run_cleared": run_cleared,
+            "safe_to_continue": (
+                attempt.get("outcome") == "COMPLETED"
+                and disarmed
+                and within_margin
+                and recovery_cleared
+                and run_cleared
+            ),
+        }
+    )
+    return record
+
+
+def _wait_for_recovery_clearance_status(
+    client: ApiClient,
+    *,
+    polls: int,
+    sleep,
+) -> tuple[dict, list[str]]:
+    """Wait for terminal recovery bookkeeping and motion disarm to agree."""
+    errors: list[str] = []
+    status: dict = {}
+    for poll_number in range(max(1, polls)):
+        try:
+            status = client.status()
+        except Exception as exc:  # noqa: BLE001 - clearance must be current
+            errors.append(f"terminal status: {exc}")
+            status = {}
+        motion = ((status.get("hardware") or {}).get("motion") or {})
+        if (
+            status.get("active_recovery") is None
+            and status.get("active_run_id") is None
+            and motion.get("armed") is False
+        ):
+            return status, errors
+        if poll_number + 1 < polls:
+            sleep(POLL_INTERVAL_S)
+    return status, errors
+
+
+def resolve_failed_run_recovery(
+    client: ApiClient,
+    run_id: str,
+    *,
+    request_manual: bool,
+    stage_home_margin_m: float = DEFAULT_STAGE_HOME_MARGIN_M,
+    discovery_polls: int = RECOVERY_DISCOVERY_POLLS,
+    sleep=time.sleep,
+) -> tuple[dict, list[str]]:
+    """Reconcile automatic recovery before considering one manual request.
+
+    A terminal Demo Run can become visible before the orchestrator has created
+    its automatic recovery attempt. Polling the durable run and ``/api/status``
+    closes that race. An observed active or recorded attempt always wins; the
+    harness never calls ``recover-home`` for that run.
+    """
+    poll_errors: list[str] = []
+    attempt: dict | None = None
+    source = "automatic"
+    status: dict = {}
+
+    for poll_number in range(max(1, discovery_polls)):
+        try:
+            run = client.result(run_id).get("run") or {}
+            attempts = [
+                item
+                for item in run.get("recovery_attempts", [])
+                if isinstance(item, dict)
+            ]
+            if attempts:
+                attempt = attempts[-1]
+        except Exception as exc:  # noqa: BLE001 - reconcile server-side work
+            poll_errors.append(f"result: {exc}")
+        try:
+            status = client.status()
+        except Exception as exc:  # noqa: BLE001 - reconcile server-side work
+            poll_errors.append(f"status: {exc}")
+            status = {}
+
+        active = status.get("active_recovery") or {}
+        if attempt is not None:
+            break
+        if active:
+            if active.get("run_id") != run_id:
+                return (
+                    {
+                        "outcome": "NOT_STARTED",
+                        "reason": "OTHER_RECOVERY_ACTIVE",
+                        "source": "observed",
+                        "stage_home_margin_m": stage_home_margin_m,
+                        "safe_to_continue": False,
+                    },
+                    poll_errors,
+                )
+            recovery_id = active.get("recovery_id")
+            if recovery_id:
+                attempt, wait_errors = wait_for_recovery(
+                    client,
+                    run_id,
+                    str(recovery_id),
+                    sleep=sleep,
+                )
+                poll_errors.extend(wait_errors)
+                break
+        if poll_number + 1 < discovery_polls:
+            sleep(POLL_INTERVAL_S)
+
+    if attempt is None and request_manual:
+        source = "manual"
+        try:
+            accepted = client.recover_home(run_id)
+            recovery_id = accepted["recovery"]["recovery_id"]
+        except Exception as exc:  # noqa: BLE001 - reconcile an ambiguous accept
+            poll_errors.append(f"manual request: {exc}")
+            source = "reconciled_after_ambiguous_manual_request"
+            for poll_number in range(max(1, discovery_polls)):
+                try:
+                    run = client.result(run_id).get("run") or {}
+                    attempts = [
+                        item
+                        for item in run.get("recovery_attempts", [])
+                        if isinstance(item, dict)
+                    ]
+                    if attempts:
+                        attempt = attempts[-1]
+                        break
+                except Exception as poll_exc:  # noqa: BLE001 - read-only reconcile
+                    poll_errors.append(f"result after manual request: {poll_exc}")
+                try:
+                    status = client.status()
+                except Exception as poll_exc:  # noqa: BLE001 - read-only reconcile
+                    poll_errors.append(f"status after manual request: {poll_exc}")
+                    status = {}
+                active = status.get("active_recovery") or {}
+                if active.get("run_id") == run_id and active.get("recovery_id"):
+                    attempt, wait_errors = wait_for_recovery(
+                        client,
+                        run_id,
+                        str(active["recovery_id"]),
+                        sleep=sleep,
+                    )
+                    poll_errors.extend(wait_errors)
+                    break
+                if poll_number + 1 < discovery_polls:
+                    sleep(POLL_INTERVAL_S)
+            if attempt is None:
+                return (
+                    {
+                        "outcome": "NOT_STARTED",
+                        "reason": "RECOVERY_REQUEST_AMBIGUOUS",
+                        "source": source,
+                        "stage_home_margin_m": stage_home_margin_m,
+                        "safe_to_continue": False,
+                    },
+                    poll_errors,
+                )
+            recovery_id = attempt.get("recovery_id")
+            if attempt.get("outcome") is None and recovery_id is not None:
+                attempt, wait_errors = wait_for_recovery(
+                    client,
+                    run_id,
+                    str(recovery_id),
+                    sleep=sleep,
+                )
+                poll_errors.extend(wait_errors)
+            accepted = None
+        if accepted is not None:
+            attempt, wait_errors = wait_for_recovery(
+                client,
+                run_id,
+                str(recovery_id),
+                sleep=sleep,
+            )
+            poll_errors.extend(wait_errors)
+
+    if attempt is None:
+        return (
+            {
+                "outcome": "NOT_STARTED",
+                "reason": "NO_RECOVERY_OBSERVED",
+                "source": "observed",
+                "stage_home_margin_m": stage_home_margin_m,
+                "safe_to_continue": False,
+            },
+            poll_errors,
+        )
+
+    if attempt.get("outcome") is None:
+        recovery_id = attempt.get("recovery_id")
+        if recovery_id is None:
+            return (
+                {
+                    **attempt,
+                    "reason": "RECOVERY_ID_MISSING",
+                    "source": source,
+                    "stage_home_margin_m": stage_home_margin_m,
+                    "safe_to_continue": False,
+                },
+                poll_errors,
+            )
+        attempt, wait_errors = wait_for_recovery(
+            client,
+            run_id,
+            str(recovery_id),
+            sleep=sleep,
+        )
+        poll_errors.extend(wait_errors)
+
+    status, clearance_errors = _wait_for_recovery_clearance_status(
+        client,
+        polls=discovery_polls,
+        sleep=sleep,
+    )
+    poll_errors.extend(clearance_errors)
+    return (
+        _recovery_record(
+            attempt,
+            source=source,
+            status=status,
+            stage_home_margin_m=stage_home_margin_m,
+        ),
+        poll_errors,
+    )
+
+
 def run_session(
     client: ApiClient,
     *,
@@ -671,6 +941,7 @@ def run_session(
     expected_fruits: list[str] | None = None,
     randomize_orientation: bool = True,
     recover_failures: bool = False,
+    stage_home_margin_m: float = DEFAULT_STAGE_HOME_MARGIN_M,
     keep_samples: bool = True,
     sleep=time.sleep,
     log=print,
@@ -730,6 +1001,7 @@ def run_session(
         "orientation_randomized": randomize_orientation,
         "orientation_sequence_degrees": orientation_sequence,
         "failure_recovery_enabled": recover_failures,
+        "stage_home_margin_m": stage_home_margin_m,
         "temperature_source": (
             temp_sampler.source.url
             or temp_sampler.source.command
@@ -826,37 +1098,27 @@ def run_session(
                 f" (errors {record['network']['error_count']})"
             )
             if recover_failures and record["outcome"] == "FAILED":
-                log(f"run {number}/{runs}: requesting bounded Home recovery")
-                try:
-                    accepted = client.recover_home(run_id)
-                except Exception as exc:
-                    record["recovery"] = {
-                        "outcome": "NOT_STARTED",
-                        "error": str(exc),
-                    }
-                    persist()
-                    raise HarnessAbort(
-                        f"run {number} failed and Home recovery was not accepted: {exc}"
-                    ) from exc
-                recovery_id = accepted["recovery"]["recovery_id"]
-                attempt, recovery_poll_errors = wait_for_recovery(
+                log(f"run {number}/{runs}: reconciling Home recovery state")
+                recovery_record, recovery_poll_errors = resolve_failed_run_recovery(
                     client,
                     run_id,
-                    recovery_id,
+                    request_manual=True,
+                    stage_home_margin_m=stage_home_margin_m,
                     sleep=sleep,
                 )
-                record["recovery"] = attempt
+                record["recovery"] = recovery_record
                 if recovery_poll_errors:
                     record["recovery_poll_errors"] = recovery_poll_errors
                 persist()
                 log(
-                    f"run {number}/{runs}: recovery {attempt['outcome']} / "
-                    f"{attempt['reason']}"
+                    f"run {number}/{runs}: recovery {recovery_record['outcome']} / "
+                    f"{recovery_record['reason']}"
                 )
-                if attempt["outcome"] != "COMPLETED":
+                if not recovery_record.get("safe_to_continue"):
                     raise HarnessAbort(
                         f"run {number} failed and Home recovery ended "
-                        f"{attempt['outcome']} / {attempt['reason']}"
+                        f"{recovery_record['outcome']} / "
+                        f"{recovery_record['reason']}; next activation blocked"
                     )
     except HarnessAbort as abort:
         session["aborted"] = str(abort)
@@ -930,12 +1192,23 @@ def main(argv: list[str] | None = None) -> int:
         "--recover-failures",
         action="store_true",
         help=(
-            "after a failed run, explicitly request its bounded saved-Home "
-            "recovery before continuing"
+            "after a failed run, first observe automatic recovery and request "
+            "one bounded saved-Home recovery only when no attempt exists"
+        ),
+    )
+    parser.add_argument(
+        "--stage-home-margin",
+        type=float,
+        default=DEFAULT_STAGE_HOME_MARGIN_M,
+        help=(
+            "maximum recovered Home distance permitted before another "
+            f"activation (default: {DEFAULT_STAGE_HOME_MARGIN_M:.2f} m)"
         ),
     )
     parser.add_argument("--output", type=Path, default=None)
     args = parser.parse_args(argv)
+    if args.stage_home_margin <= 0:
+        parser.error("--stage-home-margin must be greater than zero")
 
     seed = args.seed if args.seed is not None else int(time.time())
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%SZ")
@@ -966,6 +1239,7 @@ def main(argv: list[str] | None = None) -> int:
             expected_fruits=args.expected_fruits,
             randomize_orientation=not args.no_orientation_randomization,
             recover_failures=args.recover_failures,
+            stage_home_margin_m=args.stage_home_margin,
             keep_samples=not args.no_samples,
         )
     except HarnessAbort as exc:

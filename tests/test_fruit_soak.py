@@ -12,6 +12,7 @@ from scripts.fruit_soak import (
     dongle_check,
     draw_fruit_sequence,
     draw_orientation_sequence,
+    resolve_failed_run_recovery,
     run_session,
     summarize_network,
     summarize_run,
@@ -40,6 +41,7 @@ class FakeClient:
         self.idempotency_keys: list[str | None] = []
         self.search_policies: list[str | None] = []
         self.stop_calls = 0
+        self.recover_home_calls: list[str] = []
 
     def status(self):
         return self._statuses.pop(0) if len(self._statuses) > 1 else self._statuses[0]
@@ -80,6 +82,10 @@ class FakeClient:
         self.stop_calls += 1
         return {}
 
+    def recover_home(self, run_id):
+        self.recover_home_calls.append(run_id)
+        raise AssertionError("unexpected manual Home recovery request")
+
     def camera_frame(self):
         return b"\xff\xd8fake-jpeg-bytes\xff\xd9"
 
@@ -89,6 +95,8 @@ READY = {
     "mission": {"restart_required": False, "phase": "idle"},
     "activation": {"ready": True, "blockers": []},
     "active_run_id": None,
+    "active_recovery": None,
+    "hardware": {"motion": {"armed": False}},
 }
 LATCHED = {
     "build_label": "base-soak-v2-orientation (demo/base)",
@@ -275,6 +283,61 @@ def test_wait_for_recovery_reconciles_transient_poll_errors():
 
     assert attempt["outcome"] == "COMPLETED"
     assert errors == ["link timeout"]
+
+
+def test_recovery_resolution_follows_active_client_state_without_manual_post():
+    failed = terminal("run-1", outcome="FAILED", home=0.4)
+    pending = {
+        "recovery_id": "automatic-active",
+        "outcome": None,
+        "reason": None,
+    }
+    recovering = json.loads(json.dumps(failed))
+    recovering["run"]["recovery_attempts"] = [pending]
+    complete = json.loads(json.dumps(failed))
+    complete["run"]["recovery_attempts"] = [
+        {
+            **pending,
+            "outcome": "COMPLETED",
+            "reason": "HOME_POSITION_RECOVERED",
+            "final_safety_state": "DISARMED_CONFIRMED",
+            "final_evidence": {"home_distance_m": 0.08},
+        }
+    ]
+
+    class ActiveRecoveryClient(FakeClient):
+        status_calls = 0
+
+        def status(self):
+            self.status_calls += 1
+            if self.status_calls == 1:
+                return {
+                    **READY,
+                    "activation": {"ready": False, "blockers": []},
+                    "active_recovery": {
+                        "run_id": "run-1",
+                        "recovery_id": "automatic-active",
+                    },
+                }
+            return READY
+
+    client = ActiveRecoveryClient(
+        [READY],
+        results_by_id={"run-1": [failed, recovering, complete]},
+        sidecar=SIDECAR,
+    )
+
+    record, errors = resolve_failed_run_recovery(
+        client,
+        "run-1",
+        request_manual=True,
+        sleep=lambda _: None,
+    )
+
+    assert errors == []
+    assert client.recover_home_calls == []
+    assert record["outcome"] == "COMPLETED"
+    assert record["safe_to_continue"] is True
 
 
 def test_aggregate_stage_telemetry_groups_by_phase():
@@ -516,8 +579,14 @@ def test_session_recovers_a_failed_run_before_continuing(tmp_path: Path):
     recovered["run"]["recovery_attempts"] = [recovery]
 
     class RecoveryClient(FakeClient):
+        def result(self, run_id):
+            if run_id == "run-1" and not self.recover_home_calls:
+                return failed
+            return super().result(run_id)
+
         def recover_home(self, run_id):
             assert run_id == "run-1"
+            self.recover_home_calls.append(run_id)
             return {"recovery": {"recovery_id": "recovery-1"}}
 
     client = RecoveryClient(
@@ -540,11 +609,347 @@ def test_session_recovers_a_failed_run_before_continuing(tmp_path: Path):
     )
 
     assert session["failure_recovery_enabled"] is True
+    assert client.recover_home_calls == ["run-1"]
     assert len(session["runs"]) == 2
     assert session["runs"][0]["outcome"] == "FAILED"
     assert session["runs"][0]["recovery"]["outcome"] == "COMPLETED"
     assert session["runs"][1]["outcome"] == "COMPLETED"
     assert session["aborted"] is None
+
+
+def test_session_observes_automatic_recovery_before_continuing(tmp_path: Path):
+    pending_recovery = {
+        "recovery_id": "automatic-1",
+        "outcome": None,
+        "reason": None,
+        "final_safety_state": None,
+    }
+    completed_recovery = {
+        **pending_recovery,
+        "outcome": "COMPLETED",
+        "reason": "HOME_POSITION_RECOVERED",
+        "final_safety_state": "DISARMED_CONFIRMED",
+        "final_evidence": {"home_distance_m": 0.08},
+    }
+    failed = terminal("run-1", outcome="FAILED", home=0.3)
+    recovering = json.loads(json.dumps(failed))
+    recovering["run"]["recovery_attempts"] = [pending_recovery]
+    recovered = json.loads(json.dumps(failed))
+    recovered["run"]["recovery_attempts"] = [completed_recovery]
+    active = {
+        **READY,
+        "activation": {"ready": False, "blockers": []},
+        "active_recovery": {
+            "run_id": "run-1",
+            "recovery_id": "automatic-1",
+        },
+    }
+    client = FakeClient(
+        [READY, READY, active, READY, READY],
+        results_by_id={
+            "run-1": [failed, recovering, recovered],
+            "run-2": [terminal("run-2")],
+        },
+        sidecar=SIDECAR,
+    )
+
+    session = run_session(
+        client,
+        runs=2,
+        seed=17,
+        output_path=tmp_path / "automatic-recovery-soak.json",
+        recover_failures=True,
+        sleep=lambda _: None,
+        log=lambda *_: None,
+    )
+
+    assert client.recover_home_calls == []
+    assert len(session["runs"]) == 2
+    assert session["runs"][0]["mission_outcome"] == "FAILED"
+    assert session["runs"][0]["recovery"]["outcome"] == "COMPLETED"
+    assert session["runs"][0]["recovery"]["source"] == "automatic"
+    assert session["runs"][0]["recovery"]["stage_home_margin_m"] == 0.5
+    assert session["aborted"] is None
+
+
+def test_session_waits_for_delayed_automatic_recovery(tmp_path: Path):
+    pending = {
+        "recovery_id": "automatic-delayed",
+        "outcome": None,
+        "reason": None,
+    }
+    complete = {
+        **pending,
+        "outcome": "COMPLETED",
+        "reason": "HOME_POSITION_RECOVERED",
+        "final_safety_state": "DISARMED_CONFIRMED",
+        "final_evidence": {"home_distance_m": 0.09},
+    }
+    failed = terminal("run-1", outcome="FAILED", home=0.4)
+    recovering = json.loads(json.dumps(failed))
+    recovering["run"]["recovery_attempts"] = [pending]
+    recovered = json.loads(json.dumps(failed))
+    recovered["run"]["recovery_attempts"] = [complete]
+    client = FakeClient(
+        [READY],
+        results_by_id={
+            "run-1": [failed, failed, failed, recovering, recovered],
+            "run-2": [terminal("run-2")],
+        },
+        sidecar=SIDECAR,
+    )
+
+    session = run_session(
+        client,
+        runs=2,
+        seed=5,
+        output_path=tmp_path / "delayed-auto.json",
+        recover_failures=True,
+        sleep=lambda _: None,
+        log=lambda *_: None,
+    )
+
+    assert client.recover_home_calls == []
+    assert session["runs"][0]["recovery"]["outcome"] == "COMPLETED"
+    assert len(session["runs"]) == 2
+
+
+@pytest.mark.parametrize(
+    ("recovery_outcome", "recovery_reason"),
+    [
+        ("FAILED", "AUTOMATIC_RECOVERY_SKIPPED"),
+        ("STOPPED", "OPERATOR_STOP"),
+    ],
+)
+def test_session_records_unsuccessful_recovery_and_blocks_next_activation(
+    tmp_path: Path,
+    recovery_outcome: str,
+    recovery_reason: str,
+):
+    failed = terminal("run-1", outcome="FAILED", home=0.7)
+    settled = json.loads(json.dumps(failed))
+    settled["run"]["recovery_attempts"] = [
+        {
+            "recovery_id": "automatic-1",
+            "outcome": recovery_outcome,
+            "reason": recovery_reason,
+            "final_safety_state": "DISARMED_CONFIRMED",
+            "final_evidence": {"home_distance_m": 0.7},
+        }
+    ]
+    output = tmp_path / f"{recovery_reason}.json"
+    client = FakeClient(
+        [READY],
+        results_by_id={"run-1": [failed, settled]},
+        sidecar=SIDECAR,
+    )
+
+    session = run_session(
+        client,
+        runs=2,
+        seed=5,
+        output_path=output,
+        recover_failures=True,
+        sleep=lambda _: None,
+        log=lambda *_: None,
+    )
+
+    saved = json.loads(output.read_text())
+    assert client.activated == [saved["fruit_sequence"][0]]
+    assert saved["runs"][0]["mission_outcome"] == "FAILED"
+    assert saved["runs"][0]["recovery"]["outcome"] == recovery_outcome
+    assert saved["runs"][0]["recovery"]["reason"] == recovery_reason
+    assert saved["runs"][0]["recovery"]["safe_to_continue"] is False
+    assert "next activation blocked" in session["aborted"]
+
+
+def test_session_blocks_completed_recovery_outside_stage_home_margin(tmp_path: Path):
+    failed = terminal("run-1", outcome="FAILED", home=0.8)
+    recovered = json.loads(json.dumps(failed))
+    recovered["run"]["recovery_attempts"] = [
+        {
+            "recovery_id": "automatic-1",
+            "outcome": "COMPLETED",
+            "reason": "HOME_POSITION_RECOVERED",
+            "final_safety_state": "DISARMED_CONFIRMED",
+            "final_evidence": {"home_distance_m": 0.51},
+        }
+    ]
+    client = FakeClient(
+        [READY],
+        results_by_id={"run-1": [failed, recovered]},
+        sidecar=SIDECAR,
+    )
+
+    session = run_session(
+        client,
+        runs=2,
+        seed=5,
+        output_path=tmp_path / "outside-margin.json",
+        recover_failures=True,
+        stage_home_margin_m=0.5,
+        sleep=lambda _: None,
+        log=lambda *_: None,
+    )
+
+    assert len(client.activated) == 1
+    assert session["runs"][0]["recovery"]["outcome"] == "COMPLETED"
+    assert session["runs"][0]["recovery"]["within_stage_home_margin"] is False
+    assert session["runs"][0]["recovery"]["safe_to_continue"] is False
+
+
+def test_session_waits_for_terminal_recovery_to_clear_client_state(tmp_path: Path):
+    failed = terminal("run-1", outcome="FAILED", home=0.6)
+    recovered = json.loads(json.dumps(failed))
+    recovered["run"]["recovery_attempts"] = [
+        {
+            "recovery_id": "automatic-1",
+            "outcome": "COMPLETED",
+            "reason": "HOME_POSITION_RECOVERED",
+            "final_safety_state": "DISARMED_CONFIRMED",
+            "final_evidence": {"home_distance_m": 0.06},
+        }
+    ]
+    still_active = {
+        **READY,
+        "activation": {"ready": False, "blockers": []},
+        "active_recovery": {
+            "run_id": "run-1",
+            "recovery_id": "automatic-1",
+        },
+    }
+    class DelayedClearClient(FakeClient):
+        recovery_observed = False
+        post_recovery_status_calls = 0
+
+        def result(self, run_id):
+            payload = super().result(run_id)
+            if (payload.get("run") or {}).get("recovery_attempts"):
+                self.recovery_observed = True
+            return payload
+
+        def status(self):
+            if self.recovery_observed:
+                self.post_recovery_status_calls += 1
+                if self.post_recovery_status_calls <= 2:
+                    return still_active
+            return READY
+
+    client = DelayedClearClient(
+        [READY],
+        results_by_id={
+            "run-1": [failed, recovered],
+            "run-2": [terminal("run-2")],
+        },
+        sidecar=SIDECAR,
+    )
+
+    session = run_session(
+        client,
+        runs=2,
+        seed=5,
+        output_path=tmp_path / "client-clearance.json",
+        recover_failures=True,
+        sleep=lambda _: None,
+        log=lambda *_: None,
+    )
+
+    assert session["runs"][0]["recovery"]["client_recovery_cleared"] is True
+    assert session["runs"][0]["recovery"]["client_motion_disarmed"] is True
+    assert len(session["runs"]) == 2
+
+
+def test_ambiguous_manual_recovery_request_is_reconciled_without_retry(
+    tmp_path: Path,
+):
+    pending = {
+        "recovery_id": "accepted-despite-409",
+        "outcome": None,
+        "reason": None,
+    }
+    complete = {
+        **pending,
+        "outcome": "COMPLETED",
+        "reason": "HOME_POSITION_RECOVERED",
+        "final_safety_state": "DISARMED_CONFIRMED",
+        "final_evidence": {"home_distance_m": 0.07},
+    }
+    failed = terminal("run-1", outcome="FAILED", home=0.4)
+    recovering = json.loads(json.dumps(failed))
+    recovering["run"]["recovery_attempts"] = [pending]
+    recovered = json.loads(json.dumps(failed))
+    recovered["run"]["recovery_attempts"] = [complete]
+
+    class AmbiguousRecoveryClient(FakeClient):
+        recovery_result_calls = 0
+
+        def result(self, run_id):
+            if run_id == "run-1" and self.recover_home_calls:
+                self.recovery_result_calls += 1
+                return recovering if self.recovery_result_calls == 1 else recovered
+            return super().result(run_id)
+
+        def recover_home(self, run_id):
+            self.recover_home_calls.append(run_id)
+            raise RuntimeError("HTTP Error 409: recovery is already active")
+
+    client = AmbiguousRecoveryClient(
+        [READY],
+        results_by_id={
+            "run-1": [failed],
+            "run-2": [terminal("run-2")],
+        },
+        sidecar=SIDECAR,
+    )
+
+    session = run_session(
+        client,
+        runs=2,
+        seed=5,
+        output_path=tmp_path / "ambiguous-409.json",
+        recover_failures=True,
+        sleep=lambda _: None,
+        log=lambda *_: None,
+    )
+
+    assert client.recover_home_calls == ["run-1"]
+    assert session["runs"][0]["recovery"]["outcome"] == "COMPLETED"
+    assert session["runs"][0]["recovery"]["source"] == (
+        "reconciled_after_ambiguous_manual_request"
+    )
+    assert len(session["runs"]) == 2
+
+
+def test_unresolved_manual_recovery_request_blocks_without_retry(tmp_path: Path):
+    failed = terminal("run-1", outcome="FAILED", home=0.4)
+
+    class UnresolvedRecoveryClient(FakeClient):
+        def recover_home(self, run_id):
+            self.recover_home_calls.append(run_id)
+            raise TimeoutError("request outcome unknown")
+
+    client = UnresolvedRecoveryClient(
+        [READY],
+        results_by_id={"run-1": [failed]},
+        sidecar=SIDECAR,
+    )
+
+    session = run_session(
+        client,
+        runs=2,
+        seed=5,
+        output_path=tmp_path / "unresolved-recovery.json",
+        recover_failures=True,
+        sleep=lambda _: None,
+        log=lambda *_: None,
+    )
+
+    assert client.recover_home_calls == ["run-1"]
+    assert len(client.activated) == 1
+    assert session["runs"][0]["recovery"]["reason"] == (
+        "RECOVERY_REQUEST_AMBIGUOUS"
+    )
+    assert session["runs"][0]["recovery"]["safe_to_continue"] is False
 
 
 def test_session_aborts_and_persists_partial_on_latch(tmp_path: Path):
