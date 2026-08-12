@@ -783,3 +783,19 @@ Full evidence:
 - Full failed-run black boxes and the start frames are retained alongside the
   two harness aggregates under
   `benchmarks/results/fruit-soak-v22-random-5-seed-2026081106*`.
+
+## STAGE-CAMERA-V23-APPLE-PEAR-CONFIDENCE-2026-08-11 — candidate
+
+- Release identity: `stage-camera-v23-apple-pear-confidence`, configuration
+  schema 7, app version `1.0.26-stage-camera`; root/media descriptors and both
+  Stagefiles use the same cohort.
+- Policy change: apple now shares pear's `0.65` acquisition floor and `0.55`
+  continued-tracking floor. The prior apple policy was `0.70` acquisition and
+  `0.10` tracking. Banana policy and its specialist gate are unchanged.
+- Unchanged motion boundary: the search policy still requires five fresh fully
+  qualified samples under `slow-sweep`; search handoff still requires current
+  fresh matching tracking-floor evidence and three centered approach samples
+  before translation. Raw weak sidecar publication remains diagnostic-only.
+- Qualification boundary: software tests establish threshold propagation
+  through media stability, app readiness, and the temporal tracker. A supervised
+  randomized Apple/Pear run is required before claiming physical improvement.

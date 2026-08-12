@@ -98,14 +98,15 @@ the page exposes no motion control. Start with an apple, then repeat with a
 banana at the same placement and lighting used for the pear qualification.
 Record the visible confidence, whether the box stays on the correct fruit, and
 whether five consecutive detections are reached. Switching fruit clears prior
-detection stability so evidence from one class cannot qualify another. The red
-apple passed `RED-APPLE-001` at the unchanged 0.70 threshold and reached 15
-consecutive qualifying detections.
+detection stability so evidence from one class cannot qualify another. The
+historical red-apple qualification passed `RED-APPLE-001` at 0.70 and reached
+15 consecutive qualifying detections. The v23 candidate intentionally tests a
+0.65 acquisition floor and requires 0.55 for continued tracking.
 
-The acquisition thresholds are 0.70 for apple, 0.20 for banana, and 0.65 for
+The acquisition thresholds are 0.65 for apple, 0.20 for banana, and 0.65 for
 pear. Banana's low app-side value rides on top of the specialist's 0.55 floor
-rather than standing alone. Fruit-specific thresholds may change only after
-fresh evidence; the qualified pear and red-apple thresholds remain unchanged.
+rather than standing alone. Fruit-specific thresholds require fresh physical
+acceptance evidence before they are treated as qualified.
 
 Any physical remote-control input must eventually cause a latched
 `REMOTE_TAKEOVER`. Autonomous control must stop and cannot resume until the
@@ -214,8 +215,8 @@ that tracking floor stricter but cannot lower it, while
 `BORDER_COLLIE_PEAR_TRACKING_CONFIRMATIONS` controls application-side temporal
 acquisition. Neither setting alters the sidecar acquisition rule.
 
-Red apple acquisition remains fixed at 0.70 confidence for five fresh frames.
-After acquisition, a close red-apple track may continue down to 0.10 confidence
+Red apple acquisition is 0.65 confidence for five fresh frames. After
+acquisition, a close red-apple track may continue at 0.55 confidence
 only while fresh observations remain spatially continuous: its horizontal
 center cannot jump by more than 0.20 of the frame, its lower edge or vertical
 center cannot retreat by more than 0.08, and its box area cannot collapse by

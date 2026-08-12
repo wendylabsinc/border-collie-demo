@@ -85,7 +85,7 @@ def test_fast_lock_recovers_four_frame_apple_but_not_one_frame_noise() -> None:
     (
         (("camera_healthy",), False, "camera_unhealthy"),
         (("detection", "label"), "pear", "wrong_target_fruit"),
-        (("detection", "confidence"), 0.69, "confidence_below_acquisition_floor"),
+        (("detection", "confidence"), 0.64, "confidence_below_acquisition_floor"),
         (("detection", "age_s"), 0.251, "detection_stale"),
         (("source", "age_s"), 0.351, "source_stale"),
         (("detection", "generation"), "camera-old", "generation_mismatch"),

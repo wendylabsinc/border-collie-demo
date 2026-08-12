@@ -35,7 +35,7 @@ from media.service_supervision import (
 from media.visual_odometry import SparseVisualOdometry, VisualOdometryConfig
 
 FRUIT_ACQUISITION_CONFIDENCE = {
-    "apple": 0.70,
+    "apple": 0.65,
     "banana": 0.20,
     "pear": 0.65,
 }

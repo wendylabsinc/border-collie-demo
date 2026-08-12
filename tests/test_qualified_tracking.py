@@ -120,7 +120,7 @@ def apple_observation(
 ) -> dict[str, object]:
     return {
         "camera_healthy": True,
-        "target_ready": confidence >= 0.70,
+        "target_ready": confidence >= 0.65,
         "generation": generation,
         "source": {
             "pts": source_pts,
@@ -162,7 +162,14 @@ def apple_handoff(**changes: object) -> SearchQualificationHandoff:
     return SearchQualificationHandoff(**values)
 
 
-def test_search_handoff_replays_real_apple_confidence_drop_without_lowering_acquisition() -> None:
+def test_apple_uses_shared_pear_confidence_floors() -> None:
+    target = apple_tracker()
+
+    assert target.config.acquisition_confidence == 0.65
+    assert target.config.tracking_confidence == 0.55
+
+
+def test_search_handoff_replays_real_apple_confidence_drop_after_acquisition() -> None:
     target = apple_tracker(apple_handoff())
 
     decisions = [
@@ -177,7 +184,7 @@ def test_search_handoff_replays_real_apple_confidence_drop_without_lowering_acqu
         )
     ]
 
-    assert target.config.acquisition_confidence == 0.70
+    assert target.config.acquisition_confidence == 0.65
     assert [decision.recommendation for decision in decisions] == [
         MotionRecommendation.ALIGN,
         MotionRecommendation.ALIGN,

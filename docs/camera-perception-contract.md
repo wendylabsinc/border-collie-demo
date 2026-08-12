@@ -268,9 +268,10 @@ never converts the failed fruit attempt into success.
 
 ## Evidence and remaining qualification
 
-The provisioned engine also represents apple and banana. `RED-APPLE-001`
-qualifies red apple at 0.70 confidence by five fresh detections; pear remains
-qualified at 0.65 by five. Banana stays a camera-only **Supported Fruit**. The
+The provisioned engine also represents apple and banana. The current v23
+candidate requires apple and pear acquisition at 0.65 confidence by five fresh
+detections, and continued tracking at 0.55. Banana remains separately gated by
+its resident specialist. The
 green apple trial produced no apple proposal and was classified as pear when
 class filtering was removed, so green apple is outside the qualified operating
 envelope. The `/fruit-test` surface remains motion-free. Selecting a different
@@ -302,12 +303,9 @@ branch):
 
 - **Every motion-relevant consumer MUST apply its own explicit confidence
   floor.** Current floors live in `fruits.py` (acquisition and close-range
-  tracking per fruit) and in the arrival-visibility check. The lowest
-  legitimate consumer floor is apple's 0.10 close-range tracking confidence,
-  so a sidecar-side floor would have to sit below 0.10 to avoid starving the
-  close-range continuation path - at which point it filters only absolute
-  noise while adding a second policy location that must forever stay below
-  every app floor.
+  tracking per fruit) and in the arrival-visibility check. The sidecar remains
+  raw so policy stays consumer-owned and weak evidence remains observable for
+  diagnostics and the motion-free `/fruit-test` page.
 - Raw publication is what makes failures diagnosable from telemetry: the
   phantom above was identified from recorded sub-floor samples, and the
   close-range confidence collapse of a real pear (0.27 at bottom 0.997) was

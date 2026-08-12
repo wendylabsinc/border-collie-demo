@@ -12,8 +12,8 @@ class FruitPolicy:
 
 FRUIT_POLICIES: dict[str, FruitPolicy] = {
     "apple": FruitPolicy(
-        acquisition_confidence=0.70,
-        close_range_tracking_confidence=0.10,
+        acquisition_confidence=0.65,
+        close_range_tracking_confidence=0.55,
         motion_qualified=True,
     ),
     # Banana is motion-qualified only because every published banana detection

@@ -622,6 +622,23 @@ def test_switching_supported_fruit_clears_old_detection_stability() -> None:
     assert status["detection"]["consecutive_detections"] == 1
 
 
+def test_apple_detection_stability_starts_at_shared_pear_acquisition_floor() -> None:
+    evidence = PerceptionEvidence(generation="camera-1")
+    evidence.select_target("apple")
+
+    detection = evidence.note_detection(
+        pts=100,
+        label="apple",
+        confidence=0.65,
+        bbox_xyxy=(480, 360, 800, 700),
+        inference_s=0.08,
+        completed_monotonic_s=10.08,
+    )
+
+    assert detection is not None
+    assert detection["consecutive_detections"] == 1
+
+
 def test_in_flight_old_target_result_cannot_kill_the_preview_worker() -> None:
     full_frame = FakeImage(720, 1280)
 
