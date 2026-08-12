@@ -1042,5 +1042,32 @@ defect to fix. See
   that sequence. The configurable frame window defaults to 10; duplicate,
   stale, wrong-identity/generation, unhealthy-camera, and invalid-geometry
   evidence cannot use the confidence average to bypass their independent stop.
-- This is software evidence only. No v32 deployment or physical motion has
-  occurred.
+- At candidate qualification this was software evidence only; the supervised
+  deployment and physical result are recorded below.
+
+## 2026-08-12: v32 supervised Pear result
+
+- Commit `e756d3d` was deployed as the whole root-and-media Stagefile project
+  with native `wendy run --detach`. Post-deployment readiness proved release
+  `stage-camera-v32-confidence-average`, schema 15, a stable advancing camera
+  generation, fresh pose, and exact-zero disarm before activation.
+- One 0-degree Pear run, `89e1803e-c508-4762-b5c2-009e879c76d8`, ended
+  `FAILED / ARRIVAL_FAILURE` after 30.002 seconds with message
+  `qualified pear Arrival timed out`. Search did qualify Pear at confidence
+  `0.7326`, but the search handoff geometry was far left at center ratio
+  `0.0543` and approach rejected it as `geometry_off_axis`.
+- Approach accumulated 58 qualified observations, 90 weak observations, ten
+  duplicate observations, and four continuity stops. It eventually sent
+  eleven close-speed forward commands at `0.55 m/s`, then stopped when the
+  center corridor exited and the track became discontinuous. The terminal
+  ten-frame confidence mean was `0.4359` with raw confidence `0.4340`, both
+  below the Pear tracking floor `0.55`.
+- This result rejects the hypothesis that every recent Pear stop was caused by
+  one sub-threshold raw frame. The rolling average prevented a single-frame
+  dip from deciding safety, but it correctly failed closed on sustained weak
+  evidence. Search-to-approach centering and continuity remain the dominant
+  defect in this run.
+- Automatic recovery completed `HOME_POSITION_RECOVERED` in 18.509 seconds.
+  Final recovery evidence measured `0.0556 m` from captured Home and confirmed
+  disarm. The later stationary fused estimate was `0.0769 m`; no run,
+  recovery, guardian, or nonzero command remained active.
