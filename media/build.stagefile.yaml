@@ -12,10 +12,10 @@ stages:
       BANANA_SPECIALIST_MODEL_PATH: /media/banana-specialist.pt
       BANANA_SPECIALIST_MIN_CONFIDENCE: "0.55"
       BANANA_SPECIALIST_MIN_IOU: "0.10"
-      PERCEPTION_PIPELINE_PROFILE: baseline
+      PERCEPTION_PIPELINE_PROFILE: throughput-v1
       BORDER_COLLIE_MEDIA_PORT: "8111"
-      BORDER_COLLIE_RELEASE_ID: stage-camera-v24-apple-pear-pipeline-baseline
-      BORDER_COLLIE_CONFIG_SCHEMA: "8"
+      BORDER_COLLIE_RELEASE_ID: stage-camera-v25-apple-pear-throughput-v1
+      BORDER_COLLIE_CONFIG_SCHEMA: "9"
       BORDER_COLLIE_BARK_UUID: 161387de-21ab-4f0b-b4e9-97124b000d06
     install:
       apt:

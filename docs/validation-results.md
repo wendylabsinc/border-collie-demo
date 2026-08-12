@@ -810,14 +810,42 @@ Full evidence:
   comparison will test whether evidence cadence, rather than peak confidence,
   is the limiting factor.
 
-## STAGE-CAMERA-V24-PIPELINE-BASELINE-2026-08-11 — planned physical cohort
+## STAGE-CAMERA-V24-PIPELINE-BASELINE-2026-08-11 — physical cohort
 
 - Release identity: `stage-camera-v24-apple-pear-pipeline-baseline`, schema 8,
   app version `1.0.27-stage-camera`.
 - The merged scheduler is present but explicitly selected as
   `PERCEPTION_PIPELINE_PROFILE=baseline`. Apple/Pear confidence policy remains
   0.65 acquisition and 0.55 continued tracking.
-- Plan: deploy with the normal Stagefile-aware `wendy run --detach`, then run
-  Apple, Pear, and Banana once each. Persist all terminal results and black-box
-  traces, request only bounded Home recovery after failures, and continue only
-  from a disarmed no-active-operation state.
+- Live pipeline snapshot: 14.18 source FPS, 7.00 processed/published FPS,
+  1,805 processed of 3,654 source frames, 1,847 latest-frame drops, 0.0960 s
+  average inference, and no visual-odometry or preview worker errors.
+- Apple `078c9f58-5eb9-488d-87d6-92344fad303d`: failed
+  `TARGET_RECOGNITION_FAILURE`; peak confidence 0.7635 and maximum three
+  consecutive detections, below the five-frame lock. Bounded recovery completed
+  `HOME_POSITION_ALREADY_RECOVERED` at 0.0614 m.
+- Pear `e02e9d0b-4502-41e5-8cc6-44e2e331c077`: failed `ARRIVAL_FAILURE`
+  after acquisition and approach. Its automatic recovery completed
+  `HOME_POSITION_RECOVERED` at 0.0764 m. The soak client raced that automatic
+  attempt with a manual request, received HTTP 409, and stopped its aggregate;
+  Banana was resumed directly after the authoritative recovery completed.
+- Banana `1979f519-de00-4137-9116-1200e15a7274`: reached Arrival, completed
+  down/bark/stand, and reached 0.0423 m Home position, then failed
+  `RETURN_HOME_FAILURE` during heading restoration. Manual recovery turned
+  despite the already-good position, shifted outward, and failed the strict
+  0.10 m recovery gate; final live state was disarmed at 0.2176 m, inside the
+  operator's separate 0.50 m stage margin.
+- Score: 0/3 end-to-end completions; all three results and black-box traces are
+  retained under `benchmarks/results/2026-08-11-v24-baseline-*`. The scheduler
+  comparison must distinguish perception improvements from unchanged Arrival
+  and Home-heading failures.
+
+## STAGE-CAMERA-V25-THROUGHPUT-V1-2026-08-11 — comparison candidate
+
+- Release identity: `stage-camera-v25-apple-pear-throughput-v1`, schema 9,
+  app version `1.0.28-stage-camera`.
+- Only the scheduler profile changes to `PERCEPTION_PIPELINE_PROFILE=throughput-v1`;
+  confidence, search policy, approach, Arrival, action, and Home contracts are
+  unchanged from the v24 baseline cohort.
+- Planned matched order: Apple, Pear, Banana with seed `2026081105`, 0 degree
+  pre-search turns, `slow-sweep`, and full per-run black boxes.
