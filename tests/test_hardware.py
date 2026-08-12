@@ -22,6 +22,7 @@ from border_collie_demo.hardware import (
     TargetLost,
 )
 from border_collie_demo.models import Pose, VelocityCommand
+from border_collie_demo.persistent_fruit_tracker import PersistentFruitTracker
 from border_collie_demo.qualified_tracking import SearchQualificationHandoff
 from border_collie_demo.search_policy import SearchPolicy
 from border_collie_demo.target_range import MetricArrivalGate, RangeCalibration
@@ -497,6 +498,88 @@ def test_continuous_home_fusion_is_written_to_the_run_black_box(tmp_path) -> Non
         }
         assert payload["estimate"]["trusted"] is True
         assert "covariance" in payload["estimate"]
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_persistent_track_black_box_pairs_each_frame_with_its_command(tmp_path) -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: TurningPose(),
+        )
+        await manager.start()
+        manager.set_motion_authority("run-track", "epoch-track", "turn_to_fruit")
+        recorder = FlightRecorder(tmp_path / "flight")
+        manager.set_flight_recorder(recorder)
+        track = PersistentFruitTracker.for_fruit(
+            "apple",
+            acquisition_confirmations=3,
+        )
+        pts = 0
+
+        def read_status() -> dict[str, object]:
+            nonlocal pts
+            pts += 1
+            detection = {
+                "label": "apple",
+                "generation": "camera-1",
+                "source_pts": pts,
+                "source_time_base": "1/90000",
+                "confidence": 0.70,
+                "consecutive_detections": pts,
+                "age_s": 0.01,
+                "bbox_xyxy": [480, 360, 800, 700],
+                "center_x_ratio": 0.50,
+                "center_y_ratio": 0.736,
+                "bottom_ratio": 0.972,
+                "bbox_area_ratio": 0.118,
+                "route": "full_frame",
+            }
+            return {
+                "camera_healthy": True,
+                "target_ready": pts >= 3,
+                "generation": "camera-1",
+                "source": {
+                    "pts": pts,
+                    "time_base": "1/90000",
+                    "age_s": 0.01,
+                },
+                "detection": detection,
+                "observations": {"full_frame": detection, "crop": None},
+            }
+
+        await manager.find_target(
+            read_status,
+            "apple",
+            yaw_rps=0.50,
+            sweep_rad=2.0 * math.pi,
+            timeout_s=1.0,
+            fruit_tracker=track,
+        )
+
+        events = [
+            json.loads(line)
+            for line in recorder.snapshot_run("run-track").artifact.content.splitlines()
+        ]
+        frames = [event["payload"] for event in events if event["kind"] == "fruit_track_frame"]
+        assert len(frames) == 3
+        assert [frame["track_state_after"] for frame in frames] == [
+            "candidate",
+            "candidate",
+            "locked",
+        ]
+        assert frames[-1]["resulting_command"] == {
+            "forward_mps": 0.0,
+            "yaw_rps": 0.0,
+            "reason": "search_lock_release_stop",
+        }
+        assert all(frame["full_frame_detection"] for frame in frames)
+        assert all("motion_authorized" in frame for frame in frames)
         await manager.close()
 
     asyncio.run(scenario())

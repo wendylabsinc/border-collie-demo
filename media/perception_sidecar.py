@@ -347,6 +347,22 @@ def _bbox_iou(
     return intersection / union if union > 0 else 0.0
 
 
+def _candidate_evidence(
+    target_fruit: str,
+    candidate: FruitCandidate | None,
+    *,
+    route: str | None,
+) -> dict[str, object] | None:
+    if candidate is None or route is None:
+        return None
+    return {
+        "label": target_fruit,
+        "confidence": candidate.confidence,
+        "bbox_xyxy": list(candidate.bbox_xyxy),
+        "route": route,
+    }
+
+
 class PerceptionEvidence:
     def __init__(self, *, generation: str, target_fruit: str = "pear") -> None:
         self.generation = generation
@@ -354,6 +370,10 @@ class PerceptionEvidence:
         self._target_fruit = target_fruit
         self._source: dict[str, object] = {}
         self._detection: dict[str, object] = {}
+        self._observations: dict[str, object] = {
+            "full_frame": None,
+            "crop": None,
+        }
         self._source_count = 0
         self._detection_count = 0
         self._last_source_pts: int | None = None
@@ -382,6 +402,7 @@ class PerceptionEvidence:
             if not advances:
                 self._detection_count = 0
                 self._detection = {}
+                self._observations = {"full_frame": None, "crop": None}
             self._last_source_pts = pts
             self._last_source_received_s = received_monotonic_s
             self._time_base = time_base
@@ -429,14 +450,24 @@ class PerceptionEvidence:
                 "bbox_xyxy": list(bbox_xyxy),
                 **(details or {}),
             }
+            raw_observations = (details or {}).get("observations")
+            if isinstance(raw_observations, dict):
+                self._observations = dict(raw_observations)
             return dict(self._detection)
 
-    def note_miss(self, target_fruit: str) -> None:
+    def note_miss(
+        self,
+        target_fruit: str,
+        *,
+        observations: object = None,
+    ) -> None:
         with self._lock:
             if target_fruit.casefold().strip() != self._target_fruit:
                 return
             self._detection_count = 0
             self._detection = {}
+            if isinstance(observations, dict):
+                self._observations = dict(observations)
 
     def select_target(self, target_fruit: str) -> None:
         normalized = target_fruit.casefold().strip()
@@ -449,6 +480,7 @@ class PerceptionEvidence:
             self._detection_count = 0
             self._last_detection_pts = None
             self._detection = {}
+            self._observations = {"full_frame": None, "crop": None}
 
     def fail(self, error: str) -> None:
         with self._lock:
@@ -462,6 +494,7 @@ class PerceptionEvidence:
                 "supported_fruits": list(SUPPORTED_FRUITS),
                 "source": dict(self._source),
                 "detection": dict(self._detection),
+                "observations": dict(self._observations),
                 "error": self._error,
             }
 
@@ -1005,12 +1038,34 @@ class PerceptionRuntime:
                 "search_crop": None,
                 "crop_confirmation": None,
             }
+            # Full-frame identity is authoritative on every processed frame.
+            # Optional crops may refine an agreeing observation, but a crop
+            # route never replaces this pass.
+            full_frame_prediction = self._predict_candidate(
+                source=bgr,
+                target_fruit=target_fruit,
+            )
+            full_frame_candidate = full_frame_prediction.candidate
+            candidate = full_frame_candidate
+            inference_passes = full_frame_prediction.inference_passes
+            route_triggered = bool(full_frame_prediction.route.get("triggered"))
+            model_route["full_frame"] = full_frame_prediction.route
+            crop_candidate: FruitCandidate | None = None
+            crop_route: str | None = None
             search_crop: dict[str, object] = {
                 "attempted": False,
                 "crop_xyxy": None,
             }
-            route_triggered = False
-            if route is FrameRoute.LOWER_CENTER_SEARCH_CROP:
+            should_search_crop = bool(
+                route is FrameRoute.LOWER_CENTER_SEARCH_CROP
+                or (
+                    route is FrameRoute.BASELINE
+                    and full_frame_candidate is None
+                    and target_fruit in SEARCH_CROP_FRUITS
+                    and not route_triggered
+                )
+            )
+            if should_search_crop:
                 search_crop_xyxy = _lower_center_search_crop(
                     width=int(bgr.shape[1]),
                     height=int(bgr.shape[0]),
@@ -1023,70 +1078,41 @@ class PerceptionRuntime:
                     x_offset=crop_x1,
                     y_offset=crop_y1,
                 )
-                candidate = search_prediction.candidate
-                inference_passes = search_prediction.inference_passes
-                route_triggered = bool(search_prediction.route.get("triggered"))
+                crop_candidate = search_prediction.candidate
+                crop_route = "search_crop"
+                inference_passes += search_prediction.inference_passes
+                route_triggered = route_triggered or bool(
+                    search_prediction.route.get("triggered")
+                )
                 model_route["search_crop"] = search_prediction.route
                 search_crop = {
                     "attempted": True,
                     "crop_xyxy": list(search_crop_xyxy),
                 }
-            else:
-                full_frame_prediction = self._predict_candidate(
-                    source=bgr,
-                    target_fruit=target_fruit,
-                )
-                candidate = full_frame_prediction.candidate
-                inference_passes = full_frame_prediction.inference_passes
-                route_triggered = bool(full_frame_prediction.route.get("triggered"))
-                model_route["full_frame"] = full_frame_prediction.route
-                if (
-                    route is FrameRoute.BASELINE
-                    and candidate is None
-                    and target_fruit in SEARCH_CROP_FRUITS
-                    and not route_triggered
-                ):
-                    search_crop_xyxy = _lower_center_search_crop(
-                        width=int(bgr.shape[1]),
-                        height=int(bgr.shape[0]),
-                    )
-                    crop_x1, crop_y1, crop_x2, crop_y2 = search_crop_xyxy
-                    cropped_bgr = bgr[crop_y1:crop_y2, crop_x1:crop_x2]
-                    search_prediction = self._predict_candidate(
-                        source=cropped_bgr,
-                        target_fruit=target_fruit,
-                        x_offset=crop_x1,
-                        y_offset=crop_y1,
-                    )
-                    inference_passes += search_prediction.inference_passes
-                    candidate = search_prediction.candidate
-                    model_route["search_crop"] = search_prediction.route
-                    search_crop = {
-                        "attempted": True,
-                        "crop_xyxy": list(search_crop_xyxy),
-                    }
             crop_confirmation: dict[str, object] = {
                 "attempted": False,
                 "promoted": False,
                 "full_frame_confidence": (
-                    None if candidate is None else candidate.confidence
+                    None
+                    if full_frame_candidate is None
+                    else full_frame_candidate.confidence
                 ),
                 "crop_confidence": None,
                 "crop_xyxy": None,
                 "agreement_iou": None,
             }
             if (
-                candidate is not None
+                full_frame_candidate is not None
                 and not search_crop["attempted"]
                 and not route_triggered
                 and self._should_crop_confirm(
-                    candidate,
+                    full_frame_candidate,
                     width=int(bgr.shape[1]),
                     height=int(bgr.shape[0]),
                 )
             ):
                 crop_xyxy = _expanded_square_crop(
-                    candidate.bbox_xyxy,
+                    full_frame_candidate.bbox_xyxy,
                     width=int(bgr.shape[1]),
                     height=int(bgr.shape[0]),
                     minimum_side_px=self._crop_confirm.minimum_crop_side_px,
@@ -1102,12 +1128,13 @@ class PerceptionRuntime:
                 )
                 inference_passes += crop_prediction.inference_passes
                 crop_candidate = crop_prediction.candidate
+                crop_route = "crop_confirmation"
                 model_route["crop_confirmation"] = crop_prediction.route
                 agreement_iou = (
                     None
                     if crop_candidate is None
                     else _bbox_iou(
-                        candidate.bbox_xyxy,
+                        full_frame_candidate.bbox_xyxy,
                         crop_candidate.bbox_xyxy,
                     )
                 )
@@ -1115,14 +1142,14 @@ class PerceptionRuntime:
                     crop_candidate is not None
                     and crop_candidate.confidence
                     >= self._crop_confirm.minimum_confirmation_confidence
-                    and crop_candidate.confidence > candidate.confidence
+                    and crop_candidate.confidence > full_frame_candidate.confidence
                     and agreement_iou is not None
                     and agreement_iou >= self._crop_confirm.minimum_agreement_iou
                 )
                 crop_confirmation = {
                     "attempted": True,
                     "promoted": promoted,
-                    "full_frame_confidence": candidate.confidence,
+                    "full_frame_confidence": full_frame_candidate.confidence,
                     "crop_confidence": (
                         None if crop_candidate is None else crop_candidate.confidence
                     ),
@@ -1132,6 +1159,40 @@ class PerceptionRuntime:
                 if promoted:
                     assert crop_candidate is not None
                     candidate = crop_candidate
+            elif search_crop["attempted"]:
+                agreement_iou = (
+                    None
+                    if full_frame_candidate is None or crop_candidate is None
+                    else _bbox_iou(
+                        full_frame_candidate.bbox_xyxy,
+                        crop_candidate.bbox_xyxy,
+                    )
+                )
+                if (
+                    full_frame_candidate is not None
+                    and crop_candidate is not None
+                    and crop_candidate.confidence > full_frame_candidate.confidence
+                    and agreement_iou is not None
+                    and agreement_iou >= self._crop_confirm.minimum_agreement_iou
+                ):
+                    candidate = crop_candidate
+                elif full_frame_candidate is None:
+                    # Retain raw crop publication for /fruit-test exploration;
+                    # motion identity remains absent in observations.full_frame.
+                    candidate = crop_candidate
+
+            observations = {
+                "full_frame": _candidate_evidence(
+                    target_fruit,
+                    full_frame_candidate,
+                    route="full_frame",
+                ),
+                "crop": _candidate_evidence(
+                    target_fruit,
+                    crop_candidate,
+                    route=crop_route,
+                ),
+            }
         except Exception as exc:  # noqa: BLE001 - detector errors are untyped
             if source.generation != self.evidence.generation:
                 return
@@ -1160,6 +1221,7 @@ class PerceptionRuntime:
                 "model_route": model_route,
                 "crop_confirmation": crop_confirmation,
                 "search_crop": search_crop,
+                "observations": observations,
                 "completed_monotonic_s": completed,
                 "published_detection": None,
             },
@@ -1186,7 +1248,10 @@ class PerceptionRuntime:
         payload = outcome.payload
         candidate = payload["candidate"]
         if candidate is None:
-            self.evidence.note_miss(outcome.target_fruit)
+            self.evidence.note_miss(
+                outcome.target_fruit,
+                observations=payload["observations"],
+            )
             payload["published_detection"] = {}
             return
         # Published raw by contract: consumers own their confidence floors.
@@ -1208,6 +1273,7 @@ class PerceptionRuntime:
                 "model_route": payload["model_route"],
                 "crop_confirmation": payload["crop_confirmation"],
                 "search_crop": payload["search_crop"],
+                "observations": payload["observations"],
             },
         )
         payload["published_detection"] = detection

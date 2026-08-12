@@ -46,6 +46,15 @@ frame used for inference. A callback that repeats or regresses a source marker:
 - does not refresh an existing pear observation; and
 - cannot extend a motion command lease.
 
+The detector now records two observation channels. A full-image observation is
+the identity authority on every processed frame. An optional crop observation
+may refine confidence and geometry only when its fruit label, camera
+generation, source marker, and overlap agree with that full-frame observation.
+A crop hit cannot acquire identity by itself, and a crop miss cannot erase a
+valid full-frame identity. The sidecar's selected raw detection remains
+available to `/fruit-test`; motion consumers continue to enforce their own
+fruit-specific confidence floors.
+
 ## Production readiness seam
 
 The mission process does not import WebRTC, GPU, TensorRT, or detector code. A
@@ -172,19 +181,18 @@ may be relaxed only after new acceptance evidence is recorded.
   freshness, generation, geometry, or camera-health gate. A weaker or missing
   track commands zero motion until the approach contract either reacquires the
   pear or confirms a bounded sight-lost-close Arrival.
-- Search qualification crosses into approach through one explicit, immutable
-  handoff. It records the requested fruit, camera generation, source PTS and
-  time base, qualification monotonic time, the fruit-specific stability count,
-  acquisition-grade confidence, and normalized geometry. Approach consumes
-  that handoff at most once and only within 0.250 seconds when a current fresh
-  same-fruit sample matches generation/time base, has non-regressed source
-  identity, remains geometrically continuous and inside the broad centering
-  corridor, and meets the fruit's existing tracking floor. The handoff seeds
-  identity only: the current sample commands zero/centering, and three current
-  fresh centered samples are still required before forward motion. A stale,
-  mismatched, regressed, weak, invalid, discontinuous, or off-axis handoff is
-  discarded and ordinary acquisition resumes at the unchanged per-fruit
-  acquisition threshold.
+- One `PersistentFruitTracker` owns identity from the first search observation
+  through approach. It is stored in the run's Stage Context and the same object
+  is passed to both hardware operations; there is no phase-transition identity
+  token and approach does not re-prove an already locked fruit. The track
+  reports identity, filtered confidence, freshness, geometry safety, motion
+  authority, alignment authority, and reason independently. One weak or
+  missing fresh full-frame observation enters `DEGRADED` for at most 250 ms;
+  it cannot advance Arrival. Recovery inside that window keeps the same
+  acquisition epoch. A second fresh miss confirms `LOST`. Off-axis evidence
+  preserves `LOCKED_OFF_AXIS` identity while disabling forward motion and
+  authorizing alignment only. Duplicate, stale, wrong-generation, impossible
+  geometry, confirmed wrong identity, and camera failure remain fail-closed.
 - A previously acquired red-apple track may continue below the normal tracking
   floor, down to 0.10 confidence, only after its lower edge or the prior lower
   edge reaches 0.70 of frame height and its geometry remains continuous. Its

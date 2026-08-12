@@ -26,6 +26,11 @@ from .home_localization import (
 )
 from .models import VelocityCommand
 from .motion_guardian import MotionAuthority
+from .persistent_fruit_tracker import (
+    FruitTrackReport,
+    FruitTrackState,
+    PersistentFruitTracker,
+)
 from .qualified_tracking import (
     MotionRecommendation,
     QualifiedFruitTracker,
@@ -254,6 +259,7 @@ class HardwareManager:
         self._continuous_fusion_latest: dict[str, object] | None = None
         self._continuous_fusion_consecutive_trusted = 0
         self._continuous_fusion_interval_s = 0.20
+        self._pending_fruit_track_frame: dict[str, object] | None = None
 
     async def start(self) -> None:
         if not self.config.enabled or self._connected:
@@ -523,6 +529,7 @@ class HardwareManager:
         sweep_rad: float,
         timeout_s: float,
         search_policy: SearchPolicy | None = None,
+        fruit_tracker: PersistentFruitTracker | None = None,
     ) -> dict[str, object]:
         """Run one measured bounded search until fresh target evidence locks."""
         rate = float(yaw_rps)
@@ -596,6 +603,13 @@ class HardwareManager:
                     status = status_reader()
                     sampled_at = self._monotonic()
                     self._record_perception_sample(status, target_fruit)
+                    track_report = (
+                        None
+                        if fruit_tracker is None
+                        else fruit_tracker.observe(status, now_s=sampled_at)
+                    )
+                    if track_report is not None:
+                        self._record_track_transition(track_report)
                     search_lock = policy.evaluate(status, target_fruit)
                     recognition["samples"] = int(recognition["samples"]) + 1
                     if not status.get("camera_healthy"):
@@ -684,25 +698,35 @@ class HardwareManager:
                                     SEARCH_CROP_CANDIDATE_CONFIDENCE
                                 )
                     search_target_ready = (
-                        search_lock.qualified
-                        if target_fruit.casefold() == "apple"
-                        or policy.name == "fast-lock"
-                        else status.get("target_ready") is True
+                        track_report is not None
+                        and track_report.state
+                        in {FruitTrackState.LOCKED, FruitTrackState.LOCKED_OFF_AXIS}
+                        if fruit_tracker is not None
+                        else (
+                            search_lock.qualified
+                            if target_fruit.casefold() == "apple"
+                            or policy.name == "fast-lock"
+                            else status.get("target_ready") is True
+                        )
                     )
                     if search_target_ready and isinstance(detection, dict):
                         label = str(detection.get("label") or "").casefold()
                         if label == target_fruit.casefold():
-                            handoff = search_handoff_from_status(
-                                (
-                                    status
-                                    if status.get("target_ready") is True
-                                    else {**status, "target_ready": True}
-                                ),
-                                target_fruit,
-                                qualified_monotonic_s=sampled_at,
-                                minimum_stable_detections=(
-                                    required_search_detections
-                                ),
+                            handoff = (
+                                None
+                                if fruit_tracker is not None
+                                else search_handoff_from_status(
+                                    (
+                                        status
+                                        if status.get("target_ready") is True
+                                        else {**status, "target_ready": True}
+                                    ),
+                                    target_fruit,
+                                    qualified_monotonic_s=sampled_at,
+                                    minimum_stable_detections=(
+                                        required_search_detections
+                                    ),
+                                )
                             )
                             evidence = {
                                 "motion_path": "sport_client",
@@ -718,6 +742,11 @@ class HardwareManager:
                                     "search_lock_reason": search_lock.reason,
                                 },
                                 "motion_commands_sent": commands_sent,
+                                **(
+                                    {"persistent_track": track_report.to_evidence()}
+                                    if track_report is not None
+                                    else {}
+                                ),
                             }
                             if handoff is not None:
                                 evidence.update(
@@ -733,6 +762,22 @@ class HardwareManager:
                                     bbox_area_ratio=handoff.bbox_area_ratio,
                                     search_qualification=handoff.to_evidence(),
                                 )
+                            if (
+                                track_report is not None
+                                and self._pending_fruit_track_frame is not None
+                            ):
+                                self._record_flight(
+                                    "fruit_track_frame",
+                                    {
+                                        **self._pending_fruit_track_frame,
+                                        "resulting_command": {
+                                            "forward_mps": 0.0,
+                                            "yaw_rps": 0.0,
+                                            "reason": "search_lock_release_stop",
+                                        },
+                                    },
+                                )
+                                self._pending_fruit_track_frame = None
                             break
                     sample = self._pose.status()
                     if not sample.healthy or sample.pose is None:
@@ -826,6 +871,7 @@ class HardwareManager:
         timeout_s: float,
         metric_arrival_required: bool = False,
         search_handoff: SearchQualificationHandoff | None = None,
+        fruit_tracker: PersistentFruitTracker | None = None,
     ) -> dict[str, object]:
         """Follow temporal fruit recommendations and stop on qualified Arrival."""
         numeric = (
@@ -934,8 +980,130 @@ class HardwareManager:
                                 or "camera evidence became unhealthy"
                             )
                         )
-                    decision = tracker.observe(status, now_s=now)
+                    persistent_report = (
+                        None
+                        if fruit_tracker is None
+                        else fruit_tracker.observe(status, now_s=now)
+                    )
+                    persistent_loss_decision = None
+                    if persistent_report is not None:
+                        self._record_track_transition(persistent_report)
+                        if persistent_report.state is FruitTrackState.LOST:
+                            if (
+                                persistent_report.reason
+                                == "confirmed_full_frame_loss"
+                            ):
+                                persistent_loss_decision = (
+                                    tracker.confirm_persistent_loss(
+                                        status,
+                                        now_s=now,
+                                        confirmed_fresh_misses=(
+                                            persistent_report.degraded_failures
+                                        ),
+                                    )
+                                )
+                            if (
+                                persistent_loss_decision is not None
+                                and persistent_loss_decision.recommendation
+                                is MotionRecommendation.ARRIVAL
+                            ):
+                                pass
+                            else:
+                                last_authorized_command = (
+                                    await self._send_motion_command(
+                                        lease,
+                                        VelocityCommand(
+                                            reason=(
+                                                "persistent_track_"
+                                                + persistent_report.reason
+                                            )
+                                        ),
+                                    )
+                                )
+                                if persistent_report.reason in {
+                                    "camera_unhealthy",
+                                    "generation_changed",
+                                    "generation_mismatch",
+                                    "stale_full_frame_observation",
+                                }:
+                                    raise CameraFailure(persistent_report.reason)
+                                raise TargetLost(
+                                    f"persistent {target_fruit} track was lost: "
+                                    + persistent_report.reason,
+                                    evidence=persistent_report.to_evidence(),
+                                )
+                        if persistent_report.state is FruitTrackState.DEGRADED:
+                            held = (
+                                last_authorized_command
+                                if persistent_report.hold_authorized
+                                and last_authorized_command is not None
+                                else VelocityCommand(
+                                    reason=(
+                                        "persistent_track_"
+                                        + persistent_report.reason
+                                    )
+                                )
+                            )
+                            last_authorized_command = await self._send_motion_command(
+                                lease,
+                                held,
+                            )
+                            await asyncio.sleep(self.config.command_heartbeat_s)
+                            continue
+                        if persistent_report.state in {
+                            FruitTrackState.UNSEEN,
+                            FruitTrackState.CANDIDATE,
+                        }:
+                            last_authorized_command = await self._send_motion_command(
+                                lease,
+                                VelocityCommand(
+                                    reason="persistent_track_confirming_identity"
+                                ),
+                            )
+                            await asyncio.sleep(self.config.command_heartbeat_s)
+                            continue
+                        if persistent_report.state is FruitTrackState.LOCKED_OFF_AXIS:
+                            horizontal_error = (
+                                0.0
+                                if persistent_report.geometry_route is None
+                                else float(
+                                    persistent_report.to_evidence()
+                                    .get("full_frame_detection", {})
+                                    .get("center_x_ratio", 0.5)
+                                )
+                                - 0.5
+                            )
+                            yaw = (
+                                0.0
+                                if abs(horizontal_error)
+                                <= INITIAL_CENTER_TOLERANCE_RATIO
+                                else -math.copysign(
+                                    min(maximum_yaw_rps, APPROACH_RECENTER_YAW_RPS),
+                                    horizontal_error,
+                                )
+                            )
+                            last_authorized_command = await self._send_motion_command(
+                                lease,
+                                VelocityCommand(
+                                    0.0,
+                                    yaw,
+                                    "persistent_track_align_off_axis",
+                                ),
+                            )
+                            await asyncio.sleep(self.config.command_heartbeat_s)
+                            continue
+                        if persistent_loss_decision is None:
+                            tracker.adopt_persistent_identity()
+                    decision = (
+                        persistent_loss_decision
+                        if persistent_loss_decision is not None
+                        else tracker.observe(status, now_s=now)
+                    )
                     last_decision_evidence = dict(decision.evidence)
+                    if persistent_report is not None:
+                        last_decision_evidence.update(
+                            persistent_track=persistent_report.to_evidence()
+                        )
                     note_visual_track = getattr(
                         self._metric_range_provider,
                         "note_visual_track",
@@ -2312,6 +2480,15 @@ class HardwareManager:
                     "pose": pose,
                 },
             )
+            if self._pending_fruit_track_frame is not None:
+                self._record_flight(
+                    "fruit_track_frame",
+                    {
+                        **self._pending_fruit_track_frame,
+                        "resulting_command": sent.to_dict(),
+                    },
+                )
+                self._pending_fruit_track_frame = None
         return sent
 
     def _record_breadcrumb(self) -> None:
@@ -2352,8 +2529,23 @@ class HardwareManager:
                 "camera_healthy": status.get("camera_healthy"),
                 "target_ready": status.get("target_ready"),
                 "generation": status.get("generation"),
+                "source": status.get("source"),
                 "detection": detection if isinstance(detection, dict) else None,
+                "observations": status.get("observations"),
             },
+        )
+
+    def _record_track_transition(self, report: FruitTrackReport) -> None:
+        evidence = {
+            "epoch": self._motion_run_epoch,
+            "phase": self._motion_authority_phase,
+            **report.to_evidence(),
+        }
+        if self._flight_recorder is not None:
+            self._pending_fruit_track_frame = dict(evidence)
+        self._record_flight(
+            "fruit_track_transition",
+            evidence,
         )
 
     def _record_flight(self, kind: str, payload: dict[str, object]) -> None:

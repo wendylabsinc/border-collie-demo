@@ -1,0 +1,2994 @@
+{
+  "schema_version": 5,
+  "session": "fruit-soak-2026-08-12T221257Z",
+  "build_label": "stage-camera-v29-persistent-fruit-track (codex/stage-camera-v29-persistent-fruit-track)",
+  "search_policy": "slow-sweep",
+  "default_search_policy": "slow-sweep",
+  "note": "Single v29 pear 249-degree supervised physical run after apple live-loss reproduction.",
+  "qualified_fruits": [
+    "apple",
+    "banana",
+    "pear"
+  ],
+  "target_runs": 1,
+  "seed": 2026081200,
+  "fruit_sequence": [
+    "pear"
+  ],
+  "orientation_randomized": true,
+  "orientation_sequence_degrees": [
+    249
+  ],
+  "failure_recovery_enabled": true,
+  "stage_home_margin_m": 0.5,
+  "temperature_source": "wendy device top (woof.local:50052)",
+  "runs": [
+    {
+      "number": 1,
+      "target_fruit": "pear",
+      "orientation_degrees": 249.0,
+      "run_id": "a6ad64ec-5e79-40e3-b44e-1ebed45e4cb3",
+      "started_at_utc": "2026-08-12T22:12:59.424039Z",
+      "ended_at_utc": "2026-08-12T22:13:21.306639Z",
+      "duration_s": 21.88257448799959,
+      "outcome": "FAILED",
+      "mission_outcome": "FAILED",
+      "reason": "ARRIVAL_FAILURE",
+      "message": "persistent pear track was lost: confirmed_full_frame_loss",
+      "failed_phase": "approach_fruit",
+      "final_safety_state": "DISARMED_CONFIRMED",
+      "home_distance_m": null,
+      "heading_error_rad": null,
+      "run_key_values": null,
+      "stage_results": {
+        "orient_for_run": {
+          "motion_path": "sport_client",
+          "requested_angle_rad": 4.34586983746588,
+          "measured_yaw_change_rad": 4.364273905754089,
+          "yaw_rps": 1.0,
+          "elapsed_s": 5.095,
+          "stopped": true,
+          "motion_commands_sent": true,
+          "requested_angle_degrees": 249.0,
+          "motion_commands": [
+            {
+              "sequence": 1,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2670.165232244,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 2,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2670.269789054,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 3,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2670.37669462,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 4,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2670.480888281,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 5,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2670.587405194,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 6,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2670.694079679,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 7,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2670.799551177,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 8,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2670.907295684,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 9,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2671.012372287,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 10,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2671.117580415,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 11,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2671.223372628,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 12,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2671.329997863,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 13,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2671.434258053,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 14,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2671.539620202,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 15,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2671.645310619,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 16,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2671.74991594,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 17,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2671.855199493,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 18,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2671.959625831,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 19,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2672.064649343,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 20,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2672.170011523,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 21,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2672.27389029,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 22,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2672.383718647,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 23,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2672.488838578,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 24,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2672.595115223,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 25,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2672.700260083,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 26,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2672.806347248,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 27,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2672.912805914,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 28,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2673.01832429,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 29,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2673.122964683,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 30,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2673.226849336,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 31,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2673.331658535,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 32,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2673.437668033,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 33,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2673.543245483,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 34,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2673.650028801,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 35,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2673.755812529,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 36,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2673.862693033,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 37,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2673.967560089,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 38,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2674.073233445,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 39,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2674.178438369,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 40,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2674.28607826,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 41,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2674.391393844,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 42,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2674.49688121,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 43,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2674.6029277,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 44,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2674.706872353,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 45,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2674.813035134,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 46,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2674.918433439,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 47,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2675.023568118,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 48,
+              "phase": "orient_for_run",
+              "recorded_monotonic_s": 2675.131997605,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "measured_turn"
+            }
+          ]
+        },
+        "turn_to_fruit": {
+          "motion_path": "sport_client",
+          "label": "pear",
+          "confidence": 0.7356423735618591,
+          "stable_detections": 5,
+          "search_progress_rad": 4.359720770512716,
+          "recognition": {
+            "samples": 118,
+            "pear_candidate_samples": 49,
+            "maximum_confidence": 0.7853084802627563,
+            "maximum_consecutive_detections": 5,
+            "maximum_bbox_area_ratio": 0.00702907986111111,
+            "closest_detection": {
+              "source_pts": 30000,
+              "confidence": 0.04778146743774414,
+              "bbox_xyxy": [
+                816.0,
+                584.0,
+                898.0,
+                663.0
+              ],
+              "bbox_area_ratio": 0.00702907986111111
+            },
+            "search_policy": "slow-sweep",
+            "search_lock_minimum_detections": 5,
+            "candidate_lock_count": 1,
+            "candidate_lock_losses": 0,
+            "candidate_lock_confidence_threshold": 0.5,
+            "candidate_lock_hold_s": 0.75,
+            "candidate_lock_maximum_age_s": 0.25,
+            "candidate_lock_yaw_rps": 0.2,
+            "candidate_alignment_yaw_rps": 0.2,
+            "candidate_alignment_center_ratio": 0.12,
+            "candidate_alignment_direction_confirmations": 2,
+            "candidate_alignment_loss_grace_s": 1.0,
+            "candidate_alignment_maximum_episodes": 2,
+            "candidate_alignment_hold_samples": 6,
+            "candidate_alignment_loss_hold_samples": 1,
+            "candidate_alignment_centered_samples": 0,
+            "candidate_alignment_direction_wait_samples": 0,
+            "candidate_alignment_turn_samples": 4,
+            "crop_slowdown_hold_samples": 6,
+            "crop_slowdown_turn_samples": 4,
+            "crop_confirmation_samples": 11,
+            "crop_candidate_confidence_threshold": 0.5,
+            "search_progress_rad": 4.359720770512716,
+            "search_lock_reason": "search_lock_qualified"
+          },
+          "motion_commands_sent": true,
+          "persistent_track": {
+            "track_state_before": "candidate",
+            "track_state_after": "locked_off_axis",
+            "same_identity": true,
+            "identity_confidence": 0.7356423735618591,
+            "filtered_confidence": 0.7527809384346008,
+            "evidence_age_s": 0.07354178000014144,
+            "geometry_safe": false,
+            "motion_authorized": false,
+            "alignment_authorized": true,
+            "hold_authorized": false,
+            "arrival_eligible": false,
+            "arrival_counter": 0,
+            "tracking_reason": "locked_off_axis",
+            "identity_route": "full_frame",
+            "geometry_route": "crop_confirmation",
+            "source_pts": 33360,
+            "generation": "357855954b6c448fbc11ec23767bfa6b",
+            "acquisition_epoch": 1,
+            "degraded_failures": 0,
+            "degraded_elapsed_s": 0.0,
+            "full_frame_detection": {
+              "label": "pear",
+              "confidence": 0.7356423735618591,
+              "bbox_xyxy": [
+                132.0,
+                438.0,
+                153.0,
+                468.0
+              ],
+              "center_x_ratio": 0.111328125,
+              "center_y_ratio": 0.6291666666666667,
+              "bottom_ratio": 0.65,
+              "bbox_area_ratio": 0.00068359375,
+              "generation": "357855954b6c448fbc11ec23767bfa6b",
+              "source_pts": 33360,
+              "source_time_base": "1/90000",
+              "age_s": 0.07354178000014144,
+              "route": "full_frame"
+            },
+            "crop_detection": {
+              "label": "pear",
+              "confidence": 0.1980639398097992,
+              "bbox_xyxy": [
+                131.0,
+                440.0,
+                154.0,
+                469.0
+              ],
+              "center_x_ratio": 0.111328125,
+              "center_y_ratio": 0.63125,
+              "bottom_ratio": 0.6513888888888889,
+              "bbox_area_ratio": 0.0007237413194444444,
+              "generation": "357855954b6c448fbc11ec23767bfa6b",
+              "source_pts": 33360,
+              "source_time_base": "1/90000",
+              "age_s": 0.07354178000014144,
+              "route": "crop_confirmation"
+            }
+          },
+          "search_policy": "slow-sweep",
+          "motion_commands": [
+            {
+              "sequence": 1,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2675.304046607,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 2,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2675.423113022,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 3,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2675.539952829,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 4,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2675.665370961,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 5,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2675.789199307,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 6,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2675.906798819,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 7,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2676.027172256,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 8,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2676.14658809,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 9,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2676.267057114,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 10,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2676.392995072,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 11,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2676.509579476,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 12,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2676.629324026,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 13,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2676.74949883,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 14,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2676.869291604,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 15,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2676.986329207,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 16,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2677.113080729,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 17,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2677.235868075,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 18,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2677.352522944,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 19,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2677.473686104,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 20,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2677.592839015,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 21,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2677.719052276,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 22,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2677.840672442,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 23,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2677.962641582,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 24,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2678.082899139,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 25,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2678.206118435,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 26,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2678.322642098,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 27,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2678.439677715,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 28,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2678.559815812,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 29,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2678.682624661,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 30,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2678.799983008,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 31,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2678.925562228,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 32,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2679.04887231,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 33,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2679.165045463,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 34,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2679.282911764,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 35,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2679.398143923,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 36,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2679.520062051,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 37,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2679.638569015,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 38,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2679.765199919,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 39,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2679.889664698,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 40,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2680.009654722,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 41,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2680.129068726,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 42,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2680.247369154,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 43,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2680.369926471,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 44,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2680.485952961,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 45,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2680.605707585,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 46,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2680.729472016,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 47,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2680.849467928,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 48,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2680.972498732,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 49,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2681.099962273,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 50,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2681.215728624,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 51,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2681.336416368,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 52,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2681.454880192,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 53,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2681.576538979,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 54,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2681.696097114,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 55,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2681.828129585,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 56,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2681.948916404,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 57,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2682.06539113,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 58,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2682.182972873,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 59,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2682.299866623,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 60,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2682.425947776,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 61,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2682.546217296,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 62,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2682.67650308,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 63,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2682.805144932,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 64,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2682.922854645,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 65,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2683.043082306,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 66,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2683.159555335,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 67,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2683.285842606,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 68,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2683.401998696,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 69,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2683.54231796,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 70,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2683.673575522,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 71,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2683.802471781,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 72,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2683.918766914,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 73,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2684.04236167,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 74,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2684.162845627,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 75,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2684.278680391,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 76,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2684.398804399,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 77,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2684.526270846,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 78,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2684.650100523,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 79,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2684.7718699,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 80,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2684.888628088,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 81,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2685.012368096,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 82,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2685.138597762,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 83,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2685.253285123,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 84,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2685.368353619,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 85,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2685.489804585,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 86,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2685.668837463,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 87,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2685.788634511,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 88,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2685.912723554,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 89,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2686.031966087,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 90,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2686.152871911,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 91,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2686.272052873,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 92,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2686.39136712,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 93,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2686.512833252,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 94,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2686.631832768,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 95,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2686.755489858,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 96,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2686.874750085,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 97,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2686.99855694,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 98,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2687.125880114,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 99,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2687.242113737,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 100,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2687.362964037,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 101,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2687.48203613,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 102,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2687.665325925,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 103,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2687.785906423,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 104,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2687.910670207,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 105,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2688.035202046,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 106,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2688.159476852,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 107,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2688.279400398,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "candidate_alignment_hold"
+            },
+            {
+              "sequence": 108,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2688.407158562,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "candidate_alignment_hold"
+            },
+            {
+              "sequence": 109,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2688.53187652,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "candidate_alignment_hold"
+            },
+            {
+              "sequence": 110,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2688.65258691,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "candidate_alignment_hold_lost"
+            },
+            {
+              "sequence": 111,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2688.787261001,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "candidate_alignment_hold"
+            },
+            {
+              "sequence": 112,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2688.905406113,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "candidate_alignment_hold"
+            },
+            {
+              "sequence": 113,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2689.032905738,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "candidate_alignment_hold"
+            },
+            {
+              "sequence": 114,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2689.157410663,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.2,
+              "reason": "candidate_alignment_turn"
+            },
+            {
+              "sequence": 115,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2689.274258768,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.2,
+              "reason": "candidate_alignment_turn"
+            },
+            {
+              "sequence": 116,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2689.391571403,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.2,
+              "reason": "candidate_alignment_turn"
+            },
+            {
+              "sequence": 117,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 2689.511448161,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.2,
+              "reason": "candidate_alignment_turn"
+            }
+          ]
+        },
+        "find_fruit": {
+          "label": "pear",
+          "confidence": 0.7185944318771362,
+          "stable_detections": 6,
+          "detection_age_s": 0.012844781999774568,
+          "center_x_ratio": 0.115625,
+          "center_y_ratio": 0.6305555555555555,
+          "bottom_ratio": 0.6513888888888889,
+          "bbox_area_ratio": 0.0007812499999999999,
+          "generation": "357855954b6c448fbc11ec23767bfa6b",
+          "source_pts": 33480,
+          "source_time_base": "1/90000",
+          "persistent_track": {
+            "track_state_before": "locked_off_axis",
+            "track_state_after": "locked_off_axis",
+            "same_identity": true,
+            "identity_confidence": 0.7185944318771362,
+            "filtered_confidence": 0.732269034500122,
+            "evidence_age_s": 0.012844781999774568,
+            "geometry_safe": false,
+            "motion_authorized": false,
+            "alignment_authorized": true,
+            "hold_authorized": false,
+            "arrival_eligible": false,
+            "arrival_counter": 0,
+            "tracking_reason": "locked_off_axis",
+            "identity_route": "full_frame",
+            "geometry_route": "crop_confirmation",
+            "source_pts": 33480,
+            "generation": "357855954b6c448fbc11ec23767bfa6b",
+            "acquisition_epoch": 1,
+            "degraded_failures": 0,
+            "degraded_elapsed_s": 0.0,
+            "full_frame_detection": {
+              "label": "pear",
+              "confidence": 0.7185944318771362,
+              "bbox_xyxy": [
+                136.0,
+                439.0,
+                160.0,
+                469.0
+              ],
+              "center_x_ratio": 0.115625,
+              "center_y_ratio": 0.6305555555555555,
+              "bottom_ratio": 0.6513888888888889,
+              "bbox_area_ratio": 0.0007812499999999999,
+              "generation": "357855954b6c448fbc11ec23767bfa6b",
+              "source_pts": 33480,
+              "source_time_base": "1/90000",
+              "age_s": 0.012844781999774568,
+              "route": "full_frame"
+            },
+            "crop_detection": {
+              "label": "pear",
+              "confidence": 0.2620844841003418,
+              "bbox_xyxy": [
+                137.0,
+                440.0,
+                160.0,
+                469.0
+              ],
+              "center_x_ratio": 0.116015625,
+              "center_y_ratio": 0.63125,
+              "bottom_ratio": 0.6513888888888889,
+              "bbox_area_ratio": 0.0007237413194444444,
+              "generation": "357855954b6c448fbc11ec23767bfa6b",
+              "source_pts": 33480,
+              "source_time_base": "1/90000",
+              "age_s": 0.012844781999774568,
+              "route": "crop_confirmation"
+            }
+          },
+          "search_progress_rad": 0.0,
+          "search_skipped": true,
+          "skip_reason": "target_already_visible",
+          "motion_commands_sent": false,
+          "search_policy": "slow-sweep",
+          "motion_commands": []
+        }
+      },
+      "failure_details": {
+        "recognition": {
+          "track_state_before": "degraded",
+          "track_state_after": "lost",
+          "same_identity": false,
+          "identity_confidence": 0.409220814704895,
+          "filtered_confidence": 0.6906055811657149,
+          "evidence_age_s": 0.058448756999951,
+          "geometry_safe": false,
+          "motion_authorized": false,
+          "alignment_authorized": false,
+          "hold_authorized": false,
+          "arrival_eligible": false,
+          "arrival_counter": 0,
+          "tracking_reason": "confirmed_full_frame_loss",
+          "identity_route": "full_frame",
+          "geometry_route": "crop_confirmation",
+          "source_pts": 34860,
+          "generation": "357855954b6c448fbc11ec23767bfa6b",
+          "acquisition_epoch": 1,
+          "degraded_failures": 2,
+          "degraded_elapsed_s": 0.14372458799971355,
+          "full_frame_detection": {
+            "label": "pear",
+            "confidence": 0.409220814704895,
+            "bbox_xyxy": [
+              219.0,
+              483.0,
+              246.0,
+              513.0
+            ],
+            "center_x_ratio": 0.181640625,
+            "center_y_ratio": 0.6916666666666667,
+            "bottom_ratio": 0.7125,
+            "bbox_area_ratio": 0.00087890625,
+            "generation": "357855954b6c448fbc11ec23767bfa6b",
+            "source_pts": 34860,
+            "source_time_base": "1/90000",
+            "age_s": 0.058448756999951,
+            "route": "full_frame"
+          },
+          "crop_detection": {
+            "label": "pear",
+            "confidence": 0.39140585064888,
+            "bbox_xyxy": [
+              220.0,
+              483.0,
+              246.0,
+              514.0
+            ],
+            "center_x_ratio": 0.18203125,
+            "center_y_ratio": 0.6923611111111111,
+            "bottom_ratio": 0.7138888888888889,
+            "bbox_area_ratio": 0.0008745659722222222,
+            "generation": "357855954b6c448fbc11ec23767bfa6b",
+            "source_pts": 34860,
+            "source_time_base": "1/90000",
+            "age_s": 0.058448756999951,
+            "route": "crop_confirmation"
+          }
+        },
+        "motion_commands": [
+          {
+            "sequence": 1,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 2690.285034274,
+            "forward_mps": 0.0,
+            "yaw_rps": 0.2,
+            "reason": "persistent_track_align_off_axis"
+          },
+          {
+            "sequence": 2,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 2690.421472394,
+            "forward_mps": 0.0,
+            "yaw_rps": 0.2,
+            "reason": "persistent_track_align_off_axis"
+          },
+          {
+            "sequence": 3,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 2690.539339671,
+            "forward_mps": 0.0,
+            "yaw_rps": 0.2,
+            "reason": "persistent_track_align_off_axis"
+          },
+          {
+            "sequence": 4,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 2690.66746514,
+            "forward_mps": 0.0,
+            "yaw_rps": 0.2,
+            "reason": "persistent_track_align_off_axis"
+          },
+          {
+            "sequence": 5,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 2690.788688792,
+            "forward_mps": 0.0,
+            "yaw_rps": 0.2,
+            "reason": "persistent_track_align_off_axis"
+          },
+          {
+            "sequence": 6,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 2690.913601473,
+            "forward_mps": 0.0,
+            "yaw_rps": 0.2,
+            "reason": "persistent_track_align_off_axis"
+          },
+          {
+            "sequence": 7,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 2691.03932215,
+            "forward_mps": 0.0,
+            "yaw_rps": 0.2,
+            "reason": "persistent_track_align_off_axis"
+          },
+          {
+            "sequence": 8,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 2691.183628264,
+            "forward_mps": 0.0,
+            "yaw_rps": 0.2,
+            "reason": "persistent_track_align_off_axis"
+          },
+          {
+            "sequence": 9,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 2691.302628988,
+            "forward_mps": 0.0,
+            "yaw_rps": 0.2,
+            "reason": "persistent_track_align_off_axis"
+          },
+          {
+            "sequence": 10,
+            "phase": "approach_fruit",
+            "recorded_monotonic_s": 2691.425228017,
+            "forward_mps": 0.0,
+            "yaw_rps": 0.0,
+            "reason": "persistent_track_confirmed_full_frame_loss"
+          }
+        ]
+      },
+      "stage_durations": {
+        "idle": 0.009,
+        "preflight": 0.031,
+        "capture_home": 0.023,
+        "wait_for_command": 0.013,
+        "orient_for_run": 5.12,
+        "turn_to_fruit": 14.408,
+        "find_fruit": 0.062,
+        "approach_fruit": 2.207
+      },
+      "lighting_frame": {
+        "path": "benchmarks/results/2026-08-12-v29-current-pear-repro-frames/run-01-start.jpg",
+        "bytes": 76442
+      },
+      "stage_telemetry": {
+        "orient_for_run": {
+          "target_confidence": {
+            "min": 0.0344,
+            "mean": 0.1125,
+            "max": 0.2365,
+            "samples": 3
+          },
+          "bbox_bottom_ratio": {
+            "min": 0.6764,
+            "mean": 0.7782,
+            "max": 0.9236,
+            "samples": 3
+          },
+          "app_latency_ms": {
+            "min": 44.4,
+            "mean": 62.9333,
+            "max": 94.0,
+            "samples": 3
+          },
+          "app_errors": 0,
+          "temps_c": {
+            "soc1-thermal": {
+              "min": 63.562,
+              "mean": 63.562,
+              "max": 63.562,
+              "samples": 3
+            },
+            "tj-thermal": {
+              "min": 63.406,
+              "mean": 63.406,
+              "max": 63.406,
+              "samples": 3
+            },
+            "cpu-thermal": {
+              "min": 63.312,
+              "mean": 63.312,
+              "max": 63.312,
+              "samples": 3
+            },
+            "soc0-thermal": {
+              "min": 62.281,
+              "mean": 62.281,
+              "max": 62.281,
+              "samples": 3
+            },
+            "gpu-thermal": {
+              "min": 61.562,
+              "mean": 61.562,
+              "max": 61.562,
+              "samples": 3
+            },
+            "cv1-thermal": {
+              "min": 61.125,
+              "mean": 61.125,
+              "max": 61.125,
+              "samples": 3
+            },
+            "cv0-thermal": {
+              "min": 60.843,
+              "mean": 60.843,
+              "max": 60.843,
+              "samples": 3
+            },
+            "soc2-thermal": {
+              "min": 60.562,
+              "mean": 60.562,
+              "max": 60.562,
+              "samples": 3
+            },
+            "cv2-thermal": {
+              "min": 60.468,
+              "mean": 60.468,
+              "max": 60.468,
+              "samples": 3
+            }
+          }
+        },
+        "turn_to_fruit": {
+          "target_confidence": {
+            "min": 0.0626,
+            "mean": 0.3578,
+            "max": 0.5176,
+            "samples": 3
+          },
+          "bbox_bottom_ratio": {
+            "min": 0.6736,
+            "mean": 0.7699,
+            "max": 0.9278,
+            "samples": 3
+          },
+          "app_latency_ms": {
+            "min": 39.7,
+            "mean": 65.4,
+            "max": 93.2,
+            "samples": 9
+          },
+          "app_errors": 0,
+          "temps_c": {
+            "soc1-thermal": {
+              "min": 63.562,
+              "mean": 63.6664,
+              "max": 63.75,
+              "samples": 9
+            },
+            "tj-thermal": {
+              "min": 63.406,
+              "mean": 63.5971,
+              "max": 63.75,
+              "samples": 9
+            },
+            "cpu-thermal": {
+              "min": 63.312,
+              "mean": 63.4164,
+              "max": 63.5,
+              "samples": 9
+            },
+            "soc0-thermal": {
+              "min": 62.281,
+              "mean": 62.4199,
+              "max": 62.531,
+              "samples": 9
+            },
+            "gpu-thermal": {
+              "min": 61.562,
+              "mean": 61.7531,
+              "max": 61.906,
+              "samples": 9
+            },
+            "cv1-thermal": {
+              "min": 61.125,
+              "mean": 61.1594,
+              "max": 61.187,
+              "samples": 9
+            },
+            "cv0-thermal": {
+              "min": 60.843,
+              "mean": 60.9474,
+              "max": 61.031,
+              "samples": 9
+            },
+            "soc2-thermal": {
+              "min": 60.562,
+              "mean": 60.6487,
+              "max": 60.718,
+              "samples": 9
+            },
+            "cv2-thermal": {
+              "min": 60.468,
+              "mean": 60.5552,
+              "max": 60.625,
+              "samples": 9
+            }
+          }
+        },
+        "approach_fruit": {
+          "target_confidence": {
+            "min": 0.7491,
+            "mean": 0.7491,
+            "max": 0.7491,
+            "samples": 1
+          },
+          "bbox_bottom_ratio": {
+            "min": 0.6514,
+            "mean": 0.6514,
+            "max": 0.6514,
+            "samples": 1
+          },
+          "app_latency_ms": {
+            "min": 73.2,
+            "mean": 73.2,
+            "max": 73.2,
+            "samples": 1
+          },
+          "app_errors": 0,
+          "temps_c": {
+            "soc1-thermal": {
+              "min": 63.75,
+              "mean": 63.75,
+              "max": 63.75,
+              "samples": 1
+            },
+            "tj-thermal": {
+              "min": 63.75,
+              "mean": 63.75,
+              "max": 63.75,
+              "samples": 1
+            },
+            "cpu-thermal": {
+              "min": 63.5,
+              "mean": 63.5,
+              "max": 63.5,
+              "samples": 1
+            },
+            "soc0-thermal": {
+              "min": 62.531,
+              "mean": 62.531,
+              "max": 62.531,
+              "samples": 1
+            },
+            "gpu-thermal": {
+              "min": 61.906,
+              "mean": 61.906,
+              "max": 61.906,
+              "samples": 1
+            },
+            "cv1-thermal": {
+              "min": 61.187,
+              "mean": 61.187,
+              "max": 61.187,
+              "samples": 1
+            },
+            "cv0-thermal": {
+              "min": 61.031,
+              "mean": 61.031,
+              "max": 61.031,
+              "samples": 1
+            },
+            "soc2-thermal": {
+              "min": 60.718,
+              "mean": 60.718,
+              "max": 60.718,
+              "samples": 1
+            },
+            "cv2-thermal": {
+              "min": 60.625,
+              "mean": 60.625,
+              "max": 60.625,
+              "samples": 1
+            }
+          }
+        },
+        "failed": {
+          "target_confidence": {
+            "min": 0.7578,
+            "mean": 0.7578,
+            "max": 0.7578,
+            "samples": 1
+          },
+          "bbox_bottom_ratio": {
+            "min": 0.6375,
+            "mean": 0.6375,
+            "max": 0.6375,
+            "samples": 1
+          },
+          "app_latency_ms": {
+            "min": 214.6,
+            "mean": 214.6,
+            "max": 214.6,
+            "samples": 1
+          },
+          "app_errors": 0,
+          "temps_c": {
+            "cpu-thermal": {
+              "min": 64.218,
+              "mean": 64.218,
+              "max": 64.218,
+              "samples": 1
+            },
+            "tj-thermal": {
+              "min": 64.218,
+              "mean": 64.218,
+              "max": 64.218,
+              "samples": 1
+            },
+            "soc1-thermal": {
+              "min": 63.906,
+              "mean": 63.906,
+              "max": 63.906,
+              "samples": 1
+            },
+            "soc0-thermal": {
+              "min": 62.5,
+              "mean": 62.5,
+              "max": 62.5,
+              "samples": 1
+            },
+            "gpu-thermal": {
+              "min": 61.937,
+              "mean": 61.937,
+              "max": 61.937,
+              "samples": 1
+            },
+            "cv1-thermal": {
+              "min": 61.593,
+              "mean": 61.593,
+              "max": 61.593,
+              "samples": 1
+            },
+            "cv0-thermal": {
+              "min": 61.375,
+              "mean": 61.375,
+              "max": 61.375,
+              "samples": 1
+            },
+            "soc2-thermal": {
+              "min": 61.0,
+              "mean": 61.0,
+              "max": 61.0,
+              "samples": 1
+            },
+            "cv2-thermal": {
+              "min": 60.812,
+              "mean": 60.812,
+              "max": 60.812,
+              "samples": 1
+            }
+          }
+        }
+      },
+      "network": {
+        "poll_count": 14,
+        "error_count": 0,
+        "errors": [],
+        "latency_ms": {
+          "min": 39.7,
+          "mean": 76.0857,
+          "max": 214.6,
+          "samples": 14
+        },
+        "latency_p95_ms": 94.0,
+        "cut_out": false
+      },
+      "samples": [
+        {
+          "t_monotonic_s": 722900.032302541,
+          "phase": "orient_for_run",
+          "app_latency_ms": 50.4,
+          "app_error": null,
+          "detection_label": "pear",
+          "confidence": 0.06656795740127563,
+          "inference_s": 0.06617557999970813,
+          "target_matches": true,
+          "bbox_bottom_ratio": 0.6764,
+          "temps": {
+            "soc1-thermal": 63.562,
+            "tj-thermal": 63.406,
+            "cpu-thermal": 63.312,
+            "soc0-thermal": 62.281,
+            "gpu-thermal": 61.562,
+            "cv1-thermal": 61.125,
+            "cv0-thermal": 60.843,
+            "soc2-thermal": 60.562,
+            "cv2-thermal": 60.468
+          },
+          "temps_age_s": 1.0
+        },
+        {
+          "t_monotonic_s": 722901.794357916,
+          "phase": "orient_for_run",
+          "app_latency_ms": 94.0,
+          "app_error": null,
+          "detection_label": "pear",
+          "confidence": 0.034360289573669434,
+          "inference_s": 0.06406215800006976,
+          "target_matches": true,
+          "bbox_bottom_ratio": 0.9236,
+          "temps": {
+            "soc1-thermal": 63.562,
+            "tj-thermal": 63.406,
+            "cpu-thermal": 63.312,
+            "soc0-thermal": 62.281,
+            "gpu-thermal": 61.562,
+            "cv1-thermal": 61.125,
+            "cv0-thermal": 60.843,
+            "soc2-thermal": 60.562,
+            "cv2-thermal": 60.468
+          },
+          "temps_age_s": 2.8
+        },
+        {
+          "t_monotonic_s": 722903.381663375,
+          "phase": "orient_for_run",
+          "app_latency_ms": 44.4,
+          "app_error": null,
+          "detection_label": "pear",
+          "confidence": 0.23651883006095886,
+          "inference_s": 0.06589332799967451,
+          "target_matches": true,
+          "bbox_bottom_ratio": 0.7347,
+          "temps": {
+            "soc1-thermal": 63.562,
+            "tj-thermal": 63.406,
+            "cpu-thermal": 63.312,
+            "soc0-thermal": 62.281,
+            "gpu-thermal": 61.562,
+            "cv1-thermal": 61.125,
+            "cv0-thermal": 60.843,
+            "soc2-thermal": 60.562,
+            "cv2-thermal": 60.468
+          },
+          "temps_age_s": 4.4
+        },
+        {
+          "t_monotonic_s": 722905.072319083,
+          "phase": "turn_to_fruit",
+          "app_latency_ms": 52.3,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "soc1-thermal": 63.562,
+            "tj-thermal": 63.406,
+            "cpu-thermal": 63.312,
+            "soc0-thermal": 62.281,
+            "gpu-thermal": 61.562,
+            "cv1-thermal": 61.125,
+            "cv0-thermal": 60.843,
+            "soc2-thermal": 60.562,
+            "cv2-thermal": 60.468
+          },
+          "temps_age_s": 6.1
+        },
+        {
+          "t_monotonic_s": 722906.825658416,
+          "phase": "turn_to_fruit",
+          "app_latency_ms": 59.2,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "soc1-thermal": 63.562,
+            "tj-thermal": 63.406,
+            "cpu-thermal": 63.312,
+            "soc0-thermal": 62.281,
+            "gpu-thermal": 61.562,
+            "cv1-thermal": 61.125,
+            "cv0-thermal": 60.843,
+            "soc2-thermal": 60.562,
+            "cv2-thermal": 60.468
+          },
+          "temps_age_s": 7.8
+        },
+        {
+          "t_monotonic_s": 722908.599216541,
+          "phase": "turn_to_fruit",
+          "app_latency_ms": 75.7,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "soc1-thermal": 63.562,
+            "tj-thermal": 63.406,
+            "cpu-thermal": 63.312,
+            "soc0-thermal": 62.281,
+            "gpu-thermal": 61.562,
+            "cv1-thermal": 61.125,
+            "cv0-thermal": 60.843,
+            "soc2-thermal": 60.562,
+            "cv2-thermal": 60.468
+          },
+          "temps_age_s": 9.6
+        },
+        {
+          "t_monotonic_s": 722910.254660958,
+          "phase": "turn_to_fruit",
+          "app_latency_ms": 45.2,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "soc1-thermal": 63.562,
+            "tj-thermal": 63.406,
+            "cpu-thermal": 63.312,
+            "soc0-thermal": 62.281,
+            "gpu-thermal": 61.562,
+            "cv1-thermal": 61.125,
+            "cv0-thermal": 60.843,
+            "soc2-thermal": 60.562,
+            "cv2-thermal": 60.468
+          },
+          "temps_age_s": 11.2
+        },
+        {
+          "t_monotonic_s": 722911.869676125,
+          "phase": "turn_to_fruit",
+          "app_latency_ms": 78.1,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "soc1-thermal": 63.75,
+            "tj-thermal": 63.75,
+            "cpu-thermal": 63.5,
+            "soc0-thermal": 62.531,
+            "gpu-thermal": 61.906,
+            "cv1-thermal": 61.187,
+            "cv0-thermal": 61.031,
+            "soc2-thermal": 60.718,
+            "cv2-thermal": 60.625
+          },
+          "temps_age_s": 1.6
+        },
+        {
+          "t_monotonic_s": 722913.454873875,
+          "phase": "turn_to_fruit",
+          "app_latency_ms": 39.7,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "soc1-thermal": 63.75,
+            "tj-thermal": 63.75,
+            "cpu-thermal": 63.5,
+            "soc0-thermal": 62.531,
+            "gpu-thermal": 61.906,
+            "cv1-thermal": 61.187,
+            "cv0-thermal": 61.031,
+            "soc2-thermal": 60.718,
+            "cv2-thermal": 60.625
+          },
+          "temps_age_s": 3.2
+        },
+        {
+          "t_monotonic_s": 722915.209427625,
+          "phase": "turn_to_fruit",
+          "app_latency_ms": 93.2,
+          "app_error": null,
+          "detection_label": "pear",
+          "confidence": 0.06255704164505005,
+          "inference_s": 0.06259594999983165,
+          "target_matches": true,
+          "bbox_bottom_ratio": 0.9278,
+          "temps": {
+            "soc1-thermal": 63.75,
+            "tj-thermal": 63.75,
+            "cpu-thermal": 63.5,
+            "soc0-thermal": 62.531,
+            "gpu-thermal": 61.906,
+            "cv1-thermal": 61.187,
+            "cv0-thermal": 61.031,
+            "soc2-thermal": 60.718,
+            "cv2-thermal": 60.625
+          },
+          "temps_age_s": 5.0
+        },
+        {
+          "t_monotonic_s": 722916.840358916,
+          "phase": "turn_to_fruit",
+          "app_latency_ms": 54.8,
+          "app_error": null,
+          "detection_label": "pear",
+          "confidence": 0.4931645095348358,
+          "inference_s": 0.13373233299989806,
+          "target_matches": true,
+          "bbox_bottom_ratio": 0.7083,
+          "temps": {
+            "soc1-thermal": 63.75,
+            "tj-thermal": 63.75,
+            "cpu-thermal": 63.5,
+            "soc0-thermal": 62.531,
+            "gpu-thermal": 61.906,
+            "cv1-thermal": 61.187,
+            "cv0-thermal": 61.031,
+            "soc2-thermal": 60.718,
+            "cv2-thermal": 60.625
+          },
+          "temps_age_s": 6.6
+        },
+        {
+          "t_monotonic_s": 722918.568554541,
+          "phase": "turn_to_fruit",
+          "app_latency_ms": 90.4,
+          "app_error": null,
+          "detection_label": "pear",
+          "confidence": 0.517570972442627,
+          "inference_s": 0.14132060200017804,
+          "target_matches": true,
+          "bbox_bottom_ratio": 0.6736,
+          "temps": {
+            "soc1-thermal": 63.75,
+            "tj-thermal": 63.75,
+            "cpu-thermal": 63.5,
+            "soc0-thermal": 62.531,
+            "gpu-thermal": 61.906,
+            "cv1-thermal": 61.187,
+            "cv0-thermal": 61.031,
+            "soc2-thermal": 60.718,
+            "cv2-thermal": 60.625
+          },
+          "temps_age_s": 8.3
+        },
+        {
+          "t_monotonic_s": 722920.204957625,
+          "phase": "approach_fruit",
+          "app_latency_ms": 73.2,
+          "app_error": null,
+          "detection_label": "pear",
+          "confidence": 0.7490874528884888,
+          "inference_s": 0.13280787800022154,
+          "target_matches": true,
+          "bbox_bottom_ratio": 0.6514,
+          "temps": {
+            "soc1-thermal": 63.75,
+            "tj-thermal": 63.75,
+            "cpu-thermal": 63.5,
+            "soc0-thermal": 62.531,
+            "gpu-thermal": 61.906,
+            "cv1-thermal": 61.187,
+            "cv0-thermal": 61.031,
+            "soc2-thermal": 60.718,
+            "cv2-thermal": 60.625
+          },
+          "temps_age_s": 10.0
+        },
+        {
+          "t_monotonic_s": 722922.196347291,
+          "phase": "failed",
+          "app_latency_ms": 214.6,
+          "app_error": null,
+          "detection_label": "pear",
+          "confidence": 0.7577925324440002,
+          "inference_s": 0.13028243999997358,
+          "target_matches": true,
+          "bbox_bottom_ratio": 0.6375,
+          "temps": {
+            "cpu-thermal": 64.218,
+            "tj-thermal": 64.218,
+            "soc1-thermal": 63.906,
+            "soc0-thermal": 62.5,
+            "gpu-thermal": 61.937,
+            "cv1-thermal": 61.593,
+            "cv0-thermal": 61.375,
+            "soc2-thermal": 61,
+            "cv2-thermal": 60.812
+          },
+          "temps_age_s": 1.1
+        }
+      ],
+      "preflight_probes": {
+        "dongle": {
+          "checked": true,
+          "usb_devices": [
+            "802.11ac WLAN Adapter (0bda:0811)",
+            "DJI MIC MINI (2ca3:4011)",
+            "xHCI Host Controller (1d6b:0002)",
+            "xHCI Host Controller (1d6b:0003)"
+          ],
+          "audio_devices": [
+            {
+              "id": 260,
+              "name": "plughw:1,3",
+              "description": "HDA [NVIDIA Jetson Orin NX HDA], device 3: HDMI 0 [HDMI 0]",
+              "type": 2
+            },
+            {
+              "id": 264,
+              "name": "plughw:1,7",
+              "description": "HDA [NVIDIA Jetson Orin NX HDA], device 7: HDMI 1 [HDMI 1]",
+              "type": 2
+            },
+            {
+              "id": 265,
+              "name": "plughw:1,8",
+              "description": "HDA [NVIDIA Jetson Orin NX HDA], device 8: HDMI 2 [HDMI 2]",
+              "type": 2
+            },
+            {
+              "id": 266,
+              "name": "plughw:1,9",
+              "description": "HDA [NVIDIA Jetson Orin NX HDA], device 9: HDMI 3 [HDMI 3]",
+              "type": 2
+            },
+            {
+              "id": 513,
+              "name": "plughw:2,0",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 0: tegra-dlink-0 XBAR-ADMAIF1-0 []",
+              "type": 2
+            },
+            {
+              "id": 514,
+              "name": "plughw:2,1",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 1: tegra-dlink-1 XBAR-ADMAIF2-1 []",
+              "type": 2
+            },
+            {
+              "id": 515,
+              "name": "plughw:2,2",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 2: tegra-dlink-2 XBAR-ADMAIF3-2 []",
+              "type": 2
+            },
+            {
+              "id": 516,
+              "name": "plughw:2,3",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 3: tegra-dlink-3 XBAR-ADMAIF4-3 []",
+              "type": 2
+            },
+            {
+              "id": 517,
+              "name": "plughw:2,4",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 4: tegra-dlink-4 XBAR-ADMAIF5-4 []",
+              "type": 2
+            },
+            {
+              "id": 518,
+              "name": "plughw:2,5",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 5: tegra-dlink-5 XBAR-ADMAIF6-5 []",
+              "type": 2
+            },
+            {
+              "id": 519,
+              "name": "plughw:2,6",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 6: tegra-dlink-6 XBAR-ADMAIF7-6 []",
+              "type": 2
+            },
+            {
+              "id": 520,
+              "name": "plughw:2,7",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 7: tegra-dlink-7 XBAR-ADMAIF8-7 []",
+              "type": 2
+            },
+            {
+              "id": 521,
+              "name": "plughw:2,8",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 8: tegra-dlink-8 XBAR-ADMAIF9-8 []",
+              "type": 2
+            },
+            {
+              "id": 522,
+              "name": "plughw:2,9",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 9: tegra-dlink-9 XBAR-ADMAIF10-9 []",
+              "type": 2
+            },
+            {
+              "id": 523,
+              "name": "plughw:2,10",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 10: tegra-dlink-10 XBAR-ADMAIF11-10 []",
+              "type": 2
+            },
+            {
+              "id": 524,
+              "name": "plughw:2,11",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 11: tegra-dlink-11 XBAR-ADMAIF12-11 []",
+              "type": 2
+            },
+            {
+              "id": 525,
+              "name": "plughw:2,12",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 12: tegra-dlink-12 XBAR-ADMAIF13-12 []",
+              "type": 2
+            },
+            {
+              "id": 526,
+              "name": "plughw:2,13",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 13: tegra-dlink-13 XBAR-ADMAIF14-13 []",
+              "type": 2
+            },
+            {
+              "id": 527,
+              "name": "plughw:2,14",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 14: tegra-dlink-14 XBAR-ADMAIF15-14 []",
+              "type": 2
+            },
+            {
+              "id": 528,
+              "name": "plughw:2,15",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 15: tegra-dlink-15 XBAR-ADMAIF16-15 []",
+              "type": 2
+            },
+            {
+              "id": 529,
+              "name": "plughw:2,16",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 16: tegra-dlink-16 XBAR-ADMAIF17-16 []",
+              "type": 2
+            },
+            {
+              "id": 530,
+              "name": "plughw:2,17",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 17: tegra-dlink-17 XBAR-ADMAIF18-17 []",
+              "type": 2
+            },
+            {
+              "id": 531,
+              "name": "plughw:2,18",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 18: tegra-dlink-18 XBAR-ADMAIF19-18 []",
+              "type": 2
+            },
+            {
+              "id": 532,
+              "name": "plughw:2,19",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 19: tegra-dlink-19 XBAR-ADMAIF20-19 []",
+              "type": 2
+            },
+            {
+              "id": 16777217,
+              "name": "plughw:0,0",
+              "description": "MINI [DJI MIC MINI], device 0: USB Audio [USB Audio]",
+              "type": 1
+            },
+            {
+              "id": 16777729,
+              "name": "plughw:2,0",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 0: tegra-dlink-0 XBAR-ADMAIF1-0 []",
+              "type": 1
+            },
+            {
+              "id": 16777730,
+              "name": "plughw:2,1",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 1: tegra-dlink-1 XBAR-ADMAIF2-1 []",
+              "type": 1
+            },
+            {
+              "id": 16777731,
+              "name": "plughw:2,2",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 2: tegra-dlink-2 XBAR-ADMAIF3-2 []",
+              "type": 1
+            },
+            {
+              "id": 16777732,
+              "name": "plughw:2,3",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 3: tegra-dlink-3 XBAR-ADMAIF4-3 []",
+              "type": 1
+            },
+            {
+              "id": 16777733,
+              "name": "plughw:2,4",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 4: tegra-dlink-4 XBAR-ADMAIF5-4 []",
+              "type": 1
+            },
+            {
+              "id": 16777734,
+              "name": "plughw:2,5",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 5: tegra-dlink-5 XBAR-ADMAIF6-5 []",
+              "type": 1
+            },
+            {
+              "id": 16777735,
+              "name": "plughw:2,6",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 6: tegra-dlink-6 XBAR-ADMAIF7-6 []",
+              "type": 1
+            },
+            {
+              "id": 16777736,
+              "name": "plughw:2,7",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 7: tegra-dlink-7 XBAR-ADMAIF8-7 []",
+              "type": 1
+            },
+            {
+              "id": 16777737,
+              "name": "plughw:2,8",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 8: tegra-dlink-8 XBAR-ADMAIF9-8 []",
+              "type": 1
+            },
+            {
+              "id": 16777738,
+              "name": "plughw:2,9",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 9: tegra-dlink-9 XBAR-ADMAIF10-9 []",
+              "type": 1
+            },
+            {
+              "id": 16777739,
+              "name": "plughw:2,10",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 10: tegra-dlink-10 XBAR-ADMAIF11-10 []",
+              "type": 1
+            },
+            {
+              "id": 16777740,
+              "name": "plughw:2,11",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 11: tegra-dlink-11 XBAR-ADMAIF12-11 []",
+              "type": 1
+            },
+            {
+              "id": 16777741,
+              "name": "plughw:2,12",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 12: tegra-dlink-12 XBAR-ADMAIF13-12 []",
+              "type": 1
+            },
+            {
+              "id": 16777742,
+              "name": "plughw:2,13",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 13: tegra-dlink-13 XBAR-ADMAIF14-13 []",
+              "type": 1
+            },
+            {
+              "id": 16777743,
+              "name": "plughw:2,14",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 14: tegra-dlink-14 XBAR-ADMAIF15-14 []",
+              "type": 1
+            },
+            {
+              "id": 16777744,
+              "name": "plughw:2,15",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 15: tegra-dlink-15 XBAR-ADMAIF16-15 []",
+              "type": 1
+            },
+            {
+              "id": 16777745,
+              "name": "plughw:2,16",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 16: tegra-dlink-16 XBAR-ADMAIF17-16 []",
+              "type": 1
+            },
+            {
+              "id": 16777746,
+              "name": "plughw:2,17",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 17: tegra-dlink-17 XBAR-ADMAIF18-17 []",
+              "type": 1
+            },
+            {
+              "id": 16777747,
+              "name": "plughw:2,18",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 18: tegra-dlink-18 XBAR-ADMAIF19-18 []",
+              "type": 1
+            },
+            {
+              "id": 16777748,
+              "name": "plughw:2,19",
+              "description": "APE [NVIDIA Jetson Orin NX APE], device 19: tegra-dlink-19 XBAR-ADMAIF20-19 []",
+              "type": 1
+            }
+          ]
+        },
+        "wifi_before": {
+          "connected": true,
+          "ssid": "wendy"
+        }
+      },
+      "wifi_after": {
+        "connected": true,
+        "ssid": "wendy"
+      },
+      "recovery": {
+        "schema_version": 1,
+        "recovery_id": "3661b919-816b-4374-85b9-ffcde40539a9",
+        "run_id": "a6ad64ec-5e79-40e3-b44e-1ebed45e4cb3",
+        "confirmation": "AUTOMATIC RECOVERABLE FAILURE TO CAPTURED HOME",
+        "started_at_utc": "2026-08-12T22:13:21.324596Z",
+        "started_monotonic_s": 2691.961588374,
+        "ended_at_utc": "2026-08-12T22:13:21.351779Z",
+        "duration_s": 0.0271739360000538,
+        "outcome": "FAILED",
+        "reason": "AUTOMATIC_RECOVERY_SKIPPED",
+        "message": "failed approach recorded no forward pulse evidence",
+        "final_safety_state": "DISARMED_CONFIRMED",
+        "steps": [],
+        "attempt_number": 1,
+        "final_evidence": {
+          "hardware": {
+            "configured": true,
+            "autonomy_enabled": true,
+            "lab_motion_enabled": false,
+            "clients_initialized": true,
+            "connected": true,
+            "fault": null,
+            "network_interface": "enP8p1s0",
+            "active_operation": null,
+            "can_pulse_forward": false,
+            "forward_pulse": {
+              "mps": 0.55,
+              "duration_s": 0.4,
+              "confirmation": "PATH CLEAR - MOVE WOOF FORWARD"
+            },
+            "motion": {
+              "initialized": true,
+              "closed": false,
+              "armed": false,
+              "mode": null,
+              "fault": null,
+              "avoidance_enabled": false,
+              "remote_api_enabled": false,
+              "watchdog_s": 0.35,
+              "limits": {
+                "minimum_forward_mps": 0.55,
+                "forward_mps": 1.0,
+                "yaw_rps": 1.0,
+                "lateral_mps": 0.0,
+                "reverse_allowed": false
+              },
+              "last_command": {
+                "forward_mps": 0.0,
+                "yaw_rps": 0.0,
+                "reason": "released"
+              },
+              "guardian": {
+                "generation": 8,
+                "active": false,
+                "run_id": null,
+                "epoch": null,
+                "operation": null,
+                "allow_forward": null,
+                "expires_in_s": null,
+                "trip_reason": "motion released"
+              }
+            },
+            "pose": {
+              "healthy": true,
+              "age_s": 0.0,
+              "error": null,
+              "sample_rejection": null,
+              "pose": {
+                "x_m": -0.2408,
+                "y_m": 0.0686,
+                "yaw_rad": 1.0615,
+                "captured_monotonic_s": 2691.986444243
+              },
+              "motion": {
+                "source_timestamp_s": 1785175315.6696863,
+                "velocity_x_mps": 3.3859998893603915e-06,
+                "velocity_y_mps": 3.570376975403633e-06,
+                "yaw_rate_rps": -0.009587379172444344,
+                "imu_yaw_rate_rps": -0.009587379172444344,
+                "mode": 0,
+                "gait_type": 0,
+                "obstacle_ranges_m": [
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "foot_force": [
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "contact_feet": 0,
+                "stationary_stance": true,
+                "stationary_evidence_source": "verified_posture_kinematics",
+                "velocity_frame": "body_forward_left"
+              }
+            },
+            "home_localization": {
+              "metric_source": "rt/sportmodestate",
+              "visual_source_configured": true,
+              "visual_backend": "cpu_sparse_image_motion",
+              "visual_metric_scale": false,
+              "visual_home_baseline_captured": true,
+              "stateful_planar_fusion_initialized": true,
+              "fusion_model": "diagonal_covariance_kalman",
+              "fusion_state": [
+                "x",
+                "y",
+                "yaw",
+                "vx",
+                "vy",
+                "yaw_bias"
+              ],
+              "maximum_odometry_age_s": 0.5,
+              "maximum_visual_age_s": 0.75,
+              "minimum_visual_quality": 0.55,
+              "maximum_visual_yaw_disagreement_rad": 0.3490658503988659
+            },
+            "continuous_home_fusion": {
+              "running": true,
+              "interval_s": 0.2,
+              "consecutive_trusted_samples": 105,
+              "latest_age_s": 0.006944186000055197,
+              "latest": {
+                "trusted": true,
+                "unavailable_reason": null,
+                "pose_from_home": {
+                  "x_m": -0.09131853248267419,
+                  "y_m": -0.06888762510737158,
+                  "yaw_rad": 2.650985688217368
+                },
+                "home_distance_m": 0.11438784580418931,
+                "velocity_x_mps": -0.00011788161490771233,
+                "velocity_y_mps": -0.00010980462952545297,
+                "yaw_bias_rps": 0.0053639294774679705,
+                "covariance": {
+                  "x_variance_m2": 0.000619607769321367,
+                  "y_variance_m2": 0.000619607769321367,
+                  "heading_variance_rad2": 0.0011756300966018214,
+                  "velocity_x_variance_m2ps2": 0.00013836205086121536,
+                  "velocity_y_variance_m2ps2": 0.00013836205086121536,
+                  "yaw_bias_variance_rps2": 1.6133711455962126e-05,
+                  "position_sigma_m": 0.024891921768344184,
+                  "heading_sigma_rad": 0.03428746267372115
+                },
+                "evidence": {
+                  "state": "updated",
+                  "dt_s": 0.0038678646087646484,
+                  "sources": [
+                    "process_model",
+                    "go2_pose",
+                    "go2_velocity",
+                    "stance_zero_velocity"
+                  ],
+                  "innovations": {
+                    "go2_position_m": 0.0007246453993132136,
+                    "go2_heading_rad": 0.010288029238447738
+                  },
+                  "zero_velocity_update": true,
+                  "visual": {
+                    "state": "not_observed"
+                  },
+                  "go2_measurement": {
+                    "state": "fused",
+                    "position_gain": 0.3872548558258544,
+                    "heading_gain": 0.24121037164933617
+                  },
+                  "velocity": {
+                    "state": "fused",
+                    "gain": 0.03593282361047605,
+                    "home_x_mps": -5.325468048333495e-06,
+                    "home_y_mps": -1.7720061426378046e-06
+                  }
+                },
+                "recorded_monotonic_s": 2691.979947625
+              }
+            },
+            "metric_arrival_required": false,
+            "metric_arrival": {
+              "configured": true,
+              "forward_index": 0,
+              "sensor_to_front_envelope_m": 0.0,
+              "sensor_latency_s": 0.2,
+              "braking_distance_m": 0.02,
+              "noise_m": 0.02,
+              "target_clearance_m": 0.4572,
+              "tolerance_m": 0.0508,
+              "maximum_age_s": 0.3,
+              "ready": true,
+              "range_provider": null
+            },
+            "last_pulse": null
+          },
+          "stop_errors": [],
+          "recovery_motion_authorized": false
+        },
+        "source": "automatic",
+        "home_distance_m": null,
+        "stage_home_margin_m": 0.5,
+        "within_stage_home_margin": false,
+        "client_motion_disarmed": true,
+        "client_recovery_cleared": true,
+        "client_run_cleared": true,
+        "safe_to_continue": false
+      }
+    }
+  ],
+  "aborted": "run 1 failed and Home recovery ended FAILED / AUTOMATIC_RECOVERY_SKIPPED; next activation blocked",
+  "scorecard": {
+    "recorded_only": true,
+    "note": "criteria are recorded, never enforced; the session continues regardless",
+    "criteria": {
+      "completion": {
+        "passed": false,
+        "completed": 0,
+        "attempted": 1,
+        "target_runs": 1,
+        "remote_takeovers": 0,
+        "harness_stops": 0
+      },
+      "home_gate": {
+        "passed": null,
+        "detail": "no terminal home measurements yet"
+      },
+      "fruit_coverage": {
+        "passed": false,
+        "minimum_successes": 2,
+        "required_fruits": [
+          "apple",
+          "banana",
+          "pear"
+        ],
+        "per_fruit": {
+          "apple": {
+            "attempts": 0,
+            "successes": 0
+          },
+          "banana": {
+            "attempts": 0,
+            "successes": 0
+          },
+          "pear": {
+            "attempts": 1,
+            "successes": 0
+          }
+        }
+      },
+      "approach_confidence_floor": {
+        "passed": true,
+        "per_run": [
+          {
+            "number": 1,
+            "fruit": "pear",
+            "floor": 0.65,
+            "min_confidence": 0.7491,
+            "held": true
+          }
+        ]
+      },
+      "network_stability": {
+        "passed": true,
+        "cutouts": 0,
+        "worst_p95_ms": 94.0,
+        "p95_limit_ms": 250.0
+      },
+      "thermal_trend": {
+        "passed": null,
+        "detail": "temperatures not measured (or <2 runs)"
+      },
+      "dongle_visible": {
+        "passed": null,
+        "detail": "dongle not probed (enable --device-probes and --dongle-match)"
+      }
+    },
+    "failure_counts": {
+      "total_failed_runs": 1,
+      "by_reason": {
+        "ARRIVAL_FAILURE": 1
+      },
+      "by_failed_phase": {
+        "approach_fruit": 1
+      },
+      "by_category": {
+        "close_range_tracking_arrival": 1
+      },
+      "by_category_and_fruit": {
+        "close_range_tracking_arrival:pear": 1
+      },
+      "observations_not_failure_causes": {
+        "network_poll_errors": 0,
+        "zero_degree_orientation_runs": 0
+      },
+      "attribution_note": "network polling errors and the 0-degree orientation setting are observations, not attributed mission failure causes"
+    },
+    "observations": {
+      "approach_min_confidence_by_fruit": {
+        "pear": {
+          "min": 0.749,
+          "mean": 0.749,
+          "runs": 1
+        }
+      },
+      "acquisition_seconds_by_fruit": {
+        "pear": [
+          14.41
+        ]
+      },
+      "lighting_frames": [
+        "benchmarks/results/2026-08-12-v29-current-pear-repro-frames/run-01-start.jpg"
+      ]
+    }
+  },
+  "failure_counts": {
+    "total_failed_runs": 1,
+    "by_reason": {
+      "ARRIVAL_FAILURE": 1
+    },
+    "by_failed_phase": {
+      "approach_fruit": 1
+    },
+    "by_category": {
+      "close_range_tracking_arrival": 1
+    },
+    "by_category_and_fruit": {
+      "close_range_tracking_arrival:pear": 1
+    },
+    "observations_not_failure_causes": {
+      "network_poll_errors": 0,
+      "zero_degree_orientation_runs": 0
+    },
+    "attribution_note": "network polling errors and the 0-degree orientation setting are observations, not attributed mission failure causes"
+  }
+}

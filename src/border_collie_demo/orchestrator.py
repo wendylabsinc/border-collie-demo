@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import math
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from typing import Any, ClassVar, Protocol
 
 from .evidence import EvidenceArtifact
 from .models import MissionPhase
-from .qualified_tracking import SearchQualificationHandoff
+from .persistent_fruit_tracker import PersistentFruitTracker
 from .run_coordinator import RunCoordinator
 from .run_results import RunResultStore
 
@@ -24,7 +24,7 @@ class StageContext:
     orientation_degrees: float = 0.0
     search_policy: str = "slow-sweep"
     outbound_forward_pulses: int = 0
-    search_qualification_handoff: SearchQualificationHandoff | None = None
+    fruit_track: PersistentFruitTracker | None = None
 
 
 class StageExecutor(Protocol):
@@ -124,6 +124,12 @@ class DemoOrchestrator:
             home=run["home"],
             orientation_degrees=float(run.get("orientation_degrees", 0.0)),
             search_policy=str(run.get("search_policy", "slow-sweep")),
+            fruit_track=PersistentFruitTracker.for_fruit(
+                str(run["target_fruit"]),
+                acquisition_confirmations=(
+                    3 if str(run["target_fruit"]).casefold() == "apple" else 5
+                ),
+            ),
         )
         try:
             for phase in EXECUTED_STAGES:
@@ -146,23 +152,6 @@ class DemoOrchestrator:
                         ),
                     }
                 self._results.record_stage(run_id, phase.value, evidence)
-                if phase in (
-                    MissionPhase.TURN_TO_FRUIT,
-                    MissionPhase.FIND_FRUIT,
-                ):
-                    raw_handoff = evidence.get("search_qualification")
-                    handoff = None
-                    if isinstance(raw_handoff, Mapping):
-                        try:
-                            handoff = SearchQualificationHandoff.from_evidence(
-                                raw_handoff
-                            )
-                        except (TypeError, ValueError):
-                            handoff = None
-                    context = replace(
-                        context,
-                        search_qualification_handoff=handoff,
-                    )
                 if phase is MissionPhase.APPROACH_FRUIT:
                     pulse_count = evidence.get("forward_pulse_count")
                     if not isinstance(pulse_count, int) or pulse_count < 1:

@@ -44,6 +44,20 @@ def valid_payload() -> dict[str, object]:
                 "agreement_iou": 0.72,
             },
         },
+        "observations": {
+            "full_frame": {
+                "label": "pear",
+                "confidence": 0.61,
+                "bbox_xyxy": [480, 360, 800, 700],
+                "route": "full_frame",
+            },
+            "crop": {
+                "label": "pear",
+                "confidence": 0.81,
+                "bbox_xyxy": [490, 365, 805, 700],
+                "route": "crop_confirmation",
+            },
+        },
     }
 
 
@@ -153,6 +167,27 @@ def test_status_preserves_validated_geometry_for_approach_and_arrival() -> None:
     assert status["detection"]["inference_passes"] == 2
     assert status["detection"]["crop_confirmation"]["promoted"] is True
     assert status["detection"]["crop_confirmation"]["crop_confidence"] == 0.81
+
+
+def test_status_exposes_full_frame_and_crop_as_separate_track_observations() -> None:
+    status = client_for(valid_payload()).status()
+
+    assert status["observations"]["full_frame"] == {
+        "label": "pear",
+        "confidence": 0.61,
+        "bbox_xyxy": [480.0, 360.0, 800.0, 700.0],
+        "center_x_ratio": 0.5,
+        "center_y_ratio": pytest.approx(0.736111),
+        "bottom_ratio": pytest.approx(0.972222),
+        "bbox_area_ratio": pytest.approx(0.1180556),
+        "generation": "generation-1",
+        "source_pts": 12345,
+        "source_time_base": "1/90000",
+        "age_s": pytest.approx(0.15),
+        "route": "full_frame",
+    }
+    assert status["observations"]["crop"]["route"] == "crop_confirmation"
+    assert status["observations"]["crop"]["confidence"] == 0.81
 
 
 def test_detection_must_be_bound_to_the_current_camera_generation() -> None:

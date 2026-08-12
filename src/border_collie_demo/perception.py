@@ -292,6 +292,42 @@ def evaluate_perception_evidence(
         }
     else:
         crop_confirmation = None
+    raw_observations = payload.get("observations")
+    if isinstance(raw_observations, dict):
+        full_frame_observation = _track_observation(
+            raw_observations.get("full_frame"),
+            source_width=source_width,
+            source_height=source_height,
+            generation=generation,
+            source_pts=detection_source_pts,
+            source_time_base=detection_time_base,
+            age_s=detection_age_s,
+            default_route="full_frame",
+        )
+        crop_observation = _track_observation(
+            raw_observations.get("crop"),
+            source_width=source_width,
+            source_height=source_height,
+            generation=generation,
+            source_pts=detection_source_pts,
+            source_time_base=detection_time_base,
+            age_s=detection_age_s,
+            default_route="crop_confirmation",
+        )
+    else:
+        # Saved pre-v29 records expose one selected detection. Treat it as a
+        # full-frame observation for deterministic replay compatibility.
+        full_frame_observation = _track_observation(
+            detection,
+            source_width=source_width,
+            source_height=source_height,
+            generation=detection_generation,
+            source_pts=detection_source_pts,
+            source_time_base=detection_time_base,
+            age_s=detection_age_s,
+            default_route="full_frame",
+        )
+        crop_observation = None
     if not isinstance(label, str) or label.casefold().strip() != target_fruit:
         violations.append(f"qualifying {target_fruit} detection is missing")
     if detection_generation != generation:
@@ -385,6 +421,10 @@ def evaluate_perception_evidence(
             "bbox_height_ratio": bbox_height_ratio,
             "bbox_area_ratio": bbox_area_ratio,
         },
+        "observations": {
+            "full_frame": full_frame_observation,
+            "crop": crop_observation,
+        },
         "thresholds": {
             "source_maximum_age_s": SOURCE_MAXIMUM_AGE_S,
             "source_minimum_consecutive_frames": SOURCE_MINIMUM_CONSECUTIVE_FRAMES,
@@ -396,6 +436,55 @@ def evaluate_perception_evidence(
             "inference_maximum_s": INFERENCE_MAXIMUM_S,
             "detection_maximum_age_s": DETECTION_MAXIMUM_AGE_S,
         },
+    }
+
+
+def _track_observation(
+    raw: object,
+    *,
+    source_width: int | None,
+    source_height: int | None,
+    generation: object,
+    source_pts: int | None,
+    source_time_base: object,
+    age_s: float | None,
+    default_route: str,
+) -> dict[str, object] | None:
+    if not isinstance(raw, dict) or not raw:
+        return None
+    bbox = _bounding_box(raw.get("bbox_xyxy"), source_width, source_height)
+    confidence = _finite_number(raw.get("confidence"))
+    label = raw.get("label")
+    if (
+        bbox is None
+        or confidence is None
+        or not isinstance(label, str)
+        or not label.casefold().strip()
+        or source_width is None
+        or source_height is None
+        or source_width <= 0
+        or source_height <= 0
+    ):
+        return None
+    x1, y1, x2, y2 = bbox
+    center_x = ((x1 + x2) / 2.0) / source_width
+    center_y = ((y1 + y2) / 2.0) / source_height
+    bottom = y2 / source_height
+    area = ((x2 - x1) / source_width) * ((y2 - y1) / source_height)
+    route = raw.get("route")
+    return {
+        "label": label.casefold().strip(),
+        "confidence": confidence,
+        "bbox_xyxy": list(bbox),
+        "center_x_ratio": center_x,
+        "center_y_ratio": center_y,
+        "bottom_ratio": bottom,
+        "bbox_area_ratio": area,
+        "generation": generation,
+        "source_pts": source_pts,
+        "source_time_base": source_time_base,
+        "age_s": age_s,
+        "route": route if isinstance(route, str) and route else default_route,
     }
 
 

@@ -734,33 +734,19 @@ def test_every_terminal_run_exposes_a_run_filtered_black_box_trace(tmp_path) -> 
     assert all(event["run_id"] != second_run_id for event in events)
 
 
-def test_orchestrator_carries_search_qualification_into_approach(tmp_path) -> None:
-    class HandoffStages(SimulatedStageExecutor):
-        approach_handoff = None
+def test_orchestrator_keeps_one_fruit_track_through_search_and_approach(tmp_path) -> None:
+    class TrackStages(SimulatedStageExecutor):
+        search_track = None
+        approach_track = None
 
         async def execute(self, phase, context):
             if phase is MissionPhase.FIND_FRUIT:
-                evidence = await super().execute(phase, context)
-                evidence["search_qualification"] = {
-                    "search_qualified": True,
-                    "target_fruit": "apple",
-                    "generation": "camera-1",
-                    "source_pts": 100,
-                    "source_time_base": "1/90000",
-                    "qualified_monotonic_s": 10.0,
-                    "stable_detections": 5,
-                    "confidence": 0.710628867149353,
-                    "center_x_ratio": 0.5,
-                    "center_y_ratio": 0.5,
-                    "bottom_ratio": 0.65,
-                    "bbox_area_ratio": 0.04,
-                }
-                return evidence
+                self.search_track = context.fruit_track
             if phase is MissionPhase.APPROACH_FRUIT:
-                self.approach_handoff = context.search_qualification_handoff
+                self.approach_track = context.fruit_track
             return await super().execute(phase, context)
 
-    stages = HandoffStages()
+    stages = TrackStages()
     with TestClient(
         create_app(
             runs_root=tmp_path,
@@ -781,9 +767,9 @@ def test_orchestrator_carries_search_qualification_into_approach(tmp_path) -> No
             time.sleep(0.01)
 
     assert run["outcome"] == "COMPLETED"
-    assert stages.approach_handoff is not None
-    assert stages.approach_handoff.target_fruit == "apple"
-    assert stages.approach_handoff.confidence == pytest.approx(0.710628867149353)
+    assert stages.search_track is not None
+    assert stages.approach_track is stages.search_track
+    assert stages.approach_track.config.target_fruit == "apple"
 
 
 def test_camera_failure_identifies_find_fruit_as_the_broken_stage(tmp_path) -> None:
