@@ -847,5 +847,33 @@ Full evidence:
 - Only the scheduler profile changes to `PERCEPTION_PIPELINE_PROFILE=throughput-v1`;
   confidence, search policy, approach, Arrival, action, and Home contracts are
   unchanged from the v24 baseline cohort.
-- Planned matched order: Apple, Pear, Banana with seed `2026081105`, 0 degree
+- Matched order completed: Apple, Pear, Banana with seed `2026081105`, 0 degree
   pre-search turns, `slow-sweep`, and full per-run black boxes.
+- Live pipeline snapshot: 12.99 cumulative source FPS, 11.56
+  processed/published FPS, 3,085 processed of 3,465 source frames, 379
+  latest-frame drops, 0.0687 s average inference, and no visual-odometry or
+  preview worker errors. Compared with v24, processed FPS increased by 65.1%
+  and drop ratio fell from 50.5% to 10.9%. These are cumulative snapshots with
+  different warm-up fractions, not a controlled detector-latency benchmark.
+- Apple `ddf8214c-dc02-4913-9164-2e5f2f644147`: failed
+  `TARGET_RECOGNITION_FAILURE`; peak confidence 0.6976 and maximum two
+  consecutive detections against the five-frame lock. It sent no forward
+  motion and remained approximately 0.027 m from its captured Home.
+- Pear `52d5ccad-961f-45ab-97b3-ed16eb97c16c`: accepted the search handoff and
+  accumulated 53 qualified tracking samples, but failed
+  `TARGET_LOST_OFF_AXIS` near the bottom of frame. Automatic recovery failed
+  the application's strict gate at trusted Home distance 0.3413 m, inside the
+  operator's separate 0.50 m stage margin, and disarmed.
+- Banana `6c2a8dd1-1d3c-40e7-b48b-cfdf75770f14`: completed search, approach,
+  Arrival, one 0.6 m/s final push, down/bark/stand, and reached 0.0645 m from
+  Home. Heading restoration then shifted the trusted estimate to 0.3827 m and
+  failed `RETURN_HOME_FAILURE`. No second recovery turn was requested because
+  the same action worsened the corresponding v24 result and Woof was already
+  inside the accepted stage margin.
+- Score: 0/3 end-to-end completions, unchanged from baseline. The scheduler
+  improved evidence cadence but did not fix the observed search-lock,
+  off-axis close-tracking, or Home-heading failure classes. One three-second
+  status poll timed out during Banana return; the next request proved both
+  services still running and the run terminal with zero/disarmed motion.
+- Durable comparison:
+  `benchmarks/results/2026-08-11-v24-baseline-vs-v25-throughput-apple-pear-banana.json`.
