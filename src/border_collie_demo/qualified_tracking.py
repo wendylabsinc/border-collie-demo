@@ -50,10 +50,13 @@ class QualifiedTrackingConfig:
     close_bottom_ratio: float = 0.70
     maximum_center_delta_ratio: float = 0.20
     center_filter_alpha: float = 0.70
-    moving_steering_enter_ratio: float = 0.25
-    moving_steering_exit_ratio: float = 0.12
+    moving_steering_enter_ratio: float = 0.12
+    moving_steering_exit_ratio: float = 0.08
     moving_steering_enter_confirmations: int = 2
-    stationary_recenter_error_ratio: float = 0.40
+    # The center 40% of the image is the translation corridor. A fresh sample
+    # outside [0.30, 0.70] removes forward authority immediately; a second
+    # fresh sample confirms a bounded in-place recenter.
+    stationary_recenter_error_ratio: float = 0.20
     stationary_recenter_confirmations: int = 2
     close_handoff_center_ratio: float = 0.08
     close_handoff_center_confirmations: int = 3
@@ -304,8 +307,15 @@ def search_handoff_from_status(
     target_fruit: str,
     *,
     qualified_monotonic_s: float,
+    minimum_stable_detections: int = SEARCH_QUALIFICATION_MINIMUM_DETECTIONS,
 ) -> SearchQualificationHandoff | None:
     """Capture only a complete, motion-qualified search observation."""
+    if (
+        isinstance(minimum_stable_detections, bool)
+        or not isinstance(minimum_stable_detections, int)
+        or minimum_stable_detections < 1
+    ):
+        raise ValueError("minimum search detections must be positive")
     target = target_fruit.casefold().strip()
     detection = status.get("detection")
     source = status.get("source")
@@ -373,7 +383,7 @@ def search_handoff_from_status(
     policy = fruit_policy(target)
     if (
         handoff.confidence < policy.acquisition_confidence
-        or handoff.stable_detections < SEARCH_QUALIFICATION_MINIMUM_DETECTIONS
+        or handoff.stable_detections < minimum_stable_detections
     ):
         return None
     return handoff
@@ -803,6 +813,24 @@ class QualifiedFruitTracker:
             observation.bottom >= self.config.close_bottom_ratio
             or self._close_samples >= 2
         )
+        if self._approach_authorized and self._extreme_error_samples:
+            if (
+                self._extreme_error_samples
+                < self.config.stationary_recenter_confirmations
+            ):
+                return self._decision(
+                    MotionRecommendation.STOP,
+                    "confirming_center_corridor_exit",
+                    observation,
+                    horizontal_error=horizontal_error,
+                )
+            self._stationary_recenter_samples += 1
+            return self._decision(
+                MotionRecommendation.ALIGN,
+                "center_corridor_recenter",
+                observation,
+                horizontal_error=horizontal_error,
+            )
         if self.config.target_fruit == "pear" and self._close_recenter_active:
             if abs(horizontal_error) <= self.config.close_handoff_center_ratio:
                 self._close_recenter_active = False
@@ -834,18 +862,6 @@ class QualifiedFruitTracker:
                     forward_scale=self.config.slow_speed_scale,
                     horizontal_error=horizontal_error,
                 )
-        if self._approach_authorized and (
-            self._extreme_error_samples
-            >= self.config.stationary_recenter_confirmations
-        ):
-            self._stationary_recenter_samples += 1
-            return self._decision(
-                MotionRecommendation.ALIGN,
-                "large_tracking_error",
-                observation,
-                horizontal_error=horizontal_error,
-            )
-
         if self._steering_active:
             if abs(horizontal_error) <= self.config.moving_steering_exit_ratio:
                 self._steering_active = False
@@ -1214,11 +1230,6 @@ class QualifiedFruitTracker:
         if previous is None:
             return None
         if (
-            abs(observation.center_x - previous.center_x)
-            > self.config.maximum_center_delta_ratio
-        ):
-            return "center_jump"
-        if (
             observation.center_y
             < previous.center_y - self.config.maximum_vertical_retreat_ratio
         ):
@@ -1235,6 +1246,19 @@ class QualifiedFruitTracker:
             < previous.area * (1.0 - self.config.maximum_area_retreat_fraction)
         ):
             return "area_retreat"
+        if (
+            abs(observation.center_x - previous.center_x)
+            > self.config.maximum_center_delta_ratio
+        ):
+            # A current, qualified fruit outside the translation corridor is
+            # handled by the explicit zero-forward recenter contract. Other
+            # center jumps retain the suspect-frame continuity guard.
+            if (
+                abs(observation.center_x - 0.5)
+                > self.config.stationary_recenter_error_ratio
+            ):
+                return None
+            return "center_jump"
         return None
 
     def _continuous_with_last(self, observation: _Observation) -> bool:

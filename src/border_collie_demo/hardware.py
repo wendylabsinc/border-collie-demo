@@ -37,8 +37,15 @@ from .return_home import (
     Pose2D,
     ReturnMode,
     ReturnPlannerConfig,
+    ReturnStep,
     normalize_angle,
     plan_return_step,
+)
+from .search_policy import (
+    CandidateAlignmentController,
+    DoubleBackSearchController,
+    SearchGenerationChanged,
+    SearchPolicy,
 )
 from .target_range import (
     MetricArrivalAction,
@@ -52,15 +59,12 @@ FORWARD_PULSE_CONFIRMATION = "PATH CLEAR - MOVE WOOF FORWARD"
 INITIAL_CENTER_TOLERANCE_RATIO = 0.05
 INITIAL_CENTER_CONFIRMATIONS = 3
 SEARCH_CROP_CANDIDATE_CONFIDENCE = 0.50
-SEARCH_CANDIDATE_HOLD_S = 0.75
-SEARCH_CANDIDATE_YAW_RPS = 0.50
-SEARCH_CANDIDATE_LOSS_GRACE_S = 0.50
-SEARCH_CANDIDATE_MAXIMUM_AGE_S = 0.25
 # QualifiedFruitTracker owns the filtered hysteresis state. Hardware translates
 # its authorized steering error to a bounded, slew-limited moving command.
 APPROACH_YAW_GAIN = 1.50
 APPROACH_MOVING_MAX_YAW_RPS = 0.50
 APPROACH_YAW_SLEW_RPS_PER_S = 2.0
+APPROACH_RECENTER_YAW_RPS = 0.20
 FORWARD_CAPABLE_OPERATIONS = frozenset(
     {"forward_pulse", "approach_target", "return_home"}
 )
@@ -85,6 +89,20 @@ def _home_pose(home: dict[str, object]) -> Pose2D:
         raise ValueError("captured Home pose is missing or invalid")
     x_m, y_m, yaw_rad = (float(value) for value in values if value is not None)
     return Pose2D(x_m, y_m, yaw_rad)
+
+
+def _pose_payload(pose: Pose2D) -> dict[str, float]:
+    return {"x_m": pose.x_m, "y_m": pose.y_m, "yaw_rad": pose.yaw_rad}
+
+
+def _return_step_payload(step: ReturnStep) -> dict[str, object]:
+    return {
+        "mode": step.mode.value,
+        "distance_m": step.distance_m,
+        "heading_error_rad": step.heading_error_rad,
+        "forward_mps": step.forward_mps,
+        "yaw_rps": step.yaw_rps,
+    }
 
 
 class HardwareUnavailable(RuntimeError):
@@ -191,6 +209,7 @@ class HardwareManager:
         visual_odometry: VisualOdometryAdapter | None = None,
         metric_arrival_gate: MetricArrivalGate | None = None,
         metric_range_provider: MetricRangeProviderProtocol | None = None,
+        search_policy: SearchPolicy | None = None,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self.config = config or HardwareConfig()
@@ -214,6 +233,7 @@ class HardwareManager:
         )
         self._metric_arrival_gate = metric_arrival_gate or self._configured_range_gate()
         self._metric_range_provider = metric_range_provider
+        self._search_policy = search_policy or SearchPolicy.named("slow-sweep")
         self._monotonic = monotonic
         self._motion: MotionAdapterProtocol | None = None
         self._pose: PoseProviderProtocol | None = None
@@ -502,6 +522,7 @@ class HardwareManager:
         yaw_rps: float,
         sweep_rad: float,
         timeout_s: float,
+        search_policy: SearchPolicy | None = None,
     ) -> dict[str, object]:
         """Run one measured bounded search until fresh target evidence locks."""
         rate = float(yaw_rps)
@@ -514,6 +535,7 @@ class HardwareManager:
         if sweep <= 0.0 or sweep > 2.0 * math.pi or timeout <= 0.0:
             raise ValueError("search bounds are invalid")
         self._require_autonomy_ready()
+        policy = search_policy or self._search_policy
 
         async with self._operation_lock:
             if self._active_operation is not None:
@@ -528,9 +550,24 @@ class HardwareManager:
             progress = 0.0
             started = self._monotonic()
             evidence: dict[str, object] | None = None
-            candidate_lock_active = False
-            candidate_hold_until: float | None = None
-            candidate_last_seen_at: float | None = None
+            double_back_controller = (
+                DoubleBackSearchController(
+                    target_fruit,
+                    rate,
+                    policy,
+                    started_at=started,
+                )
+                if policy.candidate_mode == "double-back"
+                else None
+            )
+            candidate_alignment_controller = (
+                CandidateAlignmentController(target_fruit, rate, policy)
+                if double_back_controller is None
+                else None
+            )
+            required_search_detections = policy.required_consecutive_detections(
+                target_fruit
+            )
             recognition: dict[str, object] = {
                 "samples": 0,
                 "pear_candidate_samples": 0,
@@ -538,7 +575,13 @@ class HardwareManager:
                 "maximum_consecutive_detections": 0,
                 "maximum_bbox_area_ratio": None,
                 "closest_detection": None,
+                "search_policy": policy.name,
+                "search_lock_minimum_detections": (
+                    required_search_detections
+                ),
             }
+            if double_back_controller is not None:
+                recognition.update(double_back_controller.evidence())
             try:
                 assert self._pose is not None and self._motion is not None
                 initial = self._pose.status()
@@ -553,7 +596,7 @@ class HardwareManager:
                     status = status_reader()
                     sampled_at = self._monotonic()
                     self._record_perception_sample(status, target_fruit)
-                    plausible_candidate = False
+                    search_lock = policy.evaluate(status, target_fruit)
                     recognition["samples"] = int(recognition["samples"]) + 1
                     if not status.get("camera_healthy"):
                         raise CameraFailure(
@@ -563,6 +606,15 @@ class HardwareManager:
                             )
                         )
                     detection = status.get("detection")
+                    if (
+                        double_back_controller is not None
+                        and status.get("target_ready") is not True
+                    ):
+                        try:
+                            double_back_controller.sample(status, now_s=sampled_at)
+                        except SearchGenerationChanged as exc:
+                            raise CameraFailure(str(exc)) from exc
+                        recognition.update(double_back_controller.evidence())
                     if isinstance(detection, dict):
                         label = str(detection.get("label") or "").casefold()
                         if label == target_fruit.casefold():
@@ -570,14 +622,6 @@ class HardwareManager:
                                 int(recognition["pear_candidate_samples"]) + 1
                             )
                         confidence = _finite_float(detection.get("confidence"))
-                        detection_age_s = _finite_float(detection.get("age_s"))
-                        plausible_candidate = bool(
-                            label == target_fruit.casefold()
-                            and confidence is not None
-                            and confidence >= SEARCH_CROP_CANDIDATE_CONFIDENCE
-                            and detection_age_s is not None
-                            and 0.0 <= detection_age_s <= SEARCH_CANDIDATE_MAXIMUM_AGE_S
-                        )
                         if confidence is not None:
                             current_maximum = _finite_float(
                                 recognition["maximum_confidence"]
@@ -639,13 +683,26 @@ class HardwareManager:
                                 recognition["crop_candidate_confidence_threshold"] = (
                                     SEARCH_CROP_CANDIDATE_CONFIDENCE
                                 )
-                    if status.get("target_ready") and isinstance(detection, dict):
+                    search_target_ready = (
+                        search_lock.qualified
+                        if target_fruit.casefold() == "apple"
+                        or policy.name == "fast-lock"
+                        else status.get("target_ready") is True
+                    )
+                    if search_target_ready and isinstance(detection, dict):
                         label = str(detection.get("label") or "").casefold()
                         if label == target_fruit.casefold():
                             handoff = search_handoff_from_status(
-                                status,
+                                (
+                                    status
+                                    if status.get("target_ready") is True
+                                    else {**status, "target_ready": True}
+                                ),
                                 target_fruit,
                                 qualified_monotonic_s=sampled_at,
+                                minimum_stable_detections=(
+                                    required_search_detections
+                                ),
                             )
                             evidence = {
                                 "motion_path": "sport_client",
@@ -658,6 +715,7 @@ class HardwareManager:
                                 "recognition": {
                                     **recognition,
                                     "search_progress_rad": progress,
+                                    "search_lock_reason": search_lock.reason,
                                 },
                                 "motion_commands_sent": commands_sent,
                             }
@@ -681,13 +739,11 @@ class HardwareManager:
                         raise HardwareUnavailable(
                             sample.error or "Go2 pose became stale during search"
                         )
-                    progress += max(
-                        0.0,
-                        math.atan2(
-                            math.sin(sample.pose.yaw_rad - previous_yaw),
-                            math.cos(sample.pose.yaw_rad - previous_yaw),
-                        ),
+                    yaw_step = math.atan2(
+                        math.sin(sample.pose.yaw_rad - previous_yaw),
+                        math.cos(sample.pose.yaw_rad - previous_yaw),
                     )
+                    progress += max(0.0, yaw_step)
                     previous_yaw = sample.pose.yaw_rad
                     if progress >= sweep:
                         raise TargetLost(
@@ -698,61 +754,30 @@ class HardwareManager:
                             },
                         )
                     now = self._monotonic()
-                    if plausible_candidate:
-                        candidate_last_seen_at = now
-                        if not candidate_lock_active:
-                            candidate_lock_active = True
-                            candidate_hold_until = now + SEARCH_CANDIDATE_HOLD_S
-                            recognition["candidate_lock_count"] = (
-                                int(recognition.get("candidate_lock_count", 0)) + 1
-                            )
-                            recognition["candidate_lock_confidence_threshold"] = (
-                                SEARCH_CROP_CANDIDATE_CONFIDENCE
-                            )
-                            recognition["candidate_lock_hold_s"] = (
-                                SEARCH_CANDIDATE_HOLD_S
-                            )
-                            recognition["candidate_lock_maximum_age_s"] = (
-                                SEARCH_CANDIDATE_MAXIMUM_AGE_S
-                            )
-                            recognition["candidate_lock_yaw_rps"] = min(
-                                rate,
-                                SEARCH_CANDIDATE_YAW_RPS,
-                            )
-                    elif (
-                        candidate_lock_active
-                        and candidate_last_seen_at is not None
-                        and now - candidate_last_seen_at > SEARCH_CANDIDATE_LOSS_GRACE_S
-                    ):
-                        candidate_lock_active = False
-                        candidate_hold_until = None
-                        candidate_last_seen_at = None
-                        recognition["candidate_lock_losses"] = (
-                            int(recognition.get("candidate_lock_losses", 0)) + 1
+                    if double_back_controller is not None:
+                        directive = double_back_controller.command(
+                            now_s=now,
+                            measured_yaw_step_rad=yaw_step,
                         )
-                    command_rate = rate
-                    command_reason = "find_target"
-                    if candidate_lock_active:
-                        assert candidate_hold_until is not None
-                        if now < candidate_hold_until:
-                            command_rate = 0.0
-                            command_reason = "crop_confirm_hold"
-                            recognition["crop_slowdown_hold_samples"] = (
-                                int(recognition.get("crop_slowdown_hold_samples", 0))
-                                + 1
-                            )
-                        else:
-                            command_rate = min(rate, SEARCH_CANDIDATE_YAW_RPS)
-                            command_reason = "crop_confirm_slow_turn"
-                            recognition["crop_slowdown_turn_samples"] = (
-                                int(recognition.get("crop_slowdown_turn_samples", 0))
-                                + 1
-                            )
+                        recognition.update(double_back_controller.evidence())
+                        await self._send_motion_command(
+                            lease,
+                            VelocityCommand(0.0, directive.yaw_rps, directive.reason),
+                        )
+                        commands_sent = commands_sent or directive.yaw_rps != 0.0
+                        await asyncio.sleep(self.config.command_heartbeat_s)
+                        continue
+                    assert candidate_alignment_controller is not None
+                    directive = candidate_alignment_controller.command(
+                        status,
+                        now_s=now,
+                    )
+                    recognition.update(candidate_alignment_controller.evidence())
                     await self._send_motion_command(
                         lease,
-                        VelocityCommand(0.0, command_rate, command_reason),
+                        VelocityCommand(0.0, directive.yaw_rps, directive.reason),
                     )
-                    commands_sent = commands_sent or command_rate != 0.0
+                    commands_sent = commands_sent or directive.yaw_rps != 0.0
                     await asyncio.sleep(self.config.command_heartbeat_s)
                 else:
                     raise TargetLost(
@@ -1174,6 +1199,10 @@ class HardwareManager:
                             "stationary_recenter_error_ratio": (
                                 tracker.config.stationary_recenter_error_ratio
                             ),
+                            "stationary_recenter_yaw_rps": min(
+                                maximum_yaw_rps,
+                                APPROACH_RECENTER_YAW_RPS,
+                            ),
                             "forward_pulse_count": forward_pulse_count,
                             "forward_pulse_period_s": self.config.command_heartbeat_s,
                             "motion_commands_sent": commands_sent,
@@ -1238,11 +1267,16 @@ class HardwareManager:
 
                     horizontal_error = decision.horizontal_error
                     if decision.recommendation is MotionRecommendation.ALIGN:
+                        recenter_yaw_rps = (
+                            min(maximum_yaw_rps, APPROACH_RECENTER_YAW_RPS)
+                            if decision.reason == "center_corridor_recenter"
+                            else maximum_yaw_rps
+                        )
                         yaw = (
                             0.0
                             if abs(horizontal_error) <= INITIAL_CENTER_TOLERANCE_RATIO
                             else -math.copysign(
-                                maximum_yaw_rps,
+                                recenter_yaw_rps,
                                 horizontal_error,
                             )
                         )
@@ -1252,8 +1286,8 @@ class HardwareManager:
                                 0.0,
                                 yaw,
                                 (
-                                    "recenter_target_large_error"
-                                    if decision.reason == "large_tracking_error"
+                                    "center_corridor_recenter"
+                                    if decision.reason == "center_corridor_recenter"
                                     else (
                                         "recenter_close_target"
                                         if decision.reason == "close_tracking_recenter"
@@ -1578,6 +1612,41 @@ class HardwareManager:
                     assert home_distance is not None
                     samples += 1
                     if home_distance <= arrival_tolerance_m:
+                        terminal_step = plan_return_step(home_pose, current_world, config)
+                        self._record_flight(
+                            "home_navigation_sample",
+                            {
+                                "epoch": self._motion_run_epoch,
+                                "phase": self._motion_authority_phase,
+                                "raw_pose": sample.to_dict(),
+                                "home_localization": estimate.to_dict(),
+                                "current_world": _pose_payload(current_world),
+                                "target": _pose_payload(home_pose),
+                                "target_kind": "home",
+                                "plan": _return_step_payload(terminal_step),
+                                "progress": {
+                                    "samples": samples,
+                                    "best_target_distance_m": (
+                                        None if math.isinf(best_distance) else best_distance
+                                    ),
+                                    "seconds_since_progress": (
+                                        time.monotonic() - progress_at
+                                    ),
+                                    "requested_forward_pulses": forward_pulse_count,
+                                    "replayed_forward_pulses": replayed_forward_pulses,
+                                    "planned_breadcrumbs": planned_breadcrumbs,
+                                    "reached_breadcrumbs": reached_breadcrumbs,
+                                },
+                                "thresholds": {
+                                    "arrival_tolerance_m": arrival_tolerance_m,
+                                    "heading_gate_rad": heading_gate_rad,
+                                    "heading_tolerance_rad": config.heading_tolerance_rad,
+                                    "minimum_progress_m": minimum_progress_m,
+                                    "stall_timeout_s": stall_timeout_s,
+                                    "timeout_s": timeout_s,
+                                },
+                            },
+                        )
                         evidence = {
                             "home_distance_m": home_distance,
                             "arrival_tolerance_m": arrival_tolerance_m,
@@ -1621,10 +1690,43 @@ class HardwareManager:
                             f"{home_distance:.3f} m from Home"
                         )
                     now = time.monotonic()
-                    if step.distance_m <= best_distance - minimum_progress_m:
+                    progressed = step.distance_m <= best_distance - minimum_progress_m
+                    if progressed:
                         best_distance = step.distance_m
                         progress_at = now
-                    elif now - progress_at > stall_timeout_s:
+                    self._record_flight(
+                        "home_navigation_sample",
+                        {
+                            "epoch": self._motion_run_epoch,
+                            "phase": self._motion_authority_phase,
+                            "raw_pose": sample.to_dict(),
+                            "home_localization": estimate.to_dict(),
+                            "current_world": _pose_payload(current_world),
+                            "target": _pose_payload(target),
+                            "target_kind": (
+                                "breadcrumb" if route_waypoints else "home"
+                            ),
+                            "plan": _return_step_payload(step),
+                            "progress": {
+                                "samples": samples,
+                                "best_target_distance_m": best_distance,
+                                "seconds_since_progress": now - progress_at,
+                                "requested_forward_pulses": forward_pulse_count,
+                                "replayed_forward_pulses": replayed_forward_pulses,
+                                "planned_breadcrumbs": planned_breadcrumbs,
+                                "reached_breadcrumbs": reached_breadcrumbs,
+                            },
+                            "thresholds": {
+                                "arrival_tolerance_m": arrival_tolerance_m,
+                                "heading_gate_rad": heading_gate_rad,
+                                "heading_tolerance_rad": config.heading_tolerance_rad,
+                                "minimum_progress_m": minimum_progress_m,
+                                "stall_timeout_s": stall_timeout_s,
+                                "timeout_s": timeout_s,
+                            },
+                        },
+                    )
+                    if not progressed and now - progress_at > stall_timeout_s:
                         raise HardwareUnavailable(
                             "return Home stalled "
                             f"{step.distance_m:.3f} m from its active waypoint"
@@ -1866,6 +1968,7 @@ class HardwareManager:
 
     def ingest_home_fusion_sample(self) -> dict[str, object]:
         """Advance captured-Home fusion independently of motion commands."""
+        raw_pose: dict[str, object] | None = None
         try:
             if self._captured_home_pose is None or self._pose is None:
                 result: dict[str, object] = {
@@ -1874,6 +1977,7 @@ class HardwareManager:
                 }
             else:
                 sample = self._pose.status()
+                raw_pose = sample.to_dict()
                 if (
                     not sample.healthy
                     or sample.pose is None
@@ -1908,6 +2012,24 @@ class HardwareManager:
             **result,
             "recorded_monotonic_s": self._monotonic(),
         }
+        self._record_flight(
+            "home_fusion_sample",
+            {
+                "epoch": self._motion_run_epoch,
+                "phase": self._motion_authority_phase,
+                "captured_home": (
+                    None
+                    if self._captured_home_pose is None
+                    else {
+                        "x_m": self._captured_home_pose.x_m,
+                        "y_m": self._captured_home_pose.y_m,
+                        "yaw_rad": self._captured_home_pose.yaw_rad,
+                    }
+                ),
+                "raw_pose": raw_pose,
+                "estimate": dict(self._continuous_fusion_latest),
+            },
+        )
         return dict(result)
 
     def _start_continuous_fusion_ingestion(self) -> None:

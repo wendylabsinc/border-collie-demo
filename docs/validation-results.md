@@ -9,6 +9,53 @@ Takeover is process-latched, activation is recorder-backed, and production code
 does not import the legacy project. They do not qualify physical motion or the
 autonomous routine.
 
+## V22-BLACK-BOX-DEPLOY-2026-08-11 — deployed and ready, no motion
+
+- Direct whole-project Stagefile deployment completed with
+  `wendy run --detach`; Docker Layer Optimizer was not used.
+- The first two build attempts failed before device replacement because the
+  dedicated `wendy-mtls` BuildKit filesystem had reached 100% usage. Truncated
+  Ubuntu `InRelease` downloads surfaced misleadingly as invalid-signature
+  errors. Removing only unused Wendy builder cache and unused local Border
+  Collie media images restored 36.8 GB of build-host free space.
+- The successful deployment installed matching app and media identity
+  `stage-camera-v22-black-box`, configuration schema 6. The app exposed the
+  per-run trace route, and media reached ready with zero restarts.
+- Three post-deploy media samples advanced source PTS from `3780` to `8100` to
+  `12480` on one stable generation. Bark and the banana specialist were ready.
+- Final safety state: mission idle, no active run or recovery, no Remote
+  Takeover, no active hardware operation, guardian inactive, motion disarmed,
+  and last command exactly zero.
+- The seeded, balanced random fruit order and per-run A/B/C search-policy
+  selector are unchanged. No physical run was activated, so this validates
+  deployment/readiness and not search-policy performance.
+
+## HOME-RETURN-DIAGNOSIS-2026-08-11 — failed safely, cause isolated
+
+- Physical run `7098b433-23db-4c2d-9811-59dd8d2019c5` completed fruit search,
+  approach, Arrival, and the action sequence, then failed return with
+  `return Home stalled 0.323 m from its active waypoint` and disarmed.
+- The aggregate's `1.8595 m` terminal Home value is stale: failed
+  `return_home` produced no stage result, so summary fallback selected the last
+  completed `turn_toward_home` stage measured before return translation.
+- Failed-run recovery began with raw Go2 Home distance `0.3258 m` and filtered
+  distance `0.3250 m` (`0.0244 m` position sigma). Their agreement does not
+  support a one-metre odometry jump.
+- Recovery rebuilt the entire reversed outbound breadcrumb list. Although Woof
+  was already about `0.325 m` from Home, its active target became an old
+  fruit-side breadcrumb; the resulting `1.574 m` error was distance to that
+  stale waypoint, not distance to Home.
+- The original return then recovery both entered yaw-only correction at
+  `0.30 rad/s`, which is at the observed factory-avoidance posture-only edge.
+  This is a contributing control failure, separate from localization.
+- Operational consequence: do not use the aggregate fallback value or an
+  active-waypoint error as current Home distance. Preserve the latest raw and
+  fused Home pose, target kind, and planner decision in the per-run black-box
+  trace. Resume recovery from current pose toward Home; never replay a consumed
+  outbound route from its beginning.
+
+Evidence: `benchmarks/results/search-fast-lock.json`.
+
 ## PRODUCTION-OFFLINE-001 — passed
 
 - Observed: 2026-08-03 in the clean repository
@@ -24,8 +71,9 @@ autonomous routine.
   it imports no motion client
 - Result: passed the local implementation gate
 - Limitation: deterministic adapters and recorded hardware facts do not qualify
-  the combined physical sequence. The next step remains DLO comparison, then a
-  supervised Woof deployment and one real end-to-end acceptance run.
+  the combined physical sequence. The next step remains a direct Stagefile
+  deployment with `wendy run`, then one supervised Woof end-to-end acceptance
+  run.
 
 ## PREFLIGHT-FAIL-CLOSED-001 — passed
 
@@ -669,3 +717,306 @@ the separate failed-run Home-recovery or heading-restoration repairs.
 
 Full evidence:
 `benchmarks/results/fruit-soak-v19-five-attempt-characterization-2026081103.json`.
+
+## STAGE-CAMERA-V21-SEARCH-POLICY-ABC-2026-08-11 — software checkpoint
+
+- Lineage: v20 evidence tip `c96d881`, extended on
+  `codex/stage-camera-v21-search-policy-abc`.
+- Release identity: `stage-camera-v21-search-policy-abc`, configuration schema
+  5, app version `1.0.24-stage-camera`; root/media descriptors and both
+  Stagefiles use one cohort. The safe startup default is `slow-sweep`.
+- Experiment surface: `BORDER_COLLIE_SEARCH_POLICY` or application
+  `--search-policy` chooses the default. The soak CLI `--search-policy` chooses
+  an immutable per-run policy without restarting the app. CLI activation
+  persists the policy before preflight and idempotency rejects policy drift.
+- Track A: `fast-lock` reduces completed search acquisition from five to three
+  frames only after the complete freshness, identity, confidence, inference,
+  generation/timebase/PTS, and geometry evaluator passes.
+- Track B: `slow-sweep` retains five-frame acquisition and full `2 pi` coverage
+  while reducing broad yaw from `1.0` to `0.50 rad/s` under the same 30 second
+  deadline.
+- Track C: `double-back` retains five-frame acquisition and adds a bounded
+  candidate dwell/reverse episode. It never commands translation, never
+  extends the absolute deadline, and fails closed on generation change.
+- Comparison tooling requires matched seed, fruit sequence, and orientation
+  sequence, then reports error rates and failures by reason, phase, and fruit
+  alongside acquisition, Home, recovery, and network metrics.
+- Qualification boundary: deterministic tests do not establish a winner. The
+  planned acceptance is one deployed cohort followed by ten matched physical
+  runs for each policy, with disarm and bounded Home recovery between attempts.
+
+## STAGE-CAMERA-V22-BLACK-BOX-2026-08-11 — randomized five-attempt result
+
+- Deployed cohort: `stage-camera-v22-black-box`, configuration schema 6, app
+  version `1.0.25-stage-camera`, using the `slow-sweep` search policy and zero
+  pre-search orientation offset. Seed `2026081106` produced the balanced random
+  sequence `banana, pear, apple, pear, banana`.
+- Banana run `f90a3e96-4194-4722-a31b-22620c40ebd8` found and approached the
+  fruit, confirmed Arrival, completed the posture/bark sequence, and then failed
+  `RETURN_HOME_FAILURE`. Its manual bounded recovery also failed. The black box
+  showed a trusted physical Home distance near `0.379 m`, while recovery
+  restarted seven consumed breadcrumbs and selected a fruit-side waypoint
+  `1.305 m` away. The aggregate's `1.710 m` Home value is stale stage evidence,
+  not the terminal fused Home distance.
+- Pear run `f9ea2093-41d2-463d-a4ce-4f412d2d4f31` failed
+  `ARRIVAL_FAILURE` after finding and approaching the pear. Automatic recovery
+  failed `0.112 m` from its active waypoint and disarmed.
+- Apple run `b4a5b971-a926-468b-ad9b-593a2b5cf139` failed
+  `TARGET_RECOGNITION_FAILURE` in the bounded search sweep. It sent no approach
+  translation and disarmed.
+- Pear run `7978cb58-10ed-458b-a049-73ef9f540a67` failed
+  `TARGET_LOST_OFF_AXIS`. Automatic recovery completed at trusted Home distance
+  `0.0521 m` and disarmed.
+- Banana run `9aa357cc-96df-4fac-9543-22da422ac690` was externally stopped
+  during startup and is recorded as `STOPPED / OPERATOR_STOP`; it does not
+  qualify fruit behavior.
+- Score: five activations, zero completed end-to-end runs, four application
+  failures, and one externally stopped attempt. The harness observed no status
+  polling errors in the four-run continuation and one polling error in the
+  first attempt. Every terminal result reports `DISARMED_CONFIRMED`; final live
+  state was idle of active work, guardian inactive, motion disarmed, and exact
+  zero velocity.
+- Operator acceptance for this characterization was relaxed to a `0.50 m` Home
+  safety margin after the first attempt. This did not change the deployed
+  application's existing `0.10 m` completion gate and is not evidence that the
+  tighter gate is obsolete.
+- Full failed-run black boxes and the start frames are retained alongside the
+  two harness aggregates under
+  `benchmarks/results/fruit-soak-v22-random-5-seed-2026081106*`.
+
+## STAGE-CAMERA-V23-APPLE-PEAR-CONFIDENCE-2026-08-11 — candidate
+
+- Release identity: `stage-camera-v23-apple-pear-confidence`, configuration
+  schema 7, app version `1.0.26-stage-camera`; root/media descriptors and both
+  Stagefiles use the same cohort.
+- Policy change: apple now shares pear's `0.65` acquisition floor and `0.55`
+  continued-tracking floor. The prior apple policy was `0.70` acquisition and
+  `0.10` tracking. Banana policy and its specialist gate are unchanged.
+- Unchanged motion boundary: the search policy still requires five fresh fully
+  qualified samples under `slow-sweep`; search handoff still requires current
+  fresh matching tracking-floor evidence and three centered approach samples
+  before translation. Raw weak sidecar publication remains diagnostic-only.
+- Supervised randomized result: seed `202608111726` selected Apple for run
+  `9a55f553-0ad8-43bf-b711-ea657962caf6`. Search observed confidence up to
+  `0.7892334` but held only two consecutive qualifying detections against the
+  five-frame `slow-sweep` lock, completed `6.3098 rad` of bounded yaw-only
+  search, and failed `TARGET_RECOGNITION_FAILURE`. No forward command was sent.
+  The terminal state was `DISARMED_CONFIRMED`; trusted fused Home distance was
+  `0.0143 m` in the final live check.
+- Evidence: `benchmarks/results/2026-08-11-v23-apple-pear-random-9a55f553.json`
+  and its matching `-trace.ndjson` black box.
+- Qualification boundary: lowering the Apple confidence floor alone did not
+  produce a five-frame search lock in this placement. The reversible scheduler
+  comparison will test whether evidence cadence, rather than peak confidence,
+  is the limiting factor.
+
+## STAGE-CAMERA-V24-PIPELINE-BASELINE-2026-08-11 — physical cohort
+
+- Release identity: `stage-camera-v24-apple-pear-pipeline-baseline`, schema 8,
+  app version `1.0.27-stage-camera`.
+- The merged scheduler is present but explicitly selected as
+  `PERCEPTION_PIPELINE_PROFILE=baseline`. Apple/Pear confidence policy remains
+  0.65 acquisition and 0.55 continued tracking.
+- Live pipeline snapshot: 14.18 source FPS, 7.00 processed/published FPS,
+  1,805 processed of 3,654 source frames, 1,847 latest-frame drops, 0.0960 s
+  average inference, and no visual-odometry or preview worker errors.
+- Apple `078c9f58-5eb9-488d-87d6-92344fad303d`: failed
+  `TARGET_RECOGNITION_FAILURE`; peak confidence 0.7635 and maximum three
+  consecutive detections, below the five-frame lock. Bounded recovery completed
+  `HOME_POSITION_ALREADY_RECOVERED` at 0.0614 m.
+- Pear `e02e9d0b-4502-41e5-8cc6-44e2e331c077`: failed `ARRIVAL_FAILURE`
+  after acquisition and approach. Its automatic recovery completed
+  `HOME_POSITION_RECOVERED` at 0.0764 m. The soak client raced that automatic
+  attempt with a manual request, received HTTP 409, and stopped its aggregate;
+  Banana was resumed directly after the authoritative recovery completed.
+- Banana `1979f519-de00-4137-9116-1200e15a7274`: reached Arrival, completed
+  down/bark/stand, and reached 0.0423 m Home position, then failed
+  `RETURN_HOME_FAILURE` during heading restoration. Manual recovery turned
+  despite the already-good position, shifted outward, and failed the strict
+  0.10 m recovery gate; final live state was disarmed at 0.2176 m, inside the
+  operator's separate 0.50 m stage margin.
+- Score: 0/3 end-to-end completions; all three results and black-box traces are
+  retained under `benchmarks/results/2026-08-11-v24-baseline-*`. The scheduler
+  comparison must distinguish perception improvements from unchanged Arrival
+  and Home-heading failures.
+
+## STAGE-CAMERA-V25-THROUGHPUT-V1-2026-08-11 — comparison candidate
+
+- Release identity: `stage-camera-v25-apple-pear-throughput-v1`, schema 9,
+  app version `1.0.28-stage-camera`.
+- Only the scheduler profile changes to `PERCEPTION_PIPELINE_PROFILE=throughput-v1`;
+  confidence, search policy, approach, Arrival, action, and Home contracts are
+  unchanged from the v24 baseline cohort.
+- Matched order completed: Apple, Pear, Banana with seed `2026081105`, 0 degree
+  pre-search turns, `slow-sweep`, and full per-run black boxes.
+- Live pipeline snapshot: 12.99 cumulative source FPS, 11.56
+  processed/published FPS, 3,085 processed of 3,465 source frames, 379
+  latest-frame drops, 0.0687 s average inference, and no visual-odometry or
+  preview worker errors. Compared with v24, processed FPS increased by 65.1%
+  and drop ratio fell from 50.5% to 10.9%. These are cumulative snapshots with
+  different warm-up fractions, not a controlled detector-latency benchmark.
+- Apple `ddf8214c-dc02-4913-9164-2e5f2f644147`: failed
+  `TARGET_RECOGNITION_FAILURE`; peak confidence 0.6976 and maximum two
+  consecutive detections against the five-frame lock. It sent no forward
+  motion and remained approximately 0.027 m from its captured Home.
+- Pear `52d5ccad-961f-45ab-97b3-ed16eb97c16c`: accepted the search handoff and
+  accumulated 53 qualified tracking samples, but failed
+  `TARGET_LOST_OFF_AXIS` near the bottom of frame. Automatic recovery failed
+  the application's strict gate at trusted Home distance 0.3413 m, inside the
+  operator's separate 0.50 m stage margin, and disarmed.
+- Banana `6c2a8dd1-1d3c-40e7-b48b-cfdf75770f14`: completed search, approach,
+  Arrival, one 0.6 m/s final push, down/bark/stand, and reached 0.0645 m from
+  Home. Heading restoration then shifted the trusted estimate to 0.3827 m and
+  failed `RETURN_HOME_FAILURE`. No second recovery turn was requested because
+  the same action worsened the corresponding v24 result and Woof was already
+  inside the accepted stage margin.
+- Score: 0/3 end-to-end completions, unchanged from baseline. The scheduler
+  improved evidence cadence but did not fix the observed search-lock,
+  off-axis close-tracking, or Home-heading failure classes. One three-second
+  status poll timed out during Banana return; the next request proved both
+  services still running and the run terminal with zero/disarmed motion.
+- Durable comparison:
+  `benchmarks/results/2026-08-11-v24-baseline-vs-v25-throughput-apple-pear-banana.json`.
+
+## STAGE-CAMERA-V26-CENTERED-SECOND-SCAN-2026-08-11 — deployed candidate
+
+- Release identity: `stage-camera-v26-centered-second-scan`, schema 10, app
+  version `1.0.29-stage-camera`; root/media descriptors and both Stagefiles use
+  the same cohort. The perception scheduler remains `throughput-v1`.
+- V25 Apple trace `ddf8214c-dc02-4913-9164-2e5f2f644147` showed the broad scan
+  and candidate scan both commanding 0.50 rad/s. Across repeated candidate
+  episodes, the detected center progressed from the left side through center
+  to the right while blind positive yaw continued, causing visible wiggle and
+  repeated repositioning.
+- V26 preserves the 0.50 candidate trigger as yaw-only evidence, holds 0.75
+  seconds, then centers at 0.20 rad/s after two agreeing off-center samples.
+  It commands zero yaw inside +/-0.12 frame width, holds zero through at most
+  1.0 second of brief loss, and permits at most two alignment episodes. It
+  never authorizes translation before acquisition.
+- Apple acquisition now requires three fully qualified fresh frames at its
+  unchanged 0.65 confidence floor. Pear and banana remain at five frames;
+  freshness, generation, timebase, PTS, inference, label, and geometry gates
+  are unchanged for every fruit.
+- Deterministic hardware tests replay left-to-center-to-right evidence, brief
+  candidate loss, Apple three-frame lock, unsafe double-back evidence, and
+  bounded episode behavior. The full software suite and changed-file Ruff
+  checks pass: 386 passed and 1 skipped.
+- Direct whole-project deployment used `wendy run --detach`; Wendy compiled the
+  root and media Stagefiles and reported success. Both services then reported
+  release `stage-camera-v26-centered-second-scan` and schema 10. Media recovered
+  from one bounded first-session timeout, reached ready on attempt two, held a
+  stable generation, and advanced source PTS from 12720 to 14460 with bark
+  ready. The application reported no activation blockers, no active run or
+  recovery, guardian inactive, and exact zero/disarmed motion.
+- No physical Demo Run was started. The 0.20 rad/s SportClient fine yaw and
+  three-frame Apple lock remain physically unqualified pending the supervised
+  five-run test.
+
+## STAGE-CAMERA-V27-CENTER-CORRIDOR-APPLE50-2026-08-11 — deployed candidate
+
+- Release identity: `stage-camera-v27-center-corridor-apple50`, schema 11, app
+  version `1.0.30-stage-camera`; root/media descriptors and both Stagefiles use
+  the same cohort.
+- The red-apple experiment lowers acquisition from 0.65 to 0.50 in both the
+  application policy and media stability counter. Continued tracking also uses
+  0.50. Keeping tracking at 0.55 would invert the normal hysteresis contract:
+  evidence could acquire at 0.50 and then be rejected immediately by approach.
+- A policy invariant now rejects any fruit configuration whose acquisition
+  floor is below its continued-tracking floor. Pear remains 0.65/0.55 and
+  banana remains 0.20/0.20 behind its unchanged 0.55 specialist gate.
+- Approach translation now requires the Target Fruit to remain in the middle
+  40% of the frame. A first fresh sample outside center `0.30..0.70` removes
+  forward authority; a second begins a `0.20 rad/s` in-place recenter. Forward
+  motion resumes only on fresh in-corridor evidence. Stale, wrong-label,
+  wrong-generation, or unhealthy-camera evidence still stops immediately.
+- The soak client now follows automatic recovery to its durable terminal state,
+  never duplicates an active or ambiguous recovery request, and requires exact
+  disarm plus the configured `0.50 m` stage margin before another activation.
+- Deterministic tests cover sidecar stability at 0.50, application readiness,
+  three-frame search qualification, search-to-approach handoff fallback,
+  continued tracking at exactly 0.50, the hardware approach evidence, the
+  stage scorecard, unchanged pear/banana policy, and matching root/media
+  Stagefile identity and hashes.
+- Full local suite: 390 passed, 1 skipped because NumPy was unavailable for the
+  optional visual-odometry test. Changed-file Ruff checks and `git diff --check`
+  pass.
+- Direct whole-project deployment used `wendy run --detach`; Wendy selected and
+  compiled both Stagefiles through their generated Dockerfiles. Post-deployment
+  device evidence matched the app and media release/schema, with both services
+  RUNNING and app version `1.0.30-stage-camera`.
+- The media supervisor was ready on one stable generation with zero restarts.
+  Source PTS advanced `10020 -> 11760 -> 13500`; processed frames advanced
+  `104 -> 133 -> 162`, with observed processed cadence rising from 8.24 to
+  9.71 FPS during warm-up. The application was activation-ready with no
+  blockers, fresh healthy pose, no active run/recovery/operation, guardian
+  inactive, and exact zero/disarmed motion. Every other installed Go2 motion
+  application remained stopped.
+- A supervised seeded five-run physical cohort used sequence Pear, Banana,
+  Pear, Apple, Apple and starting orientations 262, 204, 36, 9, and 241
+  degrees. It completed 1/5 end to end. The 9-degree Apple run completed at
+  Home distance 0.0867 m. The other Apple reached approach but timed out in
+  Arrival after 114 weak samples; recovery completed at 0.0476 m.
+- Pear at 262 degrees and Banana at 204 degrees failed
+  `TARGET_LOST_OFF_AXIS`; automatic recovery completed at 0.0827 m and
+  0.0782 m. Pear at 36 degrees failed bounded search after three consecutive
+  detections against the five-frame lock and was already recovered at
+  0.0278 m. Every recovery was safe to continue inside the 0.50 m stage gate.
+- The middle-40% behavior physically executed in the first Pear run: forward
+  authority was removed, three `0.20 rad/s` recenter commands were sent, the
+  track was reacquired, and close approach resumed. The run later failed the
+  separate tighter close-handoff corridor. Banana failed at filtered center
+  `0.6254`: inside global `0.30..0.70`, but just outside the closeout's
+  `+/-0.12` center rule. Thus v27 proves the recenter path can act, but it does
+  not yet reconcile global approach and terminal closeout corridors.
+- Failure totals were two `TARGET_LOST_OFF_AXIS`, one
+  `TARGET_RECOGNITION_FAILURE`, and one `ARRIVAL_FAILURE`. One laptop polling
+  cutout occurred; it was observational and not attributed as a mission cause.
+  Peak sampled Jetson temperature was 57.5 C with less than 0.5 C rise across
+  reported zones. The durable raw trace and start frames are in
+  `benchmarks/results/2026-08-11-v27-random-five-seed-202608112255.json`.
+- Operator review supersedes any implication that app outcome equals physical
+  fruit placement: run 1 was reported successful despite app
+  `TARGET_LOST_OFF_AXIS`; runs 2 and 3 were unknown; run 4 was far from the
+  apple despite app `SUCCESS`; and run 5 was far from the apple. The v27
+  cohort therefore characterizes software outcomes but does not establish a
+  physical success rate.
+
+## STAGE-CAMERA-V28-LIE-DOWN-EVIDENCE-2026-08-12 — offline candidate
+
+- Release identity: `stage-camera-v28-lie-down-evidence`, schema 12, app
+  version `1.0.31-stage-camera`. Motion, confidence, search, approach, Arrival,
+  and Home policies are unchanged from v27.
+- After the audience-action five-second down hold, the app captures one current
+  annotated JPEG before standing. The same boundary is captured during an
+  eligible failed-run recovery. Successful Run Results retain only this JPEG
+  plus the existing compact key-value summary; failed runs retain it alongside
+  their terminal archive and black-box trace.
+- Capture failure records an unavailable snapshot and cannot change a mission
+  or recovery outcome. The diagnostics UI renders the lie-down frame inline.
+- `scripts/fruit-soak check` is a read-only live gate for exact build/search/
+  fruit policy, matching app/media release, idle/no takeover/no recovery,
+  fresh pose, disarmed zero motion, media readiness, a stable camera generation
+  with PTS advancement across two samples,
+  bark readiness, and a valid JPEG. `scripts/fruit-soak test` now selects an
+  available Python 3.14 interpreter instead of failing on macOS Python 3.9.
+- This candidate was prepared while Woof was offline. No build, deployment,
+  device access, or physical motion was performed.
+## 2026-08-12: v28 randomized five-run cohort
+
+Five randomized activations completed on Woof with `slow-sweep`: pear, banana,
+pear, banana, apple. Machine success was 0/5. Failures were two
+`ARRIVAL_FAILURE`, one `RETURN_HOME_FAILURE`, one `TARGET_LOST_OFF_AXIS`, and
+one `TARGET_RECOGNITION_FAILURE`; operator-side network polling had zero
+errors. The primary harness stopped after run four because recovery reported a
+stalled active waypoint and a 1.542 m Home value. Live trusted fusion instead
+read 0.225 m, inside the operator-qualified 0.50 m stage margin, so the fifth
+seeded activation was completed separately. Final recovery reached 0.028 m;
+post-cohort trusted Home distance was 0.084 m with exact zero motion.
+
+V28 produced useful failure-position images for pear, banana, and apple. All
+three fruits remained visible when Woof lay down, showing that at least these
+failures were policy/geometry closeout problems rather than true camera loss.
+The banana audience-action photo from run two was described in result metadata
+but its artifact endpoint returned HTTP 404, which is a new evidence-retention
+defect to fix. See
+`benchmarks/results/2026-08-12-v28-random-five-summary.json`.

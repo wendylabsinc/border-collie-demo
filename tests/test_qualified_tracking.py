@@ -120,7 +120,7 @@ def apple_observation(
 ) -> dict[str, object]:
     return {
         "camera_healthy": True,
-        "target_ready": confidence >= 0.70,
+        "target_ready": confidence >= 0.50,
         "generation": generation,
         "source": {
             "pts": source_pts,
@@ -162,7 +162,31 @@ def apple_handoff(**changes: object) -> SearchQualificationHandoff:
     return SearchQualificationHandoff(**values)
 
 
-def test_search_handoff_replays_real_apple_confidence_drop_without_lowering_acquisition() -> None:
+def test_apple_uses_a_consistent_fifty_percent_confidence_floor() -> None:
+    target = apple_tracker()
+
+    assert target.config.acquisition_confidence == 0.50
+    assert target.config.tracking_confidence == 0.50
+
+
+def test_apple_can_continue_at_the_same_confidence_that_acquired_it() -> None:
+    target = apple_tracker()
+
+    decisions = [
+        target.observe(
+            apple_observation(confidence=0.50, source_pts=source_pts),
+            now_s=now_s,
+        )
+        for source_pts, now_s in ((100, 0.10), (101, 0.20), (102, 0.30), (103, 0.40))
+    ]
+
+    assert decisions[-1].recommendation is MotionRecommendation.APPROACH
+    assert decisions[-1].reason == "qualified_track"
+    assert decisions[-1].evidence["track_acquired"] is True
+    assert decisions[-1].evidence["minimum_observed_tracking_confidence"] == 0.50
+
+
+def test_search_handoff_replays_real_apple_confidence_drop_after_acquisition() -> None:
     target = apple_tracker(apple_handoff())
 
     decisions = [
@@ -177,7 +201,7 @@ def test_search_handoff_replays_real_apple_confidence_drop_without_lowering_acqu
         )
     ]
 
-    assert target.config.acquisition_confidence == 0.70
+    assert target.config.acquisition_confidence == 0.50
     assert [decision.recommendation for decision in decisions] == [
         MotionRecommendation.ALIGN,
         MotionRecommendation.ALIGN,
@@ -232,7 +256,7 @@ def test_search_handoff_setup_allowance_never_weakens_current_frame_freshness() 
         ({"generation": "camera-2"}, {}, 10.01, "generation_mismatch"),
         ({"source_time_base": "1/1000"}, {}, 10.01, "time_base_mismatch"),
         ({}, {"source_pts": 99}, 10.01, "source_regressed"),
-        ({"center_x_ratio": 0.20}, {"center_x": 0.70}, 10.01, "geometry_discontinuous"),
+        ({"center_x_ratio": 0.20}, {"center_x": 0.60}, 10.01, "geometry_discontinuous"),
         ({}, {"center_x": 0.80}, 10.01, "geometry_off_axis"),
         ({}, {"confidence": 0.09}, 10.01, "tracking_confidence_low"),
     ],
@@ -252,8 +276,12 @@ def test_invalid_search_handoff_falls_back_to_ordinary_acquisition(
 
     decision = target.observe(apple_observation(**status_options), now_s=now_s)
 
-    assert decision.recommendation is MotionRecommendation.SEARCH
-    assert decision.reason == "target_unqualified"
+    if status_options["confidence"] < 0.50:
+        assert decision.recommendation is MotionRecommendation.SEARCH
+        assert decision.reason == "target_unqualified"
+    else:
+        assert decision.recommendation is MotionRecommendation.ALIGN
+        assert decision.reason == "confirming_target_identity"
     assert decision.evidence["search_handoff_accepted"] is False
     assert decision.evidence["search_handoff_rejection_reason"] == rejection_reason
     assert decision.forward_scale == 0.0
@@ -266,7 +294,8 @@ def test_search_handoff_rejects_missing_current_geometry() -> None:
 
     decision = target.observe(status, now_s=10.01)
 
-    assert decision.recommendation is MotionRecommendation.SEARCH
+    assert decision.recommendation is MotionRecommendation.ALIGN
+    assert decision.reason == "confirming_target_identity"
     assert decision.evidence["search_handoff_rejection_reason"] == "geometry_invalid"
 
 
@@ -922,7 +951,7 @@ def test_unsafe_duplicate_frame_stops_instead_of_holding() -> None:
     assert generation_mismatch.forward_scale == 0.0
 
 
-def test_single_center_jump_holds_prior_authority_until_confirmed() -> None:
+def test_single_center_jump_outside_corridor_removes_forward_authority() -> None:
     target = tracker()
     acquire(target)
 
@@ -931,12 +960,13 @@ def test_single_center_jump_holds_prior_authority_until_confirmed() -> None:
         now_s=0.4,
     )
 
-    assert discontinuous.recommendation is MotionRecommendation.HOLD
-    assert discontinuous.reason == "confirming_center_jump"
-    assert discontinuous.evidence["pending_center_jump_samples"] == 1
+    assert discontinuous.recommendation is MotionRecommendation.STOP
+    assert discontinuous.reason == "confirming_center_corridor_exit"
+    assert discontinuous.forward_scale == 0.0
+    assert discontinuous.evidence["stationary_recenter_samples"] == 0
 
 
-def test_two_distinct_center_jumps_stop_and_reset_the_track() -> None:
+def test_two_distinct_outside_corridor_samples_begin_slow_recenter() -> None:
     target = tracker()
     pts = acquire(target)
 
@@ -949,11 +979,11 @@ def test_two_distinct_center_jumps_stop_and_reset_the_track() -> None:
         now_s=0.5,
     )
 
-    assert first.recommendation is MotionRecommendation.HOLD
-    assert confirmed.recommendation is MotionRecommendation.STOP
-    assert confirmed.reason == "track_discontinuous"
-    assert confirmed.evidence["discontinuity_stops"] == 1
-    assert confirmed.evidence["track_acquired"] is False
+    assert first.recommendation is MotionRecommendation.STOP
+    assert confirmed.recommendation is MotionRecommendation.ALIGN
+    assert confirmed.reason == "center_corridor_recenter"
+    assert confirmed.evidence["discontinuity_stops"] == 0
+    assert confirmed.evidence["track_acquired"] is True
 
 
 def test_sight_lost_close_arrival_is_bounded_by_time_and_geometry() -> None:
@@ -1173,7 +1203,54 @@ def test_large_reacquisition_error_requires_stationary_recenter() -> None:
         MotionRecommendation.STOP,
         MotionRecommendation.ALIGN,
     ]
-    assert decisions[-1].reason == "large_tracking_error"
+    assert decisions[-1].reason == "center_corridor_recenter"
     assert decisions[-1].forward_scale == 0.0
     assert decisions[-1].evidence["stationary_recenter_samples"] == 1
-    assert decisions[-1].evidence["stationary_recenter_error_ratio"] == 0.40
+    assert decisions[-1].evidence["stationary_recenter_error_ratio"] == 0.20
+
+
+def test_leaving_middle_forty_percent_pauses_then_recenters_before_forward() -> None:
+    target = tracker()
+    pts = acquire(target)
+
+    outside = target.observe(
+        observation(
+            center_x=0.72,
+            center_y=0.50,
+            bottom=0.65,
+            area=0.04,
+            source_pts=pts,
+        ),
+        now_s=0.4,
+    )
+    confirmed = target.observe(
+        observation(
+            center_x=0.74,
+            center_y=0.51,
+            bottom=0.66,
+            area=0.05,
+            source_pts=pts + 1,
+        ),
+        now_s=0.5,
+    )
+    centered = target.observe(
+        observation(
+            center_x=0.68,
+            center_y=0.52,
+            bottom=0.67,
+            area=0.06,
+            source_pts=pts + 2,
+        ),
+        now_s=0.6,
+    )
+
+    assert outside.recommendation is MotionRecommendation.STOP
+    assert outside.reason == "confirming_center_corridor_exit"
+    assert outside.forward_scale == 0.0
+    assert confirmed.recommendation is MotionRecommendation.ALIGN
+    assert confirmed.reason == "center_corridor_recenter"
+    assert confirmed.forward_scale == 0.0
+    assert confirmed.horizontal_error > 0.0
+    assert centered.recommendation is MotionRecommendation.APPROACH
+    assert centered.forward_scale == 1.0
+    assert centered.evidence["stationary_recenter_error_ratio"] == 0.20

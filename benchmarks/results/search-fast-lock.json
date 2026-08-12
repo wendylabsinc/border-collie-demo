@@ -1,0 +1,4802 @@
+{
+  "schema_version": 4,
+  "session": "fruit-soak-2026-08-11T191830Z",
+  "build_label": "stage-camera-v21-search-policy-abc (codex/stage-camera-v21-search-policy-abc)",
+  "search_policy": "fast-lock",
+  "default_search_policy": "slow-sweep",
+  "note": null,
+  "qualified_fruits": [
+    "apple",
+    "banana",
+    "pear"
+  ],
+  "target_runs": 10,
+  "seed": 2026081104,
+  "fruit_sequence": [
+    "banana",
+    "pear",
+    "banana",
+    "apple",
+    "apple",
+    "pear",
+    "banana",
+    "apple",
+    "pear",
+    "apple"
+  ],
+  "orientation_randomized": false,
+  "orientation_sequence_degrees": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "failure_recovery_enabled": true,
+  "temperature_source": "wendy device top (woof.local:50052)",
+  "runs": [
+    {
+      "number": 1,
+      "target_fruit": "banana",
+      "orientation_degrees": 0.0,
+      "run_id": "7098b433-23db-4c2d-9811-59dd8d2019c5",
+      "started_at_utc": "2026-08-11T19:18:30.453798Z",
+      "ended_at_utc": "2026-08-11T19:19:05.047786Z",
+      "duration_s": 34.59397041600005,
+      "outcome": "FAILED",
+      "reason": "RETURN_HOME_FAILURE",
+      "message": "return Home stalled 0.323 m from its active waypoint",
+      "failed_phase": "return_home",
+      "final_safety_state": "DISARMED_CONFIRMED",
+      "home_distance_m": 1.8595370140991507,
+      "heading_error_rad": null,
+      "run_key_values": null,
+      "stage_results": {
+        "orient_for_run": {
+          "requested_angle_degrees": 0.0,
+          "requested_angle_rad": 0.0,
+          "measured_yaw_change_rad": 0.0,
+          "orientation_skipped": true,
+          "motion_commands_sent": false,
+          "motion_commands": []
+        },
+        "turn_to_fruit": {
+          "motion_path": "sport_client",
+          "label": "banana",
+          "confidence": 0.8122231960296631,
+          "stable_detections": 3,
+          "search_progress_rad": 0.6518305540084839,
+          "recognition": {
+            "samples": 17,
+            "pear_candidate_samples": 6,
+            "maximum_confidence": 0.8534706234931946,
+            "maximum_consecutive_detections": 3,
+            "maximum_bbox_area_ratio": 0.0012782118055555557,
+            "closest_detection": {
+              "source_pts": 36840,
+              "confidence": 0.6364784836769104,
+              "bbox_xyxy": [
+                372.0,
+                468.0,
+                434.0,
+                487.0
+              ],
+              "bbox_area_ratio": 0.0012782118055555557
+            },
+            "search_policy": "fast-lock",
+            "search_lock_minimum_detections": 3,
+            "candidate_lock_count": 1,
+            "candidate_lock_confidence_threshold": 0.5,
+            "candidate_lock_hold_s": 0.75,
+            "candidate_lock_maximum_age_s": 0.25,
+            "candidate_lock_yaw_rps": 0.5,
+            "crop_slowdown_hold_samples": 7,
+            "crop_slowdown_turn_samples": 2,
+            "search_progress_rad": 0.6518305540084839,
+            "search_lock_reason": "search_lock_qualified"
+          },
+          "motion_commands_sent": true,
+          "generation": "0c115abc63c849a6b0382cd157a4b24d",
+          "source_pts": 38220,
+          "source_time_base": "1/90000",
+          "qualified_monotonic_s": 4154.03363289,
+          "center_x_ratio": 0.7375,
+          "center_y_ratio": 0.6555555555555556,
+          "bottom_ratio": 0.6680555555555555,
+          "bbox_area_ratio": 0.0011328125,
+          "search_qualification": {
+            "search_qualified": true,
+            "target_fruit": "banana",
+            "generation": "0c115abc63c849a6b0382cd157a4b24d",
+            "source_pts": 38220,
+            "source_time_base": "1/90000",
+            "qualified_monotonic_s": 4154.03363289,
+            "stable_detections": 3,
+            "confidence": 0.8122231960296631,
+            "center_x_ratio": 0.7375,
+            "center_y_ratio": 0.6555555555555556,
+            "bottom_ratio": 0.6680555555555555,
+            "bbox_area_ratio": 0.0011328125
+          },
+          "search_policy": "fast-lock",
+          "motion_commands": [
+            {
+              "sequence": 1,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 4152.192462086,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 2,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 4152.329255362,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 3,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 4152.446467984,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 4,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 4152.557884426,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 5,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 4152.668149241,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 6,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 4152.783274874,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 7,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 4152.898037486,
+              "forward_mps": 0.0,
+              "yaw_rps": 1.0,
+              "reason": "find_target"
+            },
+            {
+              "sequence": 8,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 4153.013161583,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "crop_confirm_hold"
+            },
+            {
+              "sequence": 9,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 4153.12851692,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "crop_confirm_hold"
+            },
+            {
+              "sequence": 10,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 4153.243817728,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "crop_confirm_hold"
+            },
+            {
+              "sequence": 11,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 4153.354083055,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "crop_confirm_hold"
+            },
+            {
+              "sequence": 12,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 4153.47045363,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "crop_confirm_hold"
+            },
+            {
+              "sequence": 13,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 4153.586267864,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "crop_confirm_hold"
+            },
+            {
+              "sequence": 14,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 4153.697867416,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "crop_confirm_hold"
+            },
+            {
+              "sequence": 15,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 4153.813836279,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "crop_confirm_slow_turn"
+            },
+            {
+              "sequence": 16,
+              "phase": "turn_to_fruit",
+              "recorded_monotonic_s": 4153.926820298,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "crop_confirm_slow_turn"
+            }
+          ]
+        },
+        "find_fruit": {
+          "motion_path": "sport_client",
+          "label": "banana",
+          "confidence": 0.8122231960296631,
+          "stable_detections": 3,
+          "search_progress_rad": 0.0,
+          "recognition": {
+            "samples": 1,
+            "pear_candidate_samples": 1,
+            "maximum_confidence": 0.8122231960296631,
+            "maximum_consecutive_detections": 3,
+            "maximum_bbox_area_ratio": 0.0011328125,
+            "closest_detection": {
+              "source_pts": 38220,
+              "confidence": 0.8122231960296631,
+              "bbox_xyxy": [
+                915.0,
+                463.0,
+                973.0,
+                481.0
+              ],
+              "bbox_area_ratio": 0.0011328125
+            },
+            "search_policy": "fast-lock",
+            "search_lock_minimum_detections": 3,
+            "search_progress_rad": 0.0,
+            "search_lock_reason": "search_lock_qualified"
+          },
+          "motion_commands_sent": false,
+          "generation": "0c115abc63c849a6b0382cd157a4b24d",
+          "source_pts": 38220,
+          "source_time_base": "1/90000",
+          "qualified_monotonic_s": 4154.086270501,
+          "center_x_ratio": 0.7375,
+          "center_y_ratio": 0.6555555555555556,
+          "bottom_ratio": 0.6680555555555555,
+          "bbox_area_ratio": 0.0011328125,
+          "search_qualification": {
+            "search_qualified": true,
+            "target_fruit": "banana",
+            "generation": "0c115abc63c849a6b0382cd157a4b24d",
+            "source_pts": 38220,
+            "source_time_base": "1/90000",
+            "qualified_monotonic_s": 4154.086270501,
+            "stable_detections": 3,
+            "confidence": 0.8122231960296631,
+            "center_x_ratio": 0.7375,
+            "center_y_ratio": 0.6555555555555556,
+            "bottom_ratio": 0.6680555555555555,
+            "bbox_area_ratio": 0.0011328125
+          },
+          "search_policy": "fast-lock",
+          "motion_commands": []
+        },
+        "approach_fruit": {
+          "tracking_recommendation": "arrival",
+          "tracking_reason": "qualified_final_approach_loss",
+          "track_acquired": true,
+          "initial_centered": true,
+          "approach_authorized": true,
+          "stationary_recenter_samples": 0,
+          "stationary_recenter_error_ratio": 0.4,
+          "stationary_recenter_confirmations": 2,
+          "filtered_center_x_ratio": 0.575766471788864,
+          "moving_steering_active": false,
+          "moving_steering_enter_ratio": 0.25,
+          "moving_steering_exit_ratio": 0.12,
+          "moving_steering_outside_samples": 0,
+          "pending_center_jump_samples": 0,
+          "acquisition_samples": 3,
+          "qualified_samples": 42,
+          "close_range_samples": 22,
+          "close_handoff_centered_samples": 30,
+          "close_handoff_center_ratio": 0.08,
+          "close_handoff_center_confirmations": 3,
+          "close_recenter_active": false,
+          "close_recenter_samples": 0,
+          "close_recenter_enter_ratio": 0.12,
+          "close_recenter_confirmations": 2,
+          "close_steering_active": false,
+          "close_steering_samples": 0,
+          "close_steering_enter_ratio": 0.12,
+          "close_steering_exit_ratio": 0.08,
+          "search_handoff_maximum_age_s": 1.0,
+          "near_samples": 3,
+          "weak_samples": 0,
+          "stale_samples": 0,
+          "duplicate_samples": 12,
+          "identity_resets": 0,
+          "discontinuity_stops": 0,
+          "bbox_growth_samples": 27,
+          "minimum_observed_tracking_confidence": 0.5801466703414917,
+          "maximum_bottom_ratio": 0.9569444444444445,
+          "maximum_bbox_area_ratio": 0.009140625,
+          "arrival_mode": "final_approach_loss_confirmed",
+          "final_approach_latched": true,
+          "final_approach_latched_at_s": 4161.825776365,
+          "final_approach_generation": "0c115abc63c849a6b0382cd157a4b24d",
+          "final_approach_loss_samples": 2,
+          "final_approach_loss_confirmations": 2,
+          "final_approach_cancelled_reason": null,
+          "acquisition_confidence": 0.2,
+          "close_range_tracking_confidence": 0.2,
+          "detection_maximum_age_s": 0.25,
+          "search_handoff_accepted": false,
+          "search_handoff_rejection_reason": "geometry_off_axis",
+          "metric_arrival_control_mode": "camera_tracking",
+          "lidar_handoff_latched": false,
+          "lidar_handoff_trigger_reason": null,
+          "lidar_handoff_elapsed_s": null,
+          "arrival_confirmed": true,
+          "visual_final_approach_mode": "final_approach_loss_confirmed",
+          "near_confirmations": 3,
+          "close_range_mps": 0.55,
+          "final_push_mps": 0.6,
+          "final_push_duration_s": 1.0,
+          "final_push_count": 1,
+          "initial_center_confirmations": 3,
+          "initial_center_tolerance_ratio": 0.05,
+          "initial_center_yaw_rps": 0.5,
+          "moving_yaw_deadband_ratio": 0.25,
+          "moving_yaw_gain": 1.5,
+          "moving_yaw_maximum_rps": 0.5,
+          "moving_yaw_slew_rps_per_s": 2.0,
+          "forward_pulse_count": 43,
+          "forward_pulse_period_s": 0.1,
+          "motion_commands_sent": true,
+          "tracking_minimum_confidence": 0.2,
+          "close_range_continuation_samples": 22,
+          "motion_commands": [
+            {
+              "sequence": 1,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4154.64590099,
+              "forward_mps": 0.0,
+              "yaw_rps": -0.5,
+              "reason": "center_target_before_approach"
+            },
+            {
+              "sequence": 2,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4154.760221985,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "qualified_track_detection_missing"
+            },
+            {
+              "sequence": 3,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4154.876296613,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "qualified_track_detection_missing"
+            },
+            {
+              "sequence": 4,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4154.995630464,
+              "forward_mps": 0.0,
+              "yaw_rps": -0.5,
+              "reason": "center_target_before_approach"
+            },
+            {
+              "sequence": 5,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4155.108148321,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "qualified_track_detection_missing"
+            },
+            {
+              "sequence": 6,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4155.2225842,
+              "forward_mps": 0.0,
+              "yaw_rps": -0.5,
+              "reason": "center_target_before_approach"
+            },
+            {
+              "sequence": 7,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4155.339867352,
+              "forward_mps": 0.0,
+              "yaw_rps": -0.5,
+              "reason": "center_target_before_approach"
+            },
+            {
+              "sequence": 8,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4155.456395308,
+              "forward_mps": 0.0,
+              "yaw_rps": -0.5,
+              "reason": "center_target_before_approach"
+            },
+            {
+              "sequence": 9,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4155.568950062,
+              "forward_mps": 0.0,
+              "yaw_rps": -0.5,
+              "reason": "center_target_before_approach"
+            },
+            {
+              "sequence": 10,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4155.683099658,
+              "forward_mps": 0.0,
+              "yaw_rps": -0.5,
+              "reason": "center_target_before_approach"
+            },
+            {
+              "sequence": 11,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4155.797906879,
+              "forward_mps": 0.0,
+              "yaw_rps": -0.5,
+              "reason": "center_target_before_approach"
+            },
+            {
+              "sequence": 12,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4155.91692219,
+              "forward_mps": 0.0,
+              "yaw_rps": -0.5,
+              "reason": "center_target_before_approach"
+            },
+            {
+              "sequence": 13,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4156.033521508,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "qualified_track_detection_missing"
+            },
+            {
+              "sequence": 14,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4156.14896568,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "qualified_track_detection_missing"
+            },
+            {
+              "sequence": 15,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4156.271792267,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "qualified_track_detection_missing"
+            },
+            {
+              "sequence": 16,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4156.388068981,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "qualified_track_detection_missing"
+            },
+            {
+              "sequence": 17,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4156.50477224,
+              "forward_mps": 0.0,
+              "yaw_rps": -0.5,
+              "reason": "center_target_before_approach"
+            },
+            {
+              "sequence": 18,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4156.621070939,
+              "forward_mps": 0.0,
+              "yaw_rps": -0.5,
+              "reason": "center_target_before_approach"
+            },
+            {
+              "sequence": 19,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4156.739813983,
+              "forward_mps": 0.0,
+              "yaw_rps": -0.5,
+              "reason": "center_target_before_approach"
+            },
+            {
+              "sequence": 20,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4156.857781832,
+              "forward_mps": 0.0,
+              "yaw_rps": -0.5,
+              "reason": "center_target_before_approach"
+            },
+            {
+              "sequence": 21,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4156.973551231,
+              "forward_mps": 0.0,
+              "yaw_rps": -0.5,
+              "reason": "center_target_before_approach"
+            },
+            {
+              "sequence": 22,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4157.088986251,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "qualified_track_detection_missing"
+            },
+            {
+              "sequence": 23,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4157.203811455,
+              "forward_mps": 0.0,
+              "yaw_rps": -0.5,
+              "reason": "center_target_before_approach"
+            },
+            {
+              "sequence": 24,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4157.320498905,
+              "forward_mps": 0.0,
+              "yaw_rps": -0.5,
+              "reason": "center_target_before_approach"
+            },
+            {
+              "sequence": 25,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4157.43315779,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "center_target_before_approach"
+            },
+            {
+              "sequence": 26,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4157.548973975,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "center_target_before_approach"
+            },
+            {
+              "sequence": 27,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4157.668571835,
+              "forward_mps": 0.55,
+              "yaw_rps": 0.0,
+              "reason": "approach_target_slow"
+            },
+            {
+              "sequence": 28,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4157.786489665,
+              "forward_mps": 0.55,
+              "yaw_rps": 0.0,
+              "reason": "approach_target_slow"
+            },
+            {
+              "sequence": 29,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4157.978351488,
+              "forward_mps": 0.55,
+              "yaw_rps": 0.0,
+              "reason": "approach_target_slow"
+            },
+            {
+              "sequence": 30,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4158.096996065,
+              "forward_mps": 0.55,
+              "yaw_rps": 0.0,
+              "reason": "approach_target_slow"
+            },
+            {
+              "sequence": 31,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4158.213353742,
+              "forward_mps": 0.55,
+              "yaw_rps": 0.0,
+              "reason": "approach_target_slow"
+            },
+            {
+              "sequence": 32,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4158.330381491,
+              "forward_mps": 0.55,
+              "yaw_rps": 0.0,
+              "reason": "approach_target_slow"
+            },
+            {
+              "sequence": 33,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4158.443380261,
+              "forward_mps": 0.55,
+              "yaw_rps": 0.0,
+              "reason": "approach_target_slow"
+            },
+            {
+              "sequence": 34,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4158.559181373,
+              "forward_mps": 0.55,
+              "yaw_rps": 0.0,
+              "reason": "approach_target_slow"
+            },
+            {
+              "sequence": 35,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4158.673113777,
+              "forward_mps": 0.55,
+              "yaw_rps": 0.0,
+              "reason": "approach_target_slow"
+            },
+            {
+              "sequence": 36,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4158.79493847,
+              "forward_mps": 0.55,
+              "yaw_rps": 0.0,
+              "reason": "approach_target_slow"
+            },
+            {
+              "sequence": 37,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4158.910808353,
+              "forward_mps": 0.55,
+              "yaw_rps": 0.0,
+              "reason": "approach_target_slow"
+            },
+            {
+              "sequence": 38,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4159.029761388,
+              "forward_mps": 0.55,
+              "yaw_rps": 0.0,
+              "reason": "approach_target_slow"
+            },
+            {
+              "sequence": 39,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4159.146407043,
+              "forward_mps": 0.55,
+              "yaw_rps": 0.0,
+              "reason": "approach_target_slow"
+            },
+            {
+              "sequence": 40,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4159.265748765,
+              "forward_mps": 0.55,
+              "yaw_rps": 0.0,
+              "reason": "approach_target_slow"
+            },
+            {
+              "sequence": 41,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4159.381987238,
+              "forward_mps": 0.55,
+              "yaw_rps": 0.0,
+              "reason": "approach_target_slow"
+            },
+            {
+              "sequence": 42,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4159.497821407,
+              "forward_mps": 0.55,
+              "yaw_rps": 0.0,
+              "reason": "approach_target_slow"
+            },
+            {
+              "sequence": 43,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4159.610352927,
+              "forward_mps": 0.55,
+              "yaw_rps": 0.0,
+              "reason": "approach_target_slow"
+            },
+            {
+              "sequence": 44,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4159.728566927,
+              "forward_mps": 0.55,
+              "yaw_rps": 0.0,
+              "reason": "approach_target_slow"
+            },
+            {
+              "sequence": 45,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4159.846018436,
+              "forward_mps": 0.55,
+              "yaw_rps": 0.0,
+              "reason": "approach_target_slow"
+            },
+            {
+              "sequence": 46,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4159.962936517,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "qualified_track_detection_missing"
+            },
+            {
+              "sequence": 47,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4160.079807332,
+              "forward_mps": 0.55,
+              "yaw_rps": 0.0,
+              "reason": "approach_target_slow"
+            },
+            {
+              "sequence": 48,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4160.196719908,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "qualified_track_detection_missing"
+            },
+            {
+              "sequence": 49,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4160.31509369,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "qualified_track_detection_missing"
+            },
+            {
+              "sequence": 50,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4160.432838585,
+              "forward_mps": 0.55,
+              "yaw_rps": 0.0,
+              "reason": "approach_target_slow"
+            },
+            {
+              "sequence": 51,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4160.54849902,
+              "forward_mps": 0.55,
+              "yaw_rps": 0.0,
+              "reason": "approach_target_slow"
+            },
+            {
+              "sequence": 52,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4160.660566363,
+              "forward_mps": 0.55,
+              "yaw_rps": 0.0,
+              "reason": "approach_target_slow"
+            },
+            {
+              "sequence": 53,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4160.777465211,
+              "forward_mps": 0.55,
+              "yaw_rps": 0.0,
+              "reason": "approach_target_slow"
+            },
+            {
+              "sequence": 54,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4160.893156718,
+              "forward_mps": 0.55,
+              "yaw_rps": 0.0,
+              "reason": "approach_target_slow"
+            },
+            {
+              "sequence": 55,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4161.009881959,
+              "forward_mps": 0.55,
+              "yaw_rps": 0.0,
+              "reason": "approach_target_slow"
+            },
+            {
+              "sequence": 56,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4161.127940018,
+              "forward_mps": 0.55,
+              "yaw_rps": 0.0,
+              "reason": "approach_target_slow"
+            },
+            {
+              "sequence": 57,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4161.256669219,
+              "forward_mps": 0.55,
+              "yaw_rps": 0.0,
+              "reason": "approach_target_slow"
+            },
+            {
+              "sequence": 58,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4161.37343363,
+              "forward_mps": 0.55,
+              "yaw_rps": 0.0,
+              "reason": "approach_target_slow"
+            },
+            {
+              "sequence": 59,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4161.492291846,
+              "forward_mps": 0.55,
+              "yaw_rps": 0.0,
+              "reason": "approach_target_slow"
+            },
+            {
+              "sequence": 60,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4161.608428266,
+              "forward_mps": 0.55,
+              "yaw_rps": 0.0,
+              "reason": "approach_target_slow"
+            },
+            {
+              "sequence": 61,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4161.722196598,
+              "forward_mps": 0.55,
+              "yaw_rps": 0.0,
+              "reason": "approach_target_slow"
+            },
+            {
+              "sequence": 62,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4161.839553767,
+              "forward_mps": 0.55,
+              "yaw_rps": -0.08351985894431996,
+              "reason": "visual_close_until_sight_loss"
+            },
+            {
+              "sequence": 63,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4161.955177623,
+              "forward_mps": 0.55,
+              "yaw_rps": -0.11364970768329596,
+              "reason": "visual_close_until_sight_loss"
+            },
+            {
+              "sequence": 64,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4162.065002643,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "qualified_track_confirming_final_approach_loss"
+            },
+            {
+              "sequence": 65,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4162.17458775,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "qualified_track_final_approach_frame_not_advancing"
+            },
+            {
+              "sequence": 66,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4162.298385731,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "qualified_track_final_approach_frame_not_advancing"
+            },
+            {
+              "sequence": 67,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4162.418264304,
+              "forward_mps": 0.6,
+              "yaw_rps": 0.0,
+              "reason": "camera_final_push"
+            },
+            {
+              "sequence": 68,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4162.534516567,
+              "forward_mps": 0.6,
+              "yaw_rps": 0.0,
+              "reason": "camera_final_push"
+            },
+            {
+              "sequence": 69,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4162.649757274,
+              "forward_mps": 0.6,
+              "yaw_rps": 0.0,
+              "reason": "camera_final_push"
+            },
+            {
+              "sequence": 70,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4162.766870401,
+              "forward_mps": 0.6,
+              "yaw_rps": 0.0,
+              "reason": "camera_final_push"
+            },
+            {
+              "sequence": 71,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4162.882564244,
+              "forward_mps": 0.6,
+              "yaw_rps": 0.0,
+              "reason": "camera_final_push"
+            },
+            {
+              "sequence": 72,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4162.999129159,
+              "forward_mps": 0.6,
+              "yaw_rps": 0.0,
+              "reason": "camera_final_push"
+            },
+            {
+              "sequence": 73,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4163.117222898,
+              "forward_mps": 0.6,
+              "yaw_rps": 0.0,
+              "reason": "camera_final_push"
+            },
+            {
+              "sequence": 74,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4163.235716459,
+              "forward_mps": 0.6,
+              "yaw_rps": 0.0,
+              "reason": "camera_final_push"
+            },
+            {
+              "sequence": 75,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4163.352406083,
+              "forward_mps": 0.6,
+              "yaw_rps": 0.0,
+              "reason": "camera_final_push"
+            },
+            {
+              "sequence": 76,
+              "phase": "approach_fruit",
+              "recorded_monotonic_s": 4163.411850375,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.0,
+              "reason": "qualified_arrival_stop"
+            }
+          ]
+        },
+        "sit_and_bark": {
+          "posture": "stand_down",
+          "motion_commands_sent": true,
+          "bark_played": true,
+          "bark_uuid": "161387de-21ab-4f0b-b4e9-97124b000d06",
+          "arrival_stop_confirmed": true,
+          "arrival_stop_settle_s": 1.0,
+          "down_hold_s": 5.0,
+          "motion_commands": []
+        },
+        "stand": {
+          "posture": "balance_stand",
+          "motion_commands_sent": true,
+          "settle_s": 1.0,
+          "motion_commands": []
+        },
+        "turn_toward_home": {
+          "motion_path": "sport_client",
+          "requested_angle_rad": 2.9779643626609698,
+          "measured_yaw_change_rad": 2.9097824732409876,
+          "yaw_rps": 0.5,
+          "elapsed_s": 9.549,
+          "stopped": true,
+          "motion_commands_sent": true,
+          "home_distance_m": 1.8595370140991507,
+          "home_bearing_error_rad": 2.9779643626609698,
+          "turn_recovery_count": 0,
+          "home_localization": {
+            "state": "trusted",
+            "trusted": true,
+            "source": "planar_sensor_fusion",
+            "unavailable_reason": null,
+            "home_distance_m": 1.8595370140991507,
+            "filtered_home_distance_m": 1.8595370140991507,
+            "heading_error_rad": -0.4695624425919798,
+            "pose_from_home": {
+              "x_m": 1.7731913041051832,
+              "y_m": 0.5600629481143565,
+              "yaw_rad": 0.4695624425919798
+            },
+            "evidence": {
+              "odometry": {
+                "age_s": 0.0010275260001435527,
+                "pose_from_home": {
+                  "x_m": 1.7720607934288126,
+                  "y_m": 0.5592137270250025,
+                  "yaw_rad": 0.46869027614593506
+                }
+              },
+              "fusion": {
+                "state": "duplicate",
+                "dt_s": 0.0,
+                "covariance": {
+                  "x_variance_m2": 0.0007219549818214786,
+                  "y_variance_m2": 0.0007219549818214786,
+                  "heading_variance_rad2": 0.0014421614069997063,
+                  "velocity_x_variance_m2ps2": 0.00021522413330298966,
+                  "velocity_y_variance_m2ps2": 0.00021522413330298966,
+                  "yaw_bias_variance_rps2": 1.3605241127364596e-05,
+                  "position_sigma_m": 0.02686921997046953,
+                  "heading_sigma_rad": 0.037975800281227864
+                },
+                "velocity_x_mps": 6.486442343511207e-07,
+                "velocity_y_mps": 3.890628360965462e-07,
+                "yaw_bias_rps": -0.008913752783465703,
+                "raw_home_distance_m": 1.8582032849235701,
+                "filtered_home_distance_m": 1.8595370140991507,
+                "metric_gate_policy": "max(raw_go2, filtered)"
+              }
+            }
+          },
+          "motion_commands": [
+            {
+              "sequence": 1,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4171.78175125,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 2,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4171.885965022,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 3,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4171.994030998,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 4,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4172.101016551,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 5,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4172.206157461,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 6,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4172.311794773,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 7,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4172.415935229,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 8,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4172.524114778,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 9,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4172.628523469,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 10,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4172.733279372,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 11,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4172.844783234,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 12,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4172.950731917,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 13,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4173.05598355,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 14,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4173.16185287,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 15,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4173.268506283,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 16,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4173.373531412,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 17,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4173.482012059,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 18,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4173.586775419,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 19,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4173.693750507,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 20,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4173.800603991,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 21,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4173.905411671,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 22,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4174.010077779,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 23,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4174.114880947,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 24,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4174.21962405,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 25,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4174.323889759,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 26,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4174.428587035,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 27,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4174.533650085,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 28,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4174.638264255,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 29,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4174.743829627,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 30,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4174.8507218,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 31,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4174.954662985,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 32,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4175.058540455,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 33,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4175.163648146,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 34,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4175.268956325,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 35,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4175.374482464,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 36,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4175.479063736,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 37,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4175.585101158,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 38,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4175.691768746,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 39,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4175.797527437,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 40,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4175.902397295,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 41,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4176.010183837,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 42,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4176.115369675,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 43,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4176.221789222,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 44,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4176.326203832,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 45,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4176.431749107,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 46,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4176.536967362,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 47,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4176.642058701,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 48,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4176.747130678,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 49,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4176.852321764,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 50,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4176.95941516,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 51,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4177.065835827,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 52,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4177.172499671,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 53,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4177.281032543,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 54,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4177.386772705,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 55,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4177.492538116,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 56,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4177.598374282,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 57,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4177.703380721,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 58,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4177.807940647,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 59,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4177.914776753,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 60,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4178.018572044,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 61,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4178.124916804,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 62,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4178.231075605,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 63,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4178.334805965,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 64,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4178.441982596,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 65,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4178.547306102,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 66,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4178.651797066,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 67,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4178.757992476,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 68,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4178.864719106,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 69,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4178.972122304,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 70,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4179.078313874,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 71,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4179.190155187,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 72,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4179.295940055,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 73,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4179.401326443,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 74,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4179.507939821,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 75,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4179.613232798,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 76,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4179.719616311,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 77,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4179.825151376,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 78,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4179.932200642,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 79,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4180.038897158,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 80,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4180.144411615,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 81,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4180.251194086,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 82,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4180.358701032,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 83,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4180.465274728,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 84,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4180.571832775,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 85,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4180.678322948,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 86,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4180.786924622,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 87,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4180.891835152,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 88,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4180.997031229,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 89,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4181.101867805,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            },
+            {
+              "sequence": 90,
+              "phase": "turn_toward_home",
+              "recorded_monotonic_s": 4181.207895497,
+              "forward_mps": 0.0,
+              "yaw_rps": 0.5,
+              "reason": "measured_turn"
+            }
+          ]
+        }
+      },
+      "failure_details": {
+        "motion_commands": [
+          {
+            "sequence": 1,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4181.906283732,
+            "forward_mps": 1.0,
+            "yaw_rps": 0.3,
+            "reason": "return_home"
+          },
+          {
+            "sequence": 2,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4182.020528876,
+            "forward_mps": 1.0,
+            "yaw_rps": 0.2869836405430777,
+            "reason": "return_home"
+          },
+          {
+            "sequence": 3,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4182.132976739,
+            "forward_mps": 1.0,
+            "yaw_rps": 0.2988599885790999,
+            "reason": "return_home"
+          },
+          {
+            "sequence": 4,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4182.244771745,
+            "forward_mps": 1.0,
+            "yaw_rps": 0.18431156783944136,
+            "reason": "return_home"
+          },
+          {
+            "sequence": 5,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4182.358615787,
+            "forward_mps": 1.0,
+            "yaw_rps": 0.14991855701564116,
+            "reason": "return_home"
+          },
+          {
+            "sequence": 6,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4182.47020205,
+            "forward_mps": 1.0,
+            "yaw_rps": 0.14588865605700563,
+            "reason": "return_home"
+          },
+          {
+            "sequence": 7,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4182.583974089,
+            "forward_mps": 1.0,
+            "yaw_rps": 0.11507820759074883,
+            "reason": "return_home"
+          },
+          {
+            "sequence": 8,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4182.694811396,
+            "forward_mps": 1.0,
+            "yaw_rps": 0.09571591016586634,
+            "reason": "return_home"
+          },
+          {
+            "sequence": 9,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4182.80780651,
+            "forward_mps": 1.0,
+            "yaw_rps": 0.10358643603856132,
+            "reason": "return_home"
+          },
+          {
+            "sequence": 10,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4182.920931773,
+            "forward_mps": 1.0,
+            "yaw_rps": 0.05329683602765267,
+            "reason": "return_home"
+          },
+          {
+            "sequence": 11,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4183.032735675,
+            "forward_mps": 1.0,
+            "yaw_rps": 0.13119288942294738,
+            "reason": "return_home"
+          },
+          {
+            "sequence": 12,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4183.144302545,
+            "forward_mps": 1.0,
+            "yaw_rps": 0.09438439183795533,
+            "reason": "return_home"
+          },
+          {
+            "sequence": 13,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4183.253156964,
+            "forward_mps": 1.0,
+            "yaw_rps": -0.02974379828552065,
+            "reason": "return_home"
+          },
+          {
+            "sequence": 14,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4183.41388413,
+            "forward_mps": 1.0,
+            "yaw_rps": -0.044034631537384746,
+            "reason": "return_home"
+          },
+          {
+            "sequence": 15,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4183.52600846,
+            "forward_mps": 1.0,
+            "yaw_rps": -0.08540801239821594,
+            "reason": "return_home"
+          },
+          {
+            "sequence": 16,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4183.641229512,
+            "forward_mps": 1.0,
+            "yaw_rps": -0.148549988633125,
+            "reason": "return_home"
+          },
+          {
+            "sequence": 17,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4183.752544564,
+            "forward_mps": 1.0,
+            "yaw_rps": -0.1695990050898867,
+            "reason": "return_home"
+          },
+          {
+            "sequence": 18,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4183.866667623,
+            "forward_mps": 1.0,
+            "yaw_rps": -0.2107861343430375,
+            "reason": "return_home"
+          },
+          {
+            "sequence": 19,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4183.981942117,
+            "forward_mps": 1.0,
+            "yaw_rps": -0.2863122144633681,
+            "reason": "return_home"
+          },
+          {
+            "sequence": 20,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4184.095803022,
+            "forward_mps": 1.0,
+            "yaw_rps": -0.2383816282628728,
+            "reason": "return_home"
+          },
+          {
+            "sequence": 21,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4184.206561638,
+            "forward_mps": 1.0,
+            "yaw_rps": -0.3,
+            "reason": "return_home"
+          },
+          {
+            "sequence": 22,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4184.322422777,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.3,
+            "reason": "return_course_correction"
+          },
+          {
+            "sequence": 23,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4184.436060442,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.3,
+            "reason": "return_course_correction"
+          },
+          {
+            "sequence": 24,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4184.546497159,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.3,
+            "reason": "return_course_correction"
+          },
+          {
+            "sequence": 25,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4184.659809372,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.3,
+            "reason": "return_course_correction"
+          },
+          {
+            "sequence": 26,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4184.771529239,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.3,
+            "reason": "return_course_correction"
+          },
+          {
+            "sequence": 27,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4184.883731267,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.3,
+            "reason": "return_course_correction"
+          },
+          {
+            "sequence": 28,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4184.999999077,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.3,
+            "reason": "return_course_correction"
+          },
+          {
+            "sequence": 29,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4185.11408287,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.3,
+            "reason": "return_course_correction"
+          },
+          {
+            "sequence": 30,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4185.224350076,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.3,
+            "reason": "return_course_correction"
+          },
+          {
+            "sequence": 31,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4185.338637333,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.3,
+            "reason": "return_course_correction"
+          },
+          {
+            "sequence": 32,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4185.450175337,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.3,
+            "reason": "return_course_correction"
+          },
+          {
+            "sequence": 33,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4185.561567768,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.3,
+            "reason": "return_course_correction"
+          },
+          {
+            "sequence": 34,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4185.677555535,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.3,
+            "reason": "return_course_correction"
+          },
+          {
+            "sequence": 35,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4185.789406286,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.3,
+            "reason": "return_course_correction"
+          },
+          {
+            "sequence": 36,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4185.901575033,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.3,
+            "reason": "return_course_correction"
+          },
+          {
+            "sequence": 37,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4186.014998898,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.3,
+            "reason": "return_course_correction"
+          },
+          {
+            "sequence": 38,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4186.125978354,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.3,
+            "reason": "return_course_correction"
+          },
+          {
+            "sequence": 39,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4186.238251041,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.3,
+            "reason": "return_course_correction"
+          },
+          {
+            "sequence": 40,
+            "phase": "return_home",
+            "recorded_monotonic_s": 4186.353661538,
+            "forward_mps": 0.0,
+            "yaw_rps": -0.3,
+            "reason": "return_course_correction"
+          }
+        ]
+      },
+      "stage_durations": {
+        "idle": 0.007,
+        "preflight": 0.037,
+        "capture_home": 0.03,
+        "wait_for_command": 0.016,
+        "orient_for_run": 0.023,
+        "turn_to_fruit": 1.906,
+        "find_fruit": 0.053,
+        "approach_fruit": 9.333,
+        "arrived": 0.019,
+        "sit_and_bark": 6.222,
+        "stand": 2.062,
+        "turn_toward_home": 9.613,
+        "return_home": 5.265
+      },
+      "lighting_frame": {
+        "path": "benchmarks/results/search-fast-lock-frames/run-01-start.jpg",
+        "bytes": 94961
+      },
+      "stage_telemetry": {
+        "turn_to_fruit": {
+          "target_confidence": {
+            "min": 0.779,
+            "mean": 0.779,
+            "max": 0.779,
+            "samples": 1
+          },
+          "bbox_bottom_ratio": {
+            "min": 0.6625,
+            "mean": 0.6625,
+            "max": 0.6625,
+            "samples": 1
+          },
+          "app_latency_ms": {
+            "min": 31.2,
+            "mean": 48.4,
+            "max": 65.6,
+            "samples": 2
+          },
+          "app_errors": 0,
+          "temps_c": {
+            "go2/imu": {
+              "min": 80.0,
+              "mean": 80.0,
+              "max": 80.0,
+              "samples": 1
+            },
+            "tj-thermal": {
+              "min": 55.75,
+              "mean": 55.75,
+              "max": 55.75,
+              "samples": 1
+            },
+            "soc1-thermal": {
+              "min": 55.718,
+              "mean": 55.718,
+              "max": 55.718,
+              "samples": 1
+            },
+            "cpu-thermal": {
+              "min": 55.343,
+              "mean": 55.343,
+              "max": 55.343,
+              "samples": 1
+            },
+            "soc0-thermal": {
+              "min": 54.343,
+              "mean": 54.343,
+              "max": 54.343,
+              "samples": 1
+            },
+            "cv0-thermal": {
+              "min": 53.156,
+              "mean": 53.156,
+              "max": 53.156,
+              "samples": 1
+            },
+            "gpu-thermal": {
+              "min": 53.093,
+              "mean": 53.093,
+              "max": 53.093,
+              "samples": 1
+            },
+            "cv1-thermal": {
+              "min": 52.875,
+              "mean": 52.875,
+              "max": 52.875,
+              "samples": 1
+            },
+            "soc2-thermal": {
+              "min": 52.718,
+              "mean": 52.718,
+              "max": 52.718,
+              "samples": 1
+            },
+            "cv2-thermal": {
+              "min": 52.437,
+              "mean": 52.437,
+              "max": 52.437,
+              "samples": 1
+            },
+            "go2/motor/rr-hip": {
+              "min": 44.0,
+              "mean": 44.0,
+              "max": 44.0,
+              "samples": 1
+            },
+            "go2/motor/fr-calf": {
+              "min": 43.0,
+              "mean": 43.0,
+              "max": 43.0,
+              "samples": 1
+            },
+            "go2/motor/rl-calf": {
+              "min": 43.0,
+              "mean": 43.0,
+              "max": 43.0,
+              "samples": 1
+            },
+            "go2/motor/rl-hip": {
+              "min": 41.0,
+              "mean": 41.0,
+              "max": 41.0,
+              "samples": 1
+            },
+            "go2/motor/fl-calf": {
+              "min": 38.0,
+              "mean": 38.0,
+              "max": 38.0,
+              "samples": 1
+            },
+            "go2/motor/rr-calf": {
+              "min": 38.0,
+              "mean": 38.0,
+              "max": 38.0,
+              "samples": 1
+            },
+            "go2/motor/fr-hip": {
+              "min": 37.0,
+              "mean": 37.0,
+              "max": 37.0,
+              "samples": 1
+            },
+            "go2/motor/fr-thigh": {
+              "min": 37.0,
+              "mean": 37.0,
+              "max": 37.0,
+              "samples": 1
+            },
+            "go2/motor/rl-thigh": {
+              "min": 37.0,
+              "mean": 37.0,
+              "max": 37.0,
+              "samples": 1
+            },
+            "go2/motor/fl-hip": {
+              "min": 36.0,
+              "mean": 36.0,
+              "max": 36.0,
+              "samples": 1
+            },
+            "go2/motor/fl-thigh": {
+              "min": 35.0,
+              "mean": 35.0,
+              "max": 35.0,
+              "samples": 1
+            },
+            "go2/motor/rr-thigh": {
+              "min": 35.0,
+              "mean": 35.0,
+              "max": 35.0,
+              "samples": 1
+            }
+          }
+        },
+        "approach_fruit": {
+          "target_confidence": {
+            "min": 0.6462,
+            "mean": 0.7414,
+            "max": 0.851,
+            "samples": 3
+          },
+          "bbox_bottom_ratio": {
+            "min": 0.6778,
+            "mean": 0.7287,
+            "max": 0.8111,
+            "samples": 3
+          },
+          "app_latency_ms": {
+            "min": 33.3,
+            "mean": 45.86,
+            "max": 59.5,
+            "samples": 5
+          },
+          "app_errors": 0,
+          "temps_c": {
+            "go2/imu": {
+              "min": 80.0,
+              "mean": 80.0,
+              "max": 80.0,
+              "samples": 5
+            },
+            "tj-thermal": {
+              "min": 55.75,
+              "mean": 55.75,
+              "max": 55.75,
+              "samples": 5
+            },
+            "soc1-thermal": {
+              "min": 55.718,
+              "mean": 55.718,
+              "max": 55.718,
+              "samples": 5
+            },
+            "cpu-thermal": {
+              "min": 55.343,
+              "mean": 55.343,
+              "max": 55.343,
+              "samples": 5
+            },
+            "soc0-thermal": {
+              "min": 54.343,
+              "mean": 54.343,
+              "max": 54.343,
+              "samples": 5
+            },
+            "cv0-thermal": {
+              "min": 53.156,
+              "mean": 53.156,
+              "max": 53.156,
+              "samples": 5
+            },
+            "gpu-thermal": {
+              "min": 53.093,
+              "mean": 53.093,
+              "max": 53.093,
+              "samples": 5
+            },
+            "cv1-thermal": {
+              "min": 52.875,
+              "mean": 52.875,
+              "max": 52.875,
+              "samples": 5
+            },
+            "soc2-thermal": {
+              "min": 52.718,
+              "mean": 52.718,
+              "max": 52.718,
+              "samples": 5
+            },
+            "cv2-thermal": {
+              "min": 52.437,
+              "mean": 52.437,
+              "max": 52.437,
+              "samples": 5
+            },
+            "go2/motor/rr-hip": {
+              "min": 44.0,
+              "mean": 44.0,
+              "max": 44.0,
+              "samples": 5
+            },
+            "go2/motor/fr-calf": {
+              "min": 43.0,
+              "mean": 43.0,
+              "max": 43.0,
+              "samples": 5
+            },
+            "go2/motor/rl-calf": {
+              "min": 43.0,
+              "mean": 43.0,
+              "max": 43.0,
+              "samples": 5
+            },
+            "go2/motor/rl-hip": {
+              "min": 41.0,
+              "mean": 41.0,
+              "max": 41.0,
+              "samples": 5
+            },
+            "go2/motor/fl-calf": {
+              "min": 38.0,
+              "mean": 38.0,
+              "max": 38.0,
+              "samples": 5
+            },
+            "go2/motor/rr-calf": {
+              "min": 38.0,
+              "mean": 38.0,
+              "max": 38.0,
+              "samples": 5
+            },
+            "go2/motor/fr-hip": {
+              "min": 37.0,
+              "mean": 37.0,
+              "max": 37.0,
+              "samples": 5
+            },
+            "go2/motor/fr-thigh": {
+              "min": 37.0,
+              "mean": 37.0,
+              "max": 37.0,
+              "samples": 5
+            },
+            "go2/motor/rl-thigh": {
+              "min": 37.0,
+              "mean": 37.0,
+              "max": 37.0,
+              "samples": 5
+            },
+            "go2/motor/fl-hip": {
+              "min": 36.0,
+              "mean": 36.0,
+              "max": 36.0,
+              "samples": 5
+            },
+            "go2/motor/fl-thigh": {
+              "min": 35.0,
+              "mean": 35.0,
+              "max": 35.0,
+              "samples": 5
+            },
+            "go2/motor/rr-thigh": {
+              "min": 35.0,
+              "mean": 35.0,
+              "max": 35.0,
+              "samples": 5
+            }
+          }
+        },
+        "sit_and_bark": {
+          "target_confidence": null,
+          "bbox_bottom_ratio": null,
+          "app_latency_ms": {
+            "min": 32.5,
+            "mean": 43.25,
+            "max": 47.6,
+            "samples": 4
+          },
+          "app_errors": 0,
+          "temps_c": {
+            "go2/imu": {
+              "min": 79.0,
+              "mean": 79.25,
+              "max": 80.0,
+              "samples": 4
+            },
+            "tj-thermal": {
+              "min": 55.75,
+              "mean": 55.9135,
+              "max": 55.968,
+              "samples": 4
+            },
+            "soc1-thermal": {
+              "min": 55.718,
+              "mean": 55.9055,
+              "max": 55.968,
+              "samples": 4
+            },
+            "cpu-thermal": {
+              "min": 55.343,
+              "mean": 55.343,
+              "max": 55.343,
+              "samples": 4
+            },
+            "soc0-thermal": {
+              "min": 54.343,
+              "mean": 54.6483,
+              "max": 54.75,
+              "samples": 4
+            },
+            "cv0-thermal": {
+              "min": 53.031,
+              "mean": 53.0622,
+              "max": 53.156,
+              "samples": 4
+            },
+            "gpu-thermal": {
+              "min": 53.093,
+              "mean": 53.843,
+              "max": 54.093,
+              "samples": 4
+            },
+            "cv1-thermal": {
+              "min": 52.875,
+              "mean": 53.0625,
+              "max": 53.125,
+              "samples": 4
+            },
+            "soc2-thermal": {
+              "min": 52.718,
+              "mean": 52.7653,
+              "max": 52.781,
+              "samples": 4
+            },
+            "cv2-thermal": {
+              "min": 52.437,
+              "mean": 52.6013,
+              "max": 52.656,
+              "samples": 4
+            },
+            "go2/motor/rr-hip": {
+              "min": 44.0,
+              "mean": 44.0,
+              "max": 44.0,
+              "samples": 4
+            },
+            "go2/motor/fr-calf": {
+              "min": 43.0,
+              "mean": 43.0,
+              "max": 43.0,
+              "samples": 4
+            },
+            "go2/motor/rl-calf": {
+              "min": 43.0,
+              "mean": 43.0,
+              "max": 43.0,
+              "samples": 4
+            },
+            "go2/motor/rl-hip": {
+              "min": 41.0,
+              "mean": 41.0,
+              "max": 41.0,
+              "samples": 4
+            },
+            "go2/motor/fl-calf": {
+              "min": 38.0,
+              "mean": 38.0,
+              "max": 38.0,
+              "samples": 4
+            },
+            "go2/motor/rr-calf": {
+              "min": 38.0,
+              "mean": 38.0,
+              "max": 38.0,
+              "samples": 4
+            },
+            "go2/motor/fr-hip": {
+              "min": 37.0,
+              "mean": 37.0,
+              "max": 37.0,
+              "samples": 4
+            },
+            "go2/motor/fr-thigh": {
+              "min": 37.0,
+              "mean": 37.0,
+              "max": 37.0,
+              "samples": 4
+            },
+            "go2/motor/rl-thigh": {
+              "min": 37.0,
+              "mean": 37.0,
+              "max": 37.0,
+              "samples": 4
+            },
+            "go2/motor/fl-hip": {
+              "min": 36.0,
+              "mean": 36.0,
+              "max": 36.0,
+              "samples": 4
+            },
+            "go2/motor/fl-thigh": {
+              "min": 35.0,
+              "mean": 35.0,
+              "max": 35.0,
+              "samples": 4
+            },
+            "go2/motor/rr-thigh": {
+              "min": 35.0,
+              "mean": 35.0,
+              "max": 35.0,
+              "samples": 4
+            }
+          }
+        },
+        "stand": {
+          "target_confidence": null,
+          "bbox_bottom_ratio": null,
+          "app_latency_ms": {
+            "min": 32.4,
+            "mean": 32.4,
+            "max": 32.4,
+            "samples": 1
+          },
+          "app_errors": 0,
+          "temps_c": {
+            "go2/imu": {
+              "min": 79.0,
+              "mean": 79.0,
+              "max": 79.0,
+              "samples": 1
+            },
+            "soc1-thermal": {
+              "min": 55.968,
+              "mean": 55.968,
+              "max": 55.968,
+              "samples": 1
+            },
+            "tj-thermal": {
+              "min": 55.968,
+              "mean": 55.968,
+              "max": 55.968,
+              "samples": 1
+            },
+            "cpu-thermal": {
+              "min": 55.343,
+              "mean": 55.343,
+              "max": 55.343,
+              "samples": 1
+            },
+            "soc0-thermal": {
+              "min": 54.75,
+              "mean": 54.75,
+              "max": 54.75,
+              "samples": 1
+            },
+            "gpu-thermal": {
+              "min": 54.093,
+              "mean": 54.093,
+              "max": 54.093,
+              "samples": 1
+            },
+            "cv1-thermal": {
+              "min": 53.125,
+              "mean": 53.125,
+              "max": 53.125,
+              "samples": 1
+            },
+            "cv0-thermal": {
+              "min": 53.031,
+              "mean": 53.031,
+              "max": 53.031,
+              "samples": 1
+            },
+            "soc2-thermal": {
+              "min": 52.781,
+              "mean": 52.781,
+              "max": 52.781,
+              "samples": 1
+            },
+            "cv2-thermal": {
+              "min": 52.656,
+              "mean": 52.656,
+              "max": 52.656,
+              "samples": 1
+            },
+            "go2/motor/rr-hip": {
+              "min": 44.0,
+              "mean": 44.0,
+              "max": 44.0,
+              "samples": 1
+            },
+            "go2/motor/fr-calf": {
+              "min": 43.0,
+              "mean": 43.0,
+              "max": 43.0,
+              "samples": 1
+            },
+            "go2/motor/rl-calf": {
+              "min": 43.0,
+              "mean": 43.0,
+              "max": 43.0,
+              "samples": 1
+            },
+            "go2/motor/rl-hip": {
+              "min": 41.0,
+              "mean": 41.0,
+              "max": 41.0,
+              "samples": 1
+            },
+            "go2/motor/fl-calf": {
+              "min": 38.0,
+              "mean": 38.0,
+              "max": 38.0,
+              "samples": 1
+            },
+            "go2/motor/rr-calf": {
+              "min": 38.0,
+              "mean": 38.0,
+              "max": 38.0,
+              "samples": 1
+            },
+            "go2/motor/fr-hip": {
+              "min": 37.0,
+              "mean": 37.0,
+              "max": 37.0,
+              "samples": 1
+            },
+            "go2/motor/fr-thigh": {
+              "min": 37.0,
+              "mean": 37.0,
+              "max": 37.0,
+              "samples": 1
+            },
+            "go2/motor/rl-thigh": {
+              "min": 37.0,
+              "mean": 37.0,
+              "max": 37.0,
+              "samples": 1
+            },
+            "go2/motor/fl-hip": {
+              "min": 36.0,
+              "mean": 36.0,
+              "max": 36.0,
+              "samples": 1
+            },
+            "go2/motor/fl-thigh": {
+              "min": 35.0,
+              "mean": 35.0,
+              "max": 35.0,
+              "samples": 1
+            },
+            "go2/motor/rr-thigh": {
+              "min": 35.0,
+              "mean": 35.0,
+              "max": 35.0,
+              "samples": 1
+            }
+          }
+        },
+        "turn_toward_home": {
+          "target_confidence": null,
+          "bbox_bottom_ratio": null,
+          "app_latency_ms": {
+            "min": 36.4,
+            "mean": 41.0833,
+            "max": 47.9,
+            "samples": 6
+          },
+          "app_errors": 0,
+          "temps_c": {
+            "go2/imu": {
+              "min": 79.0,
+              "mean": 79.6667,
+              "max": 80.0,
+              "samples": 6
+            },
+            "soc1-thermal": {
+              "min": 55.968,
+              "mean": 56.1973,
+              "max": 56.312,
+              "samples": 6
+            },
+            "tj-thermal": {
+              "min": 55.968,
+              "mean": 56.1973,
+              "max": 56.312,
+              "samples": 6
+            },
+            "cpu-thermal": {
+              "min": 55.343,
+              "mean": 55.531,
+              "max": 55.625,
+              "samples": 6
+            },
+            "soc0-thermal": {
+              "min": 54.687,
+              "mean": 54.708,
+              "max": 54.75,
+              "samples": 6
+            },
+            "gpu-thermal": {
+              "min": 53.687,
+              "mean": 53.8223,
+              "max": 54.093,
+              "samples": 6
+            },
+            "cv1-thermal": {
+              "min": 53.125,
+              "mean": 53.375,
+              "max": 53.5,
+              "samples": 6
+            },
+            "cv0-thermal": {
+              "min": 53.031,
+              "mean": 53.1557,
+              "max": 53.218,
+              "samples": 6
+            },
+            "soc2-thermal": {
+              "min": 52.781,
+              "mean": 52.989,
+              "max": 53.093,
+              "samples": 6
+            },
+            "cv2-thermal": {
+              "min": 52.656,
+              "mean": 52.8853,
+              "max": 53.0,
+              "samples": 6
+            },
+            "go2/motor/rr-hip": {
+              "min": 44.0,
+              "mean": 44.0,
+              "max": 44.0,
+              "samples": 6
+            },
+            "go2/motor/fr-calf": {
+              "min": 43.0,
+              "mean": 43.0,
+              "max": 43.0,
+              "samples": 6
+            },
+            "go2/motor/rl-calf": {
+              "min": 43.0,
+              "mean": 43.0,
+              "max": 43.0,
+              "samples": 6
+            },
+            "go2/motor/rl-hip": {
+              "min": 41.0,
+              "mean": 41.0,
+              "max": 41.0,
+              "samples": 6
+            },
+            "go2/motor/fl-calf": {
+              "min": 38.0,
+              "mean": 38.0,
+              "max": 38.0,
+              "samples": 6
+            },
+            "go2/motor/rr-calf": {
+              "min": 38.0,
+              "mean": 38.0,
+              "max": 38.0,
+              "samples": 6
+            },
+            "go2/motor/fr-hip": {
+              "min": 37.0,
+              "mean": 37.0,
+              "max": 37.0,
+              "samples": 6
+            },
+            "go2/motor/fr-thigh": {
+              "min": 37.0,
+              "mean": 37.0,
+              "max": 37.0,
+              "samples": 6
+            },
+            "go2/motor/rl-thigh": {
+              "min": 37.0,
+              "mean": 37.0,
+              "max": 37.0,
+              "samples": 6
+            },
+            "go2/motor/fl-hip": {
+              "min": 36.0,
+              "mean": 36.0,
+              "max": 36.0,
+              "samples": 6
+            },
+            "go2/motor/fl-thigh": {
+              "min": 35.0,
+              "mean": 35.0,
+              "max": 35.0,
+              "samples": 6
+            },
+            "go2/motor/rr-thigh": {
+              "min": 35.0,
+              "mean": 35.0,
+              "max": 35.0,
+              "samples": 6
+            }
+          }
+        },
+        "return_home": {
+          "target_confidence": null,
+          "bbox_bottom_ratio": null,
+          "app_latency_ms": {
+            "min": 48.4,
+            "mean": 48.4,
+            "max": 48.4,
+            "samples": 1
+          },
+          "app_errors": 0,
+          "temps_c": {
+            "go2/imu": {
+              "min": 80.0,
+              "mean": 80.0,
+              "max": 80.0,
+              "samples": 1
+            },
+            "soc1-thermal": {
+              "min": 56.312,
+              "mean": 56.312,
+              "max": 56.312,
+              "samples": 1
+            },
+            "tj-thermal": {
+              "min": 56.312,
+              "mean": 56.312,
+              "max": 56.312,
+              "samples": 1
+            },
+            "cpu-thermal": {
+              "min": 55.625,
+              "mean": 55.625,
+              "max": 55.625,
+              "samples": 1
+            },
+            "soc0-thermal": {
+              "min": 54.687,
+              "mean": 54.687,
+              "max": 54.687,
+              "samples": 1
+            },
+            "gpu-thermal": {
+              "min": 53.687,
+              "mean": 53.687,
+              "max": 53.687,
+              "samples": 1
+            },
+            "cv1-thermal": {
+              "min": 53.5,
+              "mean": 53.5,
+              "max": 53.5,
+              "samples": 1
+            },
+            "cv0-thermal": {
+              "min": 53.218,
+              "mean": 53.218,
+              "max": 53.218,
+              "samples": 1
+            },
+            "soc2-thermal": {
+              "min": 53.093,
+              "mean": 53.093,
+              "max": 53.093,
+              "samples": 1
+            },
+            "cv2-thermal": {
+              "min": 53.0,
+              "mean": 53.0,
+              "max": 53.0,
+              "samples": 1
+            },
+            "go2/motor/rr-hip": {
+              "min": 44.0,
+              "mean": 44.0,
+              "max": 44.0,
+              "samples": 1
+            },
+            "go2/motor/fr-calf": {
+              "min": 43.0,
+              "mean": 43.0,
+              "max": 43.0,
+              "samples": 1
+            },
+            "go2/motor/rl-calf": {
+              "min": 43.0,
+              "mean": 43.0,
+              "max": 43.0,
+              "samples": 1
+            },
+            "go2/motor/rl-hip": {
+              "min": 41.0,
+              "mean": 41.0,
+              "max": 41.0,
+              "samples": 1
+            },
+            "go2/motor/fl-calf": {
+              "min": 38.0,
+              "mean": 38.0,
+              "max": 38.0,
+              "samples": 1
+            },
+            "go2/motor/rr-calf": {
+              "min": 38.0,
+              "mean": 38.0,
+              "max": 38.0,
+              "samples": 1
+            },
+            "go2/motor/fr-hip": {
+              "min": 37.0,
+              "mean": 37.0,
+              "max": 37.0,
+              "samples": 1
+            },
+            "go2/motor/fr-thigh": {
+              "min": 37.0,
+              "mean": 37.0,
+              "max": 37.0,
+              "samples": 1
+            },
+            "go2/motor/rl-thigh": {
+              "min": 37.0,
+              "mean": 37.0,
+              "max": 37.0,
+              "samples": 1
+            },
+            "go2/motor/fl-hip": {
+              "min": 36.0,
+              "mean": 36.0,
+              "max": 36.0,
+              "samples": 1
+            },
+            "go2/motor/fl-thigh": {
+              "min": 35.0,
+              "mean": 35.0,
+              "max": 35.0,
+              "samples": 1
+            },
+            "go2/motor/rr-thigh": {
+              "min": 35.0,
+              "mean": 35.0,
+              "max": 35.0,
+              "samples": 1
+            }
+          }
+        },
+        "unknown": {
+          "target_confidence": null,
+          "bbox_bottom_ratio": null,
+          "app_latency_ms": {
+            "min": 21854.9,
+            "mean": 21854.9,
+            "max": 21854.9,
+            "samples": 1
+          },
+          "app_errors": 1,
+          "temps_c": {
+            "go2/imu": {
+              "min": 80.0,
+              "mean": 80.0,
+              "max": 80.0,
+              "samples": 1
+            },
+            "soc1-thermal": {
+              "min": 56.468,
+              "mean": 56.468,
+              "max": 56.468,
+              "samples": 1
+            },
+            "tj-thermal": {
+              "min": 56.468,
+              "mean": 56.468,
+              "max": 56.468,
+              "samples": 1
+            },
+            "cpu-thermal": {
+              "min": 55.843,
+              "mean": 55.843,
+              "max": 55.843,
+              "samples": 1
+            },
+            "soc0-thermal": {
+              "min": 55.062,
+              "mean": 55.062,
+              "max": 55.062,
+              "samples": 1
+            },
+            "gpu-thermal": {
+              "min": 54.687,
+              "mean": 54.687,
+              "max": 54.687,
+              "samples": 1
+            },
+            "cv1-thermal": {
+              "min": 53.625,
+              "mean": 53.625,
+              "max": 53.625,
+              "samples": 1
+            },
+            "cv0-thermal": {
+              "min": 53.562,
+              "mean": 53.562,
+              "max": 53.562,
+              "samples": 1
+            },
+            "soc2-thermal": {
+              "min": 53.375,
+              "mean": 53.375,
+              "max": 53.375,
+              "samples": 1
+            },
+            "cv2-thermal": {
+              "min": 53.25,
+              "mean": 53.25,
+              "max": 53.25,
+              "samples": 1
+            },
+            "go2/motor/rr-hip": {
+              "min": 44.0,
+              "mean": 44.0,
+              "max": 44.0,
+              "samples": 1
+            },
+            "go2/motor/fr-calf": {
+              "min": 43.0,
+              "mean": 43.0,
+              "max": 43.0,
+              "samples": 1
+            },
+            "go2/motor/rl-calf": {
+              "min": 43.0,
+              "mean": 43.0,
+              "max": 43.0,
+              "samples": 1
+            },
+            "go2/motor/rl-hip": {
+              "min": 41.0,
+              "mean": 41.0,
+              "max": 41.0,
+              "samples": 1
+            },
+            "go2/motor/fl-calf": {
+              "min": 38.0,
+              "mean": 38.0,
+              "max": 38.0,
+              "samples": 1
+            },
+            "go2/motor/fr-hip": {
+              "min": 38.0,
+              "mean": 38.0,
+              "max": 38.0,
+              "samples": 1
+            },
+            "go2/motor/fr-thigh": {
+              "min": 38.0,
+              "mean": 38.0,
+              "max": 38.0,
+              "samples": 1
+            },
+            "go2/motor/rr-calf": {
+              "min": 38.0,
+              "mean": 38.0,
+              "max": 38.0,
+              "samples": 1
+            },
+            "go2/motor/rl-thigh": {
+              "min": 37.0,
+              "mean": 37.0,
+              "max": 37.0,
+              "samples": 1
+            },
+            "go2/motor/fl-hip": {
+              "min": 36.0,
+              "mean": 36.0,
+              "max": 36.0,
+              "samples": 1
+            },
+            "go2/motor/fl-thigh": {
+              "min": 35.0,
+              "mean": 35.0,
+              "max": 35.0,
+              "samples": 1
+            },
+            "go2/motor/rr-thigh": {
+              "min": 35.0,
+              "mean": 35.0,
+              "max": 35.0,
+              "samples": 1
+            }
+          }
+        }
+      },
+      "network": {
+        "poll_count": 20,
+        "error_count": 1,
+        "errors": [
+          {
+            "t_monotonic_s": 668413.095686458,
+            "error": "<urlopen error [Errno 51] Network is unreachable>"
+          }
+        ],
+        "latency_ms": {
+          "min": 31.2,
+          "mean": 43.4947,
+          "max": 65.6,
+          "samples": 19
+        },
+        "latency_p95_ms": 59.5,
+        "cut_out": true
+      },
+      "samples": [
+        {
+          "t_monotonic_s": 668360.2021795,
+          "phase": "turn_to_fruit",
+          "app_latency_ms": 65.6,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false
+        },
+        {
+          "t_monotonic_s": 668361.881351583,
+          "phase": "turn_to_fruit",
+          "app_latency_ms": 31.2,
+          "app_error": null,
+          "detection_label": "banana",
+          "confidence": 0.7789742946624756,
+          "inference_s": 0.12899334200028534,
+          "target_matches": true,
+          "bbox_bottom_ratio": 0.6625,
+          "temps": {
+            "go2/imu": 80,
+            "tj-thermal": 55.75,
+            "soc1-thermal": 55.718,
+            "cpu-thermal": 55.343,
+            "soc0-thermal": 54.343,
+            "cv0-thermal": 53.156,
+            "gpu-thermal": 53.093,
+            "cv1-thermal": 52.875,
+            "soc2-thermal": 52.718,
+            "cv2-thermal": 52.437,
+            "go2/motor/rr-hip": 44,
+            "go2/motor/fr-calf": 43,
+            "go2/motor/rl-calf": 43,
+            "go2/motor/rl-hip": 41,
+            "go2/motor/fl-calf": 38,
+            "go2/motor/rr-calf": 38,
+            "go2/motor/fr-hip": 37,
+            "go2/motor/fr-thigh": 37,
+            "go2/motor/rl-thigh": 37,
+            "go2/motor/fl-hip": 36,
+            "go2/motor/fl-thigh": 35,
+            "go2/motor/rr-thigh": 35
+          },
+          "temps_age_s": 1.1
+        },
+        {
+          "t_monotonic_s": 668363.506619625,
+          "phase": "approach_fruit",
+          "app_latency_ms": 47.5,
+          "app_error": null,
+          "detection_label": "banana",
+          "confidence": 0.7270801067352295,
+          "inference_s": 0.09873098299976846,
+          "target_matches": true,
+          "bbox_bottom_ratio": 0.6972,
+          "temps": {
+            "go2/imu": 80,
+            "tj-thermal": 55.75,
+            "soc1-thermal": 55.718,
+            "cpu-thermal": 55.343,
+            "soc0-thermal": 54.343,
+            "cv0-thermal": 53.156,
+            "gpu-thermal": 53.093,
+            "cv1-thermal": 52.875,
+            "soc2-thermal": 52.718,
+            "cv2-thermal": 52.437,
+            "go2/motor/rr-hip": 44,
+            "go2/motor/fr-calf": 43,
+            "go2/motor/rl-calf": 43,
+            "go2/motor/rl-hip": 41,
+            "go2/motor/fl-calf": 38,
+            "go2/motor/rr-calf": 38,
+            "go2/motor/fr-hip": 37,
+            "go2/motor/fr-thigh": 37,
+            "go2/motor/rl-thigh": 37,
+            "go2/motor/fl-hip": 36,
+            "go2/motor/fl-thigh": 35,
+            "go2/motor/rr-thigh": 35
+          },
+          "temps_age_s": 2.8
+        },
+        {
+          "t_monotonic_s": 668365.15871075,
+          "phase": "approach_fruit",
+          "app_latency_ms": 49.2,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "go2/imu": 80,
+            "tj-thermal": 55.75,
+            "soc1-thermal": 55.718,
+            "cpu-thermal": 55.343,
+            "soc0-thermal": 54.343,
+            "cv0-thermal": 53.156,
+            "gpu-thermal": 53.093,
+            "cv1-thermal": 52.875,
+            "soc2-thermal": 52.718,
+            "cv2-thermal": 52.437,
+            "go2/motor/rr-hip": 44,
+            "go2/motor/fr-calf": 43,
+            "go2/motor/rl-calf": 43,
+            "go2/motor/rl-hip": 41,
+            "go2/motor/fl-calf": 38,
+            "go2/motor/rr-calf": 38,
+            "go2/motor/fr-hip": 37,
+            "go2/motor/fr-thigh": 37,
+            "go2/motor/rl-thigh": 37,
+            "go2/motor/fl-hip": 36,
+            "go2/motor/fl-thigh": 35,
+            "go2/motor/rr-thigh": 35
+          },
+          "temps_age_s": 4.4
+        },
+        {
+          "t_monotonic_s": 668366.791517291,
+          "phase": "approach_fruit",
+          "app_latency_ms": 33.3,
+          "app_error": null,
+          "detection_label": "banana",
+          "confidence": 0.8510019779205322,
+          "inference_s": 0.11229019900019921,
+          "target_matches": true,
+          "bbox_bottom_ratio": 0.6778,
+          "temps": {
+            "go2/imu": 80,
+            "tj-thermal": 55.75,
+            "soc1-thermal": 55.718,
+            "cpu-thermal": 55.343,
+            "soc0-thermal": 54.343,
+            "cv0-thermal": 53.156,
+            "gpu-thermal": 53.093,
+            "cv1-thermal": 52.875,
+            "soc2-thermal": 52.718,
+            "cv2-thermal": 52.437,
+            "go2/motor/rr-hip": 44,
+            "go2/motor/fr-calf": 43,
+            "go2/motor/rl-calf": 43,
+            "go2/motor/rl-hip": 41,
+            "go2/motor/fl-calf": 38,
+            "go2/motor/rr-calf": 38,
+            "go2/motor/fr-hip": 37,
+            "go2/motor/fr-thigh": 37,
+            "go2/motor/rl-thigh": 37,
+            "go2/motor/fl-hip": 36,
+            "go2/motor/fl-thigh": 35,
+            "go2/motor/rr-thigh": 35
+          },
+          "temps_age_s": 6.0
+        },
+        {
+          "t_monotonic_s": 668368.412540541,
+          "phase": "approach_fruit",
+          "app_latency_ms": 59.5,
+          "app_error": null,
+          "detection_label": "banana",
+          "confidence": 0.6461988091468811,
+          "inference_s": 0.12777102300060506,
+          "target_matches": true,
+          "bbox_bottom_ratio": 0.8111,
+          "temps": {
+            "go2/imu": 80,
+            "tj-thermal": 55.75,
+            "soc1-thermal": 55.718,
+            "cpu-thermal": 55.343,
+            "soc0-thermal": 54.343,
+            "cv0-thermal": 53.156,
+            "gpu-thermal": 53.093,
+            "cv1-thermal": 52.875,
+            "soc2-thermal": 52.718,
+            "cv2-thermal": 52.437,
+            "go2/motor/rr-hip": 44,
+            "go2/motor/fr-calf": 43,
+            "go2/motor/rl-calf": 43,
+            "go2/motor/rl-hip": 41,
+            "go2/motor/fl-calf": 38,
+            "go2/motor/rr-calf": 38,
+            "go2/motor/fr-hip": 37,
+            "go2/motor/fr-thigh": 37,
+            "go2/motor/rl-thigh": 37,
+            "go2/motor/fl-hip": 36,
+            "go2/motor/fl-thigh": 35,
+            "go2/motor/rr-thigh": 35
+          },
+          "temps_age_s": 7.6
+        },
+        {
+          "t_monotonic_s": 668370.041442375,
+          "phase": "approach_fruit",
+          "app_latency_ms": 39.8,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "go2/imu": 80,
+            "tj-thermal": 55.75,
+            "soc1-thermal": 55.718,
+            "cpu-thermal": 55.343,
+            "soc0-thermal": 54.343,
+            "cv0-thermal": 53.156,
+            "gpu-thermal": 53.093,
+            "cv1-thermal": 52.875,
+            "soc2-thermal": 52.718,
+            "cv2-thermal": 52.437,
+            "go2/motor/rr-hip": 44,
+            "go2/motor/fr-calf": 43,
+            "go2/motor/rl-calf": 43,
+            "go2/motor/rl-hip": 41,
+            "go2/motor/fl-calf": 38,
+            "go2/motor/rr-calf": 38,
+            "go2/motor/fr-hip": 37,
+            "go2/motor/fr-thigh": 37,
+            "go2/motor/rl-thigh": 37,
+            "go2/motor/fl-hip": 36,
+            "go2/motor/fl-thigh": 35,
+            "go2/motor/rr-thigh": 35
+          },
+          "temps_age_s": 9.2
+        },
+        {
+          "t_monotonic_s": 668371.687038875,
+          "phase": "sit_and_bark",
+          "app_latency_ms": 47.6,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "go2/imu": 80,
+            "tj-thermal": 55.75,
+            "soc1-thermal": 55.718,
+            "cpu-thermal": 55.343,
+            "soc0-thermal": 54.343,
+            "cv0-thermal": 53.156,
+            "gpu-thermal": 53.093,
+            "cv1-thermal": 52.875,
+            "soc2-thermal": 52.718,
+            "cv2-thermal": 52.437,
+            "go2/motor/rr-hip": 44,
+            "go2/motor/fr-calf": 43,
+            "go2/motor/rl-calf": 43,
+            "go2/motor/rl-hip": 41,
+            "go2/motor/fl-calf": 38,
+            "go2/motor/rr-calf": 38,
+            "go2/motor/fr-hip": 37,
+            "go2/motor/fr-thigh": 37,
+            "go2/motor/rl-thigh": 37,
+            "go2/motor/fl-hip": 36,
+            "go2/motor/fl-thigh": 35,
+            "go2/motor/rr-thigh": 35
+          },
+          "temps_age_s": 10.9
+        },
+        {
+          "t_monotonic_s": 668373.314418958,
+          "phase": "sit_and_bark",
+          "app_latency_ms": 46.0,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "go2/imu": 79,
+            "soc1-thermal": 55.968,
+            "tj-thermal": 55.968,
+            "cpu-thermal": 55.343,
+            "soc0-thermal": 54.75,
+            "gpu-thermal": 54.093,
+            "cv1-thermal": 53.125,
+            "cv0-thermal": 53.031,
+            "soc2-thermal": 52.781,
+            "cv2-thermal": 52.656,
+            "go2/motor/rr-hip": 44,
+            "go2/motor/fr-calf": 43,
+            "go2/motor/rl-calf": 43,
+            "go2/motor/rl-hip": 41,
+            "go2/motor/fl-calf": 38,
+            "go2/motor/rr-calf": 38,
+            "go2/motor/fr-hip": 37,
+            "go2/motor/fr-thigh": 37,
+            "go2/motor/rl-thigh": 37,
+            "go2/motor/fl-hip": 36,
+            "go2/motor/fl-thigh": 35,
+            "go2/motor/rr-thigh": 35
+          },
+          "temps_age_s": 1.5
+        },
+        {
+          "t_monotonic_s": 668375.009303083,
+          "phase": "sit_and_bark",
+          "app_latency_ms": 46.9,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "go2/imu": 79,
+            "soc1-thermal": 55.968,
+            "tj-thermal": 55.968,
+            "cpu-thermal": 55.343,
+            "soc0-thermal": 54.75,
+            "gpu-thermal": 54.093,
+            "cv1-thermal": 53.125,
+            "cv0-thermal": 53.031,
+            "soc2-thermal": 52.781,
+            "cv2-thermal": 52.656,
+            "go2/motor/rr-hip": 44,
+            "go2/motor/fr-calf": 43,
+            "go2/motor/rl-calf": 43,
+            "go2/motor/rl-hip": 41,
+            "go2/motor/fl-calf": 38,
+            "go2/motor/rr-calf": 38,
+            "go2/motor/fr-hip": 37,
+            "go2/motor/fr-thigh": 37,
+            "go2/motor/rl-thigh": 37,
+            "go2/motor/fl-hip": 36,
+            "go2/motor/fl-thigh": 35,
+            "go2/motor/rr-thigh": 35
+          },
+          "temps_age_s": 3.1
+        },
+        {
+          "t_monotonic_s": 668376.67012,
+          "phase": "sit_and_bark",
+          "app_latency_ms": 32.5,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "go2/imu": 79,
+            "soc1-thermal": 55.968,
+            "tj-thermal": 55.968,
+            "cpu-thermal": 55.343,
+            "soc0-thermal": 54.75,
+            "gpu-thermal": 54.093,
+            "cv1-thermal": 53.125,
+            "cv0-thermal": 53.031,
+            "soc2-thermal": 52.781,
+            "cv2-thermal": 52.656,
+            "go2/motor/rr-hip": 44,
+            "go2/motor/fr-calf": 43,
+            "go2/motor/rl-calf": 43,
+            "go2/motor/rl-hip": 41,
+            "go2/motor/fl-calf": 38,
+            "go2/motor/rr-calf": 38,
+            "go2/motor/fr-hip": 37,
+            "go2/motor/fr-thigh": 37,
+            "go2/motor/rl-thigh": 37,
+            "go2/motor/fl-hip": 36,
+            "go2/motor/fl-thigh": 35,
+            "go2/motor/rr-thigh": 35
+          },
+          "temps_age_s": 4.8
+        },
+        {
+          "t_monotonic_s": 668378.265370833,
+          "phase": "stand",
+          "app_latency_ms": 32.4,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "go2/imu": 79,
+            "soc1-thermal": 55.968,
+            "tj-thermal": 55.968,
+            "cpu-thermal": 55.343,
+            "soc0-thermal": 54.75,
+            "gpu-thermal": 54.093,
+            "cv1-thermal": 53.125,
+            "cv0-thermal": 53.031,
+            "soc2-thermal": 52.781,
+            "cv2-thermal": 52.656,
+            "go2/motor/rr-hip": 44,
+            "go2/motor/fr-calf": 43,
+            "go2/motor/rl-calf": 43,
+            "go2/motor/rl-hip": 41,
+            "go2/motor/fl-calf": 38,
+            "go2/motor/rr-calf": 38,
+            "go2/motor/fr-hip": 37,
+            "go2/motor/fr-thigh": 37,
+            "go2/motor/rl-thigh": 37,
+            "go2/motor/fl-hip": 36,
+            "go2/motor/fl-thigh": 35,
+            "go2/motor/rr-thigh": 35
+          },
+          "temps_age_s": 6.4
+        },
+        {
+          "t_monotonic_s": 668379.888083041,
+          "phase": "turn_toward_home",
+          "app_latency_ms": 36.4,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "go2/imu": 79,
+            "soc1-thermal": 55.968,
+            "tj-thermal": 55.968,
+            "cpu-thermal": 55.343,
+            "soc0-thermal": 54.75,
+            "gpu-thermal": 54.093,
+            "cv1-thermal": 53.125,
+            "cv0-thermal": 53.031,
+            "soc2-thermal": 52.781,
+            "cv2-thermal": 52.656,
+            "go2/motor/rr-hip": 44,
+            "go2/motor/fr-calf": 43,
+            "go2/motor/rl-calf": 43,
+            "go2/motor/rl-hip": 41,
+            "go2/motor/fl-calf": 38,
+            "go2/motor/rr-calf": 38,
+            "go2/motor/fr-hip": 37,
+            "go2/motor/fr-thigh": 37,
+            "go2/motor/rl-thigh": 37,
+            "go2/motor/fl-hip": 36,
+            "go2/motor/fl-thigh": 35,
+            "go2/motor/rr-thigh": 35
+          },
+          "temps_age_s": 8.0
+        },
+        {
+          "t_monotonic_s": 668381.519741916,
+          "phase": "turn_toward_home",
+          "app_latency_ms": 41.9,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "go2/imu": 79,
+            "soc1-thermal": 55.968,
+            "tj-thermal": 55.968,
+            "cpu-thermal": 55.343,
+            "soc0-thermal": 54.75,
+            "gpu-thermal": 54.093,
+            "cv1-thermal": 53.125,
+            "cv0-thermal": 53.031,
+            "soc2-thermal": 52.781,
+            "cv2-thermal": 52.656,
+            "go2/motor/rr-hip": 44,
+            "go2/motor/fr-calf": 43,
+            "go2/motor/rl-calf": 43,
+            "go2/motor/rl-hip": 41,
+            "go2/motor/fl-calf": 38,
+            "go2/motor/rr-calf": 38,
+            "go2/motor/fr-hip": 37,
+            "go2/motor/fr-thigh": 37,
+            "go2/motor/rl-thigh": 37,
+            "go2/motor/fl-hip": 36,
+            "go2/motor/fl-thigh": 35,
+            "go2/motor/rr-thigh": 35
+          },
+          "temps_age_s": 9.6
+        },
+        {
+          "t_monotonic_s": 668383.141751916,
+          "phase": "turn_toward_home",
+          "app_latency_ms": 39.0,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "go2/imu": 80,
+            "soc1-thermal": 56.312,
+            "tj-thermal": 56.312,
+            "cpu-thermal": 55.625,
+            "soc0-thermal": 54.687,
+            "gpu-thermal": 53.687,
+            "cv1-thermal": 53.5,
+            "cv0-thermal": 53.218,
+            "soc2-thermal": 53.093,
+            "cv2-thermal": 53,
+            "go2/motor/rr-hip": 44,
+            "go2/motor/fr-calf": 43,
+            "go2/motor/rl-calf": 43,
+            "go2/motor/rl-hip": 41,
+            "go2/motor/fl-calf": 38,
+            "go2/motor/rr-calf": 38,
+            "go2/motor/fr-hip": 37,
+            "go2/motor/fr-thigh": 37,
+            "go2/motor/rl-thigh": 37,
+            "go2/motor/fl-hip": 36,
+            "go2/motor/fl-thigh": 35,
+            "go2/motor/rr-thigh": 35
+          },
+          "temps_age_s": 0.1
+        },
+        {
+          "t_monotonic_s": 668384.778230125,
+          "phase": "turn_toward_home",
+          "app_latency_ms": 37.7,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "go2/imu": 80,
+            "soc1-thermal": 56.312,
+            "tj-thermal": 56.312,
+            "cpu-thermal": 55.625,
+            "soc0-thermal": 54.687,
+            "gpu-thermal": 53.687,
+            "cv1-thermal": 53.5,
+            "cv0-thermal": 53.218,
+            "soc2-thermal": 53.093,
+            "cv2-thermal": 53,
+            "go2/motor/rr-hip": 44,
+            "go2/motor/fr-calf": 43,
+            "go2/motor/rl-calf": 43,
+            "go2/motor/rl-hip": 41,
+            "go2/motor/fl-calf": 38,
+            "go2/motor/rr-calf": 38,
+            "go2/motor/fr-hip": 37,
+            "go2/motor/fr-thigh": 37,
+            "go2/motor/rl-thigh": 37,
+            "go2/motor/fl-hip": 36,
+            "go2/motor/fl-thigh": 35,
+            "go2/motor/rr-thigh": 35
+          },
+          "temps_age_s": 1.8
+        },
+        {
+          "t_monotonic_s": 668386.413567958,
+          "phase": "turn_toward_home",
+          "app_latency_ms": 47.9,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "go2/imu": 80,
+            "soc1-thermal": 56.312,
+            "tj-thermal": 56.312,
+            "cpu-thermal": 55.625,
+            "soc0-thermal": 54.687,
+            "gpu-thermal": 53.687,
+            "cv1-thermal": 53.5,
+            "cv0-thermal": 53.218,
+            "soc2-thermal": 53.093,
+            "cv2-thermal": 53,
+            "go2/motor/rr-hip": 44,
+            "go2/motor/fr-calf": 43,
+            "go2/motor/rl-calf": 43,
+            "go2/motor/rl-hip": 41,
+            "go2/motor/fl-calf": 38,
+            "go2/motor/rr-calf": 38,
+            "go2/motor/fr-hip": 37,
+            "go2/motor/fr-thigh": 37,
+            "go2/motor/rl-thigh": 37,
+            "go2/motor/fl-hip": 36,
+            "go2/motor/fl-thigh": 35,
+            "go2/motor/rr-thigh": 35
+          },
+          "temps_age_s": 3.4
+        },
+        {
+          "t_monotonic_s": 668388.040443083,
+          "phase": "turn_toward_home",
+          "app_latency_ms": 43.6,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "go2/imu": 80,
+            "soc1-thermal": 56.312,
+            "tj-thermal": 56.312,
+            "cpu-thermal": 55.625,
+            "soc0-thermal": 54.687,
+            "gpu-thermal": 53.687,
+            "cv1-thermal": 53.5,
+            "cv0-thermal": 53.218,
+            "soc2-thermal": 53.093,
+            "cv2-thermal": 53,
+            "go2/motor/rr-hip": 44,
+            "go2/motor/fr-calf": 43,
+            "go2/motor/rl-calf": 43,
+            "go2/motor/rl-hip": 41,
+            "go2/motor/fl-calf": 38,
+            "go2/motor/rr-calf": 38,
+            "go2/motor/fr-hip": 37,
+            "go2/motor/fr-thigh": 37,
+            "go2/motor/rl-thigh": 37,
+            "go2/motor/fl-hip": 36,
+            "go2/motor/fl-thigh": 35,
+            "go2/motor/rr-thigh": 35
+          },
+          "temps_age_s": 5.0
+        },
+        {
+          "t_monotonic_s": 668389.664683166,
+          "phase": "return_home",
+          "app_latency_ms": 48.4,
+          "app_error": null,
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "go2/imu": 80,
+            "soc1-thermal": 56.312,
+            "tj-thermal": 56.312,
+            "cpu-thermal": 55.625,
+            "soc0-thermal": 54.687,
+            "gpu-thermal": 53.687,
+            "cv1-thermal": 53.5,
+            "cv0-thermal": 53.218,
+            "soc2-thermal": 53.093,
+            "cv2-thermal": 53,
+            "go2/motor/rr-hip": 44,
+            "go2/motor/fr-calf": 43,
+            "go2/motor/rl-calf": 43,
+            "go2/motor/rl-hip": 41,
+            "go2/motor/fl-calf": 38,
+            "go2/motor/rr-calf": 38,
+            "go2/motor/fr-hip": 37,
+            "go2/motor/fr-thigh": 37,
+            "go2/motor/rl-thigh": 37,
+            "go2/motor/fl-hip": 36,
+            "go2/motor/fl-thigh": 35,
+            "go2/motor/rr-thigh": 35
+          },
+          "temps_age_s": 6.6
+        },
+        {
+          "t_monotonic_s": 668413.095686458,
+          "phase": null,
+          "app_latency_ms": 21854.9,
+          "app_error": "<urlopen error [Errno 51] Network is unreachable>",
+          "detection_label": null,
+          "confidence": null,
+          "inference_s": null,
+          "target_matches": false,
+          "temps": {
+            "go2/imu": 80,
+            "soc1-thermal": 56.468,
+            "tj-thermal": 56.468,
+            "cpu-thermal": 55.843,
+            "soc0-thermal": 55.062,
+            "gpu-thermal": 54.687,
+            "cv1-thermal": 53.625,
+            "cv0-thermal": 53.562,
+            "soc2-thermal": 53.375,
+            "cv2-thermal": 53.25,
+            "go2/motor/rr-hip": 44,
+            "go2/motor/fr-calf": 43,
+            "go2/motor/rl-calf": 43,
+            "go2/motor/rl-hip": 41,
+            "go2/motor/fl-calf": 38,
+            "go2/motor/fr-hip": 38,
+            "go2/motor/fr-thigh": 38,
+            "go2/motor/rr-calf": 38,
+            "go2/motor/rl-thigh": 37,
+            "go2/motor/fl-hip": 36,
+            "go2/motor/fl-thigh": 35,
+            "go2/motor/rr-thigh": 35
+          },
+          "temps_age_s": 6.6
+        }
+      ],
+      "preflight_probes": {
+        "dongle": {
+          "checked": true,
+          "usb_devices": null,
+          "audio_devices": null
+        },
+        "wifi_before": null
+      },
+      "wifi_after": null,
+      "recovery": {
+        "schema_version": 1,
+        "recovery_id": "334de844-3c87-48b9-8098-091d68e1dd25",
+        "run_id": "7098b433-23db-4c2d-9811-59dd8d2019c5",
+        "confirmation": "RECOVER FAILED RUN TO CAPTURED HOME",
+        "started_at_utc": "2026-08-11T19:19:23.626391Z",
+        "started_monotonic_s": 4205.206202888,
+        "ended_at_utc": "2026-08-11T19:19:28.971628Z",
+        "duration_s": 5.345235619999585,
+        "outcome": "FAILED",
+        "reason": "RECOVERY_FAILURE",
+        "message": "return Home stalled 1.574 m from its active waypoint",
+        "final_safety_state": "DISARMED_CONFIRMED",
+        "steps": [
+          {
+            "sequence": 1,
+            "step": "preflight",
+            "recorded_at_utc": "2026-08-11T19:19:23.654831Z",
+            "seconds_since_start": 0.02843166300044686,
+            "evidence": {
+              "hardware": {
+                "configured": true,
+                "autonomy_enabled": true,
+                "lab_motion_enabled": false,
+                "clients_initialized": true,
+                "connected": true,
+                "fault": null,
+                "network_interface": "enP8p1s0",
+                "active_operation": null,
+                "can_pulse_forward": false,
+                "forward_pulse": {
+                  "mps": 0.55,
+                  "duration_s": 0.4,
+                  "confirmation": "PATH CLEAR - MOVE WOOF FORWARD"
+                },
+                "motion": {
+                  "initialized": true,
+                  "closed": false,
+                  "armed": false,
+                  "mode": null,
+                  "fault": null,
+                  "avoidance_enabled": false,
+                  "remote_api_enabled": false,
+                  "watchdog_s": 0.35,
+                  "limits": {
+                    "minimum_forward_mps": 0.55,
+                    "forward_mps": 1.0,
+                    "yaw_rps": 1.0,
+                    "lateral_mps": 0.0,
+                    "reverse_allowed": false
+                  },
+                  "last_command": {
+                    "forward_mps": 0.0,
+                    "yaw_rps": 0.0,
+                    "reason": "released"
+                  },
+                  "guardian": {
+                    "generation": 12,
+                    "active": false,
+                    "run_id": null,
+                    "epoch": null,
+                    "operation": null,
+                    "allow_forward": null,
+                    "expires_in_s": null,
+                    "trip_reason": "motion released"
+                  }
+                },
+                "pose": {
+                  "healthy": true,
+                  "age_s": 0.004,
+                  "error": null,
+                  "sample_rejection": null,
+                  "pose": {
+                    "x_m": 0.2014,
+                    "y_m": 0.2073,
+                    "yaw_rad": -1.0567,
+                    "captured_monotonic_s": 4205.227459281
+                  },
+                  "motion": {
+                    "source_timestamp_s": 1785176829.0966496,
+                    "velocity_x_mps": -0.0033765314146876335,
+                    "velocity_y_mps": 0.0022296318784356117,
+                    "yaw_rate_rps": -0.004261057358235121,
+                    "imu_yaw_rate_rps": -0.004261057358235121,
+                    "mode": 0,
+                    "gait_type": 0,
+                    "obstacle_ranges_m": [
+                      0.0,
+                      0.0,
+                      0.0,
+                      0.0
+                    ],
+                    "foot_force": [
+                      0.0,
+                      0.0,
+                      0.0,
+                      0.0
+                    ],
+                    "contact_feet": 0,
+                    "stationary_stance": true,
+                    "stationary_evidence_source": "verified_posture_kinematics",
+                    "velocity_frame": "body_forward_left"
+                  }
+                },
+                "home_localization": {
+                  "metric_source": "rt/sportmodestate",
+                  "visual_source_configured": true,
+                  "visual_backend": "cpu_sparse_image_motion",
+                  "visual_metric_scale": false,
+                  "visual_home_baseline_captured": true,
+                  "stateful_planar_fusion_initialized": true,
+                  "fusion_model": "diagonal_covariance_kalman",
+                  "fusion_state": [
+                    "x",
+                    "y",
+                    "yaw",
+                    "vx",
+                    "vy",
+                    "yaw_bias"
+                  ],
+                  "maximum_odometry_age_s": 0.5,
+                  "maximum_visual_age_s": 0.75,
+                  "minimum_visual_quality": 0.55,
+                  "maximum_visual_yaw_disagreement_rad": 0.3490658503988659
+                },
+                "continuous_home_fusion": {
+                  "running": true,
+                  "interval_s": 0.2,
+                  "consecutive_trusted_samples": 264,
+                  "latest_age_s": 0.08024254999963887,
+                  "latest": {
+                    "trusted": true,
+                    "unavailable_reason": null,
+                    "covariance": {
+                      "x_variance_m2": 0.0006867470758935013,
+                      "y_variance_m2": 0.0006867470758935013,
+                      "heading_variance_rad2": 0.0013935478668998123,
+                      "velocity_x_variance_m2ps2": 0.00021441497449540734,
+                      "velocity_y_variance_m2ps2": 0.00021441497449540734,
+                      "yaw_bias_variance_rps2": 1.257661571889133e-05,
+                      "position_sigma_m": 0.026205859571735123,
+                      "heading_sigma_rad": 0.037330254042797675
+                    },
+                    "evidence": {
+                      "state": "updated",
+                      "dt_s": 0.20400691032409668,
+                      "sources": [
+                        "process_model",
+                        "go2_pose",
+                        "go2_velocity",
+                        "stance_zero_velocity"
+                      ],
+                      "innovations": {
+                        "go2_position_m": 0.002540206239805229,
+                        "go2_heading_rad": 0.0006042760267654934
+                      },
+                      "zero_velocity_update": true,
+                      "visual": {
+                        "state": "not_observed"
+                      },
+                      "go2_measurement": {
+                        "state": "fused",
+                        "position_gain": 0.4292169224334382,
+                        "heading_gain": 0.28592173665650156
+                      },
+                      "velocity": {
+                        "state": "fused",
+                        "gain": 0.4557699860102702,
+                        "home_x_mps": 6.782291374622597e-05,
+                        "home_y_mps": 0.007859724500785387
+                      }
+                    },
+                    "recorded_monotonic_s": 4205.151374035
+                  }
+                },
+                "metric_arrival_required": false,
+                "metric_arrival": {
+                  "configured": true,
+                  "forward_index": 0,
+                  "sensor_to_front_envelope_m": 0.0,
+                  "sensor_latency_s": 0.2,
+                  "braking_distance_m": 0.02,
+                  "noise_m": 0.02,
+                  "target_clearance_m": 0.4572,
+                  "tolerance_m": 0.0508,
+                  "maximum_age_s": 0.3,
+                  "ready": true,
+                  "range_provider": null
+                },
+                "last_pulse": null
+              },
+              "captured_home": {
+                "x_m": 0.15182256698608398,
+                "y_m": -0.11471985280513763,
+                "yaw_rad": 1.9316617250442505,
+                "captured_monotonic_s": 4152.09257938,
+                "age_s": 0.0021177409998927033,
+                "source": "rt/sportmodestate",
+                "visual_odometry": {
+                  "state": "captured",
+                  "generation": "0c115abc63c849a6b0382cd157a4b24d",
+                  "frame_sequence": 209,
+                  "error": null,
+                  "sensor_fusion": "initialized"
+                }
+              },
+              "outbound_forward_pulses": 43,
+              "maximum_forward_pulses": 65,
+              "recovery_forward_pulse_budget": 65,
+              "recovery_pulse_reserve_factor": 1.5,
+              "forward_pulse_source": "stage_results.approach_fruit.forward_pulse_count",
+              "position_tolerance_m": 0.1,
+              "heading_restore_planned": false,
+              "heading_restore_reason": "failed-run recovery is position-only to avoid turn-induced position drift"
+            }
+          },
+          {
+            "sequence": 2,
+            "step": "turn_toward_home",
+            "recorded_at_utc": "2026-08-11T19:19:26.294492Z",
+            "seconds_since_start": 2.6681004370002483,
+            "evidence": {
+              "motion_path": "sport_client",
+              "requested_angle_rad": -0.6655324702758192,
+              "measured_yaw_change_rad": 0.5803568363189697,
+              "yaw_rps": -0.5,
+              "elapsed_s": 2.606,
+              "stopped": true,
+              "motion_commands_sent": true,
+              "home_distance_m": 0.32495677569009107,
+              "home_bearing_error_rad": -0.6655324702758192,
+              "turn_recovery_count": 0,
+              "home_localization": {
+                "state": "trusted",
+                "trusted": true,
+                "source": "planar_sensor_fusion",
+                "unavailable_reason": null,
+                "home_distance_m": 0.3258085741287043,
+                "filtered_home_distance_m": 0.32495677569009107,
+                "heading_error_rad": 2.989223613708532,
+                "pose_from_home": {
+                  "x_m": 0.28310098744998197,
+                  "y_m": -0.15953287113239487,
+                  "yaw_rad": -2.989223613708532
+                },
+                "evidence": {
+                  "odometry": {
+                    "age_s": 0.0022527229994011577,
+                    "pose_from_home": {
+                      "x_m": 0.28379097400785147,
+                      "y_m": -0.16004346299507005,
+                      "yaw_rad": -2.9884979724884033
+                    }
+                  },
+                  "fusion": {
+                    "state": "duplicate",
+                    "dt_s": 0.0,
+                    "covariance": {
+                      "x_variance_m2": 0.0005977922568785753,
+                      "y_variance_m2": 0.0005977922568785753,
+                      "heading_variance_rad2": 0.001251849232443449,
+                      "velocity_x_variance_m2ps2": 0.00020969728023067944,
+                      "velocity_y_variance_m2ps2": 0.00020969728023067944,
+                      "yaw_bias_variance_rps2": 1.1732464598839442e-05,
+                      "position_sigma_m": 0.02444979052831691,
+                      "heading_sigma_rad": 0.03538148149022945
+                    },
+                    "velocity_x_mps": -3.4155535105470094e-05,
+                    "velocity_y_mps": -7.60250208475886e-05,
+                    "yaw_bias_rps": -0.00845427422234126,
+                    "raw_home_distance_m": 0.3258085741287043,
+                    "filtered_home_distance_m": 0.32495677569009107,
+                    "metric_gate_policy": "max(raw_go2, filtered)"
+                  }
+                }
+              },
+              "motion_commands": [
+                {
+                  "sequence": 1,
+                  "phase": "recovery_turn_toward_home",
+                  "recorded_monotonic_s": 4205.297422127,
+                  "forward_mps": 0.0,
+                  "yaw_rps": -0.5,
+                  "reason": "measured_turn"
+                },
+                {
+                  "sequence": 2,
+                  "phase": "recovery_turn_toward_home",
+                  "recorded_monotonic_s": 4205.402976899,
+                  "forward_mps": 0.0,
+                  "yaw_rps": -0.5,
+                  "reason": "measured_turn"
+                },
+                {
+                  "sequence": 3,
+                  "phase": "recovery_turn_toward_home",
+                  "recorded_monotonic_s": 4205.511416993,
+                  "forward_mps": 0.0,
+                  "yaw_rps": -0.5,
+                  "reason": "measured_turn"
+                },
+                {
+                  "sequence": 4,
+                  "phase": "recovery_turn_toward_home",
+                  "recorded_monotonic_s": 4205.617703695,
+                  "forward_mps": 0.0,
+                  "yaw_rps": -0.5,
+                  "reason": "measured_turn"
+                },
+                {
+                  "sequence": 5,
+                  "phase": "recovery_turn_toward_home",
+                  "recorded_monotonic_s": 4205.723013594,
+                  "forward_mps": 0.0,
+                  "yaw_rps": -0.5,
+                  "reason": "measured_turn"
+                },
+                {
+                  "sequence": 6,
+                  "phase": "recovery_turn_toward_home",
+                  "recorded_monotonic_s": 4205.829148387,
+                  "forward_mps": 0.0,
+                  "yaw_rps": -0.5,
+                  "reason": "measured_turn"
+                },
+                {
+                  "sequence": 7,
+                  "phase": "recovery_turn_toward_home",
+                  "recorded_monotonic_s": 4205.933857176,
+                  "forward_mps": 0.0,
+                  "yaw_rps": -0.5,
+                  "reason": "measured_turn"
+                },
+                {
+                  "sequence": 8,
+                  "phase": "recovery_turn_toward_home",
+                  "recorded_monotonic_s": 4206.039021789,
+                  "forward_mps": 0.0,
+                  "yaw_rps": -0.5,
+                  "reason": "measured_turn"
+                },
+                {
+                  "sequence": 9,
+                  "phase": "recovery_turn_toward_home",
+                  "recorded_monotonic_s": 4206.147944556,
+                  "forward_mps": 0.0,
+                  "yaw_rps": -0.5,
+                  "reason": "measured_turn"
+                },
+                {
+                  "sequence": 10,
+                  "phase": "recovery_turn_toward_home",
+                  "recorded_monotonic_s": 4206.260705287,
+                  "forward_mps": 0.0,
+                  "yaw_rps": -0.5,
+                  "reason": "measured_turn"
+                },
+                {
+                  "sequence": 11,
+                  "phase": "recovery_turn_toward_home",
+                  "recorded_monotonic_s": 4206.370066438,
+                  "forward_mps": 0.0,
+                  "yaw_rps": -0.5,
+                  "reason": "measured_turn"
+                },
+                {
+                  "sequence": 12,
+                  "phase": "recovery_turn_toward_home",
+                  "recorded_monotonic_s": 4206.476749411,
+                  "forward_mps": 0.0,
+                  "yaw_rps": -0.5,
+                  "reason": "measured_turn"
+                },
+                {
+                  "sequence": 13,
+                  "phase": "recovery_turn_toward_home",
+                  "recorded_monotonic_s": 4206.587598904,
+                  "forward_mps": 0.0,
+                  "yaw_rps": -0.5,
+                  "reason": "measured_turn"
+                },
+                {
+                  "sequence": 14,
+                  "phase": "recovery_turn_toward_home",
+                  "recorded_monotonic_s": 4206.692998854,
+                  "forward_mps": 0.0,
+                  "yaw_rps": -0.5,
+                  "reason": "measured_turn"
+                },
+                {
+                  "sequence": 15,
+                  "phase": "recovery_turn_toward_home",
+                  "recorded_monotonic_s": 4206.801535078,
+                  "forward_mps": 0.0,
+                  "yaw_rps": -0.5,
+                  "reason": "measured_turn"
+                },
+                {
+                  "sequence": 16,
+                  "phase": "recovery_turn_toward_home",
+                  "recorded_monotonic_s": 4206.908230211,
+                  "forward_mps": 0.0,
+                  "yaw_rps": -0.5,
+                  "reason": "measured_turn"
+                },
+                {
+                  "sequence": 17,
+                  "phase": "recovery_turn_toward_home",
+                  "recorded_monotonic_s": 4207.015515382,
+                  "forward_mps": 0.0,
+                  "yaw_rps": -0.5,
+                  "reason": "measured_turn"
+                },
+                {
+                  "sequence": 18,
+                  "phase": "recovery_turn_toward_home",
+                  "recorded_monotonic_s": 4207.122218035,
+                  "forward_mps": 0.0,
+                  "yaw_rps": -0.5,
+                  "reason": "measured_turn"
+                },
+                {
+                  "sequence": 19,
+                  "phase": "recovery_turn_toward_home",
+                  "recorded_monotonic_s": 4207.227869866,
+                  "forward_mps": 0.0,
+                  "yaw_rps": -0.5,
+                  "reason": "measured_turn"
+                },
+                {
+                  "sequence": 20,
+                  "phase": "recovery_turn_toward_home",
+                  "recorded_monotonic_s": 4207.334774863,
+                  "forward_mps": 0.0,
+                  "yaw_rps": -0.5,
+                  "reason": "measured_turn"
+                },
+                {
+                  "sequence": 21,
+                  "phase": "recovery_turn_toward_home",
+                  "recorded_monotonic_s": 4207.442158597,
+                  "forward_mps": 0.0,
+                  "yaw_rps": -0.5,
+                  "reason": "measured_turn"
+                },
+                {
+                  "sequence": 22,
+                  "phase": "recovery_turn_toward_home",
+                  "recorded_monotonic_s": 4207.548110183,
+                  "forward_mps": 0.0,
+                  "yaw_rps": -0.5,
+                  "reason": "measured_turn"
+                },
+                {
+                  "sequence": 23,
+                  "phase": "recovery_turn_toward_home",
+                  "recorded_monotonic_s": 4207.653492308,
+                  "forward_mps": 0.0,
+                  "yaw_rps": -0.5,
+                  "reason": "measured_turn"
+                }
+              ]
+            }
+          }
+        ],
+        "attempt_number": 1,
+        "final_evidence": {
+          "hardware": {
+            "configured": true,
+            "autonomy_enabled": true,
+            "lab_motion_enabled": false,
+            "clients_initialized": true,
+            "connected": true,
+            "fault": null,
+            "network_interface": "enP8p1s0",
+            "active_operation": null,
+            "can_pulse_forward": false,
+            "forward_pulse": {
+              "mps": 0.55,
+              "duration_s": 0.4,
+              "confirmation": "PATH CLEAR - MOVE WOOF FORWARD"
+            },
+            "motion": {
+              "initialized": true,
+              "closed": false,
+              "armed": false,
+              "mode": null,
+              "fault": null,
+              "avoidance_enabled": false,
+              "remote_api_enabled": false,
+              "watchdog_s": 0.35,
+              "limits": {
+                "minimum_forward_mps": 0.55,
+                "forward_mps": 1.0,
+                "yaw_rps": 1.0,
+                "lateral_mps": 0.0,
+                "reverse_allowed": false
+              },
+              "last_command": {
+                "forward_mps": 0.0,
+                "yaw_rps": 0.0,
+                "reason": "released"
+              },
+              "guardian": {
+                "generation": 17,
+                "active": false,
+                "run_id": null,
+                "epoch": null,
+                "operation": null,
+                "allow_forward": null,
+                "expires_in_s": null,
+                "trip_reason": "motion released"
+              }
+            },
+            "pose": {
+              "healthy": true,
+              "age_s": 0.0,
+              "error": null,
+              "sample_rejection": null,
+              "pose": {
+                "x_m": 0.2425,
+                "y_m": 0.2399,
+                "yaw_rad": -1.7181,
+                "captured_monotonic_s": 4210.547015563
+              },
+              "motion": {
+                "source_timestamp_s": 1785176834.4166307,
+                "velocity_x_mps": 0.009383720345795155,
+                "velocity_y_mps": 0.01381820347160101,
+                "yaw_rate_rps": -0.07243797183036804,
+                "imu_yaw_rate_rps": -0.07243797183036804,
+                "mode": 0,
+                "gait_type": 0,
+                "obstacle_ranges_m": [
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "foot_force": [
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "contact_feet": 0,
+                "stationary_stance": true,
+                "stationary_evidence_source": "verified_posture_kinematics",
+                "velocity_frame": "body_forward_left"
+              }
+            },
+            "home_localization": {
+              "metric_source": "rt/sportmodestate",
+              "visual_source_configured": true,
+              "visual_backend": "cpu_sparse_image_motion",
+              "visual_metric_scale": false,
+              "visual_home_baseline_captured": true,
+              "stateful_planar_fusion_initialized": true,
+              "fusion_model": "diagonal_covariance_kalman",
+              "fusion_state": [
+                "x",
+                "y",
+                "yaw",
+                "vx",
+                "vy",
+                "yaw_bias"
+              ],
+              "maximum_odometry_age_s": 0.5,
+              "maximum_visual_age_s": 0.75,
+              "minimum_visual_quality": 0.55,
+              "maximum_visual_yaw_disagreement_rad": 0.3490658503988659
+            },
+            "continuous_home_fusion": {
+              "running": true,
+              "interval_s": 0.2,
+              "consecutive_trusted_samples": 291,
+              "latest_age_s": 0.07846277200042096,
+              "latest": {
+                "trusted": true,
+                "unavailable_reason": null,
+                "covariance": {
+                  "x_variance_m2": 0.0003590656924462463,
+                  "y_variance_m2": 0.0003590656924462463,
+                  "heading_variance_rad2": 0.0006780100204261955,
+                  "velocity_x_variance_m2ps2": 0.00019867202013865626,
+                  "velocity_y_variance_m2ps2": 0.00019867202013865626,
+                  "yaw_bias_variance_rps2": 9.811309085228025e-06,
+                  "position_sigma_m": 0.018949028799551872,
+                  "heading_sigma_rad": 0.026038625547946948
+                },
+                "evidence": {
+                  "state": "updated",
+                  "dt_s": 0.04799962043762207,
+                  "sources": [
+                    "process_model",
+                    "go2_pose",
+                    "go2_velocity",
+                    "stance_zero_velocity"
+                  ],
+                  "innovations": {
+                    "go2_position_m": 0.0010611875420791926,
+                    "go2_heading_rad": 0.011467579784874891
+                  },
+                  "zero_velocity_update": true,
+                  "visual": {
+                    "state": "not_observed"
+                  },
+                  "go2_measurement": {
+                    "state": "fused",
+                    "position_gain": 0.2244160577789039,
+                    "heading_gain": 0.13911097502666916
+                  },
+                  "velocity": {
+                    "state": "fused",
+                    "gain": 0.16978592648056046,
+                    "home_x_mps": -0.014791534854676457,
+                    "home_y_mps": -0.008420665315760072
+                  }
+                },
+                "recorded_monotonic_s": 4210.468952229
+              }
+            },
+            "metric_arrival_required": false,
+            "metric_arrival": {
+              "configured": true,
+              "forward_index": 0,
+              "sensor_to_front_envelope_m": 0.0,
+              "sensor_latency_s": 0.2,
+              "braking_distance_m": 0.02,
+              "noise_m": 0.02,
+              "target_clearance_m": 0.4572,
+              "tolerance_m": 0.0508,
+              "maximum_age_s": 0.3,
+              "ready": true,
+              "range_provider": null
+            },
+            "last_pulse": null
+          },
+          "stop_errors": [],
+          "exception_type": "HardwareUnavailable",
+          "exception_message": "return Home stalled 1.574 m from its active waypoint",
+          "motion_commands": [
+            {
+              "sequence": 1,
+              "phase": "recovery_return_home",
+              "recorded_monotonic_s": 4208.428773357,
+              "forward_mps": 0.0,
+              "yaw_rps": -0.3,
+              "reason": "return_course_correction"
+            },
+            {
+              "sequence": 2,
+              "phase": "recovery_return_home",
+              "recorded_monotonic_s": 4208.542016281,
+              "forward_mps": 0.0,
+              "yaw_rps": -0.3,
+              "reason": "return_course_correction"
+            },
+            {
+              "sequence": 3,
+              "phase": "recovery_return_home",
+              "recorded_monotonic_s": 4208.652862446,
+              "forward_mps": 0.0,
+              "yaw_rps": -0.3,
+              "reason": "return_course_correction"
+            },
+            {
+              "sequence": 4,
+              "phase": "recovery_return_home",
+              "recorded_monotonic_s": 4208.76533827,
+              "forward_mps": 0.0,
+              "yaw_rps": -0.3,
+              "reason": "return_course_correction"
+            },
+            {
+              "sequence": 5,
+              "phase": "recovery_return_home",
+              "recorded_monotonic_s": 4208.876495325,
+              "forward_mps": 0.0,
+              "yaw_rps": -0.3,
+              "reason": "return_course_correction"
+            },
+            {
+              "sequence": 6,
+              "phase": "recovery_return_home",
+              "recorded_monotonic_s": 4208.992636627,
+              "forward_mps": 0.0,
+              "yaw_rps": -0.3,
+              "reason": "return_course_correction"
+            },
+            {
+              "sequence": 7,
+              "phase": "recovery_return_home",
+              "recorded_monotonic_s": 4209.109096533,
+              "forward_mps": 0.0,
+              "yaw_rps": -0.3,
+              "reason": "return_course_correction"
+            },
+            {
+              "sequence": 8,
+              "phase": "recovery_return_home",
+              "recorded_monotonic_s": 4209.221238521,
+              "forward_mps": 0.0,
+              "yaw_rps": -0.3,
+              "reason": "return_course_correction"
+            },
+            {
+              "sequence": 9,
+              "phase": "recovery_return_home",
+              "recorded_monotonic_s": 4209.334719277,
+              "forward_mps": 0.0,
+              "yaw_rps": -0.3,
+              "reason": "return_course_correction"
+            },
+            {
+              "sequence": 10,
+              "phase": "recovery_return_home",
+              "recorded_monotonic_s": 4209.445662565,
+              "forward_mps": 0.0,
+              "yaw_rps": -0.3,
+              "reason": "return_course_correction"
+            },
+            {
+              "sequence": 11,
+              "phase": "recovery_return_home",
+              "recorded_monotonic_s": 4209.638954528,
+              "forward_mps": 0.0,
+              "yaw_rps": -0.3,
+              "reason": "return_course_correction"
+            },
+            {
+              "sequence": 12,
+              "phase": "recovery_return_home",
+              "recorded_monotonic_s": 4209.751434703,
+              "forward_mps": 0.0,
+              "yaw_rps": -0.3,
+              "reason": "return_course_correction"
+            },
+            {
+              "sequence": 13,
+              "phase": "recovery_return_home",
+              "recorded_monotonic_s": 4209.864166184,
+              "forward_mps": 0.0,
+              "yaw_rps": -0.3,
+              "reason": "return_course_correction"
+            },
+            {
+              "sequence": 14,
+              "phase": "recovery_return_home",
+              "recorded_monotonic_s": 4209.975584177,
+              "forward_mps": 0.0,
+              "yaw_rps": -0.3,
+              "reason": "return_course_correction"
+            },
+            {
+              "sequence": 15,
+              "phase": "recovery_return_home",
+              "recorded_monotonic_s": 4210.088829501,
+              "forward_mps": 0.0,
+              "yaw_rps": -0.3,
+              "reason": "return_course_correction"
+            },
+            {
+              "sequence": 16,
+              "phase": "recovery_return_home",
+              "recorded_monotonic_s": 4210.200711159,
+              "forward_mps": 0.0,
+              "yaw_rps": -0.3,
+              "reason": "return_course_correction"
+            },
+            {
+              "sequence": 17,
+              "phase": "recovery_return_home",
+              "recorded_monotonic_s": 4210.31295011,
+              "forward_mps": 0.0,
+              "yaw_rps": -0.3,
+              "reason": "return_course_correction"
+            },
+            {
+              "sequence": 18,
+              "phase": "recovery_return_home",
+              "recorded_monotonic_s": 4210.428207859,
+              "forward_mps": 0.0,
+              "yaw_rps": -0.3,
+              "reason": "return_course_correction"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "aborted": "run 1 failed and Home recovery ended FAILED / RECOVERY_FAILURE",
+  "scorecard": {
+    "recorded_only": true,
+    "note": "criteria are recorded, never enforced; the session continues regardless",
+    "criteria": {
+      "completion": {
+        "passed": false,
+        "completed": 0,
+        "attempted": 1,
+        "target_runs": 10,
+        "remote_takeovers": 0,
+        "harness_stops": 0
+      },
+      "home_gate": {
+        "passed": false,
+        "gate_m": 0.1,
+        "max_m": 1.8595,
+        "per_run": [
+          1.8595
+        ],
+        "missing_measurements": 0
+      },
+      "fruit_coverage": {
+        "passed": false,
+        "minimum_successes": 2,
+        "required_fruits": [
+          "apple",
+          "banana",
+          "pear"
+        ],
+        "per_fruit": {
+          "apple": {
+            "attempts": 0,
+            "successes": 0
+          },
+          "banana": {
+            "attempts": 1,
+            "successes": 0
+          },
+          "pear": {
+            "attempts": 0,
+            "successes": 0
+          }
+        }
+      },
+      "approach_confidence_floor": {
+        "passed": true,
+        "per_run": [
+          {
+            "number": 1,
+            "fruit": "banana",
+            "floor": 0.55,
+            "min_confidence": 0.6462,
+            "held": true
+          }
+        ]
+      },
+      "network_stability": {
+        "passed": false,
+        "cutouts": 1,
+        "worst_p95_ms": 59.5,
+        "p95_limit_ms": 250.0
+      },
+      "thermal_trend": {
+        "passed": null,
+        "detail": "temperatures not measured (or <2 runs)"
+      },
+      "dongle_visible": {
+        "passed": null,
+        "detail": "dongle not probed (enable --device-probes and --dongle-match)"
+      }
+    },
+    "failure_counts": {
+      "total_failed_runs": 1,
+      "by_reason": {
+        "RETURN_HOME_FAILURE": 1
+      },
+      "by_failed_phase": {
+        "return_home": 1
+      },
+      "by_category": {
+        "return_home": 1
+      },
+      "by_category_and_fruit": {
+        "return_home:banana": 1
+      },
+      "observations_not_failure_causes": {
+        "network_poll_errors": 1,
+        "zero_degree_orientation_runs": 1
+      },
+      "attribution_note": "network polling errors and the 0-degree orientation setting are observations, not attributed mission failure causes"
+    },
+    "observations": {
+      "approach_min_confidence_by_fruit": {
+        "banana": {
+          "min": 0.646,
+          "mean": 0.646,
+          "runs": 1
+        }
+      },
+      "acquisition_seconds_by_fruit": {
+        "banana": [
+          1.91
+        ]
+      },
+      "lighting_frames": [
+        "benchmarks/results/search-fast-lock-frames/run-01-start.jpg"
+      ]
+    }
+  },
+  "failure_counts": {
+    "total_failed_runs": 1,
+    "by_reason": {
+      "RETURN_HOME_FAILURE": 1
+    },
+    "by_failed_phase": {
+      "return_home": 1
+    },
+    "by_category": {
+      "return_home": 1
+    },
+    "by_category_and_fruit": {
+      "return_home:banana": 1
+    },
+    "observations_not_failure_causes": {
+      "network_poll_errors": 1,
+      "zero_degree_orientation_runs": 1
+    },
+    "attribution_note": "network polling errors and the 0-degree orientation setting are observations, not attributed mission failure causes"
+  }
+}

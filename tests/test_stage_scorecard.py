@@ -82,6 +82,26 @@ def test_failures_are_recorded_not_raised():
     assert banana_entries[1]["held"] is True  # 0.6 >= 0.55
 
 
+def test_apple_scorecard_uses_the_fifty_percent_experiment_floor():
+    session = {
+        "target_runs": 1,
+        "runs": [make_run(1, "apple", min_conf=0.50)],
+    }
+
+    criterion = score_session(session)["criteria"]["approach_confidence_floor"]
+
+    assert criterion["passed"] is True
+    assert criterion["per_run"] == [
+        {
+            "number": 1,
+            "fruit": "apple",
+            "min_confidence": 0.50,
+            "floor": 0.50,
+            "held": True,
+        }
+    ]
+
+
 def test_unmeasured_criteria_are_null_not_failed():
     session = {"target_runs": 2, "runs": [make_run(1), make_run(2)]}
     criteria = score_session(session)["criteria"]

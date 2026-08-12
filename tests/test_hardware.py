@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import math
 import time
 from itertools import pairwise
@@ -8,6 +9,7 @@ from itertools import pairwise
 import pytest
 
 from border_collie_demo.config import HardwareConfig
+from border_collie_demo.flight_recorder import FlightRecorder
 from border_collie_demo.go2_lidar import LidarHandoffObservation
 from border_collie_demo.go2_motion import MotionConfig
 from border_collie_demo.go2_pose import Go2MotionEvidence, PoseStatus
@@ -21,6 +23,7 @@ from border_collie_demo.hardware import (
 )
 from border_collie_demo.models import Pose, VelocityCommand
 from border_collie_demo.qualified_tracking import SearchQualificationHandoff
+from border_collie_demo.search_policy import SearchPolicy
 from border_collie_demo.target_range import MetricArrivalGate, RangeCalibration
 
 
@@ -264,6 +267,25 @@ class ReturningPose(FakePose):
         )
 
 
+class CommandDrivenReturningPose(FakePose):
+    """Return trace fixture whose pose cadence is independent of instrumentation."""
+
+    def __init__(self, motion: FakeMotion) -> None:
+        super().__init__()
+        self._motion = motion
+
+    def status(self) -> PoseStatus:
+        positions = (0.8, 0.5, 0.2, 0.09)
+        index = min(len(self._motion.commands), len(positions) - 1)
+        x_m = positions[index]
+        return PoseStatus(
+            Pose(x_m, 0.0, math.pi, 1.0 + index * 0.1),
+            0.0,
+            self.started,
+            None if self.started else "pose unavailable",
+        )
+
+
 class BreadcrumbPose(FakePose):
     def __init__(self) -> None:
         super().__init__()
@@ -440,6 +462,46 @@ def test_continuous_fusion_adapter_failure_is_recorded_untrusted() -> None:
     asyncio.run(scenario())
 
 
+def test_continuous_home_fusion_is_written_to_the_run_black_box(tmp_path) -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        pose = ContinuousFusionPose()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: pose,
+        )
+        recorder = FlightRecorder(tmp_path)
+        manager.set_flight_recorder(recorder)
+        manager.set_motion_authority("run-1", "epoch-1", "capture_home")
+        await manager.start()
+        manager.capture_home()
+
+        manager.ingest_home_fusion_sample()
+        trace = recorder.snapshot_run("run-1")
+        events = [json.loads(line) for line in trace.artifact.content.splitlines()]
+
+        fusion_events = [
+            event for event in events if event["kind"] == "home_fusion_sample"
+        ]
+        assert len(fusion_events) == 1
+        payload = fusion_events[0]["payload"]
+        assert payload["epoch"] == "epoch-1"
+        assert payload["phase"] == "capture_home"
+        assert payload["raw_pose"]["pose"] == {
+            "x_m": 0.0,
+            "y_m": 0.0,
+            "yaw_rad": 0.0,
+            "captured_monotonic_s": 0.4,
+        }
+        assert payload["estimate"]["trusted"] is True
+        assert "covariance" in payload["estimate"]
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
 def test_measured_turn_stops_from_fresh_pose_progress() -> None:
     async def scenario() -> None:
         motion = FakeMotion()
@@ -565,6 +627,391 @@ def test_find_target_turns_until_fresh_stable_perception_then_stops() -> None:
     asyncio.run(scenario())
 
 
+def test_find_target_fast_lock_replays_three_fresh_apple_observations() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: TurningPose(),
+            search_policy=SearchPolicy.named("fast-lock"),
+        )
+        await manager.start()
+
+        def apple_observation(consecutive: int, pts: int) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": False,
+                "generation": "camera-apple",
+                "source": {
+                    "pts": pts,
+                    "time_base": "1/90000",
+                    "age_s": 0.02,
+                },
+                "detection": {
+                    "label": "apple",
+                    "generation": "camera-apple",
+                    "source_pts": pts,
+                    "source_time_base": "1/90000",
+                    "confidence": 0.78,
+                    "consecutive_detections": consecutive,
+                    "inference_s": 0.08,
+                    "age_s": 0.03,
+                    "center_x_ratio": 0.48,
+                    "center_y_ratio": 0.55,
+                    "bottom_ratio": 0.67,
+                    "bbox_area_ratio": 0.04,
+                },
+            }
+
+        statuses = iter(
+            (
+                apple_observation(1, 100),
+                apple_observation(2, 200),
+                apple_observation(3, 300),
+            )
+        )
+
+        result = await manager.find_target(
+            lambda: next(statuses),
+            "apple",
+            yaw_rps=1.0,
+            sweep_rad=2.0 * math.pi,
+            timeout_s=1.0,
+        )
+
+        assert result["stable_detections"] == 3
+        assert result["recognition"]["search_policy"] == "fast-lock"
+        assert result["recognition"]["search_lock_minimum_detections"] == 3
+        assert result["search_qualification"]["stable_detections"] == 3
+        assert all(command.forward_mps == 0.0 for command in motion.commands)
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_find_target_slow_sweep_locks_three_fresh_apple_observations() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: TurningPose(),
+            search_policy=SearchPolicy.named("slow-sweep"),
+        )
+        await manager.start()
+
+        def apple_observation(consecutive: int, pts: int) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": False,
+                "generation": "camera-apple",
+                "source": {
+                    "pts": pts,
+                    "time_base": "1/90000",
+                    "age_s": 0.02,
+                },
+                "detection": {
+                    "label": "apple",
+                    "generation": "camera-apple",
+                    "source_pts": pts,
+                    "source_time_base": "1/90000",
+                    "confidence": 0.78,
+                    "consecutive_detections": consecutive,
+                    "inference_s": 0.08,
+                    "age_s": 0.03,
+                    "center_x_ratio": 0.48,
+                    "center_y_ratio": 0.55,
+                    "bottom_ratio": 0.67,
+                    "bbox_area_ratio": 0.04,
+                },
+            }
+
+        statuses = iter(
+            (
+                apple_observation(1, 100),
+                apple_observation(2, 200),
+                apple_observation(3, 300),
+            )
+        )
+
+        result = await manager.find_target(
+            lambda: next(statuses),
+            "apple",
+            yaw_rps=0.5,
+            sweep_rad=2.0 * math.pi,
+            timeout_s=1.0,
+        )
+
+        assert result["stable_detections"] == 3
+        assert result["recognition"]["search_policy"] == "slow-sweep"
+        assert result["recognition"]["search_lock_minimum_detections"] == 3
+        assert result["search_qualification"]["stable_detections"] == 3
+        assert all(command.forward_mps == 0.0 for command in motion.commands)
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_find_target_double_back_revisits_a_high_confidence_apple_bearing() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        clock = 0.0
+
+        def monotonic() -> float:
+            return clock
+
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+            search_policy=SearchPolicy.named("double-back"),
+            monotonic=monotonic,
+        )
+        await manager.start()
+
+        def apple(
+            source_pts: int,
+            consecutive: int,
+            *,
+            ready: bool = False,
+        ) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": ready,
+                "generation": "camera-1",
+                "source": {
+                    "pts": source_pts,
+                    "time_base": "1/90000",
+                    "age_s": 0.02,
+                },
+                "detection": {
+                    "label": "apple",
+                    "generation": "camera-1",
+                    "source_pts": source_pts,
+                    "source_time_base": "1/90000",
+                    "confidence": 0.806853175163269,
+                    "consecutive_detections": consecutive,
+                    "inference_s": 0.08,
+                    "age_s": 0.01,
+                    "center_x_ratio": 0.44,
+                    "center_y_ratio": 0.50,
+                    "bottom_ratio": 0.64,
+                    "bbox_area_ratio": 0.04,
+                },
+            }
+
+        statuses = iter(
+            (
+                {"camera_healthy": True, "target_ready": False},
+                apple(100, 2),
+                {"camera_healthy": True, "target_ready": False},
+                {"camera_healthy": True, "target_ready": False},
+                {"camera_healthy": True, "target_ready": False},
+                {"camera_healthy": True, "target_ready": False},
+                apple(200, 2),
+                apple(300, 3, ready=True),
+            )
+        )
+
+        def read_status() -> dict[str, object]:
+            nonlocal clock
+            clock += 0.2
+            return next(statuses)
+
+        result = await manager.find_target(
+            read_status,
+            "apple",
+            yaw_rps=1.0,
+            sweep_rad=2.0 * math.pi,
+            timeout_s=5.0,
+        )
+
+        assert result["recognition"]["search_policy"] == "double-back"
+        assert result["recognition"]["double_back_episodes"] == 1
+        assert any(
+            command.reason == "candidate_double_back" and command.yaw_rps < 0.0
+            for command in motion.commands
+        )
+        assert all(command.forward_mps == 0.0 for command in motion.commands)
+        assert result["stable_detections"] == 3
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "candidate",
+    (
+        {"label": "apple", "confidence": 0.49, "age_s": 0.01},
+        {"label": "pear", "confidence": 0.95, "age_s": 0.01},
+        {"label": "apple", "confidence": 0.95, "age_s": 0.251},
+        {
+            "label": "apple",
+            "generation": "camera-old",
+            "confidence": 0.95,
+            "age_s": 0.01,
+        },
+    ),
+)
+def test_double_back_ignores_unsafe_candidate_evidence(
+    candidate: dict[str, object],
+) -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        configured_candidate = {
+            "generation": "camera-1",
+            "source_pts": 100,
+            "source_time_base": "1/90000",
+            "consecutive_detections": 1,
+            **candidate,
+        }
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+            search_policy=SearchPolicy.named("double-back"),
+        )
+        await manager.start()
+        statuses = iter(
+            (
+                {
+                    "camera_healthy": True,
+                    "target_ready": False,
+                    "generation": "camera-1",
+                    "source": {"pts": 100, "time_base": "1/90000"},
+                    "detection": configured_candidate,
+                },
+                {
+                    "camera_healthy": True,
+                    "target_ready": True,
+                    "generation": "camera-1",
+                    "source": {
+                        "pts": 200,
+                        "time_base": "1/90000",
+                        "age_s": 0.02,
+                    },
+                    "detection": {
+                        "label": "apple",
+                        "generation": "camera-1",
+                        "source_pts": 200,
+                        "source_time_base": "1/90000",
+                        "confidence": 0.85,
+                        "consecutive_detections": 3,
+                        "inference_s": 0.08,
+                        "age_s": 0.01,
+                        "center_x_ratio": 0.5,
+                        "center_y_ratio": 0.5,
+                        "bottom_ratio": 0.65,
+                        "bbox_area_ratio": 0.04,
+                    },
+                },
+            )
+        )
+
+        result = await manager.find_target(
+            lambda: next(statuses),
+            "apple",
+            yaw_rps=1.0,
+            sweep_rad=2.0 * math.pi,
+            timeout_s=0.5,
+        )
+
+        assert [command.reason for command in motion.commands] == ["find_target"]
+        assert result["recognition"]["double_back_episodes"] == 0
+        assert all(command.forward_mps == 0.0 for command in motion.commands)
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_double_back_one_frame_noise_is_bounded_then_search_resumes() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        clock = 0.0
+        sample = 0
+
+        def monotonic() -> float:
+            return clock
+
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+            search_policy=SearchPolicy.named("double-back"),
+            monotonic=monotonic,
+        )
+        await manager.start()
+
+        def detection(pts: int, consecutive: int, ready: bool) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": ready,
+                "generation": "camera-1",
+                "source": {
+                    "pts": pts,
+                    "time_base": "1/90000",
+                    "age_s": 0.02,
+                },
+                "detection": {
+                    "label": "apple",
+                    "generation": "camera-1",
+                    "source_pts": pts,
+                    "source_time_base": "1/90000",
+                    "confidence": 0.81,
+                    "consecutive_detections": consecutive,
+                    "inference_s": 0.08,
+                    "age_s": 0.01,
+                    "center_x_ratio": 0.5,
+                    "center_y_ratio": 0.5,
+                    "bottom_ratio": 0.65,
+                    "bbox_area_ratio": 0.04,
+                },
+            }
+
+        def read_status() -> dict[str, object]:
+            nonlocal clock, sample
+            clock += 0.2
+            sample += 1
+            if sample == 1:
+                return detection(100, 1, False)
+            if sample == 14:
+                return detection(200, 3, True)
+            return {"camera_healthy": True, "target_ready": False}
+
+        result = await manager.find_target(
+            read_status,
+            "apple",
+            yaw_rps=1.0,
+            sweep_rad=2.0 * math.pi,
+            timeout_s=5.0,
+        )
+
+        reverse = [
+            command
+            for command in motion.commands
+            if command.reason == "candidate_double_back"
+        ]
+        assert 1 <= len(reverse) <= 4
+        assert any(command.reason == "find_target" for command in motion.commands[8:])
+        assert result["recognition"]["double_back_episodes"] == 1
+        assert result["recognition"]["double_back_maximum_episodes"] == 2
+        assert all(command.forward_mps == 0.0 for command in motion.commands)
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
 def test_find_target_holds_during_crop_confirmation() -> None:
     async def scenario() -> None:
         motion = FakeMotion()
@@ -584,6 +1031,7 @@ def test_find_target_holds_during_crop_confirmation() -> None:
                 "confidence": 0.58,
                 "consecutive_detections": 0,
                 "age_s": 0.01,
+                "center_x_ratio": 0.50,
                 "crop_confirmation": {
                     "attempted": True,
                     "promoted": False,
@@ -632,9 +1080,9 @@ def test_find_target_holds_during_crop_confirmation() -> None:
         reasons = [command.reason for command in motion.commands]
         assert reasons == [
             "find_target",
-            "crop_confirm_hold",
-            "crop_confirm_hold",
-            "crop_confirm_hold",
+            "candidate_alignment_hold",
+            "candidate_alignment_hold",
+            "candidate_alignment_hold_lost",
         ]
         assert [command.yaw_rps for command in motion.commands] == [
             0.50,
@@ -643,7 +1091,7 @@ def test_find_target_holds_during_crop_confirmation() -> None:
             0.0,
         ]
         assert result["recognition"]["crop_confirmation_samples"] == 2
-        assert result["recognition"]["crop_slowdown_hold_samples"] == 3
+        assert result["recognition"]["crop_slowdown_hold_samples"] == 2
         assert result["recognition"].get("crop_slowdown_turn_samples", 0) == 0
         assert result["recognition"]["crop_candidate_confidence_threshold"] == 0.50
         assert motion.armed is False
@@ -652,7 +1100,7 @@ def test_find_target_holds_during_crop_confirmation() -> None:
     asyncio.run(scenario())
 
 
-def test_find_target_resumes_candidate_tracking_at_half_rate_after_hold() -> None:
+def test_find_target_centers_candidate_at_fine_rate_after_hold() -> None:
     async def scenario() -> None:
         motion = FakeMotion()
         clock = 0.0
@@ -678,6 +1126,7 @@ def test_find_target_resumes_candidate_tracking_at_half_rate_after_hold() -> Non
                     "confidence": 0.85,
                     "consecutive_detections": consecutive,
                     "age_s": 0.01,
+                    "center_x_ratio": 0.20,
                 },
             }
 
@@ -708,23 +1157,23 @@ def test_find_target_resumes_candidate_tracking_at_half_rate_after_hold() -> Non
 
         assert result["stable_detections"] == 5
         assert [command.reason for command in motion.commands] == [
-            "crop_confirm_hold",
-            "crop_confirm_hold",
-            "crop_confirm_hold",
-            "crop_confirm_hold",
-            "crop_confirm_slow_turn",
-            "crop_confirm_slow_turn",
+            "candidate_alignment_hold",
+            "candidate_alignment_hold",
+            "candidate_alignment_hold",
+            "candidate_alignment_hold",
+            "candidate_alignment_turn",
+            "candidate_alignment_turn",
         ]
         assert [command.yaw_rps for command in motion.commands] == [
             0.0,
             0.0,
             0.0,
             0.0,
-            0.5,
-            0.5,
+            0.2,
+            0.2,
         ]
         assert result["recognition"]["candidate_lock_hold_s"] == 0.75
-        assert result["recognition"]["candidate_lock_yaw_rps"] == 0.5
+        assert result["recognition"]["candidate_lock_yaw_rps"] == 0.2
         assert result["recognition"]["crop_slowdown_hold_samples"] == 4
         assert result["recognition"]["crop_slowdown_turn_samples"] == 2
         assert motion.armed is False
@@ -733,7 +1182,195 @@ def test_find_target_resumes_candidate_tracking_at_half_rate_after_hold() -> Non
     asyncio.run(scenario())
 
 
-def test_find_target_returns_to_broad_search_after_candidate_loss() -> None:
+def test_slow_sweep_second_scan_centers_candidate_at_fine_rate() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        clock = 0.0
+
+        def monotonic() -> float:
+            return clock
+
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+            monotonic=monotonic,
+        )
+        await manager.start()
+
+        def candidate(
+            center_x_ratio: float,
+            *,
+            consecutive: int = 0,
+            ready: bool = False,
+        ) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": ready,
+                "detection": {
+                    "label": "pear",
+                    "confidence": 0.66,
+                    "consecutive_detections": consecutive,
+                    "age_s": 0.01,
+                    "center_x_ratio": center_x_ratio,
+                },
+            }
+
+        statuses = iter(
+            (
+                candidate(0.10),
+                candidate(0.10),
+                candidate(0.10),
+                candidate(0.10),
+                candidate(0.10),
+                candidate(0.40),
+                candidate(0.60),
+                candidate(0.70),
+                candidate(0.70),
+                candidate(0.50, consecutive=5, ready=True),
+            )
+        )
+
+        def read_status() -> dict[str, object]:
+            nonlocal clock
+            clock += 0.2
+            return next(statuses)
+
+        result = await manager.find_target(
+            read_status,
+            "pear",
+            yaw_rps=0.50,
+            sweep_rad=2.0 * math.pi,
+            timeout_s=5.0,
+            search_policy=SearchPolicy.named("slow-sweep"),
+        )
+
+        assert result["stable_detections"] == 5
+        assert [command.reason for command in motion.commands] == [
+            "candidate_alignment_hold",
+            "candidate_alignment_hold",
+            "candidate_alignment_hold",
+            "candidate_alignment_hold",
+            "candidate_alignment_turn",
+            "candidate_alignment_centered",
+            "candidate_alignment_centered",
+            "candidate_alignment_confirm_direction",
+            "candidate_alignment_turn",
+        ]
+        assert [command.yaw_rps for command in motion.commands] == [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.20,
+            0.0,
+            0.0,
+            0.0,
+            -0.20,
+        ]
+        assert result["recognition"]["candidate_lock_confidence_threshold"] == 0.50
+        assert result["recognition"]["candidate_alignment_yaw_rps"] == 0.20
+        assert result["recognition"]["candidate_alignment_center_ratio"] == 0.12
+        assert result["recognition"]["candidate_lock_count"] == 1
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_slow_sweep_second_scan_holds_through_brief_candidate_loss() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        clock = 0.0
+
+        def monotonic() -> float:
+            return clock
+
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+            monotonic=monotonic,
+        )
+        await manager.start()
+
+        candidate = {
+            "camera_healthy": True,
+            "target_ready": False,
+            "detection": {
+                "label": "pear",
+                "confidence": 0.66,
+                "consecutive_detections": 1,
+                "age_s": 0.01,
+                "center_x_ratio": 0.20,
+            },
+        }
+        missing = {"camera_healthy": True, "target_ready": False}
+        statuses = iter(
+            (
+                candidate,
+                missing,
+                missing,
+                missing,
+                missing,
+                missing,
+                missing,
+                {
+                    "camera_healthy": True,
+                    "target_ready": True,
+                    "detection": {
+                        "label": "pear",
+                        "confidence": 0.70,
+                        "consecutive_detections": 5,
+                    },
+                },
+            )
+        )
+
+        def read_status() -> dict[str, object]:
+            nonlocal clock
+            clock += 0.2
+            return next(statuses)
+
+        result = await manager.find_target(
+            read_status,
+            "pear",
+            yaw_rps=0.50,
+            sweep_rad=2.0 * math.pi,
+            timeout_s=5.0,
+            search_policy=SearchPolicy.named("slow-sweep"),
+        )
+
+        assert result["stable_detections"] == 5
+        assert [command.reason for command in motion.commands] == [
+            "candidate_alignment_hold",
+            "candidate_alignment_hold_lost",
+            "candidate_alignment_hold_lost",
+            "candidate_alignment_hold_lost",
+            "candidate_alignment_hold_lost",
+            "candidate_alignment_hold_lost",
+            "find_target",
+        ]
+        assert [command.yaw_rps for command in motion.commands] == [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.50,
+        ]
+        assert result["recognition"]["candidate_lock_count"] == 1
+        assert result["recognition"]["candidate_lock_losses"] == 1
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_find_target_returns_to_broad_search_after_bounded_candidate_loss() -> None:
     async def scenario() -> None:
         motion = FakeMotion()
         clock = 0.0
@@ -760,8 +1397,12 @@ def test_find_target_returns_to_broad_search_after_candidate_loss() -> None:
                         "confidence": 0.85,
                         "consecutive_detections": 1,
                         "age_s": 0.01,
+                        "center_x_ratio": 0.20,
                     },
                 },
+                {"camera_healthy": True, "target_ready": False},
+                {"camera_healthy": True, "target_ready": False},
+                {"camera_healthy": True, "target_ready": False},
                 {"camera_healthy": True, "target_ready": False},
                 {"camera_healthy": True, "target_ready": False},
                 {"camera_healthy": True, "target_ready": False},
@@ -792,12 +1433,18 @@ def test_find_target_returns_to_broad_search_after_candidate_loss() -> None:
 
         assert result["stable_detections"] == 5
         assert [command.reason for command in motion.commands] == [
-            "crop_confirm_hold",
-            "crop_confirm_hold",
-            "crop_confirm_hold",
+            "candidate_alignment_hold",
+            "candidate_alignment_hold_lost",
+            "candidate_alignment_hold_lost",
+            "candidate_alignment_hold_lost",
+            "candidate_alignment_hold_lost",
+            "candidate_alignment_hold_lost",
             "find_target",
         ]
         assert [command.yaw_rps for command in motion.commands] == [
+            0.0,
+            0.0,
+            0.0,
             0.0,
             0.0,
             0.0,
@@ -904,6 +1551,7 @@ def test_find_target_holds_a_plausible_pear_long_enough_to_qualify() -> None:
                     "confidence": 0.85,
                     "consecutive_detections": consecutive,
                     "age_s": 0.01,
+                    "center_x_ratio": 0.50,
                     "crop_confirmation": {
                         "attempted": True,
                         "promoted": ready,
@@ -936,11 +1584,11 @@ def test_find_target_holds_a_plausible_pear_long_enough_to_qualify() -> None:
         assert result["stable_detections"] == 5
         assert [command.reason for command in motion.commands] == [
             "find_target",
-            "crop_confirm_hold",
-            "crop_confirm_hold",
-            "crop_confirm_hold",
-            "crop_confirm_hold",
-            "crop_confirm_hold",
+            "candidate_alignment_hold",
+            "candidate_alignment_hold",
+            "candidate_alignment_hold",
+            "candidate_alignment_hold",
+            "candidate_alignment_hold",
         ]
         assert [command.yaw_rps for command in motion.commands] == [
             1.0,
@@ -1016,13 +1664,15 @@ def test_failed_search_reports_the_best_distant_pear_evidence() -> None:
                 timeout_s=0.25,
             )
 
-        assert failure.value.evidence == {
-            "samples": 2,
-            "pear_candidate_samples": 2,
-            "maximum_confidence": 0.03,
-            "maximum_consecutive_detections": 0,
-            "maximum_bbox_area_ratio": 0.04,
-            "closest_detection": {
+            assert failure.value.evidence == {
+                "samples": 2,
+                "pear_candidate_samples": 2,
+                "maximum_confidence": 0.03,
+                "maximum_consecutive_detections": 0,
+                "maximum_bbox_area_ratio": 0.04,
+                "search_policy": "slow-sweep",
+                "search_lock_minimum_detections": 5,
+                "closest_detection": {
                 "source_pts": 200,
                 "confidence": 0.03,
                 "bbox_xyxy": [100, 100, 356, 244],
@@ -1895,7 +2545,7 @@ def test_approach_replays_search_qualified_apple_confidence_drop() -> None:
         ) -> dict[str, object]:
             return {
                 "camera_healthy": True,
-                "target_ready": confidence >= 0.70,
+                "target_ready": confidence >= 0.50,
                 "generation": "camera-1",
                 "source": {
                     "pts": source_pts,
@@ -2115,6 +2765,104 @@ def test_close_offset_uses_slew_limited_steering_without_in_place_pause() -> Non
         assert all(command.forward_mps == 0.55 for command in close_steering)
         assert abs(close_steering[0].yaw_rps) <= 0.20
         assert result["arrival_confirmed"] is True
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_approach_pauses_outside_middle_forty_then_slow_recenters() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+
+        def seen(
+            source_pts: int,
+            *,
+            center_x: float,
+            center_y: float = 0.50,
+            bottom: float = 0.65,
+            area: float = 0.04,
+        ) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "target_ready": True,
+                "generation": "camera-1",
+                "source": {"pts": source_pts, "age_s": 0.01},
+                "detection": {
+                    "label": "pear",
+                    "generation": "camera-1",
+                    "confidence": 0.81,
+                    "center_x_ratio": center_x,
+                    "center_y_ratio": center_y,
+                    "bottom_ratio": bottom,
+                    "bbox_area_ratio": area,
+                    "age_s": 0.01,
+                    "source_pts": source_pts,
+                },
+            }
+
+        statuses = iter(
+            (
+                seen(1, center_x=0.50),
+                seen(2, center_x=0.50),
+                seen(3, center_x=0.50),
+                seen(4, center_x=0.72),
+                seen(5, center_x=0.74, center_y=0.51, bottom=0.66, area=0.05),
+                seen(6, center_x=0.68, center_y=0.52, bottom=0.67, area=0.06),
+                seen(7, center_x=0.50, center_y=0.76, bottom=0.91, area=0.12),
+                seen(8, center_x=0.50, center_y=0.77, bottom=0.92, area=0.13),
+                seen(9, center_x=0.50, center_y=0.78, bottom=0.93, area=0.14),
+                seen(10, center_x=0.50, center_y=0.79, bottom=0.94, area=0.15),
+                {"camera_healthy": True, "target_ready": False},
+                {"camera_healthy": True, "target_ready": False},
+            )
+        )
+
+        with pytest.raises(TargetLost, match="Arrival timed out"):
+            await manager.approach_target(
+                lambda: next(
+                    statuses,
+                    {"camera_healthy": True, "target_ready": False},
+                ),
+                "pear",
+                forward_mps=1.0,
+                maximum_yaw_rps=0.50,
+                near_bottom_ratio=0.86,
+                near_center_ratio=0.72,
+                near_confirmations=3,
+                near_loss_grace_s=0.75,
+                close_range_mps=0.55,
+                final_push_mps=0.6,
+                final_push_duration_s=0.001,
+                timeout_s=1.0,
+            )
+
+        pause_index = next(
+            index
+            for index, command in enumerate(motion.commands)
+            if command.reason
+            == "qualified_track_confirming_center_corridor_exit"
+        )
+        recenter_index = next(
+            index
+            for index, command in enumerate(motion.commands)
+            if command.reason == "center_corridor_recenter"
+        )
+        assert motion.commands[pause_index].forward_mps == 0.0
+        assert motion.commands[pause_index].yaw_rps == 0.0
+        assert motion.commands[recenter_index].forward_mps == 0.0
+        assert abs(motion.commands[recenter_index].yaw_rps) == pytest.approx(0.20)
+        assert any(
+            command.forward_mps > 0.0
+            for command in motion.commands[recenter_index + 1 :]
+        )
         assert motion.armed is False
         await manager.close()
 
@@ -2564,12 +3312,12 @@ def test_approach_steering_enters_and_exits_with_smooth_hysteresis() -> None:
             and command.yaw_rps == 0.0
             for command in motion.commands
         )
-        assert result["moving_steering_enter_ratio"] == 0.25
-        assert result["moving_steering_exit_ratio"] == 0.12
+        assert result["moving_steering_enter_ratio"] == 0.12
+        assert result["moving_steering_exit_ratio"] == 0.08
         assert result["moving_yaw_gain"] == 1.50
         assert result["moving_yaw_maximum_rps"] == 0.50
         assert result["moving_yaw_slew_rps_per_s"] == 2.0
-        assert result["stationary_recenter_error_ratio"] == 0.40
+        assert result["stationary_recenter_error_ratio"] == 0.20
         first_forward = next(
             index
             for index, command in enumerate(motion.commands)
@@ -2583,7 +3331,7 @@ def test_approach_steering_enters_and_exits_with_smooth_hysteresis() -> None:
     asyncio.run(scenario())
 
 
-def test_approach_uses_close_range_continuity_after_red_apple_confidence_drops() -> (
+def test_approach_uses_close_range_continuity_at_new_apple_tracking_floor() -> (
     None
 ):
     async def scenario() -> None:
@@ -2632,16 +3380,16 @@ def test_approach_uses_close_range_continuity_after_red_apple_confidence_drops()
                     0.76, center_x=0.56, center_y=0.73, bottom=0.76, target_ready=True
                 ),
                 apple(
-                    0.30, center_x=0.61, center_y=0.79, bottom=0.83, target_ready=False
+                    0.60, center_x=0.61, center_y=0.79, bottom=0.83, target_ready=False
                 ),
                 apple(
-                    0.17, center_x=0.65, center_y=0.83, bottom=0.87, target_ready=False
+                    0.57, center_x=0.65, center_y=0.83, bottom=0.87, target_ready=False
                 ),
                 apple(
-                    0.15, center_x=0.65, center_y=0.89, bottom=0.93, target_ready=False
+                    0.50, center_x=0.65, center_y=0.89, bottom=0.93, target_ready=False
                 ),
                 apple(
-                    0.30, center_x=0.67, center_y=0.87, bottom=0.91, target_ready=False
+                    0.60, center_x=0.67, center_y=0.87, bottom=0.91, target_ready=False
                 ),
                 {"camera_healthy": True, "target_ready": False},
             )
@@ -2666,8 +3414,9 @@ def test_approach_uses_close_range_continuity_after_red_apple_confidence_drops()
         )
 
         assert result["arrival_confirmed"] is True
+        assert result["tracking_minimum_confidence"] == pytest.approx(0.50)
         assert result["close_range_continuation_samples"] >= 4
-        assert result["minimum_observed_tracking_confidence"] == pytest.approx(0.15)
+        assert result["minimum_observed_tracking_confidence"] == pytest.approx(0.50)
         await manager.close()
 
     asyncio.run(scenario())
@@ -2797,15 +3546,20 @@ def test_camera_failure_during_final_push_stops_and_fails() -> None:
     asyncio.run(scenario())
 
 
-def test_return_home_replays_outbound_pulses_and_logs_measured_home_distance() -> None:
+def test_return_home_replays_outbound_pulses_and_logs_measured_home_distance(
+    tmp_path,
+) -> None:
     async def scenario() -> None:
         motion = FakeMotion()
         manager = HardwareManager(
             live_config(),
             dds_initializer=lambda _interface: None,
             motion_factory=lambda _config: motion,
-            pose_factory=lambda _age: ReturningPose(),
+            pose_factory=lambda _age: CommandDrivenReturningPose(motion),
         )
+        recorder = FlightRecorder(tmp_path)
+        manager.set_flight_recorder(recorder)
+        manager.set_motion_authority("run-1", "epoch-1", "return_home")
         await manager.start()
 
         result = await manager.return_home(
@@ -2829,6 +3583,28 @@ def test_return_home_replays_outbound_pulses_and_logs_measured_home_distance() -
         assert len(motion.commands) == 3
         assert all(command.forward_mps == 1.0 for command in motion.commands)
         assert motion.armed is False
+        events = [
+            json.loads(line)
+            for line in recorder.snapshot_run("run-1").artifact.content.splitlines()
+        ]
+        decisions = [
+            event["payload"]
+            for event in events
+            if event["kind"] == "home_navigation_sample"
+        ]
+        assert len(decisions) == 4
+        assert decisions[0]["home_localization"]["home_distance_m"] == 0.8
+        assert decisions[0]["plan"] == {
+            "mode": "drive_to_home",
+            "distance_m": 0.8,
+            "heading_error_rad": 0.0,
+            "forward_mps": 1.0,
+            "yaw_rps": 0.0,
+        }
+        assert decisions[0]["thresholds"]["arrival_tolerance_m"] == 0.10
+        assert decisions[0]["thresholds"]["heading_gate_rad"] == pytest.approx(
+            math.radians(20.0)
+        )
         await manager.close()
 
     asyncio.run(scenario())

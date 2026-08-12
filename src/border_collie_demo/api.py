@@ -27,6 +27,7 @@ from .recovery import (
 from .release import ReleaseCohort
 from .run_coordinator import RunActivation, RunCoordinator
 from .run_results import ActiveRunError, RunResultNotFound, RunResultStore
+from .search_policy import SearchPolicy
 
 
 def build_label() -> str:
@@ -47,6 +48,7 @@ class RunRequest(BaseModel):
     target_fruit: Literal["apple", "banana", "pear"] = "pear"
     activation_source: Literal["audience_ui", "voice"] = "audience_ui"
     orientation_degrees: float = Field(default=0.0, ge=0.0, lt=360.0)
+    search_policy: Literal["fast-lock", "slow-sweep", "double-back"] | None = None
     idempotency_key: str | None = Field(default=None, min_length=1, max_length=128)
 
 
@@ -71,8 +73,10 @@ def create_app(
     terminal_evidence: Callable[[], list[EvidenceArtifact]] | None = None,
     flight_recorder: FlightRecorder | None = None,
     release_cohort: ReleaseCohort | None = None,
+    search_policy: SearchPolicy | None = None,
     runtime_mode: Literal["production", "simulation"] = "production",
 ) -> FastAPI:
+    selected_search_policy = search_policy or SearchPolicy.configured()
     machine = mission or MissionMachine()
     robot = hardware or HardwareManager()
     root = web_root or Path(os.environ.get("BORDER_COLLIE_WEB_ROOT", "web")).resolve()
@@ -107,6 +111,47 @@ def create_app(
             }
 
     active_tasks: set[asyncio.Task[dict[str, object]]] = set()
+    def capture_terminal_bundle() -> list[EvidenceArtifact]:
+        return terminal_evidence_bundle(recorder, terminal_evidence)
+
+    async def capture_lie_down_evidence(
+        run_id: str,
+        context: str,
+    ) -> dict[str, object]:
+        if camera_frame is None:
+            return results.record_snapshot_unavailable(
+                run_id,
+                kind="lie_down",
+                context=context,
+                reason="camera preview is not connected",
+            )
+        try:
+            jpeg = await asyncio.to_thread(camera_frame)
+            if (
+                len(jpeg) < 4
+                or not jpeg.startswith(b"\xff\xd8")
+                or not jpeg.endswith(b"\xff\xd9")
+            ):
+                raise ValueError("camera preview is not a complete JPEG")
+            filename = f"lie-down-{context.replace('_', '-')}.jpg"
+            return results.record_snapshot(
+                run_id,
+                kind="lie_down",
+                context=context,
+                artifact=EvidenceArtifact(
+                    filename=filename,
+                    content_type="image/jpeg",
+                    content=jpeg,
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001 - evidence cannot mask safety
+            return results.record_snapshot_unavailable(
+                run_id,
+                kind="lie_down",
+                context=context,
+                reason=f"lie-down evidence capture failed: {exc}",
+            )
+
     recovery = FailedRunHomeRecovery(
         robot,
         results,
@@ -115,10 +160,10 @@ def create_app(
             if machine.takeover_latched
             else None
         ),
+        lie_down_evidence=(
+            capture_lie_down_evidence if camera_frame is not None else None
+        ),
     )
-
-    def capture_terminal_bundle() -> list[EvidenceArtifact]:
-        return terminal_evidence_bundle(recorder, terminal_evidence)
 
     orchestrator = (
         None
@@ -129,6 +174,9 @@ def create_app(
             stage_executor,
             terminal_evidence=capture_terminal_bundle,
             automatic_failure_recovery=recovery,
+            lie_down_evidence=(
+                capture_lie_down_evidence if camera_frame is not None else None
+            ),
         )
     )
 
@@ -150,7 +198,13 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         await robot.start()
-        recorder.record("application_started", {"runtime_mode": runtime_mode})
+        recorder.record(
+            "application_started",
+            {
+                "runtime_mode": runtime_mode,
+                "search_policy": selected_search_policy.name,
+            },
+        )
         if results.has_interrupted_work():
             startup_stop_errors = await robot.emergency_stop()
             motion = robot.status().get("motion")
@@ -261,6 +315,7 @@ def create_app(
         preflight = evaluate_preflight(robot.status(), camera_perception, media)
         return {
             "build_label": build_label(),
+            "search_policy": selected_search_policy.name,
             "runtime_mode": runtime_mode,
             "release": None if release_cohort is None else release_cohort.to_dict(),
             "mission": machine.status(),
@@ -309,6 +364,9 @@ def create_app(
                     target_fruit=request.target_fruit,
                     activation_source=request.activation_source,
                     orientation_degrees=request.orientation_degrees,
+                    search_policy=(
+                        request.search_policy or selected_search_policy.name
+                    ),
                     idempotency_key=request.idempotency_key,
                 )
             )
@@ -418,9 +476,13 @@ def create_app(
         except (ActiveRunError, HardwareUnavailable) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-        task = asyncio.create_task(
-            recovery.run(run_id, str(attempt["recovery_id"]))
-        )
+        async def recover_and_refresh() -> dict[str, object]:
+            try:
+                return await recovery.run(run_id, str(attempt["recovery_id"]))
+            finally:
+                coordinator.refresh_black_box(run_id)
+
+        task = asyncio.create_task(recover_and_refresh())
         active_tasks.add(task)
         task.add_done_callback(active_tasks.discard)
         return {
@@ -449,6 +511,20 @@ def create_app(
             path,
             media_type=content_type,
             filename=filename,
+        )
+
+    @app.get("/api/results/{run_id}/trace")
+    async def get_result_trace(run_id: str) -> FileResponse:
+        try:
+            path, content_type = results.black_box_trace_path(run_id)
+        except RunResultNotFound as exc:
+            raise HTTPException(
+                status_code=404, detail="Run black-box trace not found"
+            ) from exc
+        return FileResponse(
+            path,
+            media_type=content_type,
+            filename="run-trace.ndjson",
         )
 
     @app.get("/api/results")

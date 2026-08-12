@@ -23,6 +23,7 @@ from .orchestrator import (
     StageFailure,
 )
 from .qualified_tracking import search_handoff_from_status
+from .search_policy import SearchPolicy
 
 
 class BarkPort(Protocol):
@@ -44,6 +45,7 @@ class ProductionStageExecutor:
         bark: BarkPort,
         *,
         metric_arrival_required: bool = True,
+        search_policy: SearchPolicy | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
@@ -51,6 +53,7 @@ class ProductionStageExecutor:
         self._perception_status = perception_status
         self._bark = bark
         self._metric_arrival_required = metric_arrival_required
+        self._search_policy = search_policy
         self._sleep = sleep
         self._clock = clock
 
@@ -59,6 +62,11 @@ class ProductionStageExecutor:
         phase: MissionPhase,
         context: StageContext,
     ) -> dict[str, Any]:
+        search_policy = self._policy_for(context)
+        search_phase = phase in (
+            MissionPhase.TURN_TO_FRUIT,
+            MissionPhase.FIND_FRUIT,
+        )
         set_authority = getattr(self._hardware, "set_motion_authority", None)
         if callable(set_authority):
             set_authority(context.run_id, context.run_epoch, phase.value)
@@ -86,14 +94,21 @@ class ProductionStageExecutor:
                 "TARGET_LOST_OFF_AXIS",
                 str(exc),
                 details=self._failure_details(
-                    {"recognition": exc.evidence} if exc.evidence else None
+                    {
+                        **(
+                            {"recognition": exc.evidence}
+                            if exc.evidence
+                            else {}
+                        ),
+                        **(
+                            {"search_policy": search_policy.name}
+                            if search_phase
+                            else {}
+                        ),
+                    }
                 ),
             ) from exc
         except TargetLost as exc:
-            search_phase = phase in (
-                MissionPhase.TURN_TO_FRUIT,
-                MissionPhase.FIND_FRUIT,
-            )
             raise StageFailure(
                 (
                     "TARGET_RECOGNITION_FAILURE"
@@ -166,24 +181,31 @@ class ProductionStageExecutor:
             }
         if phase is MissionPhase.TURN_TO_FRUIT:
             if visible := self._visible_target_evidence(context.target_fruit):
-                return visible
-            return await self._hardware.find_target(
+                return self._record_search_policy(visible, context)
+            policy = self._policy_for(context)
+            evidence = await self._hardware.find_target(
                 self._perception_status,
                 context.target_fruit,
-                yaw_rps=1.00,
-                sweep_rad=2.0 * math.pi,
-                timeout_s=30.0,
+                yaw_rps=(1.00 if policy is None else policy.broad_yaw_rps),
+                sweep_rad=(
+                    2.0 * math.pi if policy is None else policy.broad_sweep_rad
+                ),
+                timeout_s=(30.0 if policy is None else policy.broad_timeout_s),
+                search_policy=policy,
             )
+            return self._record_search_policy(evidence, context)
         if phase is MissionPhase.FIND_FRUIT:
             if visible := self._visible_target_evidence(context.target_fruit):
-                return visible
-            return await self._hardware.find_target(
+                return self._record_search_policy(visible, context)
+            evidence = await self._hardware.find_target(
                 self._perception_status,
                 context.target_fruit,
                 yaw_rps=0.20,
                 sweep_rad=math.radians(75.0),
                 timeout_s=9.0,
+                search_policy=self._policy_for(context),
             )
+            return self._record_search_policy(evidence, context)
         if phase is MissionPhase.APPROACH_FRUIT:
             return await self._hardware.approach_target(
                 self._perception_status,
@@ -253,6 +275,18 @@ class ProductionStageExecutor:
                 timeout_s=15.0,
             )
         raise StageFailure("INTERNAL_ERROR", f"production stage is not implemented: {phase.value}")
+
+    def _record_search_policy(
+        self,
+        evidence: dict[str, Any],
+        context: StageContext,
+    ) -> dict[str, Any]:
+        return {**evidence, "search_policy": self._policy_for(context).name}
+
+    def _policy_for(self, context: StageContext) -> SearchPolicy:
+        if context.search_policy:
+            return SearchPolicy.named(context.search_policy)
+        return self._search_policy or SearchPolicy.named("slow-sweep")
 
     def _visible_target_evidence(self, target_fruit: str) -> dict[str, Any] | None:
         """Skip broad search only for current, fully qualified target evidence."""
