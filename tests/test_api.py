@@ -189,6 +189,15 @@ def test_camera_preview_is_proxied_through_the_main_app() -> None:
     assert response.content == jpeg
 
 
+def test_diagnostics_page_renders_lie_down_debug_photos_inline() -> None:
+    response = TestClient(create_app()).get("/debug")
+
+    assert response.status_code == 200
+    assert "artifact.kind === 'lie_down'" in response.text
+    assert "img.src = link.href" in response.text
+    assert "Fruit position when Woof lay down" in response.text
+
+
 def test_fruit_test_page_can_select_supported_fruit_without_motion() -> None:
     selected: list[str] = []
     app = create_app(
@@ -599,6 +608,90 @@ def test_success_does_not_capture_terminal_frame_archive(tmp_path) -> None:
     assert run["record_type"] == "success_summary"
 
 
+def test_success_retains_downloadable_lie_down_debug_photo(tmp_path) -> None:
+    jpeg = b"\xff\xd8audience-action-fruit-position\xff\xd9"
+
+    with TestClient(
+        create_app(
+            runs_root=tmp_path,
+            hardware=ReadyHardwareBoundary(),
+            camera_perception_status=ready_camera_perception,
+            camera_frame=lambda: jpeg,
+            stage_executor=SimulatedStageExecutor(),
+        )
+    ) as client:
+        run_id = client.post("/api/run", json={"target_fruit": "apple"}).json()[
+            "run"
+        ]["run_id"]
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            run = client.get(f"/api/results/{run_id}").json()["run"]
+            if run["outcome"] is not None:
+                break
+            time.sleep(0.01)
+        photo = client.get(
+            f"/api/results/{run_id}/artifacts/lie-down-audience-action.jpg"
+        )
+
+    assert run["record_type"] == "success_summary"
+    assert run["snapshots"] == [
+        {
+            "kind": "lie_down",
+            "context": "audience_action",
+            "available": True,
+            "filename": "lie-down-audience-action.jpg",
+            "relative_path": "snapshots/lie-down-audience-action.jpg",
+            "content_type": "image/jpeg",
+            "size_bytes": len(jpeg),
+            "sha256": run["snapshots"][0]["sha256"],
+        }
+    ]
+    assert [item["filename"] for item in run["artifacts"]] == [
+        "lie-down-audience-action.jpg"
+    ]
+    assert photo.status_code == 200
+    assert photo.headers["content-type"] == "image/jpeg"
+    assert photo.content == jpeg
+
+
+def test_lie_down_photo_failure_does_not_mask_success(tmp_path) -> None:
+    def unavailable_frame() -> bytes:
+        raise RuntimeError("preview worker is restarting")
+
+    with TestClient(
+        create_app(
+            runs_root=tmp_path,
+            hardware=ReadyHardwareBoundary(),
+            camera_perception_status=ready_camera_perception,
+            camera_frame=unavailable_frame,
+            stage_executor=SimulatedStageExecutor(),
+        )
+    ) as client:
+        run_id = client.post("/api/run", json={"target_fruit": "apple"}).json()[
+            "run"
+        ]["run_id"]
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            run = client.get(f"/api/results/{run_id}").json()["run"]
+            if run["outcome"] is not None:
+                break
+            time.sleep(0.01)
+
+    assert run["outcome"] == "COMPLETED"
+    assert run["reason"] == "SUCCESS"
+    assert run["snapshots"] == [
+        {
+            "kind": "lie_down",
+            "context": "audience_action",
+            "available": False,
+            "unavailable_reason": (
+                "lie-down evidence capture failed: preview worker is restarting"
+            ),
+        }
+    ]
+    assert run["artifacts"] == []
+
+
 def test_every_terminal_run_exposes_a_run_filtered_black_box_trace(tmp_path) -> None:
     with TestClient(
         create_app(
@@ -908,6 +1001,8 @@ def test_off_axis_failure_lies_down_then_returns_home_automatically(
     tmp_path,
     monkeypatch,
 ) -> None:
+    jpeg = b"\xff\xd8failure-recovery-fruit-position\xff\xd9"
+
     class OffAxisApproachStages(SimulatedStageExecutor):
         async def execute(self, phase, context):
             if phase is MissionPhase.APPROACH_FRUIT:
@@ -936,6 +1031,7 @@ def test_off_axis_failure_lies_down_then_returns_home_automatically(
             runs_root=tmp_path,
             hardware=hardware,
             camera_perception_status=ready_camera_perception,
+            camera_frame=lambda: jpeg,
             stage_executor=OffAxisApproachStages(),
         )
     ) as client:
@@ -950,6 +1046,9 @@ def test_off_axis_failure_lies_down_then_returns_home_automatically(
                 break
             time.sleep(0.01)
         status = client.get("/api/status").json()
+        photo = client.get(
+            f"/api/results/{run_id}/artifacts/lie-down-failure-recovery.jpg"
+        )
 
     assert run["outcome"] == "FAILED"
     assert run["reason"] == "TARGET_LOST_OFF_AXIS"
@@ -957,6 +1056,13 @@ def test_off_axis_failure_lies_down_then_returns_home_automatically(
     attempt = run["recovery_attempts"][0]
     assert attempt["outcome"] == "COMPLETED"
     assert attempt["reason"] == "HOME_POSITION_RECOVERED"
+    hold = next(
+        step for step in attempt["steps"] if step["step"] == "failure_posture_hold"
+    )
+    assert hold["evidence"]["lie_down_snapshot"]["context"] == "failure_recovery"
+    assert run["snapshots"][0]["filename"] == "lie-down-failure-recovery.jpg"
+    assert photo.status_code == 200
+    assert photo.content == jpeg
     assert [step["step"] for step in attempt["steps"]] == [
         "failure_posture_down",
         "failure_posture_hold",
@@ -973,6 +1079,67 @@ def test_off_axis_failure_lies_down_then_returns_home_automatically(
     ]
     assert status["active_recovery"] is None
     assert status["hardware"]["motion"]["armed"] is False
+
+
+def test_lie_down_photo_failure_does_not_mask_automatic_recovery(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    class OffAxisApproachStages(SimulatedStageExecutor):
+        async def execute(self, phase, context):
+            if phase is MissionPhase.APPROACH_FRUIT:
+                raise StageFailure(
+                    "TARGET_LOST_OFF_AXIS",
+                    "qualified pear left the close handoff corridor",
+                    details={
+                        "motion_commands": [
+                            {
+                                "sequence": 1,
+                                "phase": "approach_fruit",
+                                "forward_mps": 0.55,
+                                "yaw_rps": 0.0,
+                                "reason": "visual_close_until_sight_loss",
+                            }
+                        ]
+                    },
+                )
+            return await super().execute(phase, context)
+
+    def unavailable_frame() -> bytes:
+        raise RuntimeError("preview worker is restarting")
+
+    monkeypatch.setattr("border_collie_demo.recovery.FAILURE_DOWN_HOLD_S", 0.0)
+    with TestClient(
+        create_app(
+            runs_root=tmp_path,
+            hardware=FailureChoreographyHardwareBoundary(),
+            camera_perception_status=ready_camera_perception,
+            camera_frame=unavailable_frame,
+            stage_executor=OffAxisApproachStages(),
+        )
+    ) as client:
+        run_id = client.post("/api/run", json={"target_fruit": "pear"}).json()[
+            "run"
+        ]["run_id"]
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            run = client.get(f"/api/results/{run_id}").json()["run"]
+            attempts = run.get("recovery_attempts") or []
+            if attempts and attempts[0]["outcome"] is not None:
+                break
+            time.sleep(0.01)
+
+    assert run["outcome"] == "FAILED"
+    assert run["reason"] == "TARGET_LOST_OFF_AXIS"
+    assert run["recovery_attempts"][0]["reason"] == "HOME_POSITION_RECOVERED"
+    assert run["snapshots"][-1] == {
+        "kind": "lie_down",
+        "context": "failure_recovery",
+        "available": False,
+        "unavailable_reason": (
+            "lie-down evidence capture failed: preview worker is restarting"
+        ),
+    }
 
 
 def test_arrival_failure_lies_down_then_returns_home_automatically(

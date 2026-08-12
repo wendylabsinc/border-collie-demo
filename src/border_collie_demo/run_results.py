@@ -430,6 +430,88 @@ class RunResultStore:
         self._write_result(result)
         return deepcopy(result)
 
+    def record_snapshot(
+        self,
+        run_id: str,
+        *,
+        kind: str,
+        context: str,
+        artifact: EvidenceArtifact,
+    ) -> dict[str, Any]:
+        """Append one bounded debug snapshot to an active or terminal run."""
+        result = self.get(run_id)
+        run_dir = self.root / str(UUID(run_id)) / "snapshots"
+        destination = run_dir / artifact.filename
+        temporary = run_dir / f".{artifact.filename}.tmp"
+        with temporary.open("wb") as output:
+            output.write(artifact.content)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, destination)
+        descriptor = {
+            "kind": kind,
+            "context": context,
+            "available": True,
+            "filename": artifact.filename,
+            "relative_path": f"snapshots/{artifact.filename}",
+            "content_type": artifact.content_type,
+            "size_bytes": len(artifact.content),
+            "sha256": sha256(artifact.content).hexdigest(),
+        }
+        snapshots = result.setdefault("snapshots", [])
+        snapshots[:] = [
+            item
+            for item in snapshots
+            if not (
+                isinstance(item, dict)
+                and item.get("kind") == kind
+                and item.get("context") == context
+            )
+        ]
+        snapshots.append(deepcopy(descriptor))
+        artifacts = result.setdefault("artifacts", [])
+        artifacts[:] = [
+            item
+            for item in artifacts
+            if not (
+                isinstance(item, dict)
+                and item.get("filename") == artifact.filename
+            )
+        ]
+        artifacts.append(deepcopy(descriptor))
+        self._write_result(result)
+        return deepcopy(descriptor)
+
+    def record_snapshot_unavailable(
+        self,
+        run_id: str,
+        *,
+        kind: str,
+        context: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        """Record a failed optional snapshot without changing run safety state."""
+        result = self.get(run_id)
+        descriptor = {
+            "kind": kind,
+            "context": context,
+            "available": False,
+            "unavailable_reason": reason,
+        }
+        snapshots = result.setdefault("snapshots", [])
+        snapshots[:] = [
+            item
+            for item in snapshots
+            if not (
+                isinstance(item, dict)
+                and item.get("kind") == kind
+                and item.get("context") == context
+            )
+        ]
+        snapshots.append(deepcopy(descriptor))
+        self._write_result(result)
+        return deepcopy(descriptor)
+
     def record_evidence_unavailable(
         self,
         run_id: str,
@@ -546,7 +628,15 @@ class RunResultStore:
         if outcome == "COMPLETED":
             result = self._compact_success(result)
             self._write_result(result)
-            cleanup_errors = self._discard_success_details(run_id)
+            retained_artifacts = {
+                item["filename"]
+                for item in result.get("artifacts", [])
+                if isinstance(item, dict) and isinstance(item.get("filename"), str)
+            }
+            cleanup_errors = self._discard_success_details(
+                run_id,
+                retained_artifacts=retained_artifacts,
+            )
             if cleanup_errors:
                 result["retention_cleanup"] = {
                     "complete": False,
@@ -764,10 +854,18 @@ class RunResultStore:
             "final_safety_state": result["final_safety_state"],
             "black_box_trace": result.get("black_box_trace"),
             "key_values": key_values,
+            "snapshots": deepcopy(result.get("snapshots", [])),
+            "artifacts": deepcopy(result.get("artifacts", [])),
         }
 
-    def _discard_success_details(self, run_id: str) -> list[str]:
+    def _discard_success_details(
+        self,
+        run_id: str,
+        *,
+        retained_artifacts: set[str] | None = None,
+    ) -> list[str]:
         run_dir = self.root / str(UUID(run_id))
+        retained = retained_artifacts or set()
         errors: list[str] = []
         events = run_dir / "events.ndjson"
         if events.is_file():
@@ -777,10 +875,21 @@ class RunResultStore:
                 errors.append(f"events.ndjson: {exc}")
         snapshots = run_dir / "snapshots"
         if snapshots.is_dir():
-            try:
-                shutil.rmtree(snapshots)
-            except OSError as exc:
-                errors.append(f"snapshots: {exc}")
+            for artifact in snapshots.iterdir():
+                if artifact.name in retained:
+                    continue
+                try:
+                    if artifact.is_dir():
+                        shutil.rmtree(artifact)
+                    else:
+                        artifact.unlink()
+                except OSError as exc:
+                    errors.append(f"snapshots/{artifact.name}: {exc}")
+            if not retained:
+                try:
+                    snapshots.rmdir()
+                except OSError as exc:
+                    errors.append(f"snapshots: {exc}")
         return errors
 
     def _write_result(self, result: dict[str, Any]) -> None:

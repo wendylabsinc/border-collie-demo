@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import math
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, replace
 from typing import Any, ClassVar, Protocol
 
@@ -88,12 +88,16 @@ class DemoOrchestrator:
         stages: StageExecutor,
         terminal_evidence: Callable[[], list[EvidenceArtifact]] | None = None,
         automatic_failure_recovery: AutomaticFailureRecovery | None = None,
+        lie_down_evidence: (
+            Callable[[str, str], Awaitable[dict[str, Any]]] | None
+        ) = None,
     ) -> None:
         self._coordinator = coordinator
         self._results = results
         self._stages = stages
         self._terminal_evidence = terminal_evidence
         self._automatic_failure_recovery = automatic_failure_recovery
+        self._lie_down_evidence = lie_down_evidence
 
     async def _capture_terminal_evidence(self, run_id: str) -> None:
         if self._terminal_evidence is None:
@@ -130,6 +134,17 @@ class DemoOrchestrator:
                     message=f"{phase.value} started",
                 )
                 evidence = await self._stages.execute(phase, context)
+                if (
+                    phase is MissionPhase.SIT_AND_BARK
+                    and self._lie_down_evidence is not None
+                ):
+                    evidence = {
+                        **evidence,
+                        "lie_down_snapshot": await self._lie_down_evidence(
+                            run_id,
+                            "audience_action",
+                        ),
+                    }
                 self._results.record_stage(run_id, phase.value, evidence)
                 if phase in (
                     MissionPhase.TURN_TO_FRUIT,

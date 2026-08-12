@@ -33,6 +33,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import random
@@ -42,9 +43,19 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
-from itertools import pairwise
+
+try:
+    from itertools import pairwise
+except ImportError:  # Python 3.9 operator machines
+    def pairwise(iterable):
+        iterator = iter(iterable)
+        previous = next(iterator, None)
+        for current in iterator:
+            yield previous, current
+            previous = current
 from pathlib import Path
 
 try:  # package import (tests) or direct script execution
@@ -125,6 +136,15 @@ class ApiClient:
     def result(self, run_id: str) -> dict:
         return self._request(f"{self.base_url}/api/results/{run_id}")
 
+    def artifact(self, run_id: str, filename: str) -> bytes:
+        request = urllib.request.Request(
+            f"{self.base_url}/api/results/"
+            f"{urllib.parse.quote(run_id, safe='')}/artifacts/"
+            f"{urllib.parse.quote(filename, safe='')}"
+        )
+        with urllib.request.urlopen(request, timeout=self.timeout_s) as response:
+            return response.read()
+
     def recover_home(self, run_id: str) -> dict:
         return self._request(
             f"{self.base_url}/api/results/{run_id}/recover-home",
@@ -139,6 +159,217 @@ class ApiClient:
 
     def stop(self) -> dict:
         return self._request(f"{self.base_url}/api/stop", "POST")
+
+
+def verify_live_preflight(
+    client: ApiClient,
+    *,
+    expected_build_label: str | None = None,
+    expected_search_policy: str | None = None,
+    expected_fruits: list[str] | None = None,
+    sleep=time.sleep,
+) -> dict[str, object]:
+    """Prove the deployed app/media are ready without activating motion."""
+    blockers: list[str] = []
+    status = client.status()
+    build_label = status.get("build_label")
+    if expected_build_label is not None and build_label != expected_build_label:
+        blockers.append(
+            f"expected build {expected_build_label!r}, got {build_label!r}"
+        )
+    search_policy = status.get("search_policy")
+    if (
+        expected_search_policy is not None
+        and search_policy != expected_search_policy
+    ):
+        blockers.append(
+            f"expected search policy {expected_search_policy!r}, "
+            f"got {search_policy!r}"
+        )
+    mission = status.get("mission")
+    if not isinstance(mission, dict):
+        blockers.append("mission status is unavailable")
+    else:
+        if mission.get("phase") != "idle":
+            blockers.append(f"mission phase is {mission.get('phase')!r}, not idle")
+        if mission.get("restart_required") is True:
+            blockers.append("application restart is required")
+        if mission.get("remote_takeover_latched") is True:
+            blockers.append("physical remote takeover is latched")
+    activation = status.get("activation")
+    if not isinstance(activation, dict) or activation.get("ready") is not True:
+        detail = (
+            activation.get("blockers") if isinstance(activation, dict) else None
+        )
+        blockers.append(f"activation is not ready: {detail!r}")
+    if status.get("active_run_id") is not None:
+        blockers.append("a Demo Run is active")
+    if status.get("active_recovery") is not None:
+        blockers.append("failed-run recovery is active")
+
+    hardware = status.get("hardware")
+    pose_age_s: float | None = None
+    if not isinstance(hardware, dict):
+        blockers.append("hardware status is unavailable")
+    else:
+        if hardware.get("connected") is not True:
+            blockers.append("Go2 hardware is disconnected")
+        if hardware.get("fault") is not None:
+            blockers.append(f"hardware fault: {hardware.get('fault')}")
+        if hardware.get("active_operation") is not None:
+            blockers.append("a hardware operation is active")
+        pose = hardware.get("pose")
+        if not isinstance(pose, dict) or pose.get("healthy") is not True:
+            blockers.append("fresh pose is unavailable")
+        else:
+            raw_pose_age = pose.get("age_s")
+            if (
+                not isinstance(raw_pose_age, (int, float))
+                or isinstance(raw_pose_age, bool)
+                or not 0.0 <= float(raw_pose_age) <= 0.5
+            ):
+                blockers.append("pose is stale or has invalid age evidence")
+            else:
+                pose_age_s = float(raw_pose_age)
+        motion = hardware.get("motion")
+        if not isinstance(motion, dict) or motion.get("armed") is not False:
+            blockers.append("motion is not disarmed")
+        else:
+            last = motion.get("last_command")
+            if (
+                not isinstance(last, dict)
+                or last.get("forward_mps") != 0.0
+                or last.get("yaw_rps") != 0.0
+            ):
+                blockers.append("last motion command is not exact zero")
+            guardian = motion.get("guardian")
+            if not isinstance(guardian, dict) or guardian.get("active") is not False:
+                blockers.append("motion guardian is active or unavailable")
+
+    app_release = status.get("release")
+    release_id = (
+        app_release.get("release_id") if isinstance(app_release, dict) else None
+    )
+    config_schema = (
+        app_release.get("config_schema") if isinstance(app_release, dict) else None
+    )
+    sidecar, sidecar_error = client.sidecar_status()
+    last_frame_age_s: float | None = None
+    camera_generation = None
+    source_pts = None
+    if sidecar_error is not None or not isinstance(sidecar, dict):
+        blockers.append(f"media status is unavailable: {sidecar_error}")
+    else:
+        media_release = sidecar.get("release")
+        if not isinstance(media_release, dict) or (
+            media_release.get("release_id"), media_release.get("config_schema")
+        ) != (release_id, config_schema):
+            blockers.append("app/media release identity does not match")
+        supervision = sidecar.get("supervision")
+        if (
+            not isinstance(supervision, dict)
+            or supervision.get("ready") is not True
+            or supervision.get("restart_required") is True
+        ):
+            blockers.append("media supervisor is not ready")
+        else:
+            raw_frame_age = supervision.get("last_frame_age_s")
+            if (
+                not isinstance(raw_frame_age, (int, float))
+                or isinstance(raw_frame_age, bool)
+                or not 0.0 <= float(raw_frame_age) <= 0.35
+            ):
+                blockers.append("camera frame is stale or has invalid age evidence")
+            else:
+                last_frame_age_s = float(raw_frame_age)
+        camera_generation = sidecar.get("generation")
+        if not isinstance(camera_generation, str) or not camera_generation:
+            blockers.append("camera generation is unavailable")
+        source = sidecar.get("source")
+        source_pts = source.get("pts") if isinstance(source, dict) else None
+        if not isinstance(source_pts, int) or isinstance(source_pts, bool):
+            blockers.append("camera source PTS is unavailable")
+        if sidecar.get("bark_ready") is not True:
+            blockers.append("bark media is not ready")
+        if sidecar.get("error") is not None:
+            blockers.append(f"media error: {sidecar.get('error')}")
+
+    qualified = sorted(set(client.fruits().get("qualified_fruits", [])))
+    if expected_fruits is not None and qualified != sorted(set(expected_fruits)):
+        blockers.append(
+            f"expected qualified fruits {sorted(set(expected_fruits))!r}, "
+            f"got {qualified!r}"
+        )
+    camera_frame_bytes = 0
+    try:
+        jpeg = client.camera_frame()
+        if (
+            len(jpeg) < 4
+            or not jpeg.startswith(b"\xff\xd8")
+            or not jpeg.endswith(b"\xff\xd9")
+        ):
+            raise ValueError("camera preview is not a complete JPEG")
+        camera_frame_bytes = len(jpeg)
+    except Exception as exc:  # noqa: BLE001 - preflight reports boundary failures
+        blockers.append(f"camera preview is unavailable: {exc}")
+
+    sleep(0.25)
+    next_sidecar, next_error = client.sidecar_status()
+    if next_error is not None or not isinstance(next_sidecar, dict):
+        blockers.append(f"second media sample is unavailable: {next_error}")
+    else:
+        next_release = next_sidecar.get("release")
+        if not isinstance(next_release, dict) or (
+            next_release.get("release_id"), next_release.get("config_schema")
+        ) != (release_id, config_schema):
+            blockers.append("second app/media release identity does not match")
+        if next_sidecar.get("generation") != camera_generation:
+            blockers.append("camera generation changed during readiness proof")
+        next_source = next_sidecar.get("source")
+        next_pts = next_source.get("pts") if isinstance(next_source, dict) else None
+        if (
+            not isinstance(next_pts, int)
+            or isinstance(next_pts, bool)
+            or not isinstance(source_pts, int)
+            or next_pts <= source_pts
+        ):
+            blockers.append("camera source PTS did not advance")
+        else:
+            source_pts = next_pts
+        next_supervision = next_sidecar.get("supervision")
+        if (
+            not isinstance(next_supervision, dict)
+            or next_supervision.get("ready") is not True
+            or next_supervision.get("restart_required") is True
+        ):
+            blockers.append("media supervisor lost readiness during proof")
+        else:
+            next_age = next_supervision.get("last_frame_age_s")
+            if (
+                not isinstance(next_age, (int, float))
+                or isinstance(next_age, bool)
+                or not 0.0 <= float(next_age) <= 0.35
+            ):
+                blockers.append("second camera frame is stale")
+            else:
+                last_frame_age_s = float(next_age)
+
+    if blockers:
+        raise HarnessAbort("; ".join(blockers))
+    return {
+        "ready": True,
+        "build_label": build_label,
+        "release_id": release_id,
+        "config_schema": config_schema,
+        "search_policy": search_policy,
+        "qualified_fruits": qualified,
+        "camera_generation": camera_generation,
+        "source_pts": source_pts,
+        "pose_age_s": pose_age_s,
+        "last_frame_age_s": last_frame_age_s,
+        "motion_disarmed": True,
+        "camera_frame_bytes": camera_frame_bytes,
+    }
 
 
 class TempSource:
@@ -493,6 +724,57 @@ def capture_lighting_frame(
     path = frames_dir / f"run-{number:02d}-start.jpg"
     path.write_bytes(payload)
     return {"path": str(path), "bytes": len(payload)}
+
+
+def capture_lie_down_frame(
+    client: ApiClient,
+    run: dict,
+    frames_dir: Path,
+    number: int,
+) -> dict | None:
+    """Copy the run's lie-down JPEG beside the soak record for quick review."""
+    snapshot = next(
+        (
+            item
+            for item in run.get("snapshots", [])
+            if item.get("kind") == "lie_down"
+        ),
+        None,
+    )
+    if snapshot is None:
+        return None
+    result = {
+        "context": snapshot.get("context"),
+        "filename": snapshot.get("filename"),
+        "available": bool(snapshot.get("available")),
+    }
+    if not result["available"]:
+        result["reason"] = snapshot.get("reason", "lie-down image unavailable")
+        return result
+    run_id = run.get("run_id")
+    filename = snapshot.get("filename")
+    if not isinstance(run_id, str) or not isinstance(filename, str):
+        return {**result, "available": False, "reason": "invalid artifact metadata"}
+    try:
+        payload = client.artifact(run_id, filename)
+        if not payload.startswith(b"\xff\xd8") or not payload.endswith(b"\xff\xd9"):
+            raise ValueError("artifact is not a complete JPEG")
+        frames_dir.mkdir(parents=True, exist_ok=True)
+        path = frames_dir / f"run-{number:02d}-lie-down.jpg"
+        temporary_path = path.with_suffix(path.suffix + ".tmp")
+        with temporary_path.open("wb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, path)
+    except Exception as exc:  # noqa: BLE001 - evidence failures are data
+        return {**result, "available": False, "reason": str(exc)}
+    return {
+        **result,
+        "path": str(path),
+        "bytes": len(payload),
+        "sha256": hashlib.sha256(payload).hexdigest(),
+    }
 
 
 def summarize_run(
@@ -1089,6 +1371,11 @@ def run_session(
                 record["wifi_after"] = device_probe.wifi_status()
             if harness_note:
                 record["harness_note"] = harness_note
+            lie_down_frame = capture_lie_down_frame(
+                client, run, frames_dir, number
+            )
+            if lie_down_frame is not None:
+                record["lie_down_frame"] = lie_down_frame
             session["runs"].append(record)
             persist()
             log(
@@ -1109,6 +1396,19 @@ def run_session(
                 record["recovery"] = recovery_record
                 if recovery_poll_errors:
                     record["recovery_poll_errors"] = recovery_poll_errors
+                try:
+                    recovered_run = client.result(run_id).get("run") or {}
+                    recovery_frame = capture_lie_down_frame(
+                        client, recovered_run, frames_dir, number
+                    )
+                    if recovery_frame is not None:
+                        record["lie_down_frame"] = recovery_frame
+                except Exception as exc:  # noqa: BLE001 - evidence failures are data
+                    record["lie_down_frame"] = {
+                        "available": False,
+                        "context": "failure_recovery",
+                        "reason": str(exc),
+                    }
                 persist()
                 log(
                     f"run {number}/{runs}: recovery {recovery_record['outcome']} / "
@@ -1206,6 +1506,11 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument("--output", type=Path, default=None)
+    parser.add_argument(
+        "--check-only",
+        action="store_true",
+        help="perform the read-only live readiness proof and exit",
+    )
     args = parser.parse_args(argv)
     if args.stage_home_margin <= 0:
         parser.error("--stage-home-margin must be greater than zero")
@@ -1216,6 +1521,22 @@ def main(argv: list[str] | None = None) -> int:
     client = ApiClient(
         f"http://{args.host}:{args.port}", f"http://{args.host}:{args.sidecar_port}"
     )
+    if args.check_only:
+        try:
+            report = verify_live_preflight(
+                client,
+                expected_build_label=args.expected_build_label,
+                expected_search_policy=args.expected_search_policy,
+                expected_fruits=args.expected_fruits,
+            )
+        except HarnessAbort as exc:
+            print(f"preflight failed: {exc}", file=sys.stderr)
+            return 1
+        except urllib.error.URLError as exc:
+            print(f"cannot reach the demo app: {exc}", file=sys.stderr)
+            return 2
+        print(json.dumps(report, indent=2))
+        return 0
     agent = args.agent or f"{args.host}:50052"
     temp_agent = None
     if not args.no_temps and not args.temp_url and not args.temp_cmd:

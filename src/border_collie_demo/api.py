@@ -111,6 +111,47 @@ def create_app(
             }
 
     active_tasks: set[asyncio.Task[dict[str, object]]] = set()
+    def capture_terminal_bundle() -> list[EvidenceArtifact]:
+        return terminal_evidence_bundle(recorder, terminal_evidence)
+
+    async def capture_lie_down_evidence(
+        run_id: str,
+        context: str,
+    ) -> dict[str, object]:
+        if camera_frame is None:
+            return results.record_snapshot_unavailable(
+                run_id,
+                kind="lie_down",
+                context=context,
+                reason="camera preview is not connected",
+            )
+        try:
+            jpeg = await asyncio.to_thread(camera_frame)
+            if (
+                len(jpeg) < 4
+                or not jpeg.startswith(b"\xff\xd8")
+                or not jpeg.endswith(b"\xff\xd9")
+            ):
+                raise ValueError("camera preview is not a complete JPEG")
+            filename = f"lie-down-{context.replace('_', '-')}.jpg"
+            return results.record_snapshot(
+                run_id,
+                kind="lie_down",
+                context=context,
+                artifact=EvidenceArtifact(
+                    filename=filename,
+                    content_type="image/jpeg",
+                    content=jpeg,
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001 - evidence cannot mask safety
+            return results.record_snapshot_unavailable(
+                run_id,
+                kind="lie_down",
+                context=context,
+                reason=f"lie-down evidence capture failed: {exc}",
+            )
+
     recovery = FailedRunHomeRecovery(
         robot,
         results,
@@ -119,10 +160,10 @@ def create_app(
             if machine.takeover_latched
             else None
         ),
+        lie_down_evidence=(
+            capture_lie_down_evidence if camera_frame is not None else None
+        ),
     )
-
-    def capture_terminal_bundle() -> list[EvidenceArtifact]:
-        return terminal_evidence_bundle(recorder, terminal_evidence)
 
     orchestrator = (
         None
@@ -133,6 +174,9 @@ def create_app(
             stage_executor,
             terminal_evidence=capture_terminal_bundle,
             automatic_failure_recovery=recovery,
+            lie_down_evidence=(
+                capture_lie_down_evidence if camera_frame is not None else None
+            ),
         )
     )
 

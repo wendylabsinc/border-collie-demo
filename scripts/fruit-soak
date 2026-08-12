@@ -11,6 +11,9 @@ if [[ -z "${python_bin}" ]]; then
     fi
   done
 fi
+if [[ -z "${python_bin}" ]] && command -v python3.14 >/dev/null 2>&1; then
+  python_bin="$(command -v python3.14)"
+fi
 python_bin="${python_bin:-python3}"
 
 command="${1:-}"
@@ -32,8 +35,12 @@ case "${command}" in
       --stage-home-margin "${FRUIT_SOAK_HOME_MARGIN_M:-0.50}" \
       "$@"
     ;;
+  check)
+    cd "${repo_root}"
+    exec "${python_bin}" scripts/fruit_soak.py --check-only "$@"
+    ;;
   *)
-    echo "unknown command: ${command}; expected test or run" >&2
+    echo "unknown command: ${command}; expected check, test, or run" >&2
     exit 2
     ;;
 esac

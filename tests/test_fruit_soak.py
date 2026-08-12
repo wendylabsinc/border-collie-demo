@@ -16,6 +16,7 @@ from scripts.fruit_soak import (
     run_session,
     summarize_network,
     summarize_run,
+    verify_live_preflight,
     wait_for_ready,
     wait_for_recovery,
     wait_for_terminal,
@@ -55,6 +56,13 @@ class FakeClient:
     def sidecar_status(self):
         if self._sidecar is None:
             return None, "sidecar down"
+        if isinstance(self._sidecar, list):
+            payload = (
+                self._sidecar.pop(0)
+                if len(self._sidecar) > 1
+                else self._sidecar[0]
+            )
+            return payload, None
         return self._sidecar, None
 
     def fruits(self):
@@ -113,6 +121,120 @@ SIDECAR = {
         "inference_s": 0.06,
     },
 }
+
+LIVE_PREFLIGHT_READY = {
+    "build_label": "stage-camera-v28-lie-down-evidence (codex/test)",
+    "search_policy": "slow-sweep",
+    "release": {
+        "release_id": "stage-camera-v28-lie-down-evidence",
+        "config_schema": 12,
+        "service": "app",
+    },
+    "mission": {
+        "restart_required": False,
+        "phase": "idle",
+        "remote_takeover_latched": False,
+    },
+    "activation": {"ready": True, "blockers": []},
+    "active_run_id": None,
+    "active_recovery": None,
+    "hardware": {
+        "connected": True,
+        "fault": None,
+        "active_operation": None,
+        "pose": {"healthy": True, "age_s": 0.02},
+        "motion": {
+            "armed": False,
+            "last_command": {"forward_mps": 0.0, "yaw_rps": 0.0},
+            "guardian": {"active": False},
+        },
+    },
+}
+LIVE_PREFLIGHT_SIDECAR = {
+    "release": {
+        "release_id": "stage-camera-v28-lie-down-evidence",
+        "config_schema": 12,
+        "service": "media",
+    },
+    "generation": "generation-1",
+    "source": {"pts": 12345},
+    "supervision": {
+        "ready": True,
+        "restart_required": False,
+        "last_frame_age_s": 0.03,
+    },
+    "bark_ready": True,
+    "error": None,
+}
+
+
+def test_live_preflight_proves_readiness_without_activation() -> None:
+    advanced = {
+        **LIVE_PREFLIGHT_SIDECAR,
+        "source": {"pts": 12420},
+    }
+    client = FakeClient(
+        [LIVE_PREFLIGHT_READY],
+        sidecar=[LIVE_PREFLIGHT_SIDECAR, advanced],
+    )
+
+    report = verify_live_preflight(
+        client,
+        expected_build_label="stage-camera-v28-lie-down-evidence (codex/test)",
+        expected_search_policy="slow-sweep",
+        expected_fruits=["apple", "banana", "pear"],
+        sleep=lambda _: None,
+    )
+
+    assert report == {
+        "ready": True,
+        "build_label": "stage-camera-v28-lie-down-evidence (codex/test)",
+        "release_id": "stage-camera-v28-lie-down-evidence",
+        "config_schema": 12,
+        "search_policy": "slow-sweep",
+        "qualified_fruits": ["apple", "banana", "pear"],
+        "camera_generation": "generation-1",
+        "source_pts": 12420,
+        "pose_age_s": 0.02,
+        "last_frame_age_s": 0.03,
+        "motion_disarmed": True,
+        "camera_frame_bytes": len(b"\xff\xd8fake-jpeg-bytes\xff\xd9"),
+    }
+    assert client.activated == []
+
+
+@pytest.mark.parametrize(
+    ("status_update", "sidecar_update", "message"),
+    [
+        (
+            {"hardware": {**LIVE_PREFLIGHT_READY["hardware"], "motion": {"armed": True}}},
+            {},
+            "motion is not disarmed",
+        ),
+        ({}, {"generation": None}, "camera generation is unavailable"),
+    ],
+)
+def test_live_preflight_fails_closed(status_update, sidecar_update, message) -> None:
+    status = {**LIVE_PREFLIGHT_READY, **status_update}
+    sidecar = {**LIVE_PREFLIGHT_SIDECAR, **sidecar_update}
+    client = FakeClient([status], sidecar=[sidecar, sidecar])
+
+    with pytest.raises(HarnessAbort, match=message):
+        verify_live_preflight(client, sleep=lambda _: None)
+
+    assert client.activated == []
+
+
+def test_live_preflight_rejects_frozen_camera_pts() -> None:
+    client = FakeClient(
+        [LIVE_PREFLIGHT_READY],
+        sidecar=[LIVE_PREFLIGHT_SIDECAR, LIVE_PREFLIGHT_SIDECAR],
+    )
+
+    with pytest.raises(HarnessAbort, match="camera source PTS did not advance"):
+        verify_live_preflight(client, sleep=lambda _: None)
+
+    assert client.activated == []
 
 
 def terminal(run_id, outcome="COMPLETED", home=0.05):
@@ -474,6 +596,49 @@ def test_session_records_every_run_and_build_label(tmp_path: Path):
     assert saved["scorecard"]["criteria"]["completion"]["passed"] is False  # run 2 FAILED
     assert saved["scorecard"]["recorded_only"] is True
     assert session["aborted"] is None
+
+
+def test_session_downloads_lie_down_photo_beside_run_evidence(tmp_path: Path):
+    jpeg = b"\xff\xd8lie-down-fruit-position\xff\xd9"
+    completed = terminal("run-1")
+    completed["run"]["snapshots"] = [
+        {
+            "kind": "lie_down",
+            "context": "audience_action",
+            "available": True,
+            "filename": "lie-down-audience-action.jpg",
+        }
+    ]
+
+    class ArtifactClient(FakeClient):
+        def artifact(self, run_id, filename):
+            assert run_id == "run-1"
+            assert filename == "lie-down-audience-action.jpg"
+            return jpeg
+
+    client = ArtifactClient(
+        [READY],
+        results_by_id={"run-1": [completed]},
+        qualified=("apple",),
+        sidecar=SIDECAR,
+    )
+    output = tmp_path / "soak.json"
+
+    run_session(
+        client,
+        runs=1,
+        seed=9,
+        output_path=output,
+        sleep=lambda _: None,
+        log=lambda *_: None,
+    )
+
+    record = json.loads(output.read_text())["runs"][0]
+    photo = record["lie_down_frame"]
+    assert photo["context"] == "audience_action"
+    assert photo["filename"] == "lie-down-audience-action.jpg"
+    assert photo["bytes"] == len(jpeg)
+    assert Path(photo["path"]).read_bytes() == jpeg
 
 
 def test_session_requires_and_records_expected_search_policy(tmp_path: Path):

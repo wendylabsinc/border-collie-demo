@@ -190,6 +190,14 @@ Small annotated JPEG snapshots are captured at these evidence boundaries:
 - Arrival; and
 - terminal completion or failure.
 
+The stage-camera profile additionally captures one annotated lie-down frame
+after the five-second posture hold and before standing. Successful runs retain
+only that JPEG plus their compact key-value summary; they still discard the
+rolling archive. Eligible failed-run recovery appends the same bounded frame
+with context `failure_recovery` even though the Demo Run is already terminal.
+Snapshot failure is recorded as unavailable and cannot change the mission or
+recovery outcome.
+
 Each snapshot entry records its kind, relative path, SHA-256 digest, dimensions,
 generation, source marker, local receipt time, and evidence age. A camera
 failure preserves the last trustworthy frame and labels its actual age; it is

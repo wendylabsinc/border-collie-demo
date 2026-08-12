@@ -974,3 +974,30 @@ Full evidence:
   Peak sampled Jetson temperature was 57.5 C with less than 0.5 C rise across
   reported zones. The durable raw trace and start frames are in
   `benchmarks/results/2026-08-11-v27-random-five-seed-202608112255.json`.
+- Operator review supersedes any implication that app outcome equals physical
+  fruit placement: run 1 was reported successful despite app
+  `TARGET_LOST_OFF_AXIS`; runs 2 and 3 were unknown; run 4 was far from the
+  apple despite app `SUCCESS`; and run 5 was far from the apple. The v27
+  cohort therefore characterizes software outcomes but does not establish a
+  physical success rate.
+
+## STAGE-CAMERA-V28-LIE-DOWN-EVIDENCE-2026-08-12 — offline candidate
+
+- Release identity: `stage-camera-v28-lie-down-evidence`, schema 12, app
+  version `1.0.31-stage-camera`. Motion, confidence, search, approach, Arrival,
+  and Home policies are unchanged from v27.
+- After the audience-action five-second down hold, the app captures one current
+  annotated JPEG before standing. The same boundary is captured during an
+  eligible failed-run recovery. Successful Run Results retain only this JPEG
+  plus the existing compact key-value summary; failed runs retain it alongside
+  their terminal archive and black-box trace.
+- Capture failure records an unavailable snapshot and cannot change a mission
+  or recovery outcome. The diagnostics UI renders the lie-down frame inline.
+- `scripts/fruit-soak check` is a read-only live gate for exact build/search/
+  fruit policy, matching app/media release, idle/no takeover/no recovery,
+  fresh pose, disarmed zero motion, media readiness, a stable camera generation
+  with PTS advancement across two samples,
+  bark readiness, and a valid JPEG. `scripts/fruit-soak test` now selects an
+  available Python 3.14 interpreter instead of failing on macOS Python 3.9.
+- This candidate was prepared while Woof was offline. No build, deployment,
+  device access, or physical motion was performed.
