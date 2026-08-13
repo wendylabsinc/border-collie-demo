@@ -100,9 +100,7 @@ class GuidanceConfig:
                 "detection_maximum_age_s must stay within 0.0..0.250 seconds"
             )
         if not 0.0 < self.source_maximum_age_s <= 0.350:
-            raise ValueError(
-                "source_maximum_age_s must stay within 0.0..0.350 seconds"
-            )
+            raise ValueError("source_maximum_age_s must stay within 0.0..0.350 seconds")
         if not 0.0 < self.near_bottom_ratio <= 1.0:
             raise ValueError("near_bottom_ratio must be within 0.0..1.0")
         if not 0.0 < self.near_center_ratio <= 1.0:
@@ -116,9 +114,7 @@ class GuidanceConfig:
         if not 0.50 <= self.final_push_mps <= 1.0:
             raise ValueError("final_push_mps must stay within 0.50..1.0 m/s")
         if not 0.0 <= self.final_push_duration_s <= 1.50:
-            raise ValueError(
-                "final_push_duration_s must stay within 0.0..1.50 seconds"
-            )
+            raise ValueError("final_push_duration_s must stay within 0.0..1.50 seconds")
 
     @classmethod
     def from_env(cls) -> GuidanceConfig:
@@ -137,15 +133,11 @@ class GuidanceConfig:
             approach_forward_mps=float(
                 os.environ.get(prefix + "APPROACH_FORWARD_MPS", "1.0")
             ),
-            approach_yaw_rps=float(
-                os.environ.get(prefix + "APPROACH_YAW_RPS", "0.30")
-            ),
+            approach_yaw_rps=float(os.environ.get(prefix + "APPROACH_YAW_RPS", "0.30")),
             outer_corridor_ratio=float(
                 os.environ.get(prefix + "OUTER_CORRIDOR_RATIO", "0.20")
             ),
-            recenter_yaw_rps=float(
-                os.environ.get(prefix + "RECENTER_YAW_RPS", "0.50")
-            ),
+            recenter_yaw_rps=float(os.environ.get(prefix + "RECENTER_YAW_RPS", "0.50")),
             duplicate_hold_s=float(
                 os.environ.get(prefix + "DUPLICATE_HOLD_S", "0.250")
             ),
@@ -161,18 +153,14 @@ class GuidanceConfig:
             near_center_ratio=float(
                 os.environ.get(prefix + "NEAR_CENTER_RATIO", "0.72")
             ),
-            near_confirmations=int(
-                os.environ.get(prefix + "NEAR_CONFIRMATIONS", "3")
-            ),
+            near_confirmations=int(os.environ.get(prefix + "NEAR_CONFIRMATIONS", "3")),
             near_loss_confirmations=int(
                 os.environ.get(prefix + "NEAR_LOSS_CONFIRMATIONS", "2")
             ),
             near_loss_grace_s=float(
                 os.environ.get(prefix + "NEAR_LOSS_GRACE_S", "0.75")
             ),
-            final_push_mps=float(
-                os.environ.get(prefix + "FINAL_PUSH_MPS", "0.60")
-            ),
+            final_push_mps=float(os.environ.get(prefix + "FINAL_PUSH_MPS", "0.60")),
             final_push_duration_s=float(
                 os.environ.get(prefix + "FINAL_PUSH_DURATION_S", "1.0")
             ),
@@ -374,11 +362,16 @@ class FruitGuidance:
             parsed.bottom >= self.config.near_bottom_ratio
             and parsed.center_y >= self.config.near_center_ratio
         ):
-            # Any fruit can be clipped out of the camera before it remains in
-            # the narrow centering corridor for three frames. Preserve one
-            # qualified lower-edge observation so the next fresh identity
-            # collapse closes the approach at exact zero motion.
+            # Stage reliability deliberately treats the first fresh,
+            # confidence-qualified lower-edge observation after lock as
+            # Arrival. Do not wait for additional close frames that commonly
+            # disappear as a floor-level fruit is clipped by the camera.
             self._lower_edge_seen_at_s = now_s
+            decision = self._lower_edge_arrival(
+                reason="first_qualified_lower_edge_arrival"
+            )
+            self._last_decision = decision
+            return decision
 
         centered = abs(horizontal_error) <= self.config.center_tolerance_ratio
         near = (
@@ -557,7 +550,9 @@ class FruitGuidance:
                 )
             return self._search("target_below_acquisition_confidence")
         centered = abs(horizontal_error) <= self.config.center_tolerance_ratio
-        self._centered_fresh_samples = self._centered_fresh_samples + 1 if centered else 0
+        self._centered_fresh_samples = (
+            self._centered_fresh_samples + 1 if centered else 0
+        )
         if focus_started:
             return self._decision(
                 GuidanceAction.HOLD,
@@ -650,13 +645,17 @@ class FruitGuidance:
             and now_s - self._lower_edge_seen_at_s <= self.config.near_loss_grace_s
         )
 
-    def _lower_edge_arrival(self) -> GuidanceDecision:
+    def _lower_edge_arrival(
+        self,
+        *,
+        reason: str = "lower_edge_identity_collapse_arrival",
+    ) -> GuidanceDecision:
         self.phase = GuidancePhase.ARRIVED
         self._arrival_eligible = True
         return self._decision(
             GuidanceAction.ARRIVED,
-            VelocityCommand(reason="lower_edge_identity_collapse_arrival"),
-            "lower_edge_identity_collapse_arrival",
+            VelocityCommand(reason=reason),
+            reason,
             terminal=True,
             arrival_confirmed=True,
         )

@@ -311,23 +311,21 @@ def test_lower_edge_disappearance_arrives_stopped_without_final_push() -> None:
     config = GuidanceConfig(final_push_mps=0.6, final_push_duration_s=1.0)
     guidance = FruitGuidance("banana", config=config)
     for pts, now_s in ((1, 0.0), (2, 0.1), (3, 0.2)):
-        guidance.observe(
-            observation(pts=pts, now_s=now_s, label="banana"), now_s=now_s
-        )
+        guidance.observe(observation(pts=pts, now_s=now_s, label="banana"), now_s=now_s)
 
-    for pts, now_s in ((4, 0.3), (5, 0.4), (6, 0.5)):
-        near = guidance.observe(
-            observation(
-                pts=pts,
-                now_s=now_s,
-                label="banana",
-                center_y=0.80,
-                bottom=0.92,
-            ),
-            now_s=now_s,
-            allow_forward=True,
-        )
-    assert near.near_fresh_samples == 3
+    near = guidance.observe(
+        observation(
+            pts=4,
+            now_s=0.3,
+            label="banana",
+            center_y=0.80,
+            bottom=0.92,
+        ),
+        now_s=0.3,
+        allow_forward=True,
+    )
+    assert near.action is GuidanceAction.ARRIVED
+    assert near.reason == "first_qualified_lower_edge_arrival"
 
     pending = guidance.observe(
         observation(pts=7, now_s=0.6, label=None),
@@ -359,9 +357,7 @@ def test_any_fruit_lower_edge_identity_collapse_arrives_without_three_samples(
     """Replay the Apple/Pear closeout failures as the shared stage contract."""
     guidance = FruitGuidance(fruit)
     for pts, now_s in ((1, 0.0), (2, 0.1), (3, 0.2)):
-        guidance.observe(
-            observation(pts=pts, now_s=now_s, label=fruit), now_s=now_s
-        )
+        guidance.observe(observation(pts=pts, now_s=now_s, label=fruit), now_s=now_s)
 
     lower_edge = guidance.observe(
         observation(
@@ -376,7 +372,7 @@ def test_any_fruit_lower_edge_identity_collapse_arrives_without_three_samples(
         now_s=0.3,
         allow_forward=True,
     )
-    weak = guidance.observe(
+    still_arrived = guidance.observe(
         observation(
             pts=5,
             now_s=0.4,
@@ -389,19 +385,13 @@ def test_any_fruit_lower_edge_identity_collapse_arrives_without_three_samples(
         now_s=0.4,
         allow_forward=True,
     )
-    arrived = guidance.observe(
-        observation(pts=6, now_s=0.6, label=None),
-        now_s=0.6,
-        allow_forward=True,
-    )
-
+    assert lower_edge.action is GuidanceAction.ARRIVED
     assert lower_edge.near_fresh_samples == 0
-    assert weak.action is GuidanceAction.ARRIVED
-    assert arrived.action is GuidanceAction.ARRIVED
-    assert weak.reason == "lower_edge_identity_collapse_arrival"
-    assert arrived.arrival_confirmed is True
-    assert arrived.command.forward_mps == 0.0
-    assert arrived.command.yaw_rps == 0.0
+    assert lower_edge.reason == "first_qualified_lower_edge_arrival"
+    assert lower_edge.arrival_confirmed is True
+    assert lower_edge.command.forward_mps == 0.0
+    assert lower_edge.command.yaw_rps == 0.0
+    assert still_arrived.action is GuidanceAction.ARRIVED
     assert guidance.final_push_count == 0
 
 
@@ -439,35 +429,25 @@ def test_zero_duration_disables_final_push_and_arrival_remains_stopped() -> None
         config=GuidanceConfig(final_push_mps=0.60, final_push_duration_s=0.0),
     )
     for pts, now_s in ((1, 0.0), (2, 0.1), (3, 0.2)):
-        guidance.observe(
-            observation(pts=pts, now_s=now_s, label="banana"), now_s=now_s
-        )
-    for pts, now_s in ((4, 0.3), (5, 0.4), (6, 0.5)):
-        guidance.observe(
-            observation(
-                pts=pts,
-                now_s=now_s,
-                label="banana",
-                center_y=0.80,
-                bottom=0.92,
-            ),
-            now_s=now_s,
-            allow_forward=True,
-        )
-
+        guidance.observe(observation(pts=pts, now_s=now_s, label="banana"), now_s=now_s)
     arrived = guidance.observe(
+        observation(
+            pts=4,
+            now_s=0.3,
+            label="banana",
+            center_y=0.80,
+            bottom=0.92,
+        ),
+        now_s=0.3,
+        allow_forward=True,
+    )
+    still_arrived = guidance.observe(
         observation(pts=7, now_s=0.6, label=None),
         now_s=0.6,
         allow_forward=True,
     )
-    still_arrived = guidance.observe(
-        observation(pts=8, now_s=0.7, label=None),
-        now_s=0.7,
-        allow_forward=True,
-    )
-
     assert arrived.action is GuidanceAction.ARRIVED
-    assert arrived.reason == "lower_edge_identity_collapse_arrival"
+    assert arrived.reason == "first_qualified_lower_edge_arrival"
     assert arrived.command.forward_mps == 0.0
     assert arrived.arrival_confirmed is True
     assert still_arrived.action is GuidanceAction.ARRIVED
@@ -561,12 +541,11 @@ def test_one_weak_close_frame_declares_stopped_arrival() -> None:
     guidance = FruitGuidance("pear")
     for pts, now_s in ((1, 0.0), (2, 0.1), (3, 0.2)):
         guidance.observe(observation(pts=pts, now_s=now_s), now_s=now_s)
-    for pts, now_s in ((4, 0.3), (5, 0.4), (6, 0.5)):
-        guidance.observe(
-            observation(pts=pts, now_s=now_s, center_y=0.8, bottom=0.92),
-            now_s=now_s,
-            allow_forward=True,
-        )
+    arrived = guidance.observe(
+        observation(pts=4, now_s=0.3, center_y=0.8, bottom=0.92),
+        now_s=0.3,
+        allow_forward=True,
+    )
 
     pending = guidance.observe(
         observation(pts=7, now_s=0.6, confidence=0.40, center_y=0.8, bottom=0.94),
@@ -579,8 +558,9 @@ def test_one_weak_close_frame_declares_stopped_arrival() -> None:
         allow_forward=True,
     )
 
+    assert arrived.action is GuidanceAction.ARRIVED
+    assert arrived.reason == "first_qualified_lower_edge_arrival"
     assert pending.action is GuidanceAction.ARRIVED
-    assert pending.reason == "lower_edge_identity_collapse_arrival"
     assert pending.command.forward_mps == 0.0
     assert guidance.final_push_count == 0
     assert recovered.action is GuidanceAction.ARRIVED
