@@ -11,9 +11,9 @@ The audience route is intentionally minimal:
 - one primary **Activate Demo** control;
 - one always-available **Stop Woof** safety control;
 - a narrow qualified-fruit selector containing Pear, Red apple, and Banana;
-- bounded per-run search experiment controls, with effective values persisted
-  before activation and no process-wide configuration mutation; selected-fruit
-  focus and lock defaults/ranges update when the selector changes;
+- server-described per-run controls for search, selected-fruit confidence,
+  centering, approach, Arrival, and Home, with effective values displayed and
+  persisted before activation and no process-wide configuration mutation;
 - a read-only annotated camera preview showing model state and Target Fruit
   evidence;
 - readiness or the exact reason activation is unavailable;

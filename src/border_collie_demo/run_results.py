@@ -69,6 +69,7 @@ class RunResultStore:
         target_fruit: str,
         activation_source: str,
         activation_id: str | None = None,
+        run_tuning: dict[str, object] | None = None,
         search_experiment: dict[str, object] | None = None,
     ) -> dict[str, Any]:
         if self._active_run_id is not None:
@@ -83,6 +84,7 @@ class RunResultStore:
             "target_fruit": target_fruit,
             "activation_source": activation_source,
             "activation_id": activation_id,
+            "run_tuning": deepcopy(run_tuning),
             "search_experiment": deepcopy(search_experiment),
             "started_at_utc": started_utc,
             "started_monotonic_s": started_monotonic_s,
@@ -108,6 +110,7 @@ class RunResultStore:
                 "target_fruit": target_fruit,
                 "activation_source": activation_source,
                 "activation_id": activation_id,
+                "run_tuning": deepcopy(run_tuning),
                 "search_experiment": deepcopy(search_experiment),
             },
         )

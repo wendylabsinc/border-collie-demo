@@ -12,12 +12,21 @@ continuously at `1.0 m/s`, steer while moving outside the center band, remove
 forward authority outside the outer corridor, and permit one `0.60 m/s` by
 `1.0 s` final push only after centered lower-edge evidence disappears.
 
-## Runtime environment
+## Per-run tuning
 
-Guidance values are read when a `FruitGuidance` instance is created and require
-only an app-service restart. The media sidecar publishes raw same-label temporal
-evidence and does not read motion-policy thresholds. Validation is fail-fast and
-cannot widen the camera freshness or hardware motion safety limits.
+The current interface is documented in [`run-tuning.md`](run-tuning.md). The
+server publishes defaults, units, valid ranges, and safety constraints to the
+UI; each activation persists one immutable `RunTuning` snapshot. Changing a
+value for the next run does not mutate the environment, rebuild an image,
+restart a service, or change an active run.
+
+## Legacy runtime environment
+
+The following variables remain deployment defaults for backward compatibility.
+They are no longer the experiment interface. The media sidecar publishes raw
+same-label temporal evidence and does not read motion-policy thresholds.
+Validation is fail-fast and cannot widen the camera freshness or hardware
+motion safety limits.
 
 | Environment variable | Units | Default | Valid range | Safety constraint |
 | --- | --- | ---: | ---: | --- |

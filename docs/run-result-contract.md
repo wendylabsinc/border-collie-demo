@@ -15,6 +15,9 @@ and must remain inspectable.
   rejected without creating another run.
 - The initial record includes Target Fruit, activation source, application
   version, source revision, robot identity, and the qualified threshold set.
+- `run_tuning` is the complete immutable, target-bound effective tuning
+  snapshot resolved before preflight. The same object is included in the
+  black-box `run_started` event so saved runs can be replayed exactly.
 
 ## Time
 

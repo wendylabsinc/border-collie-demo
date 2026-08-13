@@ -20,7 +20,7 @@ from .mission import MissionMachine, RestartRequired
 from .orchestrator import DemoOrchestrator, FailureEpilogue, StageExecutor
 from .preflight import evaluate_preflight, preflight_check_ready
 from .run_results import ActiveRunError, RunResultStore
-from .search_experiment import SearchExperimentTuning
+from .run_tuning import RunTuning
 
 
 class HardwareBoundary(Protocol):
@@ -46,7 +46,7 @@ class FruitMission:
     target_fruit: str
     activation_source: str
     activation_id: str
-    search_experiment: SearchExperimentTuning | None = None
+    tuning: RunTuning | None = None
 
     def __post_init__(self) -> None:
         target = self.target_fruit.casefold().strip()
@@ -61,12 +61,14 @@ class FruitMission:
         object.__setattr__(self, "target_fruit", target)
         object.__setattr__(self, "activation_source", source)
         object.__setattr__(self, "activation_id", activation_id)
-        if self.search_experiment is None:
+        if self.tuning is None:
             object.__setattr__(
                 self,
-                "search_experiment",
-                SearchExperimentTuning.defaults(target),
+                "tuning",
+                RunTuning.defaults(target),
             )
+        elif self.tuning.target_fruit != target:
+            raise ValueError("run tuning Target Fruit does not match the Demo Run")
 
 
 @dataclass(frozen=True)
@@ -124,7 +126,10 @@ class StageDemo:
         failure_epilogue: FailureEpilogue | None = None,
         stage_home_margin_m: float = 0.50,
     ) -> None:
-        if not math.isfinite(stage_home_margin_m) or not 0.10 <= stage_home_margin_m <= 1.0:
+        if (
+            not math.isfinite(stage_home_margin_m)
+            or not 0.10 <= stage_home_margin_m <= 1.0
+        ):
             raise ValueError("stage_home_margin_m must be within 0.10..1.0 m")
         self._mission = mission
         self._results = results
@@ -176,9 +181,7 @@ class StageDemo:
                 reason="PROCESS_INTERRUPTED",
                 message="application stopped before the Demo Run completed",
                 final_safety_state=(
-                    "DISARMED_CONFIRMED"
-                    if not errors
-                    else "STOP_REQUESTED_UNCONFIRMED"
+                    "DISARMED_CONFIRMED" if not errors else "STOP_REQUESTED_UNCONFIRMED"
                 ),
             )
         errors.extend(await self._hardware.close())
@@ -199,15 +202,15 @@ class StageDemo:
             clearance = self._inter_run_clearance(self._hardware.status())
             if clearance is not None and not clearance["returned_home"]:
                 raise ActiveRunError(
-                    "the prior Demo Run has not returned Home; "
-                    "another run cannot start"
+                    "the prior Demo Run has not returned Home; another run cannot start"
                 )
 
             run = self._results.start_run(
                 target_fruit=mission.target_fruit,
                 activation_source=mission.activation_source,
                 activation_id=mission.activation_id,
-                search_experiment=mission.search_experiment.to_dict(),
+                run_tuning=mission.tuning.to_dict(),
+                search_experiment=mission.tuning.search_experiment_dict(),
             )
             self._mission.begin_run("Demo Run activation persisted")
             run = self._results.enter_phase(
@@ -215,8 +218,7 @@ class StageDemo:
                 phase=self._mission.phase.value,
                 reason="PREFLIGHT_STARTED",
                 message=(
-                    "preflight entered; verifying production motion "
-                    "and media gates"
+                    "preflight entered; verifying production motion and media gates"
                 ),
             )
             camera = self._select_target_and_read_camera(mission.target_fruit)
@@ -236,9 +238,7 @@ class StageDemo:
                         "DISARMED_CONFIRMED"
                         if not errors
                         and preflight_check_ready(
-                            evaluate_preflight(
-                                self._hardware.status(), camera, media
-                            ),
+                            evaluate_preflight(self._hardware.status(), camera, media),
                             "motion_disarmed",
                         )
                         else "STOP_REQUESTED_UNCONFIRMED"
@@ -335,9 +335,7 @@ class StageDemo:
                 reason="OPERATOR_STOP",
                 message="operator stopped the Demo Run",
                 final_safety_state=(
-                    "DISARMED_CONFIRMED"
-                    if not errors
-                    else "STOP_REQUESTED_UNCONFIRMED"
+                    "DISARMED_CONFIRMED" if not errors else "STOP_REQUESTED_UNCONFIRMED"
                 ),
             )
         return {
@@ -368,9 +366,7 @@ class StageDemo:
                     f"required <= {self._stage_home_margin_m:.3f} m"
                 )
             )
-            blockers.append(
-                {"name": "inter_run_home_clearance", "detail": detail}
-            )
+            blockers.append({"name": "inter_run_home_clearance", "detail": detail})
         activation: dict[str, Any] = {
             "ready": report["ready"]
             and (clearance is None or clearance["returned_home"]),
@@ -395,8 +391,7 @@ class StageDemo:
             (
                 run
                 for run in self._results.list_results()
-                if run.get("outcome") is not None
-                and isinstance(run.get("home"), dict)
+                if run.get("outcome") is not None and isinstance(run.get("home"), dict)
             ),
             None,
         )
@@ -415,7 +410,9 @@ class StageDemo:
         current_y = current.get("y_m") if isinstance(current, dict) else None
         coordinates = (home_x, home_y, current_x, current_y)
         distance = (
-            math.hypot(float(current_x) - float(home_x), float(current_y) - float(home_y))
+            math.hypot(
+                float(current_x) - float(home_x), float(current_y) - float(home_y)
+            )
             if all(
                 isinstance(value, (int, float))
                 and not isinstance(value, bool)
@@ -490,7 +487,7 @@ class StageDemo:
         if (
             run.get("target_fruit") != mission.target_fruit
             or run.get("activation_source") != mission.activation_source
-            or run.get("search_experiment") != mission.search_experiment.to_dict()
+            or run.get("run_tuning") != mission.tuning.to_dict()
         ):
             raise ActivationConflict(
                 "activation_id already belongs to a different Fruit Mission"

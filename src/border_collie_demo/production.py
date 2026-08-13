@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import math
 from collections.abc import Awaitable, Callable
-from dataclasses import replace
 from typing import Any, Protocol
 
 from .fruits import fruit_policy
@@ -18,7 +17,7 @@ from .orchestrator import (
     StageContext,
     StageFailure,
 )
-from .search_experiment import SearchExperimentTuning
+from .run_tuning import RunTuning
 
 
 class BarkPort(Protocol):
@@ -47,6 +46,7 @@ class ProductionStageExecutor:
         self._sleep = sleep
         self._guidance_run_id: str | None = None
         self._guidance: FruitGuidance | None = None
+        self._run_tuning: RunTuning | None = None
 
     async def execute(
         self,
@@ -127,22 +127,52 @@ class ProductionStageExecutor:
             MissionPhase.APPROACH_FRUIT,
         ):
             if self._guidance_run_id != context.run_id or self._guidance is None:
-                tuning = SearchExperimentTuning.from_mapping(
-                    context.target_fruit, context.search_experiment
-                )
-                config = replace(
-                    GuidanceConfig.from_env(),
-                    search_yaw_rps=tuning.search_yaw_rps,
-                    center_confirmations=tuning.center_confirmations,
-                    center_tolerance_ratio=tuning.center_tolerance_ratio,
+                payload = context.run_tuning
+                if payload is None and context.search_experiment is not None:
+                    legacy = context.search_experiment
+                    payload = {
+                        "search": {"yaw_rps": legacy.get("search_yaw_rps", 0.40)},
+                        "recognition": {
+                            "focus_confidence": legacy.get("focus_confidence"),
+                            "lock_confidence": legacy.get("lock_confidence"),
+                            "required_frames": legacy.get("center_confirmations", 3),
+                        },
+                        "centering": {
+                            "lock_tolerance_ratio": legacy.get(
+                                "center_tolerance_ratio", 0.08
+                            )
+                        },
+                    }
+                tuning = RunTuning.from_payload(context.target_fruit, payload)
+                config = GuidanceConfig(
+                    search_yaw_rps=tuning.search.yaw_rps,
+                    search_sweep_rad=tuning.search.sweep_rad,
+                    center_tolerance_ratio=tuning.centering.lock_tolerance_ratio,
+                    center_confirmations=tuning.recognition.required_frames,
+                    approach_forward_mps=tuning.approach.forward_mps,
+                    approach_yaw_rps=tuning.centering.approach_yaw_rps,
+                    outer_corridor_ratio=tuning.centering.outer_corridor_ratio,
+                    recenter_yaw_rps=tuning.centering.recenter_yaw_rps,
+                    duplicate_hold_s=tuning.approach.duplicate_hold_s,
+                    source_maximum_age_s=tuning.approach.source_maximum_age_s,
+                    detection_maximum_age_s=tuning.approach.detection_maximum_age_s,
+                    near_bottom_ratio=tuning.arrival.near_bottom_ratio,
+                    near_center_ratio=tuning.arrival.near_center_ratio,
+                    near_confirmations=tuning.arrival.near_confirmations,
+                    near_loss_confirmations=tuning.arrival.loss_confirmations,
+                    near_loss_grace_s=tuning.arrival.loss_grace_s,
+                    final_push_mps=tuning.arrival.final_push_mps,
+                    final_push_duration_s=tuning.arrival.final_push_duration_s,
                 )
                 policy = fruit_policy(context.target_fruit)
-                policy = replace(
-                    policy,
-                    focus_confidence=tuning.focus_confidence,
-                    acquisition_confidence=tuning.lock_confidence,
+                policy = type(policy)(
+                    acquisition_confidence=tuning.recognition.lock_confidence,
+                    close_range_tracking_confidence=tuning.recognition.tracking_confidence,
+                    motion_qualified=policy.motion_qualified,
+                    focus_confidence=tuning.recognition.focus_confidence,
                 )
                 self._guidance_run_id = context.run_id
+                self._run_tuning = tuning
                 self._guidance = FruitGuidance(
                     context.target_fruit,
                     config=config,
@@ -163,7 +193,11 @@ class ProductionStageExecutor:
                 self._perception_status,
                 self._guidance,
                 allow_forward=phase is MissionPhase.APPROACH_FRUIT,
-                timeout_s=(20.0 if phase is MissionPhase.APPROACH_FRUIT else 30.0),
+                timeout_s=(
+                    self._run_tuning.approach.timeout_s
+                    if phase is MissionPhase.APPROACH_FRUIT
+                    else self._run_tuning.search.timeout_s
+                ),
             )
         if phase is MissionPhase.TURN_TO_FRUIT:
             if visible := self._visible_target_evidence(context.target_fruit):
@@ -224,36 +258,39 @@ class ProductionStageExecutor:
         if phase is MissionPhase.STAND:
             return await self._hardware.stand_up(settle_s=STAND_UP_SETTLE_S)
         if phase is MissionPhase.TURN_TOWARD_HOME:
+            tuning = RunTuning.from_payload(context.target_fruit, context.run_tuning)
             return await self._hardware.turn_toward_home(
                 context.home,
-                yaw_rps=0.50,
-                tolerance_rad=math.radians(5.0),
+                yaw_rps=tuning.home.align_yaw_rps,
+                tolerance_rad=math.radians(tuning.home.align_tolerance_deg),
                 response_timeout_s=0.75,
                 response_min_progress_rad=math.radians(2.0),
                 recovery_settle_s=1.0,
-                timeout_s=30.0,
+                timeout_s=tuning.home.align_timeout_s,
             )
         if phase is MissionPhase.RETURN_HOME:
+            tuning = RunTuning.from_payload(context.target_fruit, context.run_tuning)
             return await self._hardware.return_home_position(
                 context.home,
-                forward_mps=1.0,
-                arrival_tolerance_m=0.10,
-                heading_gate_rad=math.radians(20.0),
-                maximum_yaw_rps=0.50,
-                minimum_progress_m=0.03,
-                stall_timeout_s=2.0,
-                timeout_s=30.0,
+                forward_mps=tuning.home.return_forward_mps,
+                arrival_tolerance_m=tuning.home.arrival_tolerance_m,
+                heading_gate_rad=math.radians(tuning.home.heading_gate_deg),
+                maximum_yaw_rps=tuning.home.return_yaw_rps,
+                minimum_progress_m=tuning.home.minimum_progress_m,
+                stall_timeout_s=tuning.home.stall_timeout_s,
+                timeout_s=tuning.home.return_timeout_s,
             )
         if phase is MissionPhase.RESTORE_HEADING:
+            tuning = RunTuning.from_payload(context.target_fruit, context.run_tuning)
             measurement = self._hardware.measure_home_position(context.home)
-            if float(measurement["home_distance_m"]) > 0.10:
+            if float(measurement["home_distance_m"]) > tuning.home.arrival_tolerance_m:
                 raise HardwareUnavailable(
                     "fresh Home position was outside the completion gate: "
                     f"{float(measurement['home_distance_m']):.3f} m"
                 )
             return {
                 **measurement,
-                "position_tolerance_m": 0.10,
+                "position_tolerance_m": tuning.home.arrival_tolerance_m,
                 "heading_restoration_skipped": True,
                 "motion_commands_sent": False,
             }

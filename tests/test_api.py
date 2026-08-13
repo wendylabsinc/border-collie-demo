@@ -931,7 +931,7 @@ def test_run_activation_rejects_search_experiment_outside_safety_bounds(
             },
         )
 
-        assert response.status_code == 422
+        assert response.status_code == 409
         assert client.get("/api/results").json()["runs"] == []
 
 
@@ -941,7 +941,7 @@ def test_run_activation_rejects_search_experiment_outside_safety_bounds(
         (
             "pear",
             {"focus_confidence": 0.70, "lock_confidence": 0.64},
-            "Pear lock confidence",
+            "lock_confidence",
         ),
         (
             "banana",
@@ -1031,26 +1031,21 @@ def test_activate_accepts_the_qualified_red_apple_target(tmp_path) -> None:
         assert selected == ["apple"]
 
 
-def test_stage_ui_exposes_search_experiment_controls_and_posts_tuning(
+def test_stage_ui_renders_server_owned_run_tuning_and_posts_snapshot(
     tmp_path,
 ) -> None:
     with TestClient(create_app(runs_root=tmp_path)) as client:
         response = client.get("/")
 
     assert response.status_code == 200
-    assert 'id="search-yaw-rps"' in response.text
-    assert 'id="focus-confidence"' in response.text
-    assert 'id="lock-confidence"' in response.text
-    assert "applyFruitConfidenceProfile" in response.text
+    assert 'id="run-tuning-fields"' in response.text
+    assert 'id="effective-tuning"' in response.text
+    assert "renderTuning" in response.text
     assert "targetFruit.addEventListener('change'" in response.text
-    assert 'id="center-confirmations"' in response.text
-    assert 'id="center-tolerance-ratio"' in response.text
     assert 'id="search-trace"' in response.text
     assert "measured_yaw_rad" in response.text
     assert "confidence" in response.text
-    assert "search_yaw_rps: Number(searchYaw.value)" in response.text
-    assert "focus_confidence: Number(focusConfidence.value)" in response.text
-    assert "lock_confidence: Number(lockConfidence.value)" in response.text
+    assert "tuning: tuningPayload()" in response.text
     assert "fetch('/api/experiments/search')" in response.text
     # woof.local is served over plain HTTP, where Web Crypto UUID generation is
     # unavailable. The API already creates the durable activation ID.

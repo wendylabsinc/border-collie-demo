@@ -116,19 +116,14 @@
           <option value="apple">Red apple</option>
           <option value="banana">Banana</option>
         </select>
-        <fieldset id="search-experiment-controls">
-          <legend>Search experiment · applies to next run</legend>
-          <label for="search-yaw-rps">Search yaw speed (rad/s)</label>
-          <input id="search-yaw-rps" type="number" min="0.40" max="0.80" step="0.05" value="0.40">
-          <label for="focus-confidence"><span class="confidence-fruit-label">Pear</span> focus confidence</label>
-          <input id="focus-confidence" type="number" min="0.65" max="0.85" step="0.01" value="0.65">
-          <label for="lock-confidence"><span class="confidence-fruit-label">Pear</span> lock confidence</label>
-          <input id="lock-confidence" type="number" min="0.65" max="0.85" step="0.01" value="0.65">
-          <label for="center-confirmations">Centered frames to lock</label>
-          <input id="center-confirmations" type="number" min="2" max="5" step="1" value="3">
-          <label for="center-tolerance-ratio">Center tolerance (frame ratio)</label>
-          <input id="center-tolerance-ratio" type="number" min="0.05" max="0.12" step="0.01" value="0.08">
+        <fieldset id="run-tuning-controls">
+          <legend>Per-run tuning · immutable after activation</legend>
+          <div id="run-tuning-fields" style="display: contents"></div>
         </fieldset>
+        <details>
+          <summary>Effective settings for the next run</summary>
+          <pre id="effective-tuning"></pre>
+        </details>
         <button id="activate" type="button" disabled>Activate Demo</button>
         <button id="stop" type="button">Stop Woof</button>
       </div>
@@ -157,34 +152,69 @@
       const buildLabel = document.querySelector('#build-label');
       const cameraFeed = document.querySelector('#camera-feed');
       const cameraState = document.querySelector('#camera-state');
-      const searchYaw = document.querySelector('#search-yaw-rps');
-      const focusConfidence = document.querySelector('#focus-confidence');
-      const lockConfidence = document.querySelector('#lock-confidence');
-      const confidenceFruitLabels = document.querySelectorAll('.confidence-fruit-label');
-      const centerConfirmations = document.querySelector('#center-confirmations');
-      const centerTolerance = document.querySelector('#center-tolerance-ratio');
-      const experimentControls = document.querySelector('#search-experiment-controls');
+      const tuningControls = document.querySelector('#run-tuning-controls');
+      const tuningFields = document.querySelector('#run-tuning-fields');
+      const effectiveTuning = document.querySelector('#effective-tuning');
       const experimentResults = document.querySelector('#experiment-results');
       const searchTrace = document.querySelector('#search-trace');
       const cameraFrameUrl = '/api/camera/frame.jpg';
       let lastRunId = null;
       let cameraRefreshTimer = null;
       let tuningInitialized = false;
-      let experimentContract = null;
+      let tuningContract = null;
+      const tuningInputs = new Map();
 
-      function applyFruitConfidenceProfile() {
-        const profile = experimentContract?.fruits?.[targetFruit.value];
+      function renderTuning() {
+        const profile = tuningContract?.fruits?.[targetFruit.value];
         if (!profile) return;
-        const label = targetFruit.options[targetFruit.selectedIndex].textContent;
-        confidenceFruitLabels.forEach((element) => {
-          element.textContent = label;
-        });
-        focusConfidence.min = profile.ranges.focus_confidence[0];
-        focusConfidence.max = profile.ranges.focus_confidence[1];
-        focusConfidence.value = profile.defaults.focus_confidence;
-        lockConfidence.min = profile.ranges.lock_confidence[0];
-        lockConfidence.max = profile.ranges.lock_confidence[1];
-        lockConfidence.value = profile.defaults.lock_confidence;
+        tuningInputs.clear();
+        tuningFields.replaceChildren();
+        for (const [group, fields] of Object.entries(tuningContract.groups)) {
+          const heading = document.createElement('strong');
+          heading.textContent = group[0].toUpperCase() + group.slice(1);
+          heading.style.gridColumn = '1 / -1';
+          tuningFields.appendChild(heading);
+          for (const field of fields) {
+            const id = `tuning-${group}-${field.name}`;
+            const label = document.createElement('label');
+            label.htmlFor = id;
+            label.textContent = `${field.label} (${field.unit})`;
+            label.title = field.safety;
+            const input = document.createElement('input');
+            input.id = id;
+            input.type = 'number';
+            input.min = field.minimum;
+            input.max = field.maximum;
+            input.step = field.step;
+            input.value = profile.defaults[group][field.name] ?? '';
+            if (field.target_specific) {
+              const ranges = profile.confidence_ranges[field.name.replace('_confidence', '')];
+              input.min = ranges[0];
+              input.max = ranges[1];
+            }
+            input.addEventListener('input', updateEffectiveTuning);
+            tuningInputs.set(`${group}.${field.name}`, input);
+            tuningFields.append(label, input);
+          }
+        }
+        updateEffectiveTuning();
+      }
+
+      function tuningPayload() {
+        const payload = {target_fruit: targetFruit.value};
+        for (const [path, input] of tuningInputs) {
+          const [group, name] = path.split('.');
+          payload[group] ||= {};
+          if (input.value === '') continue;
+          payload[group][name] = name.endsWith('frames') || name.endsWith('confirmations')
+            ? Number.parseInt(input.value, 10)
+            : Number(input.value);
+        }
+        return payload;
+      }
+
+      function updateEffectiveTuning() {
+        effectiveTuning.textContent = JSON.stringify(tuningPayload(), null, 2);
       }
 
       function scheduleCameraRefresh(delayMs) {
@@ -255,13 +285,9 @@
       async function refreshStatus() {
         try {
           const current = await readJson(await fetch('/api/status'));
-          if (!tuningInitialized && current.search_experiment) {
-            experimentContract = current.search_experiment;
-            const defaults = current.search_experiment.defaults;
-            searchYaw.value = defaults.search_yaw_rps;
-            centerConfirmations.value = defaults.center_confirmations;
-            centerTolerance.value = defaults.center_tolerance_ratio;
-            applyFruitConfidenceProfile();
+          if (!tuningInitialized && current.run_tuning) {
+            tuningContract = current.run_tuning;
+            renderTuning();
             tuningInitialized = true;
           }
           buildLabel.hidden = !current.build_label;
@@ -278,7 +304,7 @@
             !current.activation.ready
           );
           targetFruit.disabled = Boolean(current.active_run_id);
-          experimentControls.disabled = Boolean(current.active_run_id);
+          tuningControls.disabled = Boolean(current.active_run_id);
           if (current.active_run_id) {
             const detail = await readJson(
               await fetch(`/api/results/${current.active_run_id}`)
@@ -339,13 +365,7 @@
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
               target_fruit: targetFruit.value,
-              tuning: {
-                search_yaw_rps: Number(searchYaw.value),
-                focus_confidence: Number(focusConfidence.value),
-                lock_confidence: Number(lockConfidence.value),
-                center_confirmations: Number(centerConfirmations.value),
-                center_tolerance_ratio: Number(centerTolerance.value),
-              },
+              tuning: tuningPayload(),
             }),
           }));
           showRun(body.run);
@@ -357,7 +377,7 @@
         }
       });
 
-      targetFruit.addEventListener('change', applyFruitConfidenceProfile);
+      targetFruit.addEventListener('change', renderTuning);
 
       stop.addEventListener('click', async () => {
         activate.disabled = true;

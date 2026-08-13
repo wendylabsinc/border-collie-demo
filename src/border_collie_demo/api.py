@@ -10,7 +10,7 @@ from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from .black_box import RunBlackBox
 from .evidence import EvidenceArtifact
@@ -19,11 +19,8 @@ from .hardware import HardwareManager, HardwareUnavailable
 from .mission import MissionMachine, RestartRequired
 from .orchestrator import EXECUTED_STAGES, FailureEpilogue, StageExecutor
 from .run_results import ActiveRunError, RunResultNotFound, RunResultStore
-from .search_experiment import (
-    SearchExperimentTuning,
-    search_experiment_contract,
-    search_experiment_scorecard,
-)
+from .run_tuning import RunTuning
+from .search_experiment import search_experiment_contract, search_experiment_scorecard
 from .stage_demo import ActivationConflict, FruitMission, StageDemo
 from .system_audio import SystemAudioPolicy
 
@@ -45,25 +42,13 @@ class ForwardPulseRequest(BaseModel):
     confirmation: str
 
 
-class SearchExperimentRequest(BaseModel):
+class RunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    search_yaw_rps: float | None = Field(default=None, ge=0.40, le=0.80)
-    focus_confidence: float | None = Field(
-        default=None, ge=0.0, le=1.0, allow_inf_nan=False
-    )
-    lock_confidence: float | None = Field(
-        default=None, ge=0.0, le=1.0, allow_inf_nan=False
-    )
-    center_confirmations: int | None = Field(default=None, ge=2, le=5)
-    center_tolerance_ratio: float | None = Field(default=None, ge=0.05, le=0.12)
-
-
-class RunRequest(BaseModel):
     target_fruit: Literal["apple", "banana", "pear"] = "pear"
     activation_source: Literal["audience_ui", "voice"] = "audience_ui"
     activation_id: str | None = None
-    tuning: SearchExperimentRequest | None = None
+    tuning: dict[str, object] | None = None
 
 
 class FruitPreviewRequest(BaseModel):
@@ -210,6 +195,7 @@ def create_app(
             "build_label": build_label(),
             "runtime_mode": runtime_mode,
             **current,
+            "run_tuning": RunTuning.contract(),
             "search_experiment": search_experiment_contract(),
         }
 
@@ -221,12 +207,7 @@ def create_app(
                     target_fruit=request.target_fruit,
                     activation_source=request.activation_source,
                     activation_id=request.activation_id or str(uuid4()),
-                    search_experiment=SearchExperimentTuning.from_mapping(
-                        request.target_fruit,
-                        None
-                        if request.tuning is None
-                        else request.tuning.model_dump(exclude_none=True),
-                    ),
+                    tuning=RunTuning.from_payload(request.target_fruit, request.tuning),
                 )
             )
         except ActiveRunError as exc:
