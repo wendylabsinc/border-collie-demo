@@ -242,6 +242,13 @@ class FruitGuidance:
         self._arrival_eligible = False
         self._final_push_started_s: float | None = None
         self._candidate_focus_active = False
+        self._last_trusted_geometry: tuple[float, float, float] | None = None
+        self._approach_forward_authorized = False
+        self._missing_during_approach = False
+        self._stationary_reacquisition_required = False
+        self._stationary_reacquisition_candidate: (
+            tuple[float, float, float] | None
+        ) = None
 
     def observe(
         self,
@@ -330,7 +337,7 @@ class FruitGuidance:
             return decision
 
         if parsed.label is None:
-            decision = self._missing_target(now_s)
+            decision = self._missing_target(now_s, allow_forward=allow_forward)
             self._last_decision = decision
             return decision
 
@@ -357,8 +364,28 @@ class FruitGuidance:
 
         if not self.acquisition_epoch:
             decision = self._acquire(parsed.confidence, horizontal_error)
+            self._last_trusted_geometry = (
+                parsed.center_x,
+                parsed.center_y,
+                parsed.bottom,
+            )
             self._last_decision = decision
             return decision
+
+        stationary_reacquisition = self._stationary_reacquisition(
+            parsed,
+            horizontal_error=horizontal_error,
+            allow_forward=allow_forward,
+        )
+        if stationary_reacquisition is not None:
+            self._last_decision = stationary_reacquisition
+            return stationary_reacquisition
+        self._missing_during_approach = False
+        self._last_trusted_geometry = (
+            parsed.center_x,
+            parsed.center_y,
+            parsed.bottom,
+        )
 
         # A fresh same-fruit observation in the lower approach corridor arms
         # exactly the immediately following fresh missing frame as Arrival.
@@ -445,6 +472,7 @@ class FruitGuidance:
                 ),
                 "approach_target_continuous",
             )
+            self._approach_forward_authorized = True
         self._last_decision = decision
         return decision
 
@@ -606,7 +634,12 @@ class FruitGuidance:
             "center_target_during_search",
         )
 
-    def _missing_target(self, now_s: float) -> GuidanceDecision:
+    def _missing_target(
+        self,
+        now_s: float,
+        *,
+        allow_forward: bool,
+    ) -> GuidanceDecision:
         if not self.acquisition_epoch:
             self._centered_fresh_samples = 0
             if self._candidate_focus_active:
@@ -623,7 +656,82 @@ class FruitGuidance:
             return self._lower_edge_arrival(
                 reason="qualified_lower_edge_disappearance_arrival"
             )
+        if allow_forward:
+            self._missing_during_approach = True
         return self._closeout_loss(now_s, pending_reason="target_missing_after_lock")
+
+    def _stationary_reacquisition(
+        self,
+        observation: _Observation,
+        *,
+        horizontal_error: float,
+        allow_forward: bool,
+    ) -> GuidanceDecision | None:
+        """Reject impossible lower-edge jumps until ordinary geometry agrees.
+
+        Search may hand Approach a locked fruit before Approach sends a forward
+        command. If that fruit disappears and then teleports to the lower edge,
+        the fresh frame is not stale but its geometry cannot prove Arrival.
+        Preserve identity, remain stopped, and require two agreeing ordinary
+        observations before restoring forward authority.
+        """
+        if (
+            not allow_forward
+            or not self._missing_during_approach
+            or self._approach_forward_authorized
+        ):
+            return None
+        assert observation.confidence is not None
+        assert observation.center_x is not None
+        assert observation.center_y is not None
+        assert observation.bottom is not None
+        trusted_bottom = (
+            self._last_trusted_geometry[2]
+            if self._last_trusted_geometry is not None
+            else None
+        )
+        implausible_lower_edge_jump = bool(
+            observation.bottom >= self.config.near_bottom_ratio
+            and (
+                trusted_bottom is None
+                or trusted_bottom < self.config.disappearance_bottom_ratio
+            )
+        )
+        if implausible_lower_edge_jump:
+            self._stationary_reacquisition_required = True
+            self._stationary_reacquisition_candidate = None
+            return self._stop("stationary_lower_edge_jump_rejected")
+        if not self._stationary_reacquisition_required:
+            return None
+        if (
+            observation.confidence < self.policy.close_range_tracking_confidence
+            or abs(horizontal_error) > self.config.outer_corridor_ratio
+            or observation.bottom >= self.config.near_bottom_ratio
+        ):
+            self._stationary_reacquisition_candidate = None
+            return self._stop("stationary_reacquisition_unqualified")
+
+        current = (
+            observation.center_x,
+            observation.center_y,
+            observation.bottom,
+        )
+        previous = self._stationary_reacquisition_candidate
+        agrees = bool(
+            previous is not None
+            and all(
+                abs(current_value - previous_value)
+                <= self.config.center_tolerance_ratio
+                for current_value, previous_value in zip(current, previous, strict=True)
+            )
+        )
+        if not agrees:
+            self._stationary_reacquisition_candidate = current
+            return self._stop("stationary_reacquisition_confirmation_pending")
+
+        self._stationary_reacquisition_required = False
+        self._stationary_reacquisition_candidate = None
+        return None
 
     def _closeout_loss(
         self,

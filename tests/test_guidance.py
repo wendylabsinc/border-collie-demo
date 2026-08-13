@@ -531,6 +531,84 @@ def test_disappearance_before_forward_approach_does_not_assume_arrival() -> None
     assert missing.arrival_confirmed is False
 
 
+def test_stationary_bottom_jump_is_rejected_then_real_banana_resumes() -> None:
+    """Replay run 331cb167: lock, 55 misses, false bottom box, real target."""
+    guidance = FruitGuidance("banana")
+    for pts, now_s in ((1, 0.0), (2, 0.1), (3, 0.2)):
+        guidance.observe(
+            observation(
+                pts=pts,
+                now_s=now_s,
+                label="banana",
+                confidence=0.72,
+                center_x=0.45,
+                center_y=0.60,
+                bottom=0.70,
+            ),
+            now_s=now_s,
+        )
+
+    for pts in range(4, 59):
+        missing = guidance.observe(
+            observation(pts=pts, now_s=pts / 10, label=None),
+            now_s=pts / 10,
+            allow_forward=True,
+        )
+        assert missing.action is GuidanceAction.STOP
+        assert missing.terminal is False
+
+    false_bottom = guidance.observe(
+        observation(
+            pts=59,
+            now_s=5.9,
+            label="banana",
+            confidence=0.5610339641571045,
+            center_x=0.48828125,
+            center_y=0.9666666666666667,
+            bottom=0.9986111111111111,
+        ),
+        now_s=5.9,
+        allow_forward=True,
+    )
+    real_first = guidance.observe(
+        observation(
+            pts=60,
+            now_s=6.0,
+            label="banana",
+            confidence=0.70,
+            center_x=0.49,
+            center_y=0.68,
+            bottom=0.76,
+        ),
+        now_s=6.0,
+        allow_forward=True,
+    )
+    real_second = guidance.observe(
+        observation(
+            pts=61,
+            now_s=6.1,
+            label="banana",
+            confidence=0.73,
+            center_x=0.50,
+            center_y=0.69,
+            bottom=0.77,
+        ),
+        now_s=6.1,
+        allow_forward=True,
+    )
+
+    assert false_bottom.action is GuidanceAction.STOP
+    assert false_bottom.reason == "stationary_lower_edge_jump_rejected"
+    assert false_bottom.arrival_confirmed is False
+    assert false_bottom.command.forward_mps == 0.0
+    assert false_bottom.command.yaw_rps == 0.0
+    assert real_first.action is GuidanceAction.STOP
+    assert real_first.reason == "stationary_reacquisition_confirmation_pending"
+    assert real_second.action is GuidanceAction.DRIVE
+    assert real_second.command.forward_mps == 1.0
+    assert guidance.acquisition_epoch == 1
+
+
 def test_disappearance_after_sub_disappearance_threshold_frame_stops() -> None:
     guidance = FruitGuidance("banana")
     for pts, now_s in ((1, 0.0), (2, 0.1), (3, 0.2)):
