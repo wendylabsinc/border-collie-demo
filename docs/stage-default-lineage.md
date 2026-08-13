@@ -29,5 +29,7 @@ muted-except-bark startup dependency: direct bark is best effort and cannot
 block readiness, posture cleanup, or Home. It also makes the final push a
 frozen one-run UI tuning and separates Home alignment (regular Sports,
 yaw-only) from Home translation (factory avoidance, forward plus bounded yaw).
-The integrating branch must assign a new release identity before deployment;
-none of these changes is physically qualified by this worktree.
+The integrated candidate is `stage-default-v3-runtime-tuning-cohorts`, Wendy
+application version `1.1.2-stage-default`. It adds the immutable per-run tuning
+interface and independently gated cohort controller. None of these changes is
+physically qualified until its first supervised run completes.
