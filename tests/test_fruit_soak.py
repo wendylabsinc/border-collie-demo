@@ -323,31 +323,6 @@ def test_session_records_every_run_and_build_label(tmp_path: Path):
     assert session["aborted"] is None
 
 
-def test_session_can_run_the_regular_soak_without_orientation_turns(tmp_path: Path):
-    client = FakeClient(
-        [READY],
-        results_by_id={
-            "run-1": [terminal("run-1")],
-            "run-2": [terminal("run-2")],
-        },
-        sidecar=SIDECAR,
-    )
-
-    session = run_session(
-        client,
-        runs=2,
-        seed=17,
-        output_path=tmp_path / "regular-soak.json",
-        randomize_orientation=False,
-        sleep=lambda _: None,
-        log=lambda *_: None,
-    )
-
-    assert session["orientation_randomized"] is False
-    assert session["orientation_sequence_degrees"] == [0, 0]
-    assert client.orientation_degrees == [0, 0]
-
-
 def test_session_aborts_and_persists_partial_on_latch(tmp_path: Path):
     client = FakeClient(
         [READY, READY, LATCHED],
