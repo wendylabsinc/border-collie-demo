@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "date": "2026-08-13",
+  "deployed_commit": "f9954aa92f6b272798b6e7fe99db899314da1ca0",
+  "contract": "first fresh confidence-qualified lower-edge frame confirms stopped Arrival",
+  "runs": [
+    {
+      "run_id": "b2bdd0a6-8b5a-44ea-af61-4a90ac94deab",
+      "target_fruit": "apple",
+      "fruit_sequence_completed": true,
+      "arrival_confirmed": true,
+      "audience_action_completed": true,
+      "stand_completed": true,
+      "outcome": "FAILED",
+      "reason": "RETURN_HOME_FAILURE",
+      "failed_phase": "return_home",
+      "message": "return Home heading escaped the forward steering gate",
+      "live_post_run_home_distance_m": 0.051492008187715564,
+      "returned_home": true,
+      "final_safety_state": "DISARMED_CONFIRMED"
+    },
+    {
+      "run_id": "55e47a56-1b2a-4a10-8d33-61764a64ea23",
+      "target_fruit": "pear",
+      "fruit_sequence_completed": true,
+      "arrival_confirmed": true,
+      "audience_action_completed": true,
+      "stand_completed": true,
+      "outcome": "FAILED",
+      "reason": "RETURN_HOME_FAILURE",
+      "failed_phase": "return_home",
+      "message": "return Home heading escaped the forward steering gate",
+      "live_post_run_home_distance_m": 0.10922612721008945,
+      "returned_home": true,
+      "final_safety_state": "DISARMED_CONFIRMED"
+    },
+    {
+      "run_id": "c1ff264f-58fc-47b0-a3fc-c91c1ab0b65b",
+      "target_fruit": "banana",
+      "fruit_sequence_completed": false,
+      "outcome": "FAILED",
+      "reason": "TARGET_RECOGNITION_FAILURE",
+      "failed_phase": "turn_to_fruit",
+      "message": "banana camera guidance timed out",
+      "search": {
+        "samples": 273,
+        "detected_frames": 71,
+        "minimum_confidence": 0.5510056614875793,
+        "maximum_confidence": 0.832970142364502,
+        "average_confidence": 0.6293388537957635,
+        "closest_center_x_ratio": 0.59296875,
+        "center_lock_corridor": [0.42, 0.58],
+        "diagnosis": "qualified Banana remained just outside the narrow centered lock corridor"
+      },
+      "live_post_run_home_distance_m": 0.04651132243810723,
+      "returned_home": true,
+      "final_safety_state": "DISARMED_CONFIRMED"
+    }
+  ]
+}
