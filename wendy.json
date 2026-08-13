@@ -106,6 +106,29 @@
         {"type": "network", "mode": "host"},
         {"type": "gpu"}
       ]
+    },
+    "voice": {
+      "context": "./voice",
+      "dependsOn": ["app", "media"],
+      "env": {
+        "PORT": "8092",
+        "ACTION_MODE": "border_collie",
+        "BORDER_COLLIE_URL": "http://127.0.0.1:8110",
+        "BORDER_COLLIE_EXPECTED_RELEASE_ID": "stage-camera-v33-base-motion-approach",
+        "BORDER_COLLIE_EXPECTED_CONFIG_SCHEMA": "16",
+        "CONTINUOUS_TRANSCRIPTION": "0",
+        "AUTO_ARM_ACTIONS": "1",
+        "AUDIO_DEVICE": "DJI MIC MINI"
+      },
+      "entitlements": [
+        {"type": "network", "mode": "host"},
+        {"type": "audio"},
+        {
+          "type": "persist",
+          "name": "parakeet-voice-mcp-models",
+          "path": "/models"
+        }
+      ]
     }
   },
   "readiness": {

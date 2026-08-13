@@ -174,6 +174,8 @@ def test_audience_page_includes_the_annotated_camera_feed() -> None:
     assert 'id="target-fruit"' in response.text
     assert '<option value="apple">Red apple</option>' in response.text
     assert "target_fruit: targetFruit.value" in response.text
+    assert "Open Hey Wendy voice dashboard" in response.text
+    assert "http://woof.local:8092/" in response.text
 
 
 def test_camera_preview_is_proxied_through_the_main_app() -> None:
@@ -256,6 +258,7 @@ def test_status_is_explicitly_non_operational() -> None:
 
     assert response.status_code == 200
     body = response.json()
+    assert body["release"] is None
     assert body["hardware"]["configured"] is False
     assert body["hardware"]["connected"] is False
     assert body["hardware"]["can_pulse_forward"] is False
