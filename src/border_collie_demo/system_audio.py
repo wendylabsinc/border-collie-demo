@@ -81,10 +81,12 @@ class SystemAudioPolicy:
         bark: BarkPort,
         config: SystemAudioConfig | None = None,
         *,
+        vui_factory: Callable[[], VuiClientProtocol] | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self.config = config or SystemAudioConfig()
         self._vui = vui
+        self._vui_factory = vui_factory
         self._bark = bark
         self._sleep = sleep
         self._lock = asyncio.Lock()
@@ -101,10 +103,13 @@ class SystemAudioPolicy:
         if not self.config.enabled:
             self._ready = True
             return
-        if self._vui is None:
+        if self._vui is None and self._vui_factory is None:
             self._error = "Go2 VUI client is unavailable"
             return
         try:
+            if self._vui is None:
+                assert self._vui_factory is not None
+                self._vui = self._vui_factory()
             await self._call(self._vui.SetTimeout, self.config.rpc_timeout_s)
             await self._call(self._vui.Init)
             self._original_volume = await self._get_volume()
@@ -233,10 +238,14 @@ class SystemAudioPolicy:
 def create_system_audio_policy(
     bark: BarkPort,
     config: SystemAudioConfig | None = None,
+    *,
+    vui_factory: Callable[[], VuiClientProtocol] | None = None,
 ) -> SystemAudioPolicy:
     resolved = config or SystemAudioConfig.from_env()
     if not resolved.enabled:
         return SystemAudioPolicy(None, bark, resolved)
-    from unitree_sdk2py.go2.vui.vui_client import VuiClient
+    if vui_factory is None:
+        from unitree_sdk2py.go2.vui.vui_client import VuiClient
 
-    return SystemAudioPolicy(VuiClient(), bark, resolved)
+        vui_factory = VuiClient
+    return SystemAudioPolicy(None, bark, resolved, vui_factory=vui_factory)

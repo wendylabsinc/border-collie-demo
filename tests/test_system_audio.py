@@ -5,7 +5,11 @@ import asyncio
 import pytest
 
 from border_collie_demo.media import BarkFailure
-from border_collie_demo.system_audio import SystemAudioConfig, SystemAudioPolicy
+from border_collie_demo.system_audio import (
+    SystemAudioConfig,
+    SystemAudioPolicy,
+    create_system_audio_policy,
+)
 
 
 class FakeVui:
@@ -42,6 +46,28 @@ class FakeBark:
         if self.fail:
             raise BarkFailure("speaker request failed")
         return {"bark_played": True, "bark_uuid": "woof"}
+
+
+def test_system_audio_defers_vui_construction_until_lifecycle_start() -> None:
+    created: list[FakeVui] = []
+
+    def create_vui() -> FakeVui:
+        vui = FakeVui(volume=7)
+        created.append(vui)
+        return vui
+
+    policy = create_system_audio_policy(
+        FakeBark([]),
+        SystemAudioConfig(),
+        vui_factory=create_vui,
+    )
+
+    assert created == []
+
+    asyncio.run(policy.start_muted())
+
+    assert len(created) == 1
+    assert created[0].volume == 0
 
 
 def test_system_audio_stays_muted_except_for_bounded_bark_window() -> None:
