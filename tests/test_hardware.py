@@ -449,7 +449,7 @@ def test_motion_commands_stream_to_the_run_black_box_before_stage_completion(
     asyncio.run(scenario())
 
 
-def test_mission_lifetime_guidance_keeps_identity_and_executes_one_final_push() -> None:
+def test_mission_lifetime_pear_guidance_arrives_stopped_after_disappearance() -> None:
     async def scenario() -> None:
         motion = FakeMotion()
         manager = HardwareManager(
@@ -537,17 +537,19 @@ def test_mission_lifetime_guidance_keeps_identity_and_executes_one_final_push() 
         assert locked["search_trace"][-1]["locked"] is True
         assert arrived["acquisition_epoch"] == 1
         assert arrived["arrival_confirmed"] is True
-        assert arrived["final_push_count"] == 1
+        assert arrived["guidance_reason"] == "pear_lower_edge_disappearance_arrival"
+        assert arrived["final_push_count"] == 0
         assert any(
             command.forward_mps == 1.0
             and command.reason == "approach_target_continuous"
             for command in motion.commands
         )
-        assert any(
-            command.forward_mps == 0.6
-            and command.reason == "fruit_lower_edge_final_push"
+        assert not any(
+            command.reason == "fruit_lower_edge_final_push"
             for command in motion.commands
         )
+        assert motion.commands[-1].forward_mps == 0.0
+        assert motion.commands[-1].yaw_rps == 0.0
         assert motion.armed is False
         await manager.close()
 
@@ -565,7 +567,7 @@ def test_approach_trace_records_each_guidance_decision_and_arrival_counter() -> 
         )
         await manager.start()
         guidance = FruitGuidance(
-            "pear",
+            "banana",
             config=GuidanceConfig(final_push_duration_s=0.001),
         )
 
@@ -588,7 +590,7 @@ def test_approach_trace_records_each_guidance_decision_and_arrival_counter() -> 
                 },
                 "detection": (
                     {
-                        "label": "pear",
+                        "label": "banana",
                         "confidence": confidence,
                         "generation": "camera-approach",
                         "source_pts": pts,
@@ -607,7 +609,7 @@ def test_approach_trace_records_each_guidance_decision_and_arrival_counter() -> 
             guidance.observe(status(pts), now_s=float(pts) / 10.0)
         statuses = iter(
             (
-                status(4, confidence=0.54),
+                status(4, confidence=0.19),
                 status(5, visible=False),
                 status(6, center_x=0.80),
                 status(6, center_x=0.80),
@@ -648,10 +650,10 @@ def test_approach_trace_records_each_guidance_decision_and_arrival_counter() -> 
             "source_time_base": "1/90000",
             "source_age_s": 0.01,
             "detection_age_s": 0.02,
-            "raw_label": "pear",
-            "confidence": 0.54,
-            "acquisition_confidence": 0.65,
-            "tracking_confidence": 0.55,
+            "raw_label": "banana",
+            "confidence": 0.19,
+            "acquisition_confidence": 0.20,
+            "tracking_confidence": 0.20,
             "center_x_ratio": 0.50,
             "center_y_ratio": 0.55,
             "bottom_ratio": 0.65,
@@ -705,9 +707,9 @@ def test_approach_trace_records_each_guidance_decision_and_arrival_counter() -> 
             },
             "confidence": {
                 "detected_frames": 6,
-                "minimum": 0.54,
+            "minimum": 0.19,
                 "maximum": 0.80,
-                "average": pytest.approx(4.54 / 6),
+            "average": pytest.approx(4.19 / 6),
                 "lock_confidence": None,
             },
             "forward_decisions": 4,

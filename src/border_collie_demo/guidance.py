@@ -239,6 +239,7 @@ class FruitGuidance:
         self._near_fresh_samples = 0
         self._near_loss_samples = 0
         self._near_latched_at_s: float | None = None
+        self._pear_lower_edge_seen_at_s: float | None = None
         self._arrival_eligible = False
         self._final_push_started_s: float | None = None
         self._candidate_focus_active = False
@@ -364,6 +365,18 @@ class FruitGuidance:
             )
             self._last_decision = decision
             return decision
+
+        if (
+            self.target_fruit == "pear"
+            and parsed.bottom >= self.config.near_bottom_ratio
+            and parsed.center_y >= self.config.near_center_ratio
+        ):
+            # A close Pear can be clipped out of the camera before it remains
+            # inside the narrow centering corridor for three frames. Preserve
+            # the last qualified lower-edge observation independently from the
+            # stricter multi-frame Arrival latch so the next fresh, healthy
+            # missing frame can close the approach at exact zero motion.
+            self._pear_lower_edge_seen_at_s = now_s
 
         centered = abs(horizontal_error) <= self.config.center_tolerance_ratio
         near = (
@@ -583,6 +596,21 @@ class FruitGuidance:
                     "apple_candidate_focus_missing",
                 )
             return self._search("searching_for_target")
+        if (
+            self.target_fruit == "pear"
+            and self._pear_lower_edge_seen_at_s is not None
+            and now_s - self._pear_lower_edge_seen_at_s
+            <= self.config.near_loss_grace_s
+        ):
+            self.phase = GuidancePhase.ARRIVED
+            self._arrival_eligible = True
+            return self._decision(
+                GuidanceAction.ARRIVED,
+                VelocityCommand(reason="pear_lower_edge_disappearance_arrival"),
+                "pear_lower_edge_disappearance_arrival",
+                terminal=True,
+                arrival_confirmed=True,
+            )
         return self._closeout_loss(now_s, pending_reason="target_missing_after_lock")
 
     def _closeout_loss(

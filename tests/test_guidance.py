@@ -309,15 +309,18 @@ def test_apple_focus_and_acquisition_thresholds_are_runtime_tunable(
 
 def test_lower_edge_disappearance_allows_exactly_one_bounded_final_push() -> None:
     config = GuidanceConfig(final_push_mps=0.6, final_push_duration_s=1.0)
-    guidance = FruitGuidance("pear", config=config)
+    guidance = FruitGuidance("banana", config=config)
     for pts, now_s in ((1, 0.0), (2, 0.1), (3, 0.2)):
-        guidance.observe(observation(pts=pts, now_s=now_s), now_s=now_s)
+        guidance.observe(
+            observation(pts=pts, now_s=now_s, label="banana"), now_s=now_s
+        )
 
     for pts, now_s in ((4, 0.3), (5, 0.4), (6, 0.5)):
         near = guidance.observe(
             observation(
                 pts=pts,
                 now_s=now_s,
+                label="banana",
                 center_y=0.80,
                 bottom=0.92,
             ),
@@ -363,16 +366,98 @@ def test_lower_edge_disappearance_allows_exactly_one_bounded_final_push() -> Non
     assert guidance.final_push_count == 1
 
 
+def test_pear_lower_edge_disappearance_arrives_without_three_centered_samples() -> None:
+    """Replay the 2026-08-13 Pear closeout failure as the new stage contract."""
+    guidance = FruitGuidance("pear")
+    for pts, now_s in ((1, 0.0), (2, 0.1), (3, 0.2)):
+        guidance.observe(observation(pts=pts, now_s=now_s), now_s=now_s)
+
+    lower_edge = guidance.observe(
+        observation(
+            pts=4,
+            now_s=0.3,
+            confidence=0.763481,
+            center_x=0.5875,
+            center_y=0.84375,
+            bottom=0.9027778,
+        ),
+        now_s=0.3,
+        allow_forward=True,
+    )
+    weak = guidance.observe(
+        observation(
+            pts=5,
+            now_s=0.4,
+            confidence=0.462958,
+            center_x=0.610156,
+            center_y=0.918056,
+            bottom=0.969444,
+        ),
+        now_s=0.4,
+        allow_forward=True,
+    )
+    arrived = guidance.observe(
+        observation(pts=6, now_s=0.6, label=None),
+        now_s=0.6,
+        allow_forward=True,
+    )
+
+    assert lower_edge.near_fresh_samples == 0
+    assert weak.action is GuidanceAction.STOP
+    assert arrived.action is GuidanceAction.ARRIVED
+    assert arrived.reason == "pear_lower_edge_disappearance_arrival"
+    assert arrived.arrival_confirmed is True
+    assert arrived.command.forward_mps == 0.0
+    assert arrived.command.yaw_rps == 0.0
+    assert guidance.final_push_count == 0
+
+
+def test_pear_disappearance_without_recent_lower_edge_evidence_still_stops() -> None:
+    guidance = FruitGuidance("pear")
+    for pts, now_s in ((1, 0.0), (2, 0.1), (3, 0.2)):
+        guidance.observe(observation(pts=pts, now_s=now_s), now_s=now_s)
+
+    guidance.observe(
+        observation(
+            pts=4,
+            now_s=0.3,
+            confidence=0.80,
+            center_x=0.50,
+            center_y=0.60,
+            bottom=0.70,
+        ),
+        now_s=0.3,
+        allow_forward=True,
+    )
+    missing = guidance.observe(
+        observation(pts=5, now_s=0.4, label=None),
+        now_s=0.4,
+        allow_forward=True,
+    )
+
+    assert missing.action is GuidanceAction.STOP
+    assert missing.reason == "target_missing_after_lock"
+    assert missing.arrival_confirmed is False
+
+
 def test_zero_duration_disables_final_push_and_arrival_remains_stopped() -> None:
     guidance = FruitGuidance(
-        "pear",
+        "banana",
         config=GuidanceConfig(final_push_mps=0.60, final_push_duration_s=0.0),
     )
     for pts, now_s in ((1, 0.0), (2, 0.1), (3, 0.2)):
-        guidance.observe(observation(pts=pts, now_s=now_s), now_s=now_s)
+        guidance.observe(
+            observation(pts=pts, now_s=now_s, label="banana"), now_s=now_s
+        )
     for pts, now_s in ((4, 0.3), (5, 0.4), (6, 0.5)):
         guidance.observe(
-            observation(pts=pts, now_s=now_s, center_y=0.80, bottom=0.92),
+            observation(
+                pts=pts,
+                now_s=now_s,
+                label="banana",
+                center_y=0.80,
+                bottom=0.92,
+            ),
             now_s=now_s,
             allow_forward=True,
         )
