@@ -1,0 +1,204 @@
+{
+  "schema_version": 4,
+  "session": "fruit-soak-2026-08-13T182004Z",
+  "build_label": "stage-default-v3-runtime-tuning-cohorts",
+  "note": "Single Apple retry after production focus and lock were both lowered to 0.40; voice actions disarmed.",
+  "qualified_fruits": [
+    "apple",
+    "banana",
+    "pear"
+  ],
+  "target_runs": 1,
+  "seed": 2026081304,
+  "policy": {
+    "runs": 1,
+    "randomized": false,
+    "target_fruit": "apple",
+    "seed": 2026081304,
+    "tolerated_failures": []
+  },
+  "fruit_sequence": [
+    "apple"
+  ],
+  "temperature_source": "wendy device top (woof.local:50052)",
+  "runs": [
+    {
+      "number": 1,
+      "target_fruit": "apple",
+      "run_id": "13b67dc6-075a-4a4a-a3e9-e16d858eecde",
+      "started_at_utc": "2026-08-13T18:20:04.456904Z",
+      "ended_at_utc": "2026-08-13T18:20:04.630469Z",
+      "duration_s": 0.17354255800000828,
+      "outcome": "FAILED",
+      "reason": "INTERNAL_ERROR",
+      "message": "Demo Run failed: focus_confidence must stay within 0.5..0.7",
+      "failed_phase": "turn_to_fruit",
+      "final_safety_state": "DISARMED_CONFIRMED",
+      "home_distance_m": 5.043211050681551e-05,
+      "heading_error_rad": null,
+      "stage_results": null,
+      "failure_details": null,
+      "stage_durations": {
+        "idle": 0.012,
+        "preflight": 0.027,
+        "capture_home": 0.02,
+        "wait_for_command": 0.011,
+        "turn_to_fruit": 0.029,
+        "failure_epilogue": 0.069
+      },
+      "activation_id": "fruit-soak-2026-08-13T182004Z:run-1",
+      "lighting_frame": {
+        "path": "benchmarks/results/2026-08-13-apple-40pct-retry-frames/run-01-start.jpg",
+        "bytes": 72076
+      },
+      "stage_telemetry": {
+        "failed": {
+          "target_confidence": {
+            "min": 0.045,
+            "mean": 0.045,
+            "max": 0.045,
+            "samples": 1
+          },
+          "bbox_bottom_ratio": {
+            "min": 0.7236,
+            "mean": 0.7236,
+            "max": 0.7236,
+            "samples": 1
+          },
+          "app_latency_ms": {
+            "min": 56.2,
+            "mean": 56.2,
+            "max": 56.2,
+            "samples": 1
+          },
+          "app_errors": 0,
+          "temps_c": null
+        }
+      },
+      "network": {
+        "poll_count": 1,
+        "error_count": 0,
+        "errors": [],
+        "latency_ms": {
+          "min": 56.2,
+          "mean": 56.2,
+          "max": 56.2,
+          "samples": 1
+        },
+        "latency_p95_ms": 56.2,
+        "cut_out": false
+      },
+      "samples": [
+        {
+          "t_monotonic_s": 767216.549702333,
+          "phase": "failed",
+          "app_latency_ms": 56.2,
+          "app_error": null,
+          "detection_label": "apple",
+          "confidence": 0.04501798748970032,
+          "inference_s": 0.12654057099996407,
+          "target_matches": true,
+          "bbox_bottom_ratio": 0.7236
+        }
+      ],
+      "preflight_probes": {
+        "dongle": {
+          "checked": true,
+          "usb_devices": null,
+          "audio_devices": null
+        },
+        "wifi_before": null
+      },
+      "wifi_after": null,
+      "cohort_decision": {
+        "action": "STOP_COHORT",
+        "code": "HARD_SAFETY_STOP",
+        "detail": "INTERNAL_ERROR in turn_to_fruit is a non-tolerable safety boundary",
+        "matched_selector": null
+      }
+    }
+  ],
+  "aborted": "run 1 stopped the cohort: INTERNAL_ERROR in turn_to_fruit is a non-tolerable safety boundary; the cohort ended",
+  "scorecard": {
+    "recorded_only": true,
+    "note": "criteria are recorded, never enforced; the session continues regardless",
+    "criteria": {
+      "completion": {
+        "passed": false,
+        "completed": 0,
+        "attempted": 1,
+        "target_runs": 1,
+        "remote_takeovers": 0,
+        "harness_stops": 0
+      },
+      "home_gate": {
+        "passed": true,
+        "gate_m": 0.1,
+        "max_m": 0.0001,
+        "per_run": [
+          0.0001
+        ],
+        "missing_measurements": 0
+      },
+      "fruit_coverage": {
+        "passed": false,
+        "minimum_successes": 2,
+        "required_fruits": [
+          "apple",
+          "banana",
+          "pear"
+        ],
+        "per_fruit": {
+          "apple": {
+            "attempts": 1,
+            "successes": 0
+          },
+          "banana": {
+            "attempts": 0,
+            "successes": 0
+          },
+          "pear": {
+            "attempts": 0,
+            "successes": 0
+          }
+        }
+      },
+      "approach_confidence_floor": {
+        "passed": null,
+        "per_run": [
+          {
+            "number": 1,
+            "fruit": "apple",
+            "floor": 0.7,
+            "min_confidence": null
+          }
+        ]
+      },
+      "network_stability": {
+        "passed": true,
+        "cutouts": 0,
+        "worst_p95_ms": 56.2,
+        "p95_limit_ms": 250.0
+      },
+      "thermal_trend": {
+        "passed": null,
+        "detail": "temperatures not measured (or <2 runs)"
+      },
+      "dongle_visible": {
+        "passed": null,
+        "detail": "dongle not probed (enable --device-probes and --dongle-match)"
+      }
+    },
+    "observations": {
+      "approach_min_confidence_by_fruit": {},
+      "acquisition_seconds_by_fruit": {
+        "apple": [
+          0.03
+        ]
+      },
+      "lighting_frames": [
+        "benchmarks/results/2026-08-13-apple-40pct-retry-frames/run-01-start.jpg"
+      ]
+    }
+  }
+}

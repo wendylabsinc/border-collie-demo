@@ -36,6 +36,15 @@ def test_defaults_preserve_kinda_good_behavior_for_every_fruit() -> None:
     assert pear.home.arrival_tolerance_m == 0.10
 
 
+def test_apple_40_percent_defaults_round_trip_through_activation_validation() -> None:
+    defaults = RunTuning.defaults("apple")
+
+    effective = RunTuning.from_payload("apple", defaults.to_dict())
+
+    assert effective.recognition.focus_confidence == 0.40
+    assert effective.recognition.lock_confidence == 0.40
+
+
 @pytest.mark.parametrize(
     ("payload", "message"),
     [
