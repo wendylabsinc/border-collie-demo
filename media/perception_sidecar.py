@@ -28,27 +28,8 @@ from pydantic import BaseModel
 
 from media.model_router import FruitCandidate, FruitModelRouter, RoutedPrediction
 
-FRUIT_ACQUISITION_CONFIDENCE = {
-    "apple": 0.40,
-    "banana": 0.20,
-    "pear": 0.65,
-}
-SUPPORTED_FRUITS = tuple(FRUIT_ACQUISITION_CONFIDENCE)
+SUPPORTED_FRUITS = ("apple", "banana", "pear")
 SEARCH_CROP_FRUITS = frozenset({"apple", "banana"})
-
-
-def _acquisition_confidence(target_fruit: str) -> float:
-    default = FRUIT_ACQUISITION_CONFIDENCE[target_fruit]
-    if target_fruit != "apple":
-        return default
-    name = "BORDER_COLLIE_APPLE_ACQUISITION_CONFIDENCE"
-    try:
-        value = float(os.environ.get(name, str(default)))
-    except ValueError as exc:
-        raise ValueError(f"{name} must be a number") from exc
-    if not math.isfinite(value) or not 0.40 <= value <= 0.70:
-        raise ValueError(f"{name} must stay within 0.40..0.70")
-    return value
 
 
 class TargetFruitRequest(BaseModel):
@@ -394,10 +375,7 @@ class PerceptionEvidence:
             advances = (
                 self._last_detection_pts is None or pts > self._last_detection_pts
             )
-            qualified = confidence >= _acquisition_confidence(self._target_fruit)
-            self._detection_count = (
-                self._detection_count + 1 if advances and qualified else 0
-            )
+            self._detection_count = self._detection_count + 1 if advances else 0
             self._last_detection_pts = pts
             self._detection = {
                 "source_pts": pts,
@@ -422,7 +400,7 @@ class PerceptionEvidence:
 
     def select_target(self, target_fruit: str) -> None:
         normalized = target_fruit.casefold().strip()
-        if normalized not in FRUIT_ACQUISITION_CONFIDENCE:
+        if normalized not in SUPPORTED_FRUITS:
             raise ValueError(f"unsupported Target Fruit: {target_fruit}")
         with self._lock:
             if normalized == self._target_fruit:
@@ -609,7 +587,7 @@ class PerceptionRuntime:
 
     def select_target(self, target_fruit: str) -> dict[str, object]:
         normalized = target_fruit.casefold().strip()
-        if normalized not in FRUIT_ACQUISITION_CONFIDENCE:
+        if normalized not in SUPPORTED_FRUITS:
             raise ValueError(f"unsupported Target Fruit: {target_fruit}")
         if self._fruit_class_ids and normalized not in self._fruit_class_ids:
             raise RuntimeError(f"model class is unavailable for {normalized}")

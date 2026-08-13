@@ -61,8 +61,7 @@
         "BANANA_SPECIALIST_MIN_IOU": "0.10",
         "BORDER_COLLIE_BARK_UUID": "161387de-21ab-4f0b-b4e9-97124b000d06",
         "EVIDENCE_MAXIMUM_FRAMES": "40",
-        "EVIDENCE_FRAME_INTERVAL_S": "0.5",
-        "BORDER_COLLIE_APPLE_ACQUISITION_CONFIDENCE": "0.40"
+        "EVIDENCE_FRAME_INTERVAL_S": "0.5"
       },
       "entitlements": [
         {"type": "network", "mode": "host"},

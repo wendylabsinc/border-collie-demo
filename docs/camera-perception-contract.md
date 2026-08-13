@@ -212,11 +212,12 @@ camera-generation changes still fail closed.
 
 `BORDER_COLLIE_APPLE_FOCUS_CONFIDENCE` is a unitless app-side ratio with a
 `0.50` default and `0.50..0.70` valid range.
-`BORDER_COLLIE_APPLE_ACQUISITION_CONFIDENCE` is shared by app and media, has a
-`0.40` default and `0.40..0.70` valid range, and controls both focused
-acquisition and sidecar stability counting. Focus must be greater than or equal
-to acquisition. Neither variable bypasses freshness, identity, centering,
-geometry, or camera-health interlocks.
+`BORDER_COLLIE_APPLE_ACQUISITION_CONFIDENCE` is app-owned, has a `0.40` default
+and `0.40..0.70` valid range, and controls focused acquisition. The media
+sidecar publishes raw same-label temporal evidence and does not read either
+motion-policy threshold. Focus must be greater than or equal to acquisition.
+Neither variable bypasses freshness, identity, centering, geometry, or
+camera-health interlocks.
 
 ## Published detection confidence is raw by design
 

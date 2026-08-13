@@ -485,27 +485,19 @@ def test_switching_supported_fruit_clears_old_detection_stability() -> None:
     assert status["detection"]["consecutive_detections"] == 1
 
 
-def test_apple_sidecar_stability_uses_runtime_acquisition_floor(
+def test_apple_sidecar_stability_is_raw_and_ignores_motion_policy_floor(
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv("BORDER_COLLIE_APPLE_ACQUISITION_CONFIDENCE", "0.40")
+    monkeypatch.setenv("BORDER_COLLIE_APPLE_ACQUISITION_CONFIDENCE", "0.70")
     evidence = PerceptionEvidence(generation="camera-1", target_fruit="apple")
 
     evidence.note_detection(
         pts=100,
         label="apple",
-        confidence=0.39,
-        bbox_xyxy=(480, 360, 800, 700),
-        inference_s=0.08,
-        completed_monotonic_s=10.08,
-    )
-    evidence.note_detection(
-        pts=101,
-        label="apple",
         confidence=0.40,
         bbox_xyxy=(480, 360, 800, 700),
         inference_s=0.08,
-        completed_monotonic_s=10.18,
+        completed_monotonic_s=10.08,
     )
 
     assert evidence.status()["detection"]["consecutive_detections"] == 1
