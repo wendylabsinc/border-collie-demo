@@ -186,6 +186,61 @@ def evaluate_perception_evidence(
         }
     else:
         crop_confirmation = None
+    raw_inference = payload.get("inference")
+    inference: dict[str, object] | None = None
+    if isinstance(raw_inference, dict):
+        raw_latest = raw_inference.get("latest")
+        raw_summary = raw_inference.get("summary")
+        if isinstance(raw_latest, dict) and isinstance(raw_summary, dict):
+            model_route = raw_latest.get("model_route")
+            inference = {
+                "latest": {
+                    "source_pts": _whole_number(raw_latest.get("source_pts")),
+                    "detection_pts": _whole_number(
+                        raw_latest.get("detection_pts")
+                    ),
+                    "model_route": (
+                        dict(model_route) if isinstance(model_route, dict) else None
+                    ),
+                    "inference_start_monotonic_s": _finite_number(
+                        raw_latest.get("inference_start_monotonic_s")
+                    ),
+                    "inference_end_monotonic_s": _finite_number(
+                        raw_latest.get("inference_end_monotonic_s")
+                    ),
+                    "inference_duration_s": _finite_number(
+                        raw_latest.get("inference_duration_s")
+                    ),
+                    "inference_total_ms": _finite_number(
+                        raw_latest.get("inference_total_ms")
+                    ),
+                    "inference_overrun": (
+                        raw_latest.get("inference_overrun")
+                        if isinstance(raw_latest.get("inference_overrun"), bool)
+                        else None
+                    ),
+                    "error": (
+                        raw_latest.get("error")
+                        if isinstance(raw_latest.get("error"), str)
+                        else None
+                    ),
+                },
+                "summary": {
+                    "processed_frames": _whole_number(
+                        raw_summary.get("processed_frames")
+                    ),
+                    "timed_frames": _whole_number(raw_summary.get("timed_frames")),
+                    "overrun_frames": _whole_number(
+                        raw_summary.get("overrun_frames")
+                    ),
+                    "minimum_ms": _finite_number(raw_summary.get("minimum_ms")),
+                    "maximum_ms": _finite_number(raw_summary.get("maximum_ms")),
+                    "average_ms": _finite_number(raw_summary.get("average_ms")),
+                    "overrun_threshold_ms": _finite_number(
+                        raw_summary.get("overrun_threshold_ms")
+                    ),
+                },
+            }
     if not isinstance(label, str) or label.casefold().strip() != target_fruit:
         violations.append(f"qualifying {target_fruit} detection is missing")
     if detection_generation != generation:
@@ -277,6 +332,7 @@ def evaluate_perception_evidence(
             "bbox_height_ratio": bbox_height_ratio,
             "bbox_area_ratio": bbox_area_ratio,
         },
+        "inference": inference,
         "thresholds": {
             "source_maximum_age_s": SOURCE_MAXIMUM_AGE_S,
             "source_minimum_consecutive_frames": SOURCE_MINIMUM_CONSECUTIVE_FRAMES,

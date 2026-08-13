@@ -33,6 +33,13 @@ manifests. Its environment controls are:
 - `PEAR_CROP_CONFIRM_MIN_CONFIDENCE` (default `0.55`)
 - `PEAR_CROP_CONFIRM_MIN_IOU` (default `0.10`)
 
+`/status.inference.latest` reports the exact model route, source/detection PTS,
+monotonic start/end timestamps, total milliseconds, and 200 ms overrun flag for
+the last worker outcome. The compact summary counts every worker-consumed frame
+as processed, aggregates only frames with real finite timing, and never invents
+a duration for unavailable timing. Misses and model errors therefore remain
+visible even when there is no current detection object.
+
 ## Evidence and Fieldmark
 
 - `/api/camera/frame.jpg` is the current annotated operator preview.

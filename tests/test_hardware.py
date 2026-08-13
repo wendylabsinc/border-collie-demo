@@ -170,6 +170,33 @@ class HeadingEscapePose(FakePose):
         return PoseStatus(self._last, 0.0, self.started, None)
 
 
+class NearHomeHeadingEscapePose(FakePose):
+    """Minimized end of Banana run 1d5129e4 including post-stop settling."""
+
+    def __init__(self, motion: FakeMotion) -> None:
+        super().__init__()
+        self._motion = motion
+        self._poses = iter(
+            (
+                Pose(0.30, 0.0, math.pi, 1.0),
+                Pose(0.25, 0.0, math.pi, 1.05),
+                Pose(0.20, 0.0, math.pi, 1.1),
+                Pose(0.12, 0.0, 0.0, 1.2),
+                Pose(0.065, 0.0, 0.0, 1.3),
+            )
+        )
+        self._last = Pose(0.30, 0.0, math.pi, 1.0)
+        self.samples = 0
+
+    def status(self) -> PoseStatus:
+        if self.started:
+            self._last = next(self._poses, self._last)
+            self.samples += 1
+            if self.samples >= 5:
+                assert self._motion.armed is False
+        return PoseStatus(self._last, 0.0, self.started, None)
+
+
 class PhysicalReturnHeadingDriftPose(FakePose):
     """Minimized pose replay from run 864c856b's failed Home return."""
 
@@ -623,6 +650,28 @@ def test_approach_trace_records_each_guidance_decision_and_arrival_counter() -> 
                     if visible
                     else None
                 ),
+                "inference": {
+                    "latest": {
+                        "source_pts": pts,
+                        "detection_pts": pts if visible else None,
+                        "model_route": {"full_frame": {"selected": "general"}},
+                        "inference_start_monotonic_s": 10.0 + pts,
+                        "inference_end_monotonic_s": 10.08 + pts,
+                        "inference_duration_s": 0.08,
+                        "inference_total_ms": 80.0,
+                        "inference_overrun": False,
+                        "error": None,
+                    },
+                    "summary": {
+                        "processed_frames": pts,
+                        "timed_frames": pts,
+                        "overrun_frames": 0,
+                        "minimum_ms": 75.0,
+                        "maximum_ms": 90.0,
+                        "average_ms": 80.0,
+                        "overrun_threshold_ms": 200.0,
+                    },
+                },
             }
 
         for pts in (1, 2, 3):
@@ -692,6 +741,24 @@ def test_approach_trace_records_each_guidance_decision_and_arrival_counter() -> 
                 "reason": "tracking_confidence_below_floor",
             },
             "command_sent": True,
+        }
+        assert trace[0]["model_route"] == {
+            "full_frame": {"selected": "general"}
+        }
+        assert trace[0]["inference_start_monotonic_s"] == 14.0
+        assert trace[0]["inference_end_monotonic_s"] == 14.08
+        assert trace[0]["inference_total_ms"] == 80.0
+        assert trace[0]["inference_overrun"] is False
+        assert trace[0]["detection_pts"] == 4
+        assert trace[0]["focus_active"] is False
+        assert result["approach_summary"]["inference"] == {
+            "processed_frames": 7,
+            "timed_frames": 7,
+            "overrun_frames": 0,
+            "minimum_ms": 75.0,
+            "maximum_ms": 90.0,
+            "average_ms": 80.0,
+            "overrun_threshold_ms": 200.0,
         }
         assert trace[3]["frame_advanced"] is False
         assert trace[3]["resulting_command"]["yaw_rps"] == -0.50
@@ -1754,6 +1821,43 @@ def test_position_only_return_stops_when_heading_escapes_instead_of_yaw_only() -
         assert all(command.forward_mps > 0.0 for command in motion.commands)
         assert motion.command_modes == ["factory_avoidance"]
         assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_near_home_heading_escape_reconciles_from_fresh_post_disarm_position() -> None:
+    """Replay 1d5129e4: measured position wins after the heading-gate stop."""
+
+    async def scenario() -> None:
+        motion = FakeMotion()
+        pose = NearHomeHeadingEscapePose(motion)
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: pose,
+        )
+        await manager.start()
+
+        result = await manager.return_home_position(
+            {"x_m": 0.0, "y_m": 0.0, "yaw_rad": 0.0},
+            forward_mps=1.0,
+            arrival_tolerance_m=0.10,
+            heading_gate_rad=math.radians(20.0),
+            maximum_yaw_rps=0.50,
+            minimum_progress_m=0.03,
+            stall_timeout_s=0.10,
+            timeout_s=0.50,
+        )
+
+        assert result["home_distance_m"] == pytest.approx(0.065)
+        assert result["heading_gate_escape_reconciled"] is True
+        assert result["measured_after_disarm"] is True
+        assert result["pose_source"] == "rt/sportmodestate"
+        assert motion.armed is False
+        assert len(motion.commands) == 1
+        assert motion.commands[0].forward_mps == 1.0
         await manager.close()
 
     asyncio.run(scenario())

@@ -30,8 +30,11 @@ def test_defaults_preserve_kinda_good_behavior_for_every_fruit() -> None:
     assert banana.recognition.focus_confidence is None
     assert banana.recognition.lock_confidence == 0.20
     assert pear.search.yaw_rps == 0.40
+    assert pear.search.focus_yaw_rps == 0.20
+    assert pear.search.focus_missing_grace_s == 0.50
     assert pear.centering.lock_tolerance_ratio == 0.08
     assert pear.approach.forward_mps == 1.0
+    assert pear.approach.slow_inference_grace_s == 0.50
     assert pear.arrival.near_bottom_ratio == 0.90
     assert pear.arrival.disappearance_bottom_ratio == 0.80
     assert pear.arrival.final_push_mps == 0.60

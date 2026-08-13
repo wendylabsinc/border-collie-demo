@@ -33,3 +33,12 @@ The integrated candidate is `stage-default-v3-runtime-tuning-cohorts`, Wendy
 application version `1.1.2-stage-default`. It adds the immutable per-run tuning
 interface and independently gated cohort controller. None of these changes is
 physically qualified until its first supervised run completes.
+
+The derived software candidate is
+`stage-default-v4-banana-reliability-replay`, Wendy application version
+`1.1.3-stage-default`. It keeps the 250 ms motion-evidence ceiling while adding
+a stopped 500 ms terminal grace for otherwise-valid slow inference, persistent
+fine pre-lock focus, exact inference timing evidence, and post-disarm
+position-only reconciliation of a near-Home heading-gate escape. Its three
+minimized physical traces are deterministic software replays; this candidate
+is not physically qualified or deployed by that replay result.

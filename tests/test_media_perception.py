@@ -6,6 +6,7 @@ import time
 import zipfile
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 
 from media import perception_sidecar
@@ -52,6 +53,43 @@ class FakeImage:
     def __getitem__(self, slices):
         y_slice, x_slice = slices[:2]
         return FakeImage(y_slice.stop - y_slice.start, x_slice.stop - x_slice.start)
+
+
+def test_inference_summary_counts_processed_timed_and_overrun_frames_exactly() -> None:
+    evidence = PerceptionEvidence(generation="camera-timing")
+    evidence.note_inference(
+        source_pts=1,
+        detection_pts=1,
+        started_monotonic_s=10.0,
+        completed_monotonic_s=10.08,
+        model_route={"full_frame": {"selected": "general"}},
+    )
+    evidence.note_inference(
+        source_pts=2,
+        detection_pts=None,
+        started_monotonic_s=None,
+        completed_monotonic_s=None,
+        model_route=None,
+        error="timing unavailable",
+    )
+    evidence.note_inference(
+        source_pts=3,
+        detection_pts=None,
+        started_monotonic_s=11.0,
+        completed_monotonic_s=11.25,
+        model_route={"full_frame": {"selected": "general"}},
+    )
+
+    inference = evidence.status()["inference"]
+    assert inference["summary"] == {
+        "processed_frames": 3,
+        "timed_frames": 2,
+        "overrun_frames": 1,
+        "minimum_ms": pytest.approx(80.0),
+        "maximum_ms": pytest.approx(250.0),
+        "average_ms": pytest.approx(165.0),
+        "overrun_threshold_ms": 200.0,
+    }
 
 
 def test_preview_encoding_cannot_starve_the_sidecar_status_event_loop() -> None:
@@ -186,6 +224,24 @@ def test_large_confident_pear_does_not_spend_a_second_inference_pass() -> None:
         "context_scale": 6.0,
         "minimum_confirmation_confidence": 0.55,
         "minimum_agreement_iou": 0.10,
+    }
+    inference = runtime.status()["inference"]
+    assert inference["latest"]["source_pts"] == 100
+    assert inference["latest"]["detection_pts"] == 100
+    assert inference["latest"]["model_route"]["full_frame"] is not None
+    assert inference["latest"]["inference_start_monotonic_s"] <= inference[
+        "latest"
+    ]["inference_end_monotonic_s"]
+    assert inference["latest"]["inference_total_ms"] >= 0.0
+    assert inference["latest"]["inference_overrun"] is False
+    assert inference["summary"] == {
+        "processed_frames": 1,
+        "timed_frames": 1,
+        "overrun_frames": 0,
+        "minimum_ms": inference["latest"]["inference_total_ms"],
+        "maximum_ms": inference["latest"]["inference_total_ms"],
+        "average_ms": inference["latest"]["inference_total_ms"],
+        "overrun_threshold_ms": 200.0,
     }
     runtime._inference_executor.shutdown(wait=True, cancel_futures=True)
 

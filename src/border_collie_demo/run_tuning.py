@@ -76,6 +76,8 @@ class SearchTuning:
     yaw_rps: float = 0.40
     sweep_rad: float = 2.0 * math.pi
     timeout_s: float = 30.0
+    focus_yaw_rps: float = 0.20
+    focus_missing_grace_s: float = 0.50
 
 
 @dataclass(frozen=True)
@@ -101,6 +103,7 @@ class ApproachTuning:
     duplicate_hold_s: float = 0.250
     source_maximum_age_s: float = 0.350
     detection_maximum_age_s: float = 0.250
+    slow_inference_grace_s: float = 0.50
 
 
 @dataclass(frozen=True)
@@ -173,6 +176,8 @@ class RunTuning:
             search=SearchTuning(
                 yaw_rps=guidance.search_yaw_rps,
                 sweep_rad=guidance.search_sweep_rad,
+                focus_yaw_rps=guidance.focus_yaw_rps,
+                focus_missing_grace_s=guidance.focus_missing_grace_s,
             ),
             recognition=RecognitionTuning(
                 focus_confidence=policy.focus_confidence,
@@ -191,6 +196,7 @@ class RunTuning:
                 duplicate_hold_s=guidance.duplicate_hold_s,
                 source_maximum_age_s=guidance.source_maximum_age_s,
                 detection_maximum_age_s=guidance.detection_maximum_age_s,
+                slow_inference_grace_s=guidance.slow_inference_grace_s,
             ),
             arrival=ArrivalTuning(
                 near_bottom_ratio=guidance.near_bottom_ratio,
@@ -254,7 +260,17 @@ class RunTuning:
         ):
             raise ValueError("run tuning Target Fruit does not match the Demo Run")
 
-        search = _group(raw, "search", {"yaw_rps", "sweep_rad", "timeout_s"})
+        search = _group(
+            raw,
+            "search",
+            {
+                "yaw_rps",
+                "sweep_rad",
+                "timeout_s",
+                "focus_yaw_rps",
+                "focus_missing_grace_s",
+            },
+        )
         recognition = _group(
             raw,
             "recognition",
@@ -284,6 +300,7 @@ class RunTuning:
                 "duplicate_hold_s",
                 "source_maximum_age_s",
                 "detection_maximum_age_s",
+                "slow_inference_grace_s",
             },
         )
         arrival = _group(
@@ -333,6 +350,20 @@ class RunTuning:
                 ),
                 timeout_s=_number(
                     search, "timeout_s", defaults.search.timeout_s, 5.0, 60.0
+                ),
+                focus_yaw_rps=_number(
+                    search,
+                    "focus_yaw_rps",
+                    defaults.search.focus_yaw_rps,
+                    0.10,
+                    0.40,
+                ),
+                focus_missing_grace_s=_number(
+                    search,
+                    "focus_missing_grace_s",
+                    defaults.search.focus_missing_grace_s,
+                    0.10,
+                    1.0,
                 ),
             ),
             recognition=RecognitionTuning(
@@ -419,6 +450,13 @@ class RunTuning:
                     defaults.approach.detection_maximum_age_s,
                     0.05,
                     0.250,
+                ),
+                slow_inference_grace_s=_number(
+                    approach,
+                    "slow_inference_grace_s",
+                    defaults.approach.slow_inference_grace_s,
+                    0.250,
+                    1.0,
                 ),
             ),
             arrival=ArrivalTuning(
@@ -551,6 +589,13 @@ class RunTuning:
             raise ValueError("lock tolerance must be smaller than the outer corridor")
         if self.approach.detection_maximum_age_s > self.approach.source_maximum_age_s:
             raise ValueError("detection age cannot exceed source age")
+        if self.search.focus_yaw_rps > self.search.yaw_rps:
+            raise ValueError("focus yaw cannot exceed broad search yaw")
+        if (
+            self.approach.slow_inference_grace_s
+            < self.approach.detection_maximum_age_s
+        ):
+            raise ValueError("slow inference grace cannot be below detection freshness")
         if self.approach.duplicate_hold_s > self.approach.detection_maximum_age_s:
             raise ValueError("duplicate hold cannot exceed detection freshness")
         if self.home.return_minimum_yaw_rps > self.home.return_yaw_rps:
@@ -595,6 +640,24 @@ class RunTuning:
                     0.1,
                 ),
                 _field("timeout_s", "Search timeout", "s", 5, 60, 1),
+                _field(
+                    "focus_yaw_rps",
+                    "Focused alignment yaw",
+                    "rad/s",
+                    0.10,
+                    0.40,
+                    0.05,
+                    safety="Yaw-only; never authorizes forward motion.",
+                ),
+                _field(
+                    "focus_missing_grace_s",
+                    "Focused missing-evidence grace",
+                    "s",
+                    0.10,
+                    1.0,
+                    0.05,
+                    safety="Retains only yaw direction; lock counters do not advance.",
+                ),
             ],
             "recognition": [
                 _field(
@@ -683,6 +746,18 @@ class RunTuning:
                     0.250,
                     0.01,
                     safety="May only tighten the hard 0.250 s stop ceiling.",
+                ),
+                _field(
+                    "slow_inference_grace_s",
+                    "Slow inference terminal grace",
+                    "s",
+                    0.250,
+                    1.0,
+                    0.05,
+                    safety=(
+                        "Motion remains exact zero after the 0.250 s freshness "
+                        "ceiling; this only delays terminal failure."
+                    ),
                 ),
             ],
             "arrival": [

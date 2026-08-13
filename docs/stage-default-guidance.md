@@ -34,6 +34,8 @@ motion safety limits.
 | Environment variable | Units | Default | Valid range | Safety constraint |
 | --- | --- | ---: | ---: | --- |
 | `BORDER_COLLIE_GUIDANCE_SEARCH_YAW_RPS` | rad/s | `0.40` | `0.40..0.80` | `0.50` is physically proven; `0.40` is the supervised slower-search experiment. Lower values remain rejected because `0.24..0.30` produced posture changes without a useful turn. |
+| `BORDER_COLLIE_GUIDANCE_FOCUS_YAW_RPS` | rad/s | `0.20` | `0.10..0.40`, no greater than search yaw | A qualified off-center fruit changes the yaw-only search into fine alignment. This value never authorizes translation. |
+| `BORDER_COLLIE_GUIDANCE_FOCUS_MISSING_GRACE_S` | seconds | `0.50` | `0.10..1.0` | Brief fresh missing or weak observations retain only the last corrective yaw direction. They never advance lock counters; expiry resumes the bounded broad sweep. |
 | `BORDER_COLLIE_APPLE_FOCUS_CONFIDENCE` | confidence ratio | `0.40` | `0.40..0.70`, at least the Apple acquisition floor | The first fresh Apple observation at this floor stops the broad sweep and starts zero-motion focused confirmation. It never authorizes translation. |
 | `BORDER_COLLIE_APPLE_ACQUISITION_CONFIDENCE` | confidence ratio | `0.40` | `0.40..0.70`, at most the Apple focus floor | After focus begins, three fresh centered Apple observations at or above this app-owned floor lock identity. A weaker or missing observation holds at zero and resets confirmation; stale or unhealthy evidence still fails closed. |
 | `BORDER_COLLIE_GUIDANCE_SEARCH_SWEEP_RAD` | radians | `6.283185` | greater than `0`, at most one revolution | Fresh measured pose bounds the search; command duration is not treated as rotation proof. |
@@ -45,7 +47,8 @@ motion safety limits.
 | `BORDER_COLLIE_GUIDANCE_RECENTER_YAW_RPS` | rad/s | `0.50` | `0.50..0.80` | In-place recentering never includes forward motion. |
 | `BORDER_COLLIE_GUIDANCE_DUPLICATE_HOLD_S` | seconds | `0.250` | greater than `0`, at most `0.250` | A duplicate cannot extend the original fresh-evidence authority window. |
 | `BORDER_COLLIE_GUIDANCE_SOURCE_MAXIMUM_AGE_S` | seconds | `0.350` | greater than `0`, at most `0.350` | Older source evidence stops terminally. |
-| `BORDER_COLLIE_GUIDANCE_DETECTION_MAXIMUM_AGE_S` | seconds | `0.250` | greater than `0`, at most `0.250` | Older detection evidence stops terminally. |
+| `BORDER_COLLIE_GUIDANCE_DETECTION_MAXIMUM_AGE_S` | seconds | `0.250` | greater than `0`, at most `0.250` | Older detection evidence loses motion authority immediately; only otherwise-valid slow-inference evidence may wait stopped until the separate terminal grace. |
+| `BORDER_COLLIE_GUIDANCE_SLOW_INFERENCE_GRACE_S` | seconds | `0.50` | detection freshness through `1.0` | Detection older than `0.250 s` loses all motion authority immediately and commands exact zero. Otherwise-valid same-generation evidence becomes terminal only at this grace deadline; source faults, wrong identity, invalid evidence, and generation changes still fail immediately. |
 | `BORDER_COLLIE_GUIDANCE_NEAR_BOTTOM_RATIO` | frame-height ratio | `0.90` | greater than `0`, at most `1` | After target lock, one fresh, same-fruit, geometrically valid observation at or below this image edge confirms Arrival. Per-frame confidence is intentionally ignored at this boundary for every fruit because it commonly collapses when the fruit fills or is clipped by the lower edge. |
 | `BORDER_COLLIE_GUIDANCE_DISAPPEARANCE_BOTTOM_RATIO` | frame-height ratio | `0.80` | `0.60..0.95`, below the direct Arrival threshold | A fresh, centered-corridor target frame at or below this edge arms only the immediately following fresh missing frame as Arrival. Any intervening lower frame, off-axis observation, stale evidence, wrong label, or camera failure cancels or fails closed. |
 | `BORDER_COLLIE_GUIDANCE_NEAR_CENTER_RATIO` | frame-height ratio | `0.72` | greater than `0`, at most `1` | Counts only on fresh matching evidence. |
@@ -76,11 +79,17 @@ changed pair under the same activation ID as an idempotency conflict.
 
 ## Safety behavior
 
-- Camera/source staleness, generation changes, regressed frames, invalid
-  geometry, and a changed identity produce a terminal zero command.
+- Source staleness, generation changes, regressed frames, invalid geometry, and
+  a changed identity produce a terminal zero command. A valid same-generation
+  detection between the `0.250 s` motion freshness ceiling and the bounded
+  slow-inference deadline produces a nonterminal exact-zero stop; fresh
+  evidence may resume, but the stopped interval advances no Arrival counter.
 - A duplicate frame reuses the previous already-authorized command for at most
   `250 ms`; it never advances acquisition or Arrival counters.
 - A fruit outside the outer corridor remains identified, but forward authority
   is zero until recentered.
+- Before lock, a qualified off-center fruit enters focused yaw-only alignment.
+  Its direction survives bounded fresh missing/weak samples, preventing a
+  one-frame detector gap from restarting the broad sweep in the wrong direction.
 - Lower-edge disappearance before the centered near latch stops. After the
   latch it starts one bounded final push and then returns an Arrival stop.

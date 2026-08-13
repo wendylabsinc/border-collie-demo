@@ -30,6 +30,7 @@ from media.model_router import FruitCandidate, FruitModelRouter, RoutedPredictio
 
 SUPPORTED_FRUITS = ("apple", "banana", "pear")
 SEARCH_CROP_FRUITS = frozenset({"apple", "banana"})
+INFERENCE_OVERRUN_S = 0.200
 
 
 class TargetFruitRequest(BaseModel):
@@ -324,6 +325,13 @@ class PerceptionEvidence:
         self._last_source_received_s: float | None = None
         self._time_base: str | None = None
         self._error: str | None = None
+        self._inference_latest: dict[str, object] = {}
+        self._inference_processed_frames = 0
+        self._inference_timed_frames = 0
+        self._inference_overrun_frames = 0
+        self._inference_total_ms = 0.0
+        self._inference_minimum_ms: float | None = None
+        self._inference_maximum_ms: float | None = None
 
     def note_source(
         self,
@@ -398,6 +406,73 @@ class PerceptionEvidence:
             self._detection_count = 0
             self._detection = {}
 
+    def note_inference(
+        self,
+        *,
+        source_pts: int,
+        detection_pts: int | None,
+        started_monotonic_s: float | None,
+        completed_monotonic_s: float | None,
+        model_route: dict[str, object] | None,
+        error: str | None = None,
+    ) -> None:
+        """Record exactly one outcome for each frame consumed by the worker.
+
+        ``processed_frames`` counts calls to this method. ``timed_frames`` and
+        latency aggregates include only outcomes with finite, ordered start/end
+        timestamps. Missing timestamps remain ``None`` rather than being
+        inferred. ``overrun_frames`` counts timed outcomes strictly above the
+        existing 200 ms detector deadline.
+        """
+        with self._lock:
+            self._inference_processed_frames += 1
+            timing_valid = bool(
+                started_monotonic_s is not None
+                and completed_monotonic_s is not None
+                and math.isfinite(started_monotonic_s)
+                and math.isfinite(completed_monotonic_s)
+                and completed_monotonic_s >= started_monotonic_s
+            )
+            duration_s = (
+                completed_monotonic_s - started_monotonic_s
+                if timing_valid
+                and completed_monotonic_s is not None
+                and started_monotonic_s is not None
+                else None
+            )
+            total_ms = duration_s * 1000.0 if duration_s is not None else None
+            overrun = (
+                duration_s > INFERENCE_OVERRUN_S
+                if duration_s is not None
+                else None
+            )
+            if total_ms is not None:
+                self._inference_timed_frames += 1
+                self._inference_total_ms += total_ms
+                self._inference_minimum_ms = (
+                    total_ms
+                    if self._inference_minimum_ms is None
+                    else min(self._inference_minimum_ms, total_ms)
+                )
+                self._inference_maximum_ms = (
+                    total_ms
+                    if self._inference_maximum_ms is None
+                    else max(self._inference_maximum_ms, total_ms)
+                )
+                if overrun:
+                    self._inference_overrun_frames += 1
+            self._inference_latest = {
+                "source_pts": source_pts,
+                "detection_pts": detection_pts,
+                "model_route": dict(model_route or {}),
+                "inference_start_monotonic_s": started_monotonic_s,
+                "inference_end_monotonic_s": completed_monotonic_s,
+                "inference_duration_s": duration_s,
+                "inference_total_ms": total_ms,
+                "inference_overrun": overrun,
+                "error": error,
+            }
+
     def select_target(self, target_fruit: str) -> None:
         normalized = target_fruit.casefold().strip()
         if normalized not in SUPPORTED_FRUITS:
@@ -416,6 +491,11 @@ class PerceptionEvidence:
 
     def status(self) -> dict[str, object]:
         with self._lock:
+            average_ms = (
+                self._inference_total_ms / self._inference_timed_frames
+                if self._inference_timed_frames
+                else None
+            )
             return {
                 "generation": self.generation,
                 "target_fruit": self._target_fruit,
@@ -423,6 +503,18 @@ class PerceptionEvidence:
                 "source": dict(self._source),
                 "detection": dict(self._detection),
                 "error": self._error,
+                "inference": {
+                    "latest": dict(self._inference_latest),
+                    "summary": {
+                        "processed_frames": self._inference_processed_frames,
+                        "timed_frames": self._inference_timed_frames,
+                        "overrun_frames": self._inference_overrun_frames,
+                        "minimum_ms": self._inference_minimum_ms,
+                        "maximum_ms": self._inference_maximum_ms,
+                        "average_ms": average_ms,
+                        "overrun_threshold_ms": INFERENCE_OVERRUN_S * 1000.0,
+                    },
+                },
             }
 
 
@@ -685,6 +777,11 @@ class PerceptionRuntime:
             target_fruit = self._target_fruit
         bgr = frame.to_ndarray(format="bgr24")
         started = time.monotonic()
+        model_route: dict[str, object] = {
+            "full_frame": None,
+            "search_crop": None,
+            "crop_confirmation": None,
+        }
         try:
             full_frame_prediction = self._predict_candidate(
                 source=bgr,
@@ -692,11 +789,7 @@ class PerceptionRuntime:
             )
             candidate = full_frame_prediction.candidate
             inference_passes = full_frame_prediction.inference_passes
-            model_route: dict[str, object] = {
-                "full_frame": full_frame_prediction.route,
-                "search_crop": None,
-                "crop_confirmation": None,
-            }
+            model_route["full_frame"] = full_frame_prediction.route
             crop_confirmation: dict[str, object] = {
                 "attempted": False,
                 "promoted": False,
@@ -793,6 +886,15 @@ class PerceptionRuntime:
                     assert crop_candidate is not None
                     candidate = crop_candidate
         except Exception as exc:  # noqa: BLE001 - detector errors are untyped
+            completed = time.monotonic()
+            self.evidence.note_inference(
+                source_pts=pts,
+                detection_pts=None,
+                started_monotonic_s=started,
+                completed_monotonic_s=completed,
+                model_route=model_route,
+                error=f"{type(exc).__name__}: {exc}",
+            )
             self.evidence.fail(f"detector failure: {type(exc).__name__}: {exc}")
             self._publish_preview(
                 bgr,
@@ -805,6 +907,13 @@ class PerceptionRuntime:
             )
             return
         completed = time.monotonic()
+        self.evidence.note_inference(
+            source_pts=pts,
+            detection_pts=pts if candidate is not None else None,
+            started_monotonic_s=started,
+            completed_monotonic_s=completed,
+            model_route=model_route,
+        )
         if candidate is None:
             self.evidence.note_miss(target_fruit)
             self._publish_preview(

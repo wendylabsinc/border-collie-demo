@@ -210,6 +210,52 @@ def test_acquisition_uses_the_existing_per_fruit_confidence_policy(
     assert guidance.policy.acquisition_confidence == accepted
 
 
+def test_physical_banana_search_replay_retains_fine_focus_through_brief_misses() -> None:
+    """Replay 689e9005: do not resume the broad sweep between sightings."""
+    guidance = FruitGuidance(
+        "banana",
+        config=GuidanceConfig(
+            focus_yaw_rps=0.20,
+            focus_missing_grace_s=0.50,
+        ),
+    )
+
+    focused = guidance.observe(
+        observation(
+            pts=93,
+            now_s=10.7699,
+            label="banana",
+            confidence=0.5893887,
+            center_x=0.02265625,
+        ),
+        now_s=10.7699,
+    )
+    missing = guidance.observe(
+        observation(pts=94, now_s=10.98, label=None),
+        now_s=10.98,
+    )
+
+    assert focused.action is GuidanceAction.ALIGN
+    assert focused.command.yaw_rps == 0.20
+    assert focused.reason == "focus_align_target"
+    assert focused.focus_active is True
+    assert focused.focus_direction == 1
+    assert missing.action is GuidanceAction.ALIGN
+    assert missing.command.yaw_rps == 0.20
+    assert missing.reason == "focus_missing_grace"
+    assert missing.centered_fresh_samples == 0
+    assert missing.focus_active is True
+
+    expired = guidance.observe(
+        observation(pts=95, now_s=11.27, label=None),
+        now_s=11.27,
+    )
+    assert expired.action is GuidanceAction.SEARCH
+    assert expired.command.yaw_rps == 0.40
+    assert expired.reason == "focus_missing_grace_expired"
+    assert expired.focus_active is False
+
+
 def test_apple_high_confidence_candidate_holds_then_sustained_tracking_locks() -> None:
     guidance = FruitGuidance("apple")
 
@@ -673,7 +719,7 @@ def test_zero_duration_disables_final_push_and_arrival_remains_stopped() -> None
     assert guidance.final_push_count == 0
 
 
-def test_stale_detection_replay_stops_without_reusing_motion_authority() -> None:
+def test_detection_past_slow_inference_grace_fails_without_motion_authority() -> None:
     guidance = FruitGuidance("pear")
     for pts, now_s in ((1, 0.0), (2, 0.1), (3, 0.2), (4, 0.3)):
         moving = guidance.observe(
@@ -684,13 +730,86 @@ def test_stale_detection_replay_stops_without_reusing_motion_authority() -> None
     assert moving.command.forward_mps == 1.0
 
     stale = observation(pts=5, now_s=0.4)
-    stale["detection"]["age_s"] = 0.251
+    stale["detection"]["age_s"] = 0.50
     stopped = guidance.observe(stale, now_s=0.4, allow_forward=True)
 
     assert stopped.action is GuidanceAction.STOP
     assert stopped.command.forward_mps == 0.0
     assert stopped.terminal is True
     assert stopped.reason == "detection_stale"
+
+
+def test_physical_banana_slow_inference_replay_stops_then_resumes_fresh_motion() -> None:
+    """Replay af45a566: 267.8 ms evidence is safe to stop, not fail."""
+    guidance = FruitGuidance(
+        "banana",
+        config=GuidanceConfig(slow_inference_grace_s=0.50),
+    )
+    for pts, now_s in ((101, 0.0), (102, 0.1), (103, 0.2), (104, 0.3)):
+        moving = guidance.observe(
+            observation(
+                pts=pts,
+                now_s=now_s,
+                label="banana",
+                confidence=0.788,
+            ),
+            now_s=now_s,
+            allow_forward=True,
+        )
+    assert moving.action is GuidanceAction.DRIVE
+    before = moving.near_fresh_samples
+
+    delayed = observation(
+        pts=105,
+        now_s=0.4,
+        label="banana",
+        confidence=0.788,
+    )
+    delayed["detection"]["source_pts"] = 103
+    delayed["detection"]["age_s"] = 0.2678
+    waiting = guidance.observe(delayed, now_s=0.4, allow_forward=True)
+
+    assert waiting.action is GuidanceAction.STOP
+    assert waiting.command.forward_mps == 0.0
+    assert waiting.command.yaw_rps == 0.0
+    assert waiting.reason == "slow_inference_grace"
+    assert waiting.terminal is False
+    assert waiting.near_fresh_samples == before
+
+    resumed = guidance.observe(
+        observation(
+            pts=106,
+            now_s=0.5,
+            label="banana",
+            confidence=0.781,
+        ),
+        now_s=0.5,
+        allow_forward=True,
+    )
+    assert resumed.action is GuidanceAction.DRIVE
+    assert resumed.command.forward_mps == 1.0
+
+
+def test_slow_inference_grace_expires_terminally_at_configured_deadline() -> None:
+    guidance = FruitGuidance(
+        "banana",
+        config=GuidanceConfig(slow_inference_grace_s=0.50),
+    )
+    for pts, now_s in ((1, 0.0), (2, 0.1), (3, 0.2)):
+        guidance.observe(
+            observation(pts=pts, now_s=now_s, label="banana"),
+            now_s=now_s,
+        )
+
+    stale = observation(pts=4, now_s=0.3, label="banana")
+    stale["detection"]["source_pts"] = 2
+    stale["detection"]["age_s"] = 0.50
+    failed = guidance.observe(stale, now_s=0.3, allow_forward=True)
+
+    assert failed.action is GuidanceAction.STOP
+    assert failed.terminal is True
+    assert failed.camera_failure is True
+    assert failed.reason == "detection_stale"
 
 
 @pytest.mark.parametrize(
@@ -737,10 +856,14 @@ def test_guidance_env_defaults_match_the_physically_proven_base_contract(
     config = GuidanceConfig.from_env()
 
     assert config.search_yaw_rps == 0.4
+    assert config.focus_yaw_rps == 0.2
+    assert config.focus_missing_grace_s == 0.5
     assert config.center_tolerance_ratio == 0.08
     assert config.center_confirmations == 3
     assert config.approach_forward_mps == 1.0
     assert config.outer_corridor_ratio == 0.20
+    assert config.detection_maximum_age_s == 0.25
+    assert config.slow_inference_grace_s == 0.5
     assert config.final_push_mps == 0.6
     assert config.final_push_duration_s == 1.0
     assert config.near_loss_confirmations == 2

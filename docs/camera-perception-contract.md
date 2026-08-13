@@ -65,6 +65,27 @@ than trusting a sidecar-provided `ready` flag:
       "crop_xyxy": [497, 372, 753, 628],
       "agreement_iou": 0.72
     }
+  },
+  "inference": {
+    "latest": {
+      "source_pts": 12345,
+      "detection_pts": 12345,
+      "model_route": {"full_frame": {"selected": "general"}},
+      "inference_start_monotonic_s": 99.97,
+      "inference_end_monotonic_s": 100.05,
+      "inference_duration_s": 0.08,
+      "inference_total_ms": 80.0,
+      "inference_overrun": false
+    },
+    "summary": {
+      "processed_frames": 14,
+      "timed_frames": 14,
+      "overrun_frames": 0,
+      "minimum_ms": 61.0,
+      "maximum_ms": 104.0,
+      "average_ms": 79.3,
+      "overrun_threshold_ms": 200.0
+    }
   }
 }
 ```
@@ -143,11 +164,29 @@ may be relaxed only after new acceptance evidence is recorded.
   qualified lower-edge disappearance permits the one bounded final push.
 - Warm-up must finish before preflight passes. After preflight, detector
   execution time must be **no greater than 0.200 seconds**.
-- Detection age must be **no greater than 0.250 seconds**, measured with the
-  local monotonic clock from source-frame receipt until the instant the
-  detection is used to authorize or extend motion.
-- A detection that violates execution-time or age limits is untrusted and
-  cannot authorize or extend motion.
+- Detection age must be **no greater than 0.250 seconds** to authorize or
+  extend motion. An otherwise-valid same-generation detection from 0.250 up to
+  the configured 0.500-second slow-inference grace commands exact zero but does
+  not yet terminate the Demo Run; a fresh valid result may resume. At or after
+  the grace deadline the camera contract fails terminally. Source staleness,
+  generation change, wrong identity, and invalid evidence still fail
+  immediately.
+- A detection that violates execution-time or motion-age limits is untrusted
+  and cannot authorize or extend motion. Stopped grace samples never advance
+  acquisition or Arrival counters.
+
+## Inference timing counters
+
+The sidecar records one `processed_frames` increment per frame consumed by the
+inference worker, whether the frame detects the Target Fruit, misses it, or
+ends in a model error. `timed_frames` includes only records with finite ordered
+start/end monotonic timestamps; missing timing is published as unavailable and
+is never estimated. `overrun_frames` counts timed records whose total duration
+is strictly greater than 200 ms. Minimum, maximum, and average cover only timed
+records. Each app-side search/approach trace joins this timing and model route
+with source/detection PTS, detection age, focus state, the guidance decision,
+and the resulting command, so the black box explains both perception cadence
+and motion authority.
 
 ## Failure behavior
 

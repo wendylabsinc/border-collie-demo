@@ -147,6 +147,8 @@ class ProductionStageExecutor:
                 config = GuidanceConfig(
                     search_yaw_rps=tuning.search.yaw_rps,
                     search_sweep_rad=tuning.search.sweep_rad,
+                    focus_yaw_rps=tuning.search.focus_yaw_rps,
+                    focus_missing_grace_s=tuning.search.focus_missing_grace_s,
                     center_tolerance_ratio=tuning.centering.lock_tolerance_ratio,
                     center_confirmations=tuning.recognition.required_frames,
                     approach_forward_mps=tuning.approach.forward_mps,
@@ -156,6 +158,9 @@ class ProductionStageExecutor:
                     duplicate_hold_s=tuning.approach.duplicate_hold_s,
                     source_maximum_age_s=tuning.approach.source_maximum_age_s,
                     detection_maximum_age_s=tuning.approach.detection_maximum_age_s,
+                    slow_inference_grace_s=(
+                        tuning.approach.slow_inference_grace_s
+                    ),
                     near_bottom_ratio=tuning.arrival.near_bottom_ratio,
                     disappearance_bottom_ratio=(
                         tuning.arrival.disappearance_bottom_ratio

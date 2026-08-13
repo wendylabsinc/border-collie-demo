@@ -37,6 +37,28 @@ def valid_payload() -> dict[str, object]:
                 "agreement_iou": 0.72,
             },
         },
+        "inference": {
+            "latest": {
+                "source_pts": 12345,
+                "detection_pts": 12345,
+                "model_route": {"full_frame": {"selected": "general"}},
+                "inference_start_monotonic_s": 99.77,
+                "inference_end_monotonic_s": 99.85,
+                "inference_duration_s": 0.08,
+                "inference_total_ms": 80.0,
+                "inference_overrun": False,
+                "error": None,
+            },
+            "summary": {
+                "processed_frames": 14,
+                "timed_frames": 14,
+                "overrun_frames": 1,
+                "minimum_ms": 61.0,
+                "maximum_ms": 214.0,
+                "average_ms": 91.5,
+                "overrun_threshold_ms": 200.0,
+            },
+        },
     }
 
 
@@ -108,6 +130,7 @@ def test_status_preserves_validated_geometry_for_approach_and_arrival() -> None:
     assert status["detection"]["inference_passes"] == 2
     assert status["detection"]["crop_confirmation"]["promoted"] is True
     assert status["detection"]["crop_confirmation"]["crop_confidence"] == 0.81
+    assert status["inference"] == valid_payload()["inference"]
 
 
 def test_detection_must_be_bound_to_the_current_camera_generation() -> None:

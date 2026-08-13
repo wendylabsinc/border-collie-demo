@@ -155,6 +155,7 @@ class _ApproachRecorder:
         self._stop_commands_sent = 0
         self._samples = 0
         self._event_sink = event_sink
+        self._latest_inference_summary: dict[str, object] | None = None
 
     def record(
         self,
@@ -168,6 +169,15 @@ class _ApproachRecorder:
         detection = status.get("detection")
         source_record = source if isinstance(source, dict) else {}
         detection_record = detection if isinstance(detection, dict) else {}
+        inference = status.get("inference")
+        inference_record = inference if isinstance(inference, dict) else {}
+        inference_latest = inference_record.get("latest")
+        inference_latest_record = (
+            inference_latest if isinstance(inference_latest, dict) else {}
+        )
+        inference_summary = inference_record.get("summary")
+        if isinstance(inference_summary, dict):
+            self._latest_inference_summary = dict(inference_summary)
         confidence = _finite_float(detection_record.get("confidence"))
         if confidence is not None:
             self._confidence_count += 1
@@ -201,6 +211,22 @@ class _ApproachRecorder:
             "source_time_base": source_record.get("time_base"),
             "source_age_s": _finite_float(source_record.get("age_s")),
             "detection_age_s": _finite_float(detection_record.get("age_s")),
+            "detection_pts": inference_latest_record.get("detection_pts"),
+            "model_route": inference_latest_record.get("model_route"),
+            "inference_start_monotonic_s": _finite_float(
+                inference_latest_record.get("inference_start_monotonic_s")
+            ),
+            "inference_end_monotonic_s": _finite_float(
+                inference_latest_record.get("inference_end_monotonic_s")
+            ),
+            "inference_duration_s": _finite_float(
+                inference_latest_record.get("inference_duration_s")
+            ),
+            "inference_total_ms": _finite_float(
+                inference_latest_record.get("inference_total_ms")
+            ),
+            "inference_overrun": inference_latest_record.get("inference_overrun"),
+            "inference_error": inference_latest_record.get("error"),
             "raw_label": detection_record.get("label"),
             "confidence": confidence,
             "focus_confidence": self._guidance.policy.focus_confidence,
@@ -221,6 +247,9 @@ class _ApproachRecorder:
             "near_fresh_samples": decision.near_fresh_samples,
             "near_loss_samples": decision.near_loss_samples,
             "frame_advanced": decision.frame_advanced,
+            "focus_active": decision.focus_active,
+            "focus_direction": decision.focus_direction,
+            "focus_grace_remaining_s": decision.focus_grace_remaining_s,
             "resulting_command": decision.command.to_dict(),
             "command_sent": False,
         }
@@ -272,6 +301,11 @@ class _ApproachRecorder:
                 "stop_commands_sent": self._stop_commands_sent,
                 "final_guidance_reason": (
                     self._trace[-1]["guidance_reason"] if self._trace else None
+                ),
+                **(
+                    {"inference": dict(self._latest_inference_summary)}
+                    if self._latest_inference_summary is not None
+                    else {}
                 ),
             },
         }
@@ -1192,6 +1226,7 @@ class HardwareManager:
             search_progress_rad = 0.0
             previous_search_yaw: float | None = None
             search_trace: list[dict[str, object]] = []
+            inference_evidence: dict[str, object] = {}
             started = time.monotonic()
             approach_recorder = (
                 _ApproachRecorder(
@@ -1246,9 +1281,17 @@ class HardwareManager:
                                     "confidence_summary": confidence_summary(
                                         search_trace
                                     ),
+                                    **inference_evidence,
                                 },
                             )
                     status = status_reader()
+                    raw_inference = status.get("inference")
+                    if isinstance(raw_inference, dict) and isinstance(
+                        raw_inference.get("summary"), dict
+                    ):
+                        inference_evidence = {
+                            "inference_summary": dict(raw_inference["summary"])
+                        }
                     decision = guidance.observe(
                         status,
                         now_s=now,
@@ -1260,6 +1303,16 @@ class HardwareManager:
                     if not allow_forward:
                         source = status.get("source")
                         detection = status.get("detection")
+                        inference = status.get("inference")
+                        inference_record = (
+                            inference if isinstance(inference, dict) else {}
+                        )
+                        inference_latest = inference_record.get("latest")
+                        inference_latest_record = (
+                            inference_latest
+                            if isinstance(inference_latest, dict)
+                            else {}
+                        )
                         search_event = {
                             "sample": samples,
                             "elapsed_s": round(now - started, 4),
@@ -1272,6 +1325,35 @@ class HardwareManager:
                                 if isinstance(detection, dict)
                                 else None
                             ),
+                            "detection_age_s": (
+                                _finite_float(detection.get("age_s"))
+                                if isinstance(detection, dict)
+                                else None
+                            ),
+                            "detection_pts": inference_latest_record.get(
+                                "detection_pts"
+                            ),
+                            "model_route": inference_latest_record.get("model_route"),
+                            "inference_start_monotonic_s": _finite_float(
+                                inference_latest_record.get(
+                                    "inference_start_monotonic_s"
+                                )
+                            ),
+                            "inference_end_monotonic_s": _finite_float(
+                                inference_latest_record.get(
+                                    "inference_end_monotonic_s"
+                                )
+                            ),
+                            "inference_duration_s": _finite_float(
+                                inference_latest_record.get("inference_duration_s")
+                            ),
+                            "inference_total_ms": _finite_float(
+                                inference_latest_record.get("inference_total_ms")
+                            ),
+                            "inference_overrun": inference_latest_record.get(
+                                "inference_overrun"
+                            ),
+                            "inference_error": inference_latest_record.get("error"),
                             "center_x_ratio": (
                                 detection.get("center_x_ratio")
                                 if isinstance(detection, dict)
@@ -1282,7 +1364,13 @@ class HardwareManager:
                             "commanded_yaw_rps": decision.command.yaw_rps,
                             "guidance_action": decision.action.value,
                             "guidance_reason": decision.reason,
+                            "resulting_command": decision.command.to_dict(),
                             "frame_advanced": decision.frame_advanced,
+                            "focus_active": decision.focus_active,
+                            "focus_direction": decision.focus_direction,
+                            "focus_grace_remaining_s": (
+                                decision.focus_grace_remaining_s
+                            ),
                             "locked": decision.phase is GuidancePhase.LOCKED,
                         }
                         search_trace.append(search_event)
@@ -1302,6 +1390,7 @@ class HardwareManager:
                                     "confidence_summary": confidence_summary(
                                         search_trace
                                     ),
+                                    **inference_evidence,
                                     **diagnostics,
                                 },
                             )
@@ -1312,6 +1401,7 @@ class HardwareManager:
                                 "guidance_reason": decision.reason,
                                 "search_trace": search_trace,
                                 "confidence_summary": confidence_summary(search_trace),
+                                **inference_evidence,
                                 **diagnostics,
                             },
                         )
@@ -1349,6 +1439,7 @@ class HardwareManager:
                             "search_progress_rad": search_progress_rad,
                             "search_trace": search_trace,
                             "confidence_summary": confidence_summary(search_trace),
+                            **inference_evidence,
                             "motion_commands_sent": commands_sent,
                             **(
                                 approach_recorder.evidence()
@@ -1366,6 +1457,7 @@ class HardwareManager:
                             "samples": samples,
                             "search_trace": search_trace,
                             "confidence_summary": confidence_summary(search_trace),
+                            **inference_evidence,
                             **(
                                 approach_recorder.evidence()
                                 if approach_recorder is not None
@@ -1618,6 +1710,7 @@ class HardwareManager:
             progress_at = started
             samples = 1
             commands_sent = False
+            heading_gate_escape = False
             try:
                 assert self._motion is not None and self._pose is not None
                 lease = await self._motion.arm()
@@ -1646,9 +1739,8 @@ class HardwareManager:
                             f"return Home stalled at {step.distance_m:.3f} m"
                         )
                     if step.mode is ReturnMode.TURN_TO_HOME:
-                        raise HardwareUnavailable(
-                            "return Home heading escaped the forward steering gate"
-                        )
+                        heading_gate_escape = True
+                        break
                     command = VelocityCommand(
                         step.forward_mps,
                         step.yaw_rps,
@@ -1682,9 +1774,45 @@ class HardwareManager:
                 raise operation_error
             if release_error is not None:
                 raise HardwareUnavailable(f"return Home stop failed: {release_error}")
-            terminal = self.measure_home_position(home)
+            try:
+                terminal = self.measure_home_position(home)
+            except HardwareUnavailable as exc:
+                if heading_gate_escape:
+                    self._record_black_box(
+                        "return_home_reconciliation",
+                        {
+                            "home_distance_m": None,
+                            "arrival_tolerance_m": arrival_tolerance_m,
+                            "heading_gate_escape_reconciled": False,
+                            "measured_after_disarm": True,
+                            "measurement_error": str(exc),
+                        },
+                    )
+                    raise HardwareUnavailable(
+                        "return Home heading escaped the forward steering gate; "
+                        f"fresh post-disarm position was unavailable: {exc}"
+                    ) from exc
+                raise
             terminal_distance = float(terminal["home_distance_m"])
+            if heading_gate_escape:
+                self._record_black_box(
+                    "return_home_reconciliation",
+                    {
+                        **terminal,
+                        "arrival_tolerance_m": arrival_tolerance_m,
+                        "heading_gate_escape_reconciled": (
+                            terminal_distance <= arrival_tolerance_m
+                        ),
+                        "measured_after_disarm": True,
+                    },
+                )
             if terminal_distance > arrival_tolerance_m:
+                if heading_gate_escape:
+                    raise HardwareUnavailable(
+                        "return Home heading escaped the forward steering gate; "
+                        "fresh post-disarm position remained outside Home at "
+                        f"{terminal_distance:.3f} m"
+                    )
                 raise HardwareUnavailable(
                     f"return ended outside Home after disarm: {terminal_distance:.3f} m"
                 )
@@ -1696,6 +1824,7 @@ class HardwareManager:
                 "motion_commands_sent": commands_sent,
                 "heading_restoration_skipped": True,
                 "measured_after_disarm": True,
+                "heading_gate_escape_reconciled": heading_gate_escape,
             }
 
     async def turn_toward_home(

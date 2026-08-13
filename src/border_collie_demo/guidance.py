@@ -42,6 +42,8 @@ class GuidanceConfig:
 
     search_yaw_rps: float = 0.40
     search_sweep_rad: float = 2.0 * math.pi
+    focus_yaw_rps: float = 0.20
+    focus_missing_grace_s: float = 0.50
     center_tolerance_ratio: float = 0.08
     center_confirmations: int = 3
     approach_forward_mps: float = 1.0
@@ -51,6 +53,7 @@ class GuidanceConfig:
     duplicate_hold_s: float = 0.250
     source_maximum_age_s: float = 0.350
     detection_maximum_age_s: float = 0.250
+    slow_inference_grace_s: float = 0.50
     near_bottom_ratio: float = 0.90
     disappearance_bottom_ratio: float = 0.80
     near_center_ratio: float = 0.72
@@ -64,6 +67,8 @@ class GuidanceConfig:
         finite = (
             self.search_yaw_rps,
             self.search_sweep_rad,
+            self.focus_yaw_rps,
+            self.focus_missing_grace_s,
             self.center_tolerance_ratio,
             self.approach_forward_mps,
             self.approach_yaw_rps,
@@ -72,6 +77,7 @@ class GuidanceConfig:
             self.duplicate_hold_s,
             self.source_maximum_age_s,
             self.detection_maximum_age_s,
+            self.slow_inference_grace_s,
             self.near_bottom_ratio,
             self.disappearance_bottom_ratio,
             self.near_center_ratio,
@@ -85,6 +91,14 @@ class GuidanceConfig:
             raise ValueError("search_yaw_rps must stay within 0.40..0.80 rad/s")
         if not 0.0 < self.search_sweep_rad <= 2.0 * math.pi:
             raise ValueError("search_sweep_rad must stay within one revolution")
+        if not 0.10 <= self.focus_yaw_rps <= self.search_yaw_rps:
+            raise ValueError(
+                "focus_yaw_rps must stay within 0.10 rad/s and search yaw"
+            )
+        if not 0.10 <= self.focus_missing_grace_s <= 1.0:
+            raise ValueError(
+                "focus_missing_grace_s must stay within 0.10..1.0 seconds"
+            )
         if not 0.0 < self.center_tolerance_ratio < self.outer_corridor_ratio < 0.5:
             raise ValueError("center and outer corridor ratios are invalid")
         if self.center_confirmations < 1:
@@ -100,6 +114,11 @@ class GuidanceConfig:
         if not 0.0 < self.detection_maximum_age_s <= 0.250:
             raise ValueError(
                 "detection_maximum_age_s must stay within 0.0..0.250 seconds"
+            )
+        if not self.detection_maximum_age_s <= self.slow_inference_grace_s <= 1.0:
+            raise ValueError(
+                "slow_inference_grace_s must stay between detection freshness "
+                "and 1.0 seconds"
             )
         if not 0.0 < self.source_maximum_age_s <= 0.350:
             raise ValueError("source_maximum_age_s must stay within 0.0..0.350 seconds")
@@ -131,6 +150,12 @@ class GuidanceConfig:
             search_sweep_rad=float(
                 os.environ.get(prefix + "SEARCH_SWEEP_RAD", str(2.0 * math.pi))
             ),
+            focus_yaw_rps=float(
+                os.environ.get(prefix + "FOCUS_YAW_RPS", "0.20")
+            ),
+            focus_missing_grace_s=float(
+                os.environ.get(prefix + "FOCUS_MISSING_GRACE_S", "0.50")
+            ),
             center_tolerance_ratio=float(
                 os.environ.get(prefix + "CENTER_TOLERANCE_RATIO", "0.08")
             ),
@@ -153,6 +178,9 @@ class GuidanceConfig:
             ),
             detection_maximum_age_s=float(
                 os.environ.get(prefix + "DETECTION_MAXIMUM_AGE_S", "0.250")
+            ),
+            slow_inference_grace_s=float(
+                os.environ.get(prefix + "SLOW_INFERENCE_GRACE_S", "0.50")
             ),
             near_bottom_ratio=float(
                 os.environ.get(prefix + "NEAR_BOTTOM_RATIO", "0.90")
@@ -199,6 +227,9 @@ class GuidanceDecision:
     terminal: bool = False
     arrival_confirmed: bool = False
     camera_failure: bool = False
+    focus_active: bool = False
+    focus_direction: int = 0
+    focus_grace_remaining_s: float | None = None
 
 
 @dataclass(frozen=True)
@@ -242,6 +273,10 @@ class FruitGuidance:
         self._arrival_eligible = False
         self._final_push_started_s: float | None = None
         self._candidate_focus_active = False
+        self._focus_active = False
+        self._focus_direction = 0
+        self._focus_last_qualified_s: float | None = None
+        self._last_observed_s: float | None = None
         self._last_trusted_geometry: tuple[float, float, float] | None = None
         self._approach_forward_authorized = False
         self._missing_during_approach = False
@@ -260,6 +295,7 @@ class FruitGuidance:
         """Return the sole command authorized by the latest camera evidence."""
         if not math.isfinite(now_s):
             return self._fail("invalid_observation_time", camera=True)
+        self._last_observed_s = now_s
         if self.phase is GuidancePhase.FAILED:
             return self._stop("guidance_already_failed", terminal=True)
         if self.phase is GuidancePhase.ARRIVED:
@@ -279,6 +315,8 @@ class FruitGuidance:
             return self._fail("camera_generation_changed", camera=True)
         parsed, failure = self._parse(status)
         if failure is not None:
+            if failure == "detection_stale" and self._slow_inference_wait(status):
+                return self._stop("slow_inference_grace")
             return self._fail(failure, camera=failure != "target_identity_changed")
         assert parsed is not None
 
@@ -349,7 +387,13 @@ class FruitGuidance:
                     return decision
                 return self._fail("target_identity_changed", camera=False)
             self._centered_fresh_samples = 0
-            decision = self._search("searching_for_target")
+            focus_was_active = self._focus_active
+            self._clear_focus()
+            decision = self._search(
+                "focus_wrong_label_cancelled"
+                if focus_was_active
+                else "searching_for_target"
+            )
             self._last_decision = decision
             return decision
 
@@ -363,7 +407,7 @@ class FruitGuidance:
         horizontal_error = parsed.center_x - 0.5
 
         if not self.acquisition_epoch:
-            decision = self._acquire(parsed.confidence, horizontal_error)
+            decision = self._acquire(parsed.confidence, horizontal_error, now_s)
             self._last_trusted_geometry = (
                 parsed.center_x,
                 parsed.center_y,
@@ -576,10 +620,34 @@ class FruitGuidance:
             for value in (parsed.center_x, parsed.center_y, parsed.bottom)
         )
 
+    def _slow_inference_wait(self, status: dict[str, object]) -> bool:
+        """Stop without failing for bounded, otherwise-valid inference delay."""
+        detection = status.get("detection")
+        if not isinstance(detection, dict):
+            return False
+        age_s = _finite_float(detection.get("age_s"))
+        confidence = _finite_float(detection.get("confidence"))
+        label = detection.get("label")
+        geometry = tuple(
+            _finite_float(detection.get(name))
+            for name in ("center_x_ratio", "center_y_ratio", "bottom_ratio")
+        )
+        return bool(
+            age_s is not None
+            and self.config.detection_maximum_age_s < age_s
+            < self.config.slow_inference_grace_s
+            and isinstance(label, str)
+            and label.casefold().strip() == self.target_fruit
+            and confidence is not None
+            and 0.0 <= confidence <= 1.0
+            and all(value is not None and 0.0 <= value <= 1.0 for value in geometry)
+        )
+
     def _acquire(
         self,
         confidence: float,
         horizontal_error: float,
+        now_s: float,
     ) -> GuidanceDecision:
         focus_started = False
         if (
@@ -593,6 +661,12 @@ class FruitGuidance:
             focus_started = True
         if confidence < self.policy.acquisition_confidence:
             self._centered_fresh_samples = 0
+            if self._focus_active:
+                return self._focus_grace_or_search(
+                    now_s,
+                    grace_reason="focus_weak_grace",
+                    expired_reason="focus_weak_grace_expired",
+                )
             if self._candidate_focus_active:
                 return self._decision(
                     GuidanceAction.HOLD,
@@ -601,6 +675,20 @@ class FruitGuidance:
                 )
             return self._search("target_below_acquisition_confidence")
         centered = abs(horizontal_error) <= self.config.center_tolerance_ratio
+        if not centered:
+            self._focus_active = True
+            self._focus_direction = -1 if horizontal_error > 0.0 else 1
+            self._focus_last_qualified_s = now_s
+            self._centered_fresh_samples = 0
+            return self._decision(
+                GuidanceAction.ALIGN,
+                VelocityCommand(
+                    0.0,
+                    self._focus_direction * self.config.focus_yaw_rps,
+                    "focus_align_target",
+                ),
+                "focus_align_target",
+            )
         self._centered_fresh_samples = (
             self._centered_fresh_samples + 1 if centered else 0
         )
@@ -613,6 +701,7 @@ class FruitGuidance:
         if self._centered_fresh_samples >= self.config.center_confirmations:
             self.acquisition_epoch = 1
             self.phase = GuidancePhase.LOCKED
+            self._clear_focus()
             return self._decision(
                 GuidanceAction.HOLD,
                 VelocityCommand(reason="target_identity_locked"),
@@ -642,6 +731,12 @@ class FruitGuidance:
     ) -> GuidanceDecision:
         if not self.acquisition_epoch:
             self._centered_fresh_samples = 0
+            if self._focus_active:
+                return self._focus_grace_or_search(
+                    now_s,
+                    grace_reason="focus_missing_grace",
+                    expired_reason="focus_missing_grace_expired",
+                )
             if self._candidate_focus_active:
                 return self._decision(
                     GuidanceAction.HOLD,
@@ -659,6 +754,35 @@ class FruitGuidance:
         if allow_forward:
             self._missing_during_approach = True
         return self._closeout_loss(now_s, pending_reason="target_missing_after_lock")
+
+    def _focus_grace_or_search(
+        self,
+        now_s: float,
+        *,
+        grace_reason: str,
+        expired_reason: str,
+    ) -> GuidanceDecision:
+        if (
+            self._focus_last_qualified_s is not None
+            and now_s - self._focus_last_qualified_s
+            <= self.config.focus_missing_grace_s
+        ):
+            return self._decision(
+                GuidanceAction.ALIGN,
+                VelocityCommand(
+                    0.0,
+                    self._focus_direction * self.config.focus_yaw_rps,
+                    grace_reason,
+                ),
+                grace_reason,
+            )
+        self._clear_focus()
+        return self._search(expired_reason)
+
+    def _clear_focus(self) -> None:
+        self._focus_active = False
+        self._focus_direction = 0
+        self._focus_last_qualified_s = None
 
     def _stationary_reacquisition(
         self,
@@ -807,6 +931,7 @@ class FruitGuidance:
     def _fail(self, reason: str, *, camera: bool) -> GuidanceDecision:
         self.phase = GuidancePhase.FAILED
         self._arrival_eligible = False
+        self._clear_focus()
         return self._stop(
             reason,
             terminal=True,
@@ -853,6 +978,19 @@ class FruitGuidance:
             terminal=terminal,
             arrival_confirmed=arrival_confirmed,
             camera_failure=camera_failure,
+            focus_active=self._focus_active,
+            focus_direction=self._focus_direction,
+            focus_grace_remaining_s=(
+                max(
+                    0.0,
+                    self.config.focus_missing_grace_s
+                    - (self._last_observed_s - self._focus_last_qualified_s),
+                )
+                if self._focus_active
+                and self._last_observed_s is not None
+                and self._focus_last_qualified_s is not None
+                else None
+            ),
         )
 
 

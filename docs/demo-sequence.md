@@ -80,7 +80,12 @@ physically verified 0.50 rad/s signal and no greater than the configured
 maximum. Both values are frozen in the per-run tuning snapshot and exposed in
 the UI. Once translation starts it never falls back to yaw-only correction; a
 heading escape outside the qualified forward-steering gate (20 degrees by
-default) stops and fails closed.
+default) stops and disarms first. The controller then takes one fresh
+authoritative Home-position measurement. If Woof is already inside the frozen
+Home Distance gate (0.10 m by default), the stage records positional success
+with `heading_gate_escape_reconciled: true` and performs no further turn. An
+outside, stale, or unavailable post-disarm measurement retains
+`RETURN_HOME_FAILURE`.
 
 The bounded failed-run epilogue uses the same two-phase Home contract after its
 down/hold/stand posture sequence: it first proves a fresh bearing within 5

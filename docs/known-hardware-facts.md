@@ -33,6 +33,28 @@ proof that this clean implementation works:
 Every value must receive a new acceptance result in this repository before it
 is treated as qualified.
 
+## Banana reliability observations (2026-08-13, Woof)
+
+- **Measured:** Run `af45a566-d0c8-4c97-9640-28abe5ee1512` retained a Banana
+  detection until its age reached 267.8 ms, 17.8 ms beyond the motion evidence
+  ceiling. The camera source still advanced. Practical consequence: remove
+  motion authority at 250 ms, but distinguish a bounded stopped inference wait
+  from terminal camera failure.
+- **Measured:** Run `689e9005-5ae9-4579-ad4c-3e25022c1779` repeatedly saw an
+  off-center Banana, resumed broad yaw through intervening misses, and later
+  saw it on the opposite side. Practical consequence: a pre-lock focus state
+  must retain its last corrective direction briefly and must not count missing
+  or weak frames toward lock.
+- **Measured:** Run `1d5129e4-9f18-4cb3-8f74-59e81b95dbc1` crossed the moving
+  Home heading gate but a fresh measurement after stopping placed Woof about
+  0.065 m from Home. Practical consequence: stop/disarm before measuring, then
+  accept positional Home only inside the frozen 0.10 m gate; do not issue
+  another turn.
+- **Implemented, software-only:** `stage-default-v4-banana-reliability-replay`
+  encodes those three contracts and a deterministic non-motion replay. The
+  `0.20 rad/s` focused Sports yaw and physical end-to-end behavior remain
+  unqualified until a supervised comparison run.
+
 ## First reuse decision
 
 The clean foundation reuses the factory-avoidance connection and motion
