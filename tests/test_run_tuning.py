@@ -31,6 +31,8 @@ def test_defaults_preserve_kinda_good_behavior_for_every_fruit() -> None:
     assert pear.search.yaw_rps == 0.40
     assert pear.centering.lock_tolerance_ratio == 0.08
     assert pear.approach.forward_mps == 1.0
+    assert pear.arrival.near_bottom_ratio == 0.90
+    assert pear.arrival.disappearance_bottom_ratio == 0.80
     assert pear.arrival.final_push_mps == 0.60
     assert pear.arrival.final_push_duration_s == 1.0
     assert pear.home.arrival_tolerance_m == 0.10
@@ -60,6 +62,15 @@ def test_apple_40_percent_defaults_round_trip_through_activation_validation() ->
         (
             {"approach": {"duplicate_hold_s": 0.25, "detection_maximum_age_s": 0.20}},
             "duplicate hold",
+        ),
+        (
+            {
+                "arrival": {
+                    "near_bottom_ratio": 0.80,
+                    "disappearance_bottom_ratio": 0.80,
+                }
+            },
+            "below direct Arrival",
         ),
     ],
 )
@@ -105,7 +116,11 @@ def test_activation_persists_exact_effective_tuning_in_result_and_black_box(
         "recognition": {"tracking_confidence": 0.60},
         "centering": {"outer_corridor_ratio": 0.25},
         "approach": {"forward_mps": 0.75},
-        "arrival": {"final_push_mps": 0.65, "final_push_duration_s": 0.40},
+        "arrival": {
+            "disappearance_bottom_ratio": 0.82,
+            "final_push_mps": 0.65,
+            "final_push_duration_s": 0.40,
+        },
         "home": {"arrival_tolerance_m": 0.20},
     }
     with TestClient(app) as client:
@@ -234,7 +249,11 @@ def test_production_consumes_guidance_and_home_values_from_the_snapshot() -> Non
             "recognition": {"tracking_confidence": 0.60, "required_frames": 4},
             "centering": {"outer_corridor_ratio": 0.25, "approach_yaw_rps": 0.40},
             "approach": {"forward_mps": 0.75},
-            "arrival": {"final_push_mps": 0.65, "final_push_duration_s": 0.40},
+            "arrival": {
+                "disappearance_bottom_ratio": 0.82,
+                "final_push_mps": 0.65,
+                "final_push_duration_s": 0.40,
+            },
             "home": {
                 "align_yaw_rps": 0.60,
                 "return_forward_mps": 0.75,
@@ -264,6 +283,7 @@ def test_production_consumes_guidance_and_home_values_from_the_snapshot() -> Non
     assert hardware.guidance.config.approach_forward_mps == 0.75
     assert hardware.guidance.config.outer_corridor_ratio == 0.25
     assert hardware.guidance.config.final_push_mps == 0.65
+    assert hardware.guidance.config.disappearance_bottom_ratio == 0.82
     assert hardware.guidance.policy.close_range_tracking_confidence == 0.60
     assert hardware.home_calls[0][1]["yaw_rps"] == 0.60
     assert hardware.home_calls[1][1]["forward_mps"] == 0.75

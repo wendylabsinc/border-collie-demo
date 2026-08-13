@@ -157,6 +157,9 @@ class ProductionStageExecutor:
                     source_maximum_age_s=tuning.approach.source_maximum_age_s,
                     detection_maximum_age_s=tuning.approach.detection_maximum_age_s,
                     near_bottom_ratio=tuning.arrival.near_bottom_ratio,
+                    disappearance_bottom_ratio=(
+                        tuning.arrival.disappearance_bottom_ratio
+                    ),
                     near_center_ratio=tuning.arrival.near_center_ratio,
                     near_confirmations=tuning.arrival.near_confirmations,
                     near_loss_confirmations=tuning.arrival.loss_confirmations,

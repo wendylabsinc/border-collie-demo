@@ -47,6 +47,7 @@ motion safety limits.
 | `BORDER_COLLIE_GUIDANCE_SOURCE_MAXIMUM_AGE_S` | seconds | `0.350` | greater than `0`, at most `0.350` | Older source evidence stops terminally. |
 | `BORDER_COLLIE_GUIDANCE_DETECTION_MAXIMUM_AGE_S` | seconds | `0.250` | greater than `0`, at most `0.250` | Older detection evidence stops terminally. |
 | `BORDER_COLLIE_GUIDANCE_NEAR_BOTTOM_RATIO` | frame-height ratio | `0.90` | greater than `0`, at most `1` | After target lock, one fresh, same-fruit, geometrically valid observation at or below this image edge confirms Arrival. Per-frame confidence is intentionally ignored at this boundary for every fruit because it commonly collapses when the fruit fills or is clipped by the lower edge. |
+| `BORDER_COLLIE_GUIDANCE_DISAPPEARANCE_BOTTOM_RATIO` | frame-height ratio | `0.80` | `0.60..0.95`, below the direct Arrival threshold | A fresh, centered-corridor target frame at or below this edge arms only the immediately following fresh missing frame as Arrival. Any intervening lower frame, off-axis observation, stale evidence, wrong label, or camera failure cancels or fails closed. |
 | `BORDER_COLLIE_GUIDANCE_NEAR_CENTER_RATIO` | frame-height ratio | `0.72` | greater than `0`, at most `1` | Counts only on fresh matching evidence. |
 | `BORDER_COLLIE_GUIDANCE_NEAR_CONFIRMATIONS` | fresh frames | `3` | integer `>=1` | Duplicate or weak observations never advance Arrival. |
 | `BORDER_COLLIE_GUIDANCE_NEAR_LOSS_CONFIRMATIONS` | fresh frames | `2` | integer `>=2` | One weak or missing observation stops but cannot start the final push. |

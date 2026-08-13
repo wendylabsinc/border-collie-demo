@@ -405,7 +405,7 @@ def test_disappearance_after_forward_approach_stops_without_lower_edge_frame() -
             pts=4,
             now_s=0.3,
             confidence=0.80,
-            center_x=0.50,
+            center_x=0.5734375,
             center_y=0.60,
             bottom=0.70,
         ),
@@ -425,6 +425,96 @@ def test_disappearance_after_forward_approach_stops_without_lower_edge_frame() -
     assert missing.command.yaw_rps == 0.0
 
 
+def test_banana_disappearance_immediately_after_80_percent_bottom_arrives() -> None:
+    """Replay run 0022e9c0's final 85.1% -> missing frame transition."""
+    guidance = FruitGuidance(
+        "banana",
+        config=GuidanceConfig(
+            near_bottom_ratio=0.90,
+            disappearance_bottom_ratio=0.80,
+        ),
+    )
+    for pts, now_s in ((1, 0.0), (2, 0.1), (3, 0.2)):
+        guidance.observe(
+            observation(pts=pts, now_s=now_s, label="banana"),
+            now_s=now_s,
+        )
+
+    approaching = guidance.observe(
+        observation(
+            pts=909600,
+            now_s=0.3,
+            label="banana",
+            confidence=0.6629605293273926,
+            center_x=0.50,
+            center_y=0.8263888888888888,
+            bottom=0.8513888888888889,
+        ),
+        now_s=0.3,
+        allow_forward=True,
+    )
+    arrived = guidance.observe(
+        observation(pts=909720, now_s=0.434, label=None),
+        now_s=0.434,
+        allow_forward=True,
+    )
+
+    assert approaching.action is GuidanceAction.DRIVE
+    assert approaching.arrival_confirmed is False
+    assert arrived.action is GuidanceAction.ARRIVED
+    assert arrived.reason == "qualified_lower_edge_disappearance_arrival"
+    assert arrived.arrival_confirmed is True
+    assert arrived.command.forward_mps == 0.0
+    assert arrived.command.yaw_rps == 0.0
+
+
+def test_disappearance_uses_only_the_immediately_previous_qualified_frame() -> None:
+    guidance = FruitGuidance(
+        "banana",
+        config=GuidanceConfig(
+            near_bottom_ratio=0.90,
+            disappearance_bottom_ratio=0.80,
+        ),
+    )
+    for pts, now_s in ((1, 0.0), (2, 0.1), (3, 0.2)):
+        guidance.observe(
+            observation(pts=pts, now_s=now_s, label="banana"),
+            now_s=now_s,
+        )
+
+    guidance.observe(
+        observation(
+            pts=4,
+            now_s=0.3,
+            label="banana",
+            center_y=0.82,
+            bottom=0.85,
+        ),
+        now_s=0.3,
+        allow_forward=True,
+    )
+    guidance.observe(
+        observation(
+            pts=5,
+            now_s=0.4,
+            label="banana",
+            center_y=0.78,
+            bottom=0.79,
+        ),
+        now_s=0.4,
+        allow_forward=True,
+    )
+    missing = guidance.observe(
+        observation(pts=6, now_s=0.5, label=None),
+        now_s=0.5,
+        allow_forward=True,
+    )
+
+    assert missing.action is GuidanceAction.STOP
+    assert missing.reason == "target_missing_after_lock"
+    assert missing.arrival_confirmed is False
+
+
 def test_disappearance_before_forward_approach_does_not_assume_arrival() -> None:
     guidance = FruitGuidance("pear")
     for pts, now_s in ((1, 0.0), (2, 0.1), (3, 0.2)):
@@ -441,7 +531,7 @@ def test_disappearance_before_forward_approach_does_not_assume_arrival() -> None
     assert missing.arrival_confirmed is False
 
 
-def test_disappearance_after_sub_threshold_bottom_frame_stops() -> None:
+def test_disappearance_after_sub_disappearance_threshold_frame_stops() -> None:
     guidance = FruitGuidance("banana")
     for pts, now_s in ((1, 0.0), (2, 0.1), (3, 0.2)):
         guidance.observe(
@@ -457,7 +547,7 @@ def test_disappearance_after_sub_threshold_bottom_frame_stops() -> None:
             confidence=0.70,
             center_x=0.50,
             center_y=0.72,
-            bottom=0.899,
+            bottom=0.799,
         ),
         now_s=0.3,
         allow_forward=True,

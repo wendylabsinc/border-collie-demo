@@ -52,6 +52,7 @@ class GuidanceConfig:
     source_maximum_age_s: float = 0.350
     detection_maximum_age_s: float = 0.250
     near_bottom_ratio: float = 0.90
+    disappearance_bottom_ratio: float = 0.80
     near_center_ratio: float = 0.72
     near_confirmations: int = 3
     near_loss_confirmations: int = 2
@@ -72,6 +73,7 @@ class GuidanceConfig:
             self.source_maximum_age_s,
             self.detection_maximum_age_s,
             self.near_bottom_ratio,
+            self.disappearance_bottom_ratio,
             self.near_center_ratio,
             self.near_loss_grace_s,
             self.final_push_mps,
@@ -103,6 +105,11 @@ class GuidanceConfig:
             raise ValueError("source_maximum_age_s must stay within 0.0..0.350 seconds")
         if not 0.0 < self.near_bottom_ratio <= 1.0:
             raise ValueError("near_bottom_ratio must be within 0.0..1.0")
+        if not 0.0 < self.disappearance_bottom_ratio < self.near_bottom_ratio:
+            raise ValueError(
+                "disappearance_bottom_ratio must be positive and below "
+                "near_bottom_ratio"
+            )
         if not 0.0 < self.near_center_ratio <= 1.0:
             raise ValueError("near_center_ratio must be within 0.0..1.0")
         if self.near_confirmations < 1:
@@ -149,6 +156,9 @@ class GuidanceConfig:
             ),
             near_bottom_ratio=float(
                 os.environ.get(prefix + "NEAR_BOTTOM_RATIO", "0.90")
+            ),
+            disappearance_bottom_ratio=float(
+                os.environ.get(prefix + "DISAPPEARANCE_BOTTOM_RATIO", "0.80")
             ),
             near_center_ratio=float(
                 os.environ.get(prefix + "NEAR_CENTER_RATIO", "0.72")
@@ -228,6 +238,7 @@ class FruitGuidance:
         self._near_loss_samples = 0
         self._near_latched_at_s: float | None = None
         self._lower_edge_seen_at_s: float | None = None
+        self._disappearance_arrival_armed = False
         self._arrival_eligible = False
         self._final_push_started_s: float | None = None
         self._candidate_focus_active = False
@@ -348,6 +359,17 @@ class FruitGuidance:
             decision = self._acquire(parsed.confidence, horizontal_error)
             self._last_decision = decision
             return decision
+
+        # A fresh same-fruit observation in the lower approach corridor arms
+        # exactly the immediately following fresh missing frame as Arrival.
+        # Any intervening same-fruit frame replaces this decision, so an older
+        # close observation cannot authorize a later disappearance.
+        self._disappearance_arrival_armed = bool(
+            allow_forward
+            and parsed.bottom >= self.config.disappearance_bottom_ratio
+            and parsed.center_y >= self.config.near_center_ratio
+            and abs(horizontal_error) <= self.config.outer_corridor_ratio
+        )
 
         if (
             parsed.bottom >= self.config.near_bottom_ratio
@@ -596,6 +618,11 @@ class FruitGuidance:
             return self._search("searching_for_target")
         if self._recent_lower_edge(now_s):
             return self._lower_edge_arrival()
+        if self._disappearance_arrival_armed:
+            self._disappearance_arrival_armed = False
+            return self._lower_edge_arrival(
+                reason="qualified_lower_edge_disappearance_arrival"
+            )
         return self._closeout_loss(now_s, pending_reason="target_missing_after_lock")
 
     def _closeout_loss(

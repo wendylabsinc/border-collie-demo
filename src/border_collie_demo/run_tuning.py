@@ -106,6 +106,7 @@ class ApproachTuning:
 @dataclass(frozen=True)
 class ArrivalTuning:
     near_bottom_ratio: float = 0.90
+    disappearance_bottom_ratio: float = 0.80
     near_center_ratio: float = 0.72
     near_confirmations: int = 3
     loss_confirmations: int = 2
@@ -191,6 +192,7 @@ class RunTuning:
             ),
             arrival=ArrivalTuning(
                 near_bottom_ratio=guidance.near_bottom_ratio,
+                disappearance_bottom_ratio=guidance.disappearance_bottom_ratio,
                 near_center_ratio=guidance.near_center_ratio,
                 near_confirmations=guidance.near_confirmations,
                 loss_confirmations=guidance.near_loss_confirmations,
@@ -287,6 +289,7 @@ class RunTuning:
             "arrival",
             {
                 "near_bottom_ratio",
+                "disappearance_bottom_ratio",
                 "near_center_ratio",
                 "near_confirmations",
                 "loss_confirmations",
@@ -422,6 +425,13 @@ class RunTuning:
                     0.60,
                     0.98,
                 ),
+                disappearance_bottom_ratio=_number(
+                    arrival,
+                    "disappearance_bottom_ratio",
+                    defaults.arrival.disappearance_bottom_ratio,
+                    0.60,
+                    0.95,
+                ),
                 near_center_ratio=_number(
                     arrival,
                     "near_center_ratio",
@@ -528,6 +538,10 @@ class RunTuning:
         if 0.0 < self.arrival.final_push_duration_s < 0.10:
             raise ValueError(
                 "final push duration must be 0 (disabled) or at least 0.10 seconds"
+            )
+        if self.arrival.disappearance_bottom_ratio >= self.arrival.near_bottom_ratio:
+            raise ValueError(
+                "disappearance bottom threshold must be below direct Arrival threshold"
             )
 
     def to_dict(self) -> dict[str, object]:
@@ -652,11 +666,23 @@ class RunTuning:
             "arrival": [
                 _field(
                     "near_bottom_ratio",
-                    "Near bottom threshold",
+                    "Direct Arrival bottom threshold",
                     "frame ratio",
                     0.60,
                     0.98,
                     0.01,
+                ),
+                _field(
+                    "disappearance_bottom_ratio",
+                    "Disappearance Arrival bottom threshold",
+                    "frame ratio",
+                    0.60,
+                    0.95,
+                    0.01,
+                    safety=(
+                        "Only the immediately following fresh missing frame qualifies; "
+                        "must stay below the direct Arrival threshold."
+                    ),
                 ),
                 _field(
                     "near_center_ratio",
