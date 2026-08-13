@@ -8,6 +8,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
 from .hardware import CameraFailure, HardwareUnavailable, TargetLost
+from .guidance import FruitGuidance, GuidanceConfig, GuidancePhase
 from .media import BarkFailure
 from .models import MissionPhase
 from .orchestrator import (
@@ -41,6 +42,8 @@ class ProductionStageExecutor:
         self._perception_status = perception_status
         self._bark = bark
         self._sleep = sleep
+        self._guidance_run_id: str | None = None
+        self._guidance: FruitGuidance | None = None
 
     async def execute(
         self,
@@ -112,6 +115,35 @@ class ProductionStageExecutor:
         phase: MissionPhase,
         context: StageContext,
     ) -> dict[str, Any]:
+        guide_target = getattr(self._hardware, "guide_target", None)
+        if callable(guide_target) and phase in (
+            MissionPhase.TURN_TO_FRUIT,
+            MissionPhase.FIND_FRUIT,
+            MissionPhase.APPROACH_FRUIT,
+        ):
+            if self._guidance_run_id != context.run_id or self._guidance is None:
+                self._guidance_run_id = context.run_id
+                self._guidance = FruitGuidance(
+                    context.target_fruit,
+                    config=GuidanceConfig.from_env(),
+                )
+            if phase is MissionPhase.FIND_FRUIT and (
+                self._guidance.phase is GuidancePhase.LOCKED
+            ):
+                return {
+                    "label": context.target_fruit,
+                    "guidance_phase": self._guidance.phase.value,
+                    "acquisition_epoch": self._guidance.acquisition_epoch,
+                    "search_skipped": True,
+                    "skip_reason": "mission_lifetime_identity_already_locked",
+                    "motion_commands_sent": False,
+                }
+            return await guide_target(
+                self._perception_status,
+                self._guidance,
+                allow_forward=phase is MissionPhase.APPROACH_FRUIT,
+                timeout_s=(20.0 if phase is MissionPhase.APPROACH_FRUIT else 30.0),
+            )
         if phase is MissionPhase.TURN_TO_FRUIT:
             if visible := self._visible_target_evidence(context.target_fruit):
                 return visible

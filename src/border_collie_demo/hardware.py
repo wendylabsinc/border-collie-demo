@@ -16,6 +16,7 @@ from .go2_motion import (
     initialize_dds,
 )
 from .go2_pose import Go2PoseProvider, PoseStatus
+from .guidance import FruitGuidance, GuidanceAction, GuidancePhase
 from .models import VelocityCommand
 from .return_home import (
     Pose2D,
@@ -36,7 +37,7 @@ CLOSE_RANGE_MINIMUM_BOTTOM_RATIO = 0.70
 CLOSE_RANGE_MAXIMUM_CENTER_DELTA_RATIO = 0.20
 CLOSE_RANGE_MAXIMUM_VERTICAL_RETREAT_RATIO = 0.08
 FORWARD_CAPABLE_OPERATIONS = frozenset(
-    {"forward_pulse", "approach_target", "return_home"}
+    {"forward_pulse", "approach_target", "guide_target", "return_home"}
 )
 
 
@@ -963,6 +964,121 @@ class HardwareManager:
                 raise operation_error
             if release_error is not None:
                 raise HardwareUnavailable(f"approach stop failed: {release_error}")
+            assert evidence is not None
+            return evidence
+
+    async def guide_target(
+        self,
+        status_reader: Callable[[], dict[str, object]],
+        guidance: FruitGuidance,
+        *,
+        allow_forward: bool,
+        timeout_s: float,
+    ) -> dict[str, object]:
+        """Execute one mission-lifetime guidance module until lock or Arrival."""
+        if not math.isfinite(timeout_s) or timeout_s <= 0.0:
+            raise ValueError("guidance timeout must be finite and positive")
+        self._require_autonomy_ready()
+
+        async with self._operation_lock:
+            if self._active_operation is not None:
+                raise HardwareUnavailable(
+                    f"hardware operation already active: {self._active_operation}"
+                )
+            self._active_operation = "guide_target"
+            lease: str | None = None
+            release_error: str | None = None
+            operation_error: Exception | None = None
+            evidence: dict[str, object] | None = None
+            commands_sent = False
+            forward_pulse_count = 0
+            samples = 0
+            started = time.monotonic()
+            try:
+                assert self._motion is not None
+                lease = await self._motion.arm()
+                deadline = started + timeout_s
+                while time.monotonic() < deadline:
+                    now = time.monotonic()
+                    decision = guidance.observe(
+                        status_reader(),
+                        now_s=now,
+                        allow_forward=allow_forward,
+                    )
+                    samples += 1
+                    if decision.action is GuidanceAction.STOP and decision.terminal:
+                        if decision.command.reason == "camera_failure":
+                            raise CameraFailure(
+                                f"camera guidance stopped: {decision.reason}"
+                            )
+                        raise TargetLost(
+                            f"{guidance.target_fruit} guidance stopped: "
+                            f"{decision.reason}",
+                            evidence={"guidance_reason": decision.reason},
+                        )
+
+                    await self._send_motion_command(lease, decision.command)
+                    commands_sent = commands_sent or (
+                        decision.command.forward_mps != 0.0
+                        or decision.command.yaw_rps != 0.0
+                    )
+                    if decision.command.forward_mps > 0.0:
+                        forward_pulse_count += 1
+
+                    terminal_for_call = (
+                        not allow_forward
+                        and decision.phase is GuidancePhase.LOCKED
+                    ) or decision.arrival_confirmed
+                    if terminal_for_call:
+                        evidence = {
+                            "label": guidance.target_fruit,
+                            "guidance_phase": decision.phase.value,
+                            "guidance_reason": decision.reason,
+                            "acquisition_epoch": guidance.acquisition_epoch,
+                            "centered_fresh_samples": (
+                                decision.centered_fresh_samples
+                            ),
+                            "near_confirmations": decision.near_fresh_samples,
+                            "arrival_confirmed": decision.arrival_confirmed,
+                            "final_push_mps": guidance.config.final_push_mps,
+                            "final_push_duration_s": (
+                                guidance.config.final_push_duration_s
+                            ),
+                            "final_push_count": guidance.final_push_count,
+                            "forward_pulse_count": forward_pulse_count,
+                            "forward_pulse_period_s": (
+                                self.config.command_heartbeat_s
+                            ),
+                            "samples": samples,
+                            "motion_commands_sent": commands_sent,
+                        }
+                        break
+                    await asyncio.sleep(self.config.command_heartbeat_s)
+                else:
+                    raise TargetLost(
+                        f"{guidance.target_fruit} camera guidance timed out",
+                        evidence={
+                            "guidance_phase": guidance.phase.value,
+                            "samples": samples,
+                        },
+                    )
+            except Exception as exc:  # noqa: BLE001 - always disarm below
+                operation_error = exc
+            finally:
+                if lease is not None and self._motion is not None and self._motion.armed:
+                    try:
+                        await self._motion.release(lease)
+                    except MotionError as exc:
+                        release_error = str(exc)
+                        await self._motion.emergency_stop()
+                self._active_operation = None
+
+            if operation_error is not None:
+                raise operation_error
+            if release_error is not None:
+                raise HardwareUnavailable(
+                    f"camera guidance stop failed: {release_error}"
+                )
             assert evidence is not None
             return evidence
 

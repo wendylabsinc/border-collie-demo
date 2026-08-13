@@ -5,6 +5,7 @@ import asyncio
 import pytest
 
 from border_collie_demo.hardware import CameraFailure, TargetLost
+from border_collie_demo.guidance import GuidancePhase
 from border_collie_demo.models import MissionPhase
 from border_collie_demo.orchestrator import StageContext, StageFailure
 from border_collie_demo.production import ProductionStageExecutor
@@ -248,6 +249,58 @@ def test_approach_uses_measured_factory_motion_and_one_final_push() -> None:
             "timeout_s": 20.0,
         }
         assert evidence["arrival_confirmed"] is True
+
+    asyncio.run(scenario())
+
+
+def test_production_reuses_one_guidance_identity_across_all_fruit_stages() -> None:
+    class GuidedHardware(FakeProductionHardware):
+        def __init__(self) -> None:
+            super().__init__()
+            self.guidance_ids: list[int] = []
+
+        async def guide_target(
+            self,
+            status_reader,
+            guidance,
+            *,
+            allow_forward: bool,
+            timeout_s: float,
+        ) -> dict[str, object]:
+            self.guidance_ids.append(id(guidance))
+            self.calls.append(("guide_target", allow_forward, timeout_s))
+            if not allow_forward:
+                guidance.acquisition_epoch = 1
+                guidance.phase = GuidancePhase.LOCKED
+                return {
+                    "label": guidance.target_fruit,
+                    "acquisition_epoch": 1,
+                    "motion_commands_sent": True,
+                }
+            guidance.phase = GuidancePhase.ARRIVED
+            return {
+                "arrival_confirmed": True,
+                "forward_pulse_count": 8,
+                "acquisition_epoch": 1,
+                "motion_commands_sent": True,
+            }
+
+    async def scenario() -> None:
+        hardware = GuidedHardware()
+        stages = ProductionStageExecutor(hardware, dict, FakeBark())
+
+        locked = await stages.execute(MissionPhase.TURN_TO_FRUIT, context())
+        find = await stages.execute(MissionPhase.FIND_FRUIT, context())
+        arrived = await stages.execute(MissionPhase.APPROACH_FRUIT, context())
+
+        assert locked["acquisition_epoch"] == 1
+        assert find["skip_reason"] == "mission_lifetime_identity_already_locked"
+        assert arrived["arrival_confirmed"] is True
+        assert len(set(hardware.guidance_ids)) == 1
+        assert hardware.calls == [
+            ("guide_target", False, 30.0),
+            ("guide_target", True, 20.0),
+        ]
 
     asyncio.run(scenario())
 

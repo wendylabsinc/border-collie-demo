@@ -15,6 +15,7 @@ from border_collie_demo.hardware import (
     HardwareUnavailable,
     TargetLost,
 )
+from border_collie_demo.guidance import FruitGuidance, GuidanceConfig
 from border_collie_demo.models import Pose, VelocityCommand
 
 
@@ -339,6 +340,89 @@ def test_find_target_turns_until_fresh_stable_perception_then_stops() -> None:
             command["phase"] == "turn_to_fruit"
             and command["forward_mps"] == 0.0
             for command in manager.motion_trace()
+        )
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_mission_lifetime_guidance_keeps_identity_and_executes_one_final_push() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+        guidance = FruitGuidance(
+            "pear",
+            config=GuidanceConfig(
+                duplicate_hold_s=0.025,
+                final_push_duration_s=0.02,
+            ),
+        )
+        pts = 0
+
+        def status(*, near: bool = False, visible: bool = True) -> dict[str, object]:
+            nonlocal pts
+            pts += 1
+            return {
+                "camera_healthy": True,
+                "generation": "camera-1",
+                "source": {"pts": pts, "time_base": "1/90000", "age_s": 0.01},
+                "detection": (
+                    {
+                        "label": "pear",
+                        "confidence": 0.80,
+                        "generation": "camera-1",
+                        "source_pts": pts,
+                        "source_time_base": "1/90000",
+                        "age_s": 0.01,
+                        "center_x_ratio": 0.50,
+                        "center_y_ratio": 0.80 if near else 0.55,
+                        "bottom_ratio": 0.92 if near else 0.65,
+                    }
+                    if visible
+                    else None
+                ),
+            }
+
+        locked = await manager.guide_target(
+            lambda: status(),
+            guidance,
+            allow_forward=False,
+            timeout_s=0.2,
+        )
+        approach_samples = 0
+
+        def approach_status() -> dict[str, object]:
+            nonlocal approach_samples
+            approach_samples += 1
+            return status(near=True, visible=approach_samples <= 3)
+
+        arrived = await manager.guide_target(
+            approach_status,
+            guidance,
+            allow_forward=True,
+            timeout_s=0.2,
+        )
+
+        assert locked["acquisition_epoch"] == 1
+        assert arrived["acquisition_epoch"] == 1
+        assert arrived["arrival_confirmed"] is True
+        assert arrived["final_push_count"] == 1
+        assert any(
+            command.forward_mps == 1.0
+            and command.reason == "approach_target_continuous"
+            for command in motion.commands
+        )
+        assert any(
+            command.forward_mps == 0.6
+            and command.reason == "fruit_lower_edge_final_push"
+            for command in motion.commands
         )
         assert motion.armed is False
         await manager.close()
