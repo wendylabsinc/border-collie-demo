@@ -52,6 +52,20 @@ heading error. They are proposed gates, not qualified claims. The earlier
 prototype failed its 0.10-meter gate with 0.207 meters remaining, so the clean
 implementation must earn these values in a new acceptance run.
 
+## Inter-run stage clearance
+
+Mission completion keeps the strict 0.10 m position target above. A repeated
+stage soak has a separate operator margin, configured by
+`BORDER_COLLIE_STAGE_HOME_MARGIN_M`: meters, default `0.50`, valid range
+`0.10..1.0`. This margin never changes whether an individual Demo Run passed.
+
+After any terminal Demo Run that captured Home, `/api/status.activation.ready`
+remains false until fresh current pose is within this margin of that exact
+run's Home and the run ended `DISARMED_CONFIRMED`. The soak harness checks the
+same `activation.inter_run` evidence before issuing another activation. A
+failed return therefore aborts the cohort instead of capturing the fruit-side
+position as a new Home.
+
 ## Route, progress, and recovery
 
 - Translation is forward-only. The return controller does not reverse toward

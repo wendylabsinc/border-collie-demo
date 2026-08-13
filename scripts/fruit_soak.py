@@ -533,6 +533,44 @@ def wait_for_terminal(
         sleep(POLL_INTERVAL_S)
 
 
+def read_inter_run_clearance(client: ApiClient, prior_run_id: str) -> dict:
+    """Independently prove that a terminal run cleared Home before reuse."""
+    status = client.status()
+    mission = status.get("mission") or {}
+    if mission.get("restart_required"):
+        raise HarnessAbort(
+            "application latched restart-required "
+            f"({mission.get('reason')}); session cannot continue"
+        )
+    activation = status.get("activation") or {}
+    inter_run = activation.get("inter_run") or {}
+    motion = ((status.get("hardware") or {}).get("motion") or {})
+    command = motion.get("last_command") or {}
+    exact_zero = all(
+        isinstance(command.get(key), (int, float))
+        and not isinstance(command.get(key), bool)
+        and float(command[key]) == 0.0
+        for key in ("forward_mps", "yaw_rps")
+    )
+    evidence = {
+        **inter_run,
+        "prior_run_matches": inter_run.get("prior_run_id") == prior_run_id,
+        "client_run_cleared": status.get("active_run_id") is None,
+        "client_motion_disarmed": motion.get("armed") is False and exact_zero,
+        "activation_ready": activation.get("ready") is True,
+    }
+    evidence["safe_to_continue"] = all(
+        (
+            evidence["prior_run_matches"],
+            inter_run.get("returned_home") is True,
+            evidence["client_run_cleared"],
+            evidence["client_motion_disarmed"],
+            evidence["activation_ready"],
+        )
+    )
+    return evidence
+
+
 def run_session(
     client: ApiClient,
     *,
@@ -646,12 +684,23 @@ def run_session(
                 record["harness_note"] = harness_note
             session["runs"].append(record)
             persist()
+            record["inter_run_clearance"] = read_inter_run_clearance(
+                client, run_id
+            )
+            persist()
             log(
                 f"run {number}/{runs}: {record['outcome']} / {record['reason']}"
                 f" | home {record['home_distance_m']}"
                 f" | polls {record['network']['poll_count']}"
                 f" (errors {record['network']['error_count']})"
             )
+            if number < runs and not record["inter_run_clearance"][
+                "safe_to_continue"
+            ]:
+                raise HarnessAbort(
+                    f"run {number} did not prove return to its captured Home; "
+                    "the next run was not activated"
+                )
     except HarnessAbort as abort:
         session["aborted"] = str(abort)
         persist()

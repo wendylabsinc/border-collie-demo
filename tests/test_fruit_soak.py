@@ -1,5 +1,6 @@
 import json
 from collections import Counter
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -28,16 +29,46 @@ class FakeClient:
         results_by_id=None,
         qualified=("apple", "banana", "pear"),
         sidecar=None,
+        inter_run_returned=True,
     ):
         self._statuses = list(statuses)
         self._results = dict(results_by_id or {})
         self._qualified = list(qualified)
         self._sidecar = sidecar
+        self._inter_run_returned = inter_run_returned
         self.activated: list[str] = []
         self.stop_calls = 0
 
     def status(self):
-        return self._statuses.pop(0) if len(self._statuses) > 1 else self._statuses[0]
+        raw = self._statuses.pop(0) if len(self._statuses) > 1 else self._statuses[0]
+        status = deepcopy(raw)
+        if self.activated and status.get("active_run_id") is None:
+            run_id = f"run-{len(self.activated)}"
+            returned = self._inter_run_returned
+            status.setdefault("hardware", {}).setdefault(
+                "motion",
+                {
+                    "armed": False,
+                    "last_command": {"forward_mps": 0.0, "yaw_rps": 0.0},
+                },
+            )
+            status.setdefault("activation", {})["inter_run"] = {
+                "required": True,
+                "prior_run_id": run_id,
+                "prior_outcome": "COMPLETED" if returned else "FAILED",
+                "home_distance_m": 0.05 if returned else 1.20,
+                "stage_home_margin_m": 0.50,
+                "returned_home": returned,
+            }
+            if not returned:
+                status["activation"]["ready"] = False
+                status["activation"]["blockers"] = [
+                    {
+                        "name": "inter_run_home_clearance",
+                        "detail": "prior run is 1.200 m from Home",
+                    }
+                ]
+        return status
 
     def timed_status(self):
         try:
@@ -337,6 +368,29 @@ def test_session_aborts_and_persists_partial_on_latch(tmp_path: Path):
     assert len(saved["runs"]) == 1
     assert "restart-required" in saved["aborted"]
     assert session["aborted"] == saved["aborted"]
+
+
+def test_session_never_starts_next_run_before_home_clearance(tmp_path: Path):
+    client = FakeClient(
+        [READY],
+        results_by_id={"run-1": [terminal("run-1", outcome="FAILED", home=1.2)]},
+        sidecar=SIDECAR,
+        inter_run_returned=False,
+    )
+    output = tmp_path / "soak.json"
+
+    session = run_session(
+        client,
+        runs=2,
+        seed=7,
+        output_path=output,
+        sleep=lambda _: None,
+        log=lambda *_: None,
+    )
+
+    assert client.activated == [session["fruit_sequence"][0]]
+    assert session["runs"][0]["inter_run_clearance"]["safe_to_continue"] is False
+    assert "next run was not activated" in session["aborted"]
 
 
 def test_session_rejects_the_wrong_build_before_activation(tmp_path: Path):

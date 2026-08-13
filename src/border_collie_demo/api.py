@@ -85,6 +85,7 @@ def create_app(
     black_box: RunBlackBox | None = None,
     system_audio: SystemAudioPolicy | None = None,
     runtime_mode: Literal["production", "simulation"] = "production",
+    stage_home_margin_m: float | None = None,
 ) -> FastAPI:
     machine = mission or MissionMachine()
     robot = hardware or HardwareManager()
@@ -111,6 +112,11 @@ def create_app(
         stage_executor=stage_executor,
         terminal_evidence=terminal_evidence,
         failure_epilogue=failure_epilogue,
+        stage_home_margin_m=(
+            stage_home_margin_m
+            if stage_home_margin_m is not None
+            else float(os.environ.get("BORDER_COLLIE_STAGE_HOME_MARGIN_M", "0.50"))
+        ),
     )
 
     @asynccontextmanager

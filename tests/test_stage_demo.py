@@ -16,6 +16,8 @@ class ReadyHardware:
         self.stop_calls = 0
         self.forward_mps = 0.0
         self.yaw_rps = 0.0
+        self.x_m = 1.0
+        self.y_m = 2.0
 
     async def start(self) -> None:
         self.started = True
@@ -46,7 +48,12 @@ class ReadyHardware:
             "connected": self.started,
             "fault": None,
             "active_operation": None,
-            "pose": {"healthy": True, "age_s": 0.01, "error": None},
+            "pose": {
+                "healthy": True,
+                "age_s": 0.01,
+                "error": None,
+                "pose": {"x_m": self.x_m, "y_m": self.y_m},
+            },
             "motion": {
                 "armed": False,
                 "last_command": {
@@ -242,6 +249,73 @@ def test_completion_fails_closed_when_exact_zero_cannot_be_confirmed(tmp_path) -
         assert terminal["reason"] == "INTERNAL_ERROR"
         assert terminal["final_safety_state"] == "STOP_REQUESTED_UNCONFIRMED"
         assert "exact zero" in terminal["message"]
+        await demo.close()
+
+    asyncio.run(scenario())
+
+
+def test_next_activation_waits_for_fresh_return_to_prior_run_home(tmp_path) -> None:
+    async def scenario() -> None:
+        results = RunResultStore(tmp_path)
+        prior = results.start_run(
+            target_fruit="banana",
+            activation_source="soak",
+            activation_id="attempt-1",
+        )
+        results.record_home(
+            prior["run_id"],
+            {
+                "x_m": 1.0,
+                "y_m": 2.0,
+                "yaw_rad": 0.0,
+                "age_s": 0.01,
+                "source": "test",
+            },
+        )
+        results.seal(
+            prior["run_id"],
+            phase="failed",
+            outcome="FAILED",
+            reason="ARRIVAL_FAILURE",
+            message="guidance timed out",
+            final_safety_state="DISARMED_CONFIRMED",
+        )
+        hardware = ReadyHardware()
+        hardware.x_m = 2.0
+        demo = StageDemo(
+            MissionMachine(),
+            results,
+            hardware,
+            ready_camera,
+            stage_home_margin_m=0.50,
+        )
+        await demo.start()
+
+        blocked = demo.status()
+
+        assert blocked["activation"]["ready"] is False
+        assert blocked["activation"]["inter_run"] == {
+            "required": True,
+            "prior_run_id": prior["run_id"],
+            "prior_outcome": "FAILED",
+            "home_distance_m": 1.0,
+            "stage_home_margin_m": 0.5,
+            "returned_home": False,
+        }
+        assert blocked["activation"]["blockers"][-1]["name"] == (
+            "inter_run_home_clearance"
+        )
+        with pytest.raises(ActiveRunError, match="has not returned Home"):
+            await demo.activate(FruitMission("pear", "soak", "attempt-2"))
+
+        hardware.x_m = 1.2
+        ready = demo.status()
+
+        assert ready["activation"]["ready"] is True
+        assert ready["activation"]["inter_run"]["returned_home"] is True
+        activation = await demo.activate(FruitMission("pear", "soak", "attempt-2"))
+        assert activation.run["target_fruit"] == "pear"
+        await demo.stop()
         await demo.close()
 
     asyncio.run(scenario())

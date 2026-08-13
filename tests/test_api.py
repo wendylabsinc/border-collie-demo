@@ -41,8 +41,16 @@ class ReadyHardwareBoundary:
             "connected": True,
             "fault": None,
             "active_operation": None,
-            "pose": {"healthy": True, "age_s": 0.04, "error": None},
-            "motion": {"armed": False},
+            "pose": {
+                "healthy": True,
+                "age_s": 0.04,
+                "error": None,
+                "pose": {"x_m": 1.25, "y_m": -0.5},
+            },
+            "motion": {
+                "armed": False,
+                "last_command": {"forward_mps": 0.0, "yaw_rps": 0.0},
+            },
         }
 
 

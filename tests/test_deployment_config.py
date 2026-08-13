@@ -13,5 +13,6 @@ def test_apple_motion_thresholds_are_owned_only_by_the_app_service() -> None:
 
     assert app_env["BORDER_COLLIE_APPLE_FOCUS_CONFIDENCE"] == "0.50"
     assert app_env["BORDER_COLLIE_APPLE_ACQUISITION_CONFIDENCE"] == "0.40"
+    assert app_env["BORDER_COLLIE_STAGE_HOME_MARGIN_M"] == "0.50"
     assert "BORDER_COLLIE_APPLE_FOCUS_CONFIDENCE" not in media_env
     assert "BORDER_COLLIE_APPLE_ACQUISITION_CONFIDENCE" not in media_env

@@ -9,6 +9,7 @@ execution, and terminal exact-zero disarm finalization.
 from __future__ import annotations
 
 import asyncio
+import math
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -121,7 +122,10 @@ class StageDemo:
         stage_executor: StageExecutor | None = None,
         terminal_evidence: Callable[[], list[EvidenceArtifact]] | None = None,
         failure_epilogue: FailureEpilogue | None = None,
+        stage_home_margin_m: float = 0.50,
     ) -> None:
+        if not math.isfinite(stage_home_margin_m) or not 0.10 <= stage_home_margin_m <= 1.0:
+            raise ValueError("stage_home_margin_m must be within 0.10..1.0 m")
         self._mission = mission
         self._results = results
         self._hardware = hardware
@@ -132,6 +136,7 @@ class StageDemo:
         self._run_task: asyncio.Task[dict[str, Any]] | None = None
         self._started = False
         self._stage_executor = stage_executor
+        self._stage_home_margin_m = stage_home_margin_m
         self._orchestrator = None
         if stage_executor is not None:
             self._orchestrator = DemoOrchestrator(
@@ -190,6 +195,12 @@ class StageDemo:
             if self._mission.takeover_latched:
                 raise RestartRequired(
                     "physical remote takeover is latched; restart required"
+                )
+            clearance = self._inter_run_clearance(self._hardware.status())
+            if clearance is not None and not clearance["returned_home"]:
+                raise ActiveRunError(
+                    "the prior Demo Run has not returned Home; "
+                    "another run cannot start"
                 )
 
             run = self._results.start_run(
@@ -339,23 +350,93 @@ class StageDemo:
     def status(self) -> dict[str, Any]:
         camera = self._read_camera()
         media = self._read_media()
-        report = evaluate_preflight(self._hardware.status(), camera, media)
+        hardware = self._hardware.status()
+        report = evaluate_preflight(hardware, camera, media)
+        clearance = self._inter_run_clearance(hardware)
+        blockers = [
+            {"name": item["name"], "detail": item["detail"]}
+            for item in report["checks"]
+            if not item["ready"]
+        ]
+        if clearance is not None and not clearance["returned_home"]:
+            distance = clearance["home_distance_m"]
+            detail = (
+                "fresh current Home distance is unavailable"
+                if distance is None
+                else (
+                    f"prior run is {distance:.3f} m from Home; "
+                    f"required <= {self._stage_home_margin_m:.3f} m"
+                )
+            )
+            blockers.append(
+                {"name": "inter_run_home_clearance", "detail": detail}
+            )
+        activation: dict[str, Any] = {
+            "ready": report["ready"]
+            and (clearance is None or clearance["returned_home"]),
+            "blockers": blockers,
+        }
+        if clearance is not None:
+            activation["inter_run"] = clearance
         return {
             "mission": self._mission.status(),
-            "hardware": self._hardware.status(),
+            "hardware": hardware,
             "active_run_id": self._results.active_run_id,
-            "activation": {
-                "ready": report["ready"],
-                "blockers": [
-                    {"name": item["name"], "detail": item["detail"]}
-                    for item in report["checks"]
-                    if not item["ready"]
-                ],
-            },
+            "activation": activation,
         }
 
     def list_results(self) -> list[dict[str, Any]]:
         return self._results.list_results()
+
+    def _inter_run_clearance(
+        self, hardware: dict[str, object]
+    ) -> dict[str, object] | None:
+        prior = next(
+            (
+                run
+                for run in self._results.list_results()
+                if run.get("outcome") is not None
+                and isinstance(run.get("home"), dict)
+            ),
+            None,
+        )
+        if prior is None:
+            return None
+        home = prior["home"]
+        pose_status = hardware.get("pose")
+        current = (
+            pose_status.get("pose")
+            if isinstance(pose_status, dict) and pose_status.get("healthy") is True
+            else None
+        )
+        home_x = home.get("x_m")
+        home_y = home.get("y_m")
+        current_x = current.get("x_m") if isinstance(current, dict) else None
+        current_y = current.get("y_m") if isinstance(current, dict) else None
+        coordinates = (home_x, home_y, current_x, current_y)
+        distance = (
+            math.hypot(float(current_x) - float(home_x), float(current_y) - float(home_y))
+            if all(
+                isinstance(value, (int, float))
+                and not isinstance(value, bool)
+                and math.isfinite(float(value))
+                for value in coordinates
+            )
+            else None
+        )
+        returned_home = (
+            prior.get("final_safety_state") == "DISARMED_CONFIRMED"
+            and distance is not None
+            and distance <= self._stage_home_margin_m
+        )
+        return {
+            "required": True,
+            "prior_run_id": prior["run_id"],
+            "prior_outcome": prior["outcome"],
+            "home_distance_m": distance,
+            "stage_home_margin_m": self._stage_home_margin_m,
+            "returned_home": returned_home,
+        }
 
     async def _exact_stop(self) -> list[str]:
         try:
