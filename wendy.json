@@ -67,6 +67,33 @@
         {"type": "network", "mode": "host"},
         {"type": "gpu"}
       ]
+    },
+    "voice": {
+      "context": "./voice",
+      "dependsOn": ["app", "media"],
+      "env": {
+        "PORT": "8092",
+        "ACTION_MODE": "border_collie",
+        "BORDER_COLLIE_URL": "http://127.0.0.1:8110",
+        "BORDER_COLLIE_EXPECTED_BUILD_LABEL": "stage-default-v1-base-guardrails",
+        "CONTINUOUS_TRANSCRIPTION": "0",
+        "AUTO_ARM_ACTIONS": "1",
+        "AUDIO_DEVICE": "DJI MIC MINI",
+        "WAKE_WORD": "/app/hey_wendy.onnx",
+        "WAKE_THRESHOLD": "0.5",
+        "COMMAND_WINDOW_S": "8",
+        "OWW_MELSPEC_PATH": "/opt/openwakeword-models/melspectrogram.onnx",
+        "OWW_EMBEDDING_PATH": "/opt/openwakeword-models/embedding_model.onnx"
+      },
+      "entitlements": [
+        {"type": "network", "mode": "host"},
+        {"type": "audio"},
+        {
+          "type": "persist",
+          "name": "border-collie-parakeet-models",
+          "path": "/models"
+        }
+      ]
     }
   },
   "readiness": {

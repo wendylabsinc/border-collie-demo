@@ -1,5 +1,11 @@
 # Border Collie Demo
 
+This branch includes an on-device **Hey Wendy** voice service. Open
+`http://woof.local:8092`, say “Hey Wendy,” then say an allowlisted request such
+as “find the pear” or “follow the apple.” The custom wake model gates local
+Parakeet ASR; the service calls the same idempotent `/api/run` safety boundary
+as the audience UI and never owns a separate motion path.
+
 A clean-room implementation of the Wendy Labs Border Collie routine for the
 Unitree Go2.
 
