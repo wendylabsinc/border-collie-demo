@@ -79,8 +79,8 @@ class GuidanceConfig:
         )
         if not all(math.isfinite(value) for value in finite):
             raise ValueError("guidance values must be finite")
-        if not 0.50 <= self.search_yaw_rps <= 0.80:
-            raise ValueError("search_yaw_rps must stay within 0.50..0.80 rad/s")
+        if not 0.40 <= self.search_yaw_rps <= 0.80:
+            raise ValueError("search_yaw_rps must stay within 0.40..0.80 rad/s")
         if not 0.0 < self.search_sweep_rad <= 2.0 * math.pi:
             raise ValueError("search_sweep_rad must stay within one revolution")
         if not 0.0 < self.center_tolerance_ratio < self.outer_corridor_ratio < 0.5:

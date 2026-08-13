@@ -340,6 +340,16 @@ def test_guidance_env_defaults_match_the_physically_proven_base_contract(
     assert config.near_loss_confirmations == 2
 
 
+def test_search_yaw_accepts_bounded_physical_qualification_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BORDER_COLLIE_GUIDANCE_SEARCH_YAW_RPS", "0.40")
+
+    config = GuidanceConfig.from_env()
+
+    assert config.search_yaw_rps == 0.40
+
+
 def test_one_weak_close_frame_does_not_start_final_push() -> None:
     guidance = FruitGuidance("pear")
     for pts, now_s in ((1, 0.0), (2, 0.1), (3, 0.2)):
