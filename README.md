@@ -305,15 +305,21 @@ legacy app on `8096` without replacing it.
 Run Results default to `artifacts/runs/`. A deployment must set
 `BORDER_COLLIE_RUNS_DIR` to durable mounted storage before stage use.
 
-## Ten-run randomized soak
+## Configurable Demo Run cohorts
 
-The supervised soak runs ten complete missions in a seeded, randomized order.
-It reads the deployed build's qualified fruits and balances the schedule before
-shuffling it, so three qualified fruits receive three or four attempts each.
+The audience UI and supervised soak harness both use the typed policy described
+in [`docs/cohort-policy.md`](docs/cohort-policy.md). The default is five Demo
+Runs in a seeded, randomized order with every failure stopping the cohort. A
+fixed Target Fruit and explicitly tolerated terminal reasons or phases can be
+selected. Tolerance never bypasses exact-zero disarm, fresh exact-run Home
+clearance, or a camera, pose, motion, takeover, restart, or return safety stop.
+
+The harness reads the deployed build's qualified fruits and balances randomized
+schedules before shuffling them.
 The result JSON is replaced atomically after every run and includes the exact
-sequence, per-stage telemetry, lighting frames, network observations, device
-temperatures, dongle checks, terminal measurements, and the records-only
-scorecard.
+policy and sequence, per-run cohort decision, Home-clearance evidence,
+per-stage telemetry, lighting frames, network observations, device temperatures,
+dongle checks, terminal measurements, and the records-only scorecard.
 
 Use an exact expected build label so an old or experimental deployment cannot
 be activated accidentally:

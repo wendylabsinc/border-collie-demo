@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from border_collie_demo.cohort_policy import CohortPolicy, FailureSelector
 from scripts.fruit_soak import (
     HarnessAbort,
     TempSource,
@@ -84,7 +85,7 @@ class FakeClient:
     def fruits(self):
         return {"qualified_fruits": self._qualified}
 
-    def activate(self, fruit):
+    def activate(self, fruit, activation_id=None):
         self.activated.append(fruit)
         run_id = f"run-{len(self.activated)}"
         return {"run": {"run_id": run_id}}
@@ -130,6 +131,8 @@ def terminal(run_id, outcome="COMPLETED", home=0.05):
             "run_id": run_id,
             "outcome": outcome,
             "reason": "SUCCESS" if outcome == "COMPLETED" else outcome,
+            "failed_phase": None if outcome == "COMPLETED" else "sit_and_bark",
+            "final_safety_state": "DISARMED_CONFIRMED",
             "message": "done",
             "terminal_measurements": {"home_distance_m": home, "heading_error_rad": 0.01},
             "stage_results": {"approach_fruit": {"forward_pulse_count": 12}},
@@ -335,7 +338,17 @@ def test_session_records_every_run_and_build_label(tmp_path: Path):
     )
     output = tmp_path / "soak.json"
     session = run_session(
-        client, runs=2, seed=7, output_path=output, sleep=lambda _: None, log=lambda *_: None
+        client,
+        runs=2,
+        seed=7,
+        policy=CohortPolicy(
+            runs=2,
+            seed=7,
+            tolerated_failures=(FailureSelector(reason="FAILED"),),
+        ),
+        output_path=output,
+        sleep=lambda _: None,
+        log=lambda *_: None,
     )
     saved = json.loads(output.read_text())
     assert saved["build_label"] == "base-soak-v1 (demo/base)"
@@ -384,6 +397,12 @@ def test_session_never_starts_next_run_before_home_clearance(tmp_path: Path):
         runs=2,
         seed=7,
         output_path=output,
+        policy=CohortPolicy(
+            runs=2,
+            randomized=True,
+            seed=7,
+            tolerated_failures=(FailureSelector(reason="FAILED"),),
+        ),
         sleep=lambda _: None,
         log=lambda *_: None,
     )
@@ -391,6 +410,132 @@ def test_session_never_starts_next_run_before_home_clearance(tmp_path: Path):
     assert client.activated == [session["fruit_sequence"][0]]
     assert session["runs"][0]["inter_run_clearance"]["safe_to_continue"] is False
     assert "next run was not activated" in session["aborted"]
+
+
+def test_session_stops_on_failure_by_default_even_after_home_clearance(tmp_path: Path):
+    client = FakeClient(
+        [READY],
+        results_by_id={
+            "run-1": [terminal("run-1", outcome="FAILED", home=0.05)],
+            "run-2": [terminal("run-2")],
+        },
+        sidecar=SIDECAR,
+    )
+
+    session = run_session(
+        client,
+        runs=2,
+        seed=7,
+        output_path=tmp_path / "default-stop.json",
+        sleep=lambda _: None,
+        log=lambda *_: None,
+    )
+
+    assert client.activated == [session["fruit_sequence"][0]]
+    assert session["runs"][0]["cohort_decision"]["code"] == "FAILURE_POLICY_STOP"
+    assert "configured to stop" in session["aborted"]
+
+
+def test_tolerated_failure_starts_a_new_independent_run_after_home_clearance(
+    tmp_path: Path,
+):
+    client = FakeClient(
+        [READY],
+        results_by_id={
+            "run-1": [terminal("run-1", outcome="FAILED", home=0.05)],
+            "run-2": [terminal("run-2")],
+        },
+        sidecar=SIDECAR,
+    )
+    policy = CohortPolicy(
+        runs=2,
+        randomized=False,
+        target_fruit="banana",
+        seed=41,
+        tolerated_failures=(FailureSelector(reason="FAILED"),),
+    )
+
+    session = run_session(
+        client,
+        runs=2,
+        seed=41,
+        policy=policy,
+        output_path=tmp_path / "tolerated.json",
+        sleep=lambda _: None,
+        log=lambda *_: None,
+    )
+
+    assert client.activated == ["banana", "banana"]
+    assert session["policy"] == policy.to_dict()
+    assert session["fruit_sequence"] == ["banana", "banana"]
+    assert session["runs"][0]["cohort_decision"]["code"] == "FAILURE_TOLERATED"
+    assert session["runs"][0]["cohort_decision"]["action"] == "CONTINUE"
+    assert session["runs"][0]["inter_run_clearance"]["safe_to_continue"] is True
+    assert session["aborted"] is None
+
+
+def test_takeover_reason_hard_stops_even_when_selected_as_tolerated(tmp_path: Path):
+    takeover = terminal("run-1", outcome="FAILED", home=0.05)
+    takeover["run"].update(
+        {
+            "reason": "REMOTE_TAKEOVER",
+            "failed_phase": "remote_takeover",
+            "final_safety_state": "REMOTE_OWNED",
+        }
+    )
+    client = FakeClient(
+        [READY],
+        results_by_id={"run-1": [takeover], "run-2": [terminal("run-2")]},
+        sidecar=SIDECAR,
+    )
+    policy = CohortPolicy(
+        runs=2,
+        seed=7,
+        tolerated_failures=(FailureSelector(reason="REMOTE_TAKEOVER"),),
+    )
+
+    session = run_session(
+        client,
+        runs=2,
+        seed=7,
+        policy=policy,
+        output_path=tmp_path / "takeover.json",
+        sleep=lambda _: None,
+        log=lambda *_: None,
+    )
+
+    assert len(client.activated) == 1
+    assert session["runs"][0]["cohort_decision"]["code"] == "HARD_SAFETY_STOP"
+
+
+def test_each_harness_attempt_uses_one_durable_activation_id_without_retry(
+    tmp_path: Path,
+):
+    class RecordingClient(FakeClient):
+        def __init__(self):
+            super().__init__(
+                [READY],
+                results_by_id={"run-1": [terminal("run-1")]},
+                sidecar=SIDECAR,
+            )
+            self.activation_ids = []
+
+        def activate(self, fruit, activation_id=None):
+            self.activation_ids.append(activation_id)
+            return super().activate(fruit, activation_id)
+
+    client = RecordingClient()
+    session = run_session(
+        client,
+        runs=1,
+        seed=7,
+        output_path=tmp_path / "idempotent.json",
+        sleep=lambda _: None,
+        log=lambda *_: None,
+    )
+
+    assert len(client.activation_ids) == 1
+    assert client.activation_ids[0] == session["runs"][0]["activation_id"]
 
 
 def test_session_rejects_the_wrong_build_before_activation(tmp_path: Path):
@@ -426,7 +571,7 @@ def test_session_rejects_the_wrong_qualified_fruits_before_activation(tmp_path: 
 
 def test_ambiguous_activation_aborts_and_persists_without_retry(tmp_path: Path):
     class AmbiguousClient(FakeClient):
-        def activate(self, fruit):
+        def activate(self, fruit, activation_id=None):
             self.activated.append(fruit)
             raise TimeoutError("request timed out")
 

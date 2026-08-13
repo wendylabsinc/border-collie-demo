@@ -10,9 +10,11 @@ from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from .black_box import RunBlackBox
+from .cohort_policy import CohortPolicy, FailureSelector
+from .cohorts import CohortConflict, CohortController
 from .evidence import EvidenceArtifact
 from .fruits import QUALIFIED_FRUITS, SUPPORTED_FRUITS
 from .hardware import HardwareManager, HardwareUnavailable
@@ -46,13 +48,30 @@ class RunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     target_fruit: Literal["apple", "banana", "pear"] = "pear"
-    activation_source: Literal["audience_ui", "voice"] = "audience_ui"
+    activation_source: Literal["audience_ui", "voice", "soak"] = "audience_ui"
     activation_id: str | None = None
     tuning: dict[str, object] | None = None
 
 
 class FruitPreviewRequest(BaseModel):
     target_fruit: Literal["apple", "banana", "pear"]
+
+
+class FailureSelectorRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    failed_phase: str | None = None
+    reason: str | None = None
+
+
+class CohortRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    runs: int = Field(default=5, ge=1, le=100)
+    randomized: bool = True
+    target_fruit: Literal["apple", "banana", "pear"] | None = None
+    seed: int | None = Field(default=None, ge=0)
+    tolerated_failures: list[FailureSelectorRequest] = Field(default_factory=list)
 
 
 def create_app(
@@ -71,14 +90,15 @@ def create_app(
     system_audio: SystemAudioPolicy | None = None,
     runtime_mode: Literal["production", "simulation"] = "production",
     stage_home_margin_m: float | None = None,
+    cohorts_root: Path | None = None,
 ) -> FastAPI:
     machine = mission or MissionMachine()
     robot = hardware or HardwareManager()
     root = web_root or Path(os.environ.get("BORDER_COLLIE_WEB_ROOT", "web")).resolve()
-    results = RunResultStore(
-        runs_root or Path(os.environ.get("BORDER_COLLIE_RUNS_DIR", "artifacts/runs")),
-        black_box=black_box,
+    run_storage_root = runs_root or Path(
+        os.environ.get("BORDER_COLLIE_RUNS_DIR", "artifacts/runs")
     )
+    results = RunResultStore(run_storage_root, black_box=black_box)
     read_camera_perception = camera_perception_status or (
         lambda: {
             "ready": False,
@@ -103,6 +123,16 @@ def create_app(
             else float(os.environ.get("BORDER_COLLIE_STAGE_HOME_MARGIN_M", "0.50"))
         ),
     )
+    cohorts = CohortController(
+        demo,
+        cohorts_root
+        or Path(
+            os.environ.get(
+                "BORDER_COLLIE_COHORTS_DIR",
+                str(run_storage_root.parent / "cohorts"),
+            )
+        ),
+    )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -112,6 +142,7 @@ def create_app(
         try:
             yield
         finally:
+            await cohorts.close()
             await demo.close()
             if system_audio is not None:
                 await system_audio.close()
@@ -196,11 +227,57 @@ def create_app(
             "runtime_mode": runtime_mode,
             **current,
             "run_tuning": RunTuning.contract(),
+            "cohort": cohorts.current(),
             "search_experiment": search_experiment_contract(),
         }
 
+    @app.post("/api/cohorts", status_code=201)
+    async def start_cohort(request: CohortRequest) -> dict[str, object]:
+        try:
+            policy = CohortPolicy(
+                runs=request.runs,
+                randomized=request.randomized,
+                target_fruit=request.target_fruit,
+                seed=(
+                    request.seed
+                    if request.seed is not None
+                    else int.from_bytes(os.urandom(8), "big")
+                ),
+                tolerated_failures=tuple(
+                    FailureSelector(
+                        failed_phase=item.failed_phase,
+                        reason=item.reason,
+                    )
+                    for item in request.tolerated_failures
+                ),
+            )
+            cohort = await cohorts.start(policy, list(QUALIFIED_FRUITS))
+        except (CohortConflict, ValueError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {"cohort": cohort}
+
+    @app.get("/api/cohorts/active")
+    async def active_cohort() -> dict[str, object]:
+        return {"cohort": cohorts.current()}
+
+    @app.post("/api/cohorts/active/stop")
+    async def stop_cohort() -> dict[str, object]:
+        return {"cohort": await cohorts.stop()}
+
+    @app.get("/api/cohorts/{cohort_id}")
+    async def get_cohort(cohort_id: str) -> dict[str, object]:
+        cohort = cohorts.get(cohort_id)
+        if cohort is None:
+            raise HTTPException(status_code=404, detail="cohort not found")
+        return {"cohort": cohort}
+
     @app.post("/api/run", status_code=201)
     async def activate_run(request: RunRequest) -> dict[str, object]:
+        if cohorts.running():
+            raise HTTPException(
+                status_code=409,
+                detail="the active cohort owns Demo Run activation",
+            )
         try:
             activation = await demo.activate(
                 FruitMission(

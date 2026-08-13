@@ -92,6 +92,17 @@
         margin-bottom: 1rem;
         font-weight: 700;
       }
+      .cohort-panel {
+        margin: 2rem 0;
+        padding: 1rem;
+        border: 2px solid currentColor;
+        border-radius: 0.75rem;
+        text-align: left;
+      }
+      .cohort-grid { display: grid; gap: 0.75rem; }
+      .failure-options { grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); }
+      .failure-options label { display: flex; gap: 0.4rem; align-items: center; }
+      #cohort-output { white-space: pre-wrap; overflow-wrap: anywhere; }
     </style>
   </head>
   <body>
@@ -127,6 +138,43 @@
         <button id="activate" type="button" disabled>Activate Demo</button>
         <button id="stop" type="button">Stop Woof</button>
       </div>
+      <section class="cohort-panel" aria-labelledby="cohort-title">
+        <h2 id="cohort-title">Back-to-back Demo Runs</h2>
+        <p>Failures stop the cohort by default. A tolerated failure never resumes a failed run; it permits a new independent run only after exact-zero disarm and fresh Home clearance for that exact run.</p>
+        <div class="cohort-grid">
+          <label for="cohort-runs">Number of runs</label>
+          <input id="cohort-runs" type="number" min="1" max="100" step="1" value="5">
+          <label><input id="cohort-randomized" type="checkbox" checked> Randomize qualified fruits with a saved seed</label>
+          <label for="cohort-fixed-fruit">Fixed Target Fruit</label>
+          <select id="cohort-fixed-fruit" disabled>
+            <option value="pear">Pear</option>
+            <option value="apple">Red apple</option>
+            <option value="banana">Banana</option>
+          </select>
+          <label for="cohort-seed">Random seed</label>
+          <input id="cohort-seed" type="number" min="0" step="1" value="20260813">
+          <fieldset class="failure-options">
+            <legend>Tolerated terminal reasons</legend>
+            <label><input type="checkbox" data-tolerated-reason value="TARGET_RECOGNITION_FAILURE"> Target recognition</label>
+            <label><input type="checkbox" data-tolerated-reason value="TARGET_LOST"> Target lost</label>
+            <label><input type="checkbox" data-tolerated-reason value="ARRIVAL_FAILURE"> Arrival</label>
+            <label><input type="checkbox" data-tolerated-reason value="ACTION_FAILURE"> Audience action</label>
+          </fieldset>
+          <fieldset class="failure-options">
+            <legend>Tolerated failed phases</legend>
+            <label><input type="checkbox" data-tolerated-phase value="turn_to_fruit"> Turn to fruit</label>
+            <label><input type="checkbox" data-tolerated-phase value="find_fruit"> Find fruit</label>
+            <label><input type="checkbox" data-tolerated-phase value="approach_fruit"> Approach fruit</label>
+            <label><input type="checkbox" data-tolerated-phase value="arrived"> Arrival</label>
+            <label><input type="checkbox" data-tolerated-phase value="sit_and_bark"> Sit and bark</label>
+            <label><input type="checkbox" data-tolerated-phase value="stand"> Stand</label>
+            <label><input type="checkbox" data-tolerated-phase value="turn_toward_home"> Turn toward Home</label>
+          </fieldset>
+          <button id="start-cohort" type="button">Start cohort</button>
+          <button id="stop-cohort" type="button" disabled>Stop cohort and Woof</button>
+        </div>
+        <p id="cohort-output" role="status">No cohort started.</p>
+      </section>
       <p id="status" role="status" aria-live="polite">Checking readiness…</p>
       <p id="run-id"></p>
       <details>
@@ -157,12 +205,20 @@
       const effectiveTuning = document.querySelector('#effective-tuning');
       const experimentResults = document.querySelector('#experiment-results');
       const searchTrace = document.querySelector('#search-trace');
+      const cohortRuns = document.querySelector('#cohort-runs');
+      const cohortRandomized = document.querySelector('#cohort-randomized');
+      const cohortFixedFruit = document.querySelector('#cohort-fixed-fruit');
+      const cohortSeed = document.querySelector('#cohort-seed');
+      const startCohort = document.querySelector('#start-cohort');
+      const stopCohort = document.querySelector('#stop-cohort');
+      const cohortOutput = document.querySelector('#cohort-output');
       const cameraFrameUrl = '/api/camera/frame.jpg';
       let lastRunId = null;
       let cameraRefreshTimer = null;
       let tuningInitialized = false;
       let tuningContract = null;
       const tuningInputs = new Map();
+      let cohortRunning = false;
 
       function renderTuning() {
         const profile = tuningContract?.fruits?.[targetFruit.value];
@@ -300,6 +356,7 @@
             : '';
           activate.disabled = Boolean(
             current.active_run_id ||
+            cohortRunning ||
             current.mission.restart_required ||
             !current.activation.ready
           );
@@ -355,6 +412,38 @@
         }
       }
 
+      function showCohort(cohort) {
+        cohortRunning = cohort?.status === 'RUNNING';
+        startCohort.disabled = cohortRunning;
+        stopCohort.disabled = !cohortRunning;
+        cohortRuns.disabled = cohortRunning;
+        cohortRandomized.disabled = cohortRunning;
+        cohortFixedFruit.disabled = cohortRunning || cohortRandomized.checked;
+        cohortSeed.disabled = cohortRunning;
+        document.querySelectorAll('[data-tolerated-reason], [data-tolerated-phase]')
+          .forEach((control) => { control.disabled = cohortRunning; });
+        if (!cohort) {
+          cohortOutput.textContent = 'No cohort started.';
+          return;
+        }
+        const latest = cohort.runs.at(-1);
+        cohortOutput.textContent = [
+          `Cohort ${cohort.cohort_id}: ${cohort.status}`,
+          `${cohort.runs.length}/${cohort.policy.runs} runs recorded`,
+          latest ? `Latest: ${latest.target_fruit} — ${latest.outcome} / ${latest.reason}` : '',
+          cohort.abort_reason || '',
+        ].filter(Boolean).join('\n');
+      }
+
+      async function refreshCohort() {
+        try {
+          const body = await readJson(await fetch('/api/cohorts/active'));
+          showCohort(body.cohort);
+        } catch (error) {
+          cohortOutput.textContent = error.message;
+        }
+      }
+
       activate.addEventListener('click', async () => {
         activate.disabled = true;
         targetFruit.disabled = true;
@@ -378,6 +467,49 @@
       });
 
       targetFruit.addEventListener('change', renderTuning);
+
+      cohortRandomized.addEventListener('change', () => {
+        cohortFixedFruit.disabled = cohortRandomized.checked;
+      });
+
+      startCohort.addEventListener('click', async () => {
+        startCohort.disabled = true;
+        const toleratedFailures = [
+          ...Array.from(document.querySelectorAll('[data-tolerated-reason]:checked'))
+            .map((control) => ({reason: control.value})),
+          ...Array.from(document.querySelectorAll('[data-tolerated-phase]:checked'))
+            .map((control) => ({failed_phase: control.value})),
+        ];
+        try {
+          const body = await readJson(await fetch('/api/cohorts', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+              runs: Number(cohortRuns.value),
+              randomized: cohortRandomized.checked,
+              target_fruit: cohortRandomized.checked ? null : cohortFixedFruit.value,
+              seed: Number(cohortSeed.value),
+              tolerated_failures: toleratedFailures,
+            }),
+          }));
+          showCohort(body.cohort);
+        } catch (error) {
+          cohortOutput.textContent = error.message;
+          await refreshCohort();
+        }
+      });
+
+      stopCohort.addEventListener('click', async () => {
+        stopCohort.disabled = true;
+        try {
+          const body = await readJson(await fetch('/api/cohorts/active/stop', {
+            method: 'POST',
+          }));
+          showCohort(body.cohort);
+        } catch (error) {
+          cohortOutput.textContent = error.message;
+        }
+      });
 
       stop.addEventListener('click', async () => {
         activate.disabled = true;
@@ -404,9 +536,11 @@
 
       refreshStatus();
       refreshExperiments();
+      refreshCohort();
       refreshCamera();
       setInterval(refreshStatus, 1000);
       setInterval(refreshExperiments, 5000);
+      setInterval(refreshCohort, 1000);
     </script>
   </body>
 </html>

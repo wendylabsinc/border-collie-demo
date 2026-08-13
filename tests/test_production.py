@@ -7,7 +7,7 @@ import pytest
 
 from border_collie_demo.fruits import fruit_policy
 from border_collie_demo.guidance import GuidancePhase
-from border_collie_demo.hardware import CameraFailure, TargetLost
+from border_collie_demo.hardware import CameraFailure, HardwareUnavailable, TargetLost
 from border_collie_demo.models import MissionPhase
 from border_collie_demo.orchestrator import StageContext, StageFailure
 from border_collie_demo.production import ProductionStageExecutor
@@ -636,6 +636,23 @@ def test_camera_failure_is_preserved_as_the_terminal_stage_reason() -> None:
 
         assert failure.value.reason == "CAMERA_FAILURE"
         assert failure.value.message == "source progress is stale"
+
+    asyncio.run(scenario())
+
+
+def test_hardware_motion_failure_is_structured_as_a_non_tolerable_blocker() -> None:
+    class FailedMotionHardware(FakeProductionHardware):
+        async def approach_target(self, *_args, **_options):
+            raise HardwareUnavailable("motion watchdog did not confirm exact stop")
+
+    async def scenario() -> None:
+        stages = ProductionStageExecutor(FailedMotionHardware(), dict, FakeBark())
+
+        with pytest.raises(StageFailure) as failure:
+            await stages.execute(MissionPhase.APPROACH_FRUIT, context())
+
+        assert failure.value.reason == "ARRIVAL_FAILURE"
+        assert failure.value.details == {"safety_class": "motion"}
 
     asyncio.run(scenario())
 

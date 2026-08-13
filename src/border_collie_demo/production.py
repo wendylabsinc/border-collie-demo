@@ -86,7 +86,7 @@ class ProductionStageExecutor:
             raise StageFailure(
                 DEFAULT_STAGE_FAILURE_REASONS[phase],
                 str(exc),
-                details=self._failure_details(),
+                details=self._failure_details({"safety_class": "motion"}),
             ) from exc
         except BarkFailure as exc:
             raise StageFailure(

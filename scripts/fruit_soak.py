@@ -34,7 +34,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import random
 import shutil
 import subprocess
 import sys
@@ -45,12 +44,24 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
+PROJECT_SRC = str(Path(__file__).resolve().parents[1] / "src")
+if PROJECT_SRC not in sys.path:  # direct checkout invocation
+    sys.path.insert(0, PROJECT_SRC)
+
+from border_collie_demo.cohort_policy import (  # noqa: E402
+    CohortPolicy,
+    FailureSelector,
+    choose_fruit_sequence,
+    decide_terminal_run,
+    evaluate_home_clearance,
+)
+
 try:  # package import (tests) or direct script execution
     from scripts.stage_scorecard import score_session
 except ImportError:  # pragma: no cover - script-invocation path
     from stage_scorecard import score_session
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 POLL_INTERVAL_S = 1.5
 READY_TIMEOUT_S = 90.0
 RUN_TIMEOUT_S = 180.0
@@ -98,8 +109,11 @@ class ApiClient:
     def fruits(self) -> dict:
         return self._request(f"{self.base_url}/api/fruits")
 
-    def activate(self, fruit: str) -> dict:
-        return self._request(f"{self.base_url}/api/run", "POST", {"target_fruit": fruit})
+    def activate(self, fruit: str, activation_id: str | None = None) -> dict:
+        payload = {"target_fruit": fruit, "activation_source": "soak"}
+        if activation_id is not None:
+            payload["activation_id"] = activation_id
+        return self._request(f"{self.base_url}/api/run", "POST", payload)
 
     def result(self, run_id: str) -> dict:
         return self._request(f"{self.base_url}/api/results/{run_id}")
@@ -290,17 +304,12 @@ def draw_fruit_sequence(qualified: list[str], runs: int, seed: int) -> list[str]
     either ``runs // fruit_count`` or one additional attempt, while the extra
     slots and final order remain seeded and random.
     """
-    if not qualified:
-        raise HarnessAbort("deployed build reports no qualified fruits")
-    if runs <= 0:
-        raise HarnessAbort("run count must be greater than zero")
-    fruits = sorted(set(qualified))
-    rng = random.Random(seed)
-    repetitions, remainder = divmod(runs, len(fruits))
-    sequence = fruits * repetitions
-    sequence.extend(rng.sample(fruits, remainder))
-    rng.shuffle(sequence)
-    return sequence
+    try:
+        return choose_fruit_sequence(CohortPolicy(runs=runs, seed=seed), qualified)
+    except ValueError as exc:
+        if runs <= 0:
+            raise HarnessAbort("run count must be greater than zero") from exc
+        raise HarnessAbort(str(exc)) from exc
 
 
 def take_sample(
@@ -542,33 +551,7 @@ def read_inter_run_clearance(client: ApiClient, prior_run_id: str) -> dict:
             "application latched restart-required "
             f"({mission.get('reason')}); session cannot continue"
         )
-    activation = status.get("activation") or {}
-    inter_run = activation.get("inter_run") or {}
-    motion = ((status.get("hardware") or {}).get("motion") or {})
-    command = motion.get("last_command") or {}
-    exact_zero = all(
-        isinstance(command.get(key), (int, float))
-        and not isinstance(command.get(key), bool)
-        and float(command[key]) == 0.0
-        for key in ("forward_mps", "yaw_rps")
-    )
-    evidence = {
-        **inter_run,
-        "prior_run_matches": inter_run.get("prior_run_id") == prior_run_id,
-        "client_run_cleared": status.get("active_run_id") is None,
-        "client_motion_disarmed": motion.get("armed") is False and exact_zero,
-        "activation_ready": activation.get("ready") is True,
-    }
-    evidence["safe_to_continue"] = all(
-        (
-            evidence["prior_run_matches"],
-            inter_run.get("returned_home") is True,
-            evidence["client_run_cleared"],
-            evidence["client_motion_disarmed"],
-            evidence["activation_ready"],
-        )
-    )
-    return evidence
+    return evaluate_home_clearance(status, prior_run_id)
 
 
 def run_session(
@@ -585,9 +568,13 @@ def run_session(
     expected_build_label: str | None = None,
     expected_fruits: list[str] | None = None,
     keep_samples: bool = True,
+    policy: CohortPolicy | None = None,
     sleep=time.sleep,
     log=print,
 ) -> dict:
+    policy = policy or CohortPolicy(runs=runs, seed=seed)
+    if policy.runs != runs or policy.seed != seed:
+        raise HarnessAbort("policy runs and seed must match the session arguments")
     temp_sampler = ThreadedTempSampler(temp_source or TempSource())
     status = wait_for_ready(client)
     build_label = status.get("build_label", "unlabelled")
@@ -605,7 +592,10 @@ def run_session(
                 f"expected qualified fruits {expected!r}, got {actual!r}; "
                 "no run was activated"
             )
-    sequence = draw_fruit_sequence(qualified, runs, seed)
+    try:
+        sequence = choose_fruit_sequence(policy, qualified)
+    except ValueError as exc:
+        raise HarnessAbort(str(exc)) from exc
     log(f"build: {build_label}")
     log(f"qualified fruits: {', '.join(qualified)}")
     log(f"seed {seed} -> sequence: {', '.join(sequence)}")
@@ -618,6 +608,7 @@ def run_session(
         "qualified_fruits": qualified,
         "target_runs": runs,
         "seed": seed,
+        "policy": policy.to_dict(),
         "fruit_sequence": sequence,
         "temperature_source": (
             temp_sampler.source.url
@@ -660,8 +651,9 @@ def run_session(
                 preflight["wifi_before"] = device_probe.wifi_status()
             lighting_frame = capture_lighting_frame(client, frames_dir, number)
             log(f"run {number}/{runs}: activating {fruit}")
+            activation_id = f"{session['session']}:run-{number}"
             try:
-                run_id = client.activate(fruit)["run"]["run_id"]
+                run_id = client.activate(fruit, activation_id=activation_id)["run"]["run_id"]
             except Exception as exc:
                 raise HarnessAbort(
                     f"run {number} activation outcome is ambiguous; "
@@ -671,6 +663,7 @@ def run_session(
                 client, run_id, target_fruit=fruit, temp_sampler=temp_sampler
             )
             record = summarize_run(run, fruit, number)
+            record["activation_id"] = activation_id
             record["lighting_frame"] = lighting_frame
             record["stage_telemetry"] = aggregate_stage_telemetry(samples)
             record["network"] = summarize_network(samples)
@@ -684,9 +677,25 @@ def run_session(
                 record["harness_note"] = harness_note
             session["runs"].append(record)
             persist()
-            record["inter_run_clearance"] = read_inter_run_clearance(
-                client, run_id
-            )
+            decision = decide_terminal_run(run, policy)
+            record["cohort_decision"] = decision
+            if decision["action"] == "AWAIT_HOME_CLEARANCE":
+                clearance = read_inter_run_clearance(client, run_id)
+                record["inter_run_clearance"] = clearance
+                if clearance["safe_to_continue"]:
+                    decision["action"] = (
+                        "CONTINUE" if number < runs else "COHORT_COMPLETE"
+                    )
+                    decision["clearance_code"] = (
+                        "HOME_CLEARANCE_PASSED"
+                        if number < runs
+                        else "TARGET_RUN_COUNT_REACHED"
+                    )
+                    decision["detail"] += "; fresh exact-run Home clearance passed"
+                else:
+                    decision["action"] = "STOP_COHORT"
+                    decision["clearance_code"] = "HOME_CLEARANCE_BLOCKED"
+                    decision["detail"] += "; fresh exact-run Home clearance failed"
             persist()
             log(
                 f"run {number}/{runs}: {record['outcome']} / {record['reason']}"
@@ -694,12 +703,23 @@ def run_session(
                 f" | polls {record['network']['poll_count']}"
                 f" (errors {record['network']['error_count']})"
             )
-            if number < runs and not record["inter_run_clearance"][
-                "safe_to_continue"
-            ]:
+            if decision["action"] == "STOP_COHORT":
+                if decision.get("clearance_code") == "HOME_CLEARANCE_BLOCKED":
+                    raise HarnessAbort(
+                        f"run {number} did not prove return to its captured Home; "
+                        + (
+                            "the next run was not activated"
+                            if number < runs
+                            else "the cohort ended without Home clearance"
+                        )
+                    )
                 raise HarnessAbort(
-                    f"run {number} did not prove return to its captured Home; "
-                    "the next run was not activated"
+                    f"run {number} stopped the cohort: {decision['detail']}; "
+                    + (
+                        "the next run was not activated"
+                        if number < runs
+                        else "the cohort ended"
+                    )
                 )
     except HarnessAbort as abort:
         session["aborted"] = str(abort)
@@ -725,8 +745,32 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=8110)
     parser.add_argument("--sidecar-port", type=int, default=8111)
     parser.add_argument("--agent", default=None, help="wendy agent host:port for device probes")
-    parser.add_argument("--runs", type=int, default=10)
+    parser.add_argument("--runs", type=int, default=5)
     parser.add_argument("--seed", type=int, default=None, help="default: current epoch seconds")
+    parser.add_argument(
+        "--fixed-fruit",
+        choices=("apple", "banana", "pear"),
+        default=None,
+        help="repeat one Target Fruit instead of a seeded randomized sequence",
+    )
+    parser.add_argument(
+        "--tolerate-reason",
+        action="append",
+        default=[],
+        help=(
+            "terminal reason allowed to cross only the exact-zero fresh-Home "
+            "cohort boundary; repeat for more reasons"
+        ),
+    )
+    parser.add_argument(
+        "--tolerate-phase",
+        action="append",
+        default=[],
+        help=(
+            "failed phase allowed to cross only the exact-zero fresh-Home "
+            "cohort boundary; repeat for more phases"
+        ),
+    )
     parser.add_argument("--cooldown", type=float, default=COOLDOWN_S)
     parser.add_argument("--note", default=None, help="session context, e.g. fruit placements")
     parser.add_argument(
@@ -763,10 +807,21 @@ def main(argv: list[str] | None = None) -> int:
     if not args.no_temps and not args.temp_url and not args.temp_cmd:
         temp_agent = agent  # default: device thermal zones via wendy top
     try:
+        policy = CohortPolicy(
+            runs=args.runs,
+            randomized=args.fixed_fruit is None,
+            target_fruit=args.fixed_fruit,
+            seed=seed,
+            tolerated_failures=tuple(
+                [FailureSelector(reason=value) for value in args.tolerate_reason]
+                + [FailureSelector(failed_phase=value) for value in args.tolerate_phase]
+            ),
+        )
         session = run_session(
             client,
             runs=args.runs,
             seed=seed,
+            policy=policy,
             output_path=output,
             cooldown_s=args.cooldown,
             temp_source=TempSource()
