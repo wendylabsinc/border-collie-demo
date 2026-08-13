@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "date": "2026-08-13",
+  "deployed_commit": "f9954aa92f6b272798b6e7fe99db899314da1ca0",
+  "requested_sequence": ["apple", "pear", "banana"],
+  "sequence_status": "STOPPED_ON_HARD_SAFETY_BOUNDARY",
+  "runs": [
+    {
+      "run_id": "0a04165b-c229-4e6d-bc98-8930c024e70d",
+      "target_fruit": "apple",
+      "outcome": "COMPLETED",
+      "reason": "SUCCESS",
+      "message": "Demo Run completed at Home",
+      "terminal_home_distance_m": 0.08517565152670525,
+      "live_post_run_home_distance_m": 0.03351429148980522,
+      "final_safety_state": "DISARMED_CONFIRMED"
+    },
+    {
+      "run_id": "711cc747-d1a7-4c96-9bad-293f2ef993fa",
+      "target_fruit": "pear",
+      "fruit_sequence_completed": true,
+      "outcome": "FAILED",
+      "reason": "INTERNAL_ERROR",
+      "failed_phase": "return_home",
+      "message": "Demo Run failed: velocity command failed: SwitchGet timed out",
+      "live_post_run_home_distance_m": 1.145726767923254,
+      "returned_home": false,
+      "final_safety_state": "STOP_REQUESTED_UNCONFIRMED",
+      "post_run_observation": {
+        "motion_armed": false,
+        "last_command_forward_mps": 0.0,
+        "last_command_yaw_rps": 0.0,
+        "motion_fault": "velocity command failed: SwitchGet timed out"
+      }
+    }
+  ],
+  "not_started": [
+    {
+      "target_fruit": "banana",
+      "reason": "Pear did not return Home and ended without confirmed disarm"
+    }
+  ]
+}
