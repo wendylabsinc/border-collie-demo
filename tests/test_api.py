@@ -504,6 +504,67 @@ def test_failed_search_persists_downloadable_fieldmark_evidence(tmp_path) -> Non
     ] == ["evidence.zip", "terminal.jpg"]
 
 
+def test_approach_timeout_diagnostics_are_persisted_in_the_run_result(tmp_path) -> None:
+    diagnostics = {
+        "recognition": {
+            "guidance_reason": "tracking_confidence_below_floor",
+            "approach_trace": [
+                {
+                    "sample": 1,
+                    "confidence": 0.54,
+                    "guidance_action": "stop",
+                    "guidance_reason": "tracking_confidence_below_floor",
+                    "resulting_command": {
+                        "forward_mps": 0.0,
+                        "yaw_rps": 0.0,
+                        "reason": "tracking_confidence_below_floor",
+                    },
+                }
+            ],
+            "approach_summary": {
+                "samples": 1,
+                "action_counts": {"stop": 1},
+                "reason_counts": {"tracking_confidence_below_floor": 1},
+                "forward_decisions": 0,
+                "stop_decisions": 1,
+                "final_guidance_reason": "tracking_confidence_below_floor",
+            },
+        }
+    }
+
+    class TimedOutApproachStages(SimulatedStageExecutor):
+        async def execute(self, phase, context):
+            if phase is MissionPhase.APPROACH_FRUIT:
+                raise StageFailure(
+                    "ARRIVAL_FAILURE",
+                    "pear camera guidance timed out",
+                    details=diagnostics,
+                )
+            return await super().execute(phase, context)
+
+    with TestClient(
+        create_app(
+            runs_root=tmp_path,
+            hardware=ReadyHardwareBoundary(),
+            camera_perception_status=ready_camera_perception,
+            stage_executor=TimedOutApproachStages(),
+        )
+    ) as client:
+        run_id = client.post("/api/run", json={"target_fruit": "pear"}).json()["run"][
+            "run_id"
+        ]
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            run = client.get(f"/api/results/{run_id}").json()["run"]
+            if run["outcome"] is not None:
+                break
+            time.sleep(0.01)
+
+    assert run["reason"] == "ARRIVAL_FAILURE"
+    assert run["failed_phase"] == "approach_fruit"
+    assert run["failure_details"] == diagnostics
+
+
 def test_stop_during_a_stage_cancels_the_demo_without_late_resume(tmp_path) -> None:
     with TestClient(
         create_app(

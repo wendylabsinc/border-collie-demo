@@ -185,9 +185,12 @@ class GuidanceDecision:
     reason: str
     centered_fresh_samples: int
     near_fresh_samples: int
+    near_loss_samples: int
+    arrival_eligible: bool
     frame_advanced: bool
     terminal: bool = False
     arrival_confirmed: bool = False
+    camera_failure: bool = False
 
 
 @dataclass(frozen=True)
@@ -226,6 +229,7 @@ class FruitGuidance:
         self._near_fresh_samples = 0
         self._near_loss_samples = 0
         self._near_latched_at_s: float | None = None
+        self._arrival_eligible = False
         self._final_push_started_s: float | None = None
         self._candidate_focus_active = False
 
@@ -287,6 +291,7 @@ class FruitGuidance:
         self._last_fresh_at_s = now_s
 
         if self.phase is GuidancePhase.FINAL_PUSH:
+            self._arrival_eligible = True
             if parsed.label not in (None, self.target_fruit):
                 return self._fail("target_identity_changed", camera=False)
             if parsed.label == self.target_fruit and not self._valid_geometry(parsed):
@@ -359,6 +364,10 @@ class FruitGuidance:
         self._near_fresh_samples = self._near_fresh_samples + 1 if near else 0
         if self._near_fresh_samples >= self.config.near_confirmations:
             self._near_latched_at_s = now_s
+        self._arrival_eligible = bool(
+            self._near_latched_at_s is not None
+            and now_s - self._near_latched_at_s <= self.config.near_loss_grace_s
+        )
         self._near_loss_samples = 0
 
         if not allow_forward:
@@ -576,6 +585,7 @@ class FruitGuidance:
             self._near_latched_at_s is not None
             and now_s - self._near_latched_at_s <= self.config.near_loss_grace_s
         ):
+            self._arrival_eligible = True
             self._near_loss_samples += 1
             if self._near_loss_samples < self.config.near_loss_confirmations:
                 return self._stop("lower_edge_loss_confirmation_pending")
@@ -593,6 +603,7 @@ class FruitGuidance:
             )
         self._near_fresh_samples = 0
         self._near_loss_samples = 0
+        self._arrival_eligible = False
         return self._stop(pending_reason)
 
     def _search(self, reason: str) -> GuidanceDecision:
@@ -605,10 +616,11 @@ class FruitGuidance:
 
     def _fail(self, reason: str, *, camera: bool) -> GuidanceDecision:
         self.phase = GuidancePhase.FAILED
+        self._arrival_eligible = False
         return self._stop(
             reason,
             terminal=True,
-            command_reason=("camera_failure" if camera else "target_lost"),
+            camera_failure=camera,
         )
 
     def _stop(
@@ -616,13 +628,14 @@ class FruitGuidance:
         reason: str,
         *,
         terminal: bool = False,
-        command_reason: str = "guidance_stop",
+        camera_failure: bool = False,
     ) -> GuidanceDecision:
         decision = self._decision(
             GuidanceAction.STOP,
-            VelocityCommand(reason=command_reason),
+            VelocityCommand(reason=reason),
             reason,
             terminal=terminal,
+            camera_failure=camera_failure,
         )
         self._last_decision = decision
         return decision
@@ -635,6 +648,7 @@ class FruitGuidance:
         *,
         terminal: bool = False,
         arrival_confirmed: bool = False,
+        camera_failure: bool = False,
     ) -> GuidanceDecision:
         return GuidanceDecision(
             phase=self.phase,
@@ -643,9 +657,12 @@ class FruitGuidance:
             reason=reason,
             centered_fresh_samples=self._centered_fresh_samples,
             near_fresh_samples=self._near_fresh_samples,
+            near_loss_samples=self._near_loss_samples,
+            arrival_eligible=self._arrival_eligible,
             frame_advanced=True,
             terminal=terminal,
             arrival_confirmed=arrival_confirmed,
+            camera_failure=camera_failure,
         )
 
 

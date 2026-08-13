@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import math
 import time
+from collections import Counter, deque
 from collections.abc import Callable
 from typing import Protocol
 
@@ -16,7 +17,7 @@ from .go2_motion import (
     initialize_dds,
 )
 from .go2_pose import Go2PoseProvider, PoseStatus
-from .guidance import FruitGuidance, GuidanceAction, GuidancePhase
+from .guidance import FruitGuidance, GuidanceAction, GuidanceDecision, GuidancePhase
 from .models import VelocityCommand
 from .return_home import (
     Pose2D,
@@ -40,6 +41,7 @@ CLOSE_RANGE_MAXIMUM_VERTICAL_RETREAT_RATIO = 0.08
 FORWARD_CAPABLE_OPERATIONS = frozenset(
     {"forward_pulse", "approach_target", "guide_target", "return_home"}
 )
+APPROACH_TRACE_LIMIT = 256
 
 
 def _finite_float(value: object) -> float | None:
@@ -123,6 +125,147 @@ class PoseProviderProtocol(Protocol):
 MotionFactory = Callable[[MotionConfig], MotionAdapterProtocol]
 PoseFactory = Callable[[float], PoseProviderProtocol]
 DdsInitializer = Callable[[str | None], None]
+
+
+class _ApproachRecorder:
+    """Bounded, image-free record of every approach guidance decision."""
+
+    def __init__(self, guidance: FruitGuidance, *, started_s: float) -> None:
+        self._guidance = guidance
+        self._started_s = started_s
+        self._trace: deque[dict[str, object]] = deque(maxlen=APPROACH_TRACE_LIMIT)
+        self._action_counts: Counter[str] = Counter()
+        self._reason_counts: Counter[str] = Counter()
+        self._confidence_count = 0
+        self._confidence_minimum: float | None = None
+        self._confidence_maximum: float | None = None
+        self._confidence_total = 0.0
+        self._forward_decisions = 0
+        self._stop_decisions = 0
+        self._forward_commands_sent = 0
+        self._stop_commands_sent = 0
+        self._samples = 0
+
+    def record(
+        self,
+        status: dict[str, object],
+        decision: GuidanceDecision,
+        *,
+        now_s: float,
+    ) -> None:
+        self._samples += 1
+        source = status.get("source")
+        detection = status.get("detection")
+        source_record = source if isinstance(source, dict) else {}
+        detection_record = detection if isinstance(detection, dict) else {}
+        confidence = _finite_float(detection_record.get("confidence"))
+        if confidence is not None:
+            self._confidence_count += 1
+            self._confidence_total += confidence
+            self._confidence_minimum = (
+                confidence
+                if self._confidence_minimum is None
+                else min(self._confidence_minimum, confidence)
+            )
+            self._confidence_maximum = (
+                confidence
+                if self._confidence_maximum is None
+                else max(self._confidence_maximum, confidence)
+            )
+        action = decision.action.value
+        reason = decision.reason
+        self._action_counts[action] += 1
+        self._reason_counts[reason] += 1
+        if decision.command.forward_mps > 0.0:
+            self._forward_decisions += 1
+        if decision.action is GuidanceAction.STOP:
+            self._stop_decisions += 1
+        self._trace.append(
+            {
+                "sample": self._samples,
+                "recorded_monotonic_s": now_s,
+                "elapsed_s": round(now_s - self._started_s, 4),
+                "target_fruit": self._guidance.target_fruit,
+                "camera_healthy": status.get("camera_healthy") is True,
+                "generation": status.get("generation"),
+                "source_pts": source_record.get("pts"),
+                "source_time_base": source_record.get("time_base"),
+                "source_age_s": _finite_float(source_record.get("age_s")),
+                "detection_age_s": _finite_float(detection_record.get("age_s")),
+                "raw_label": detection_record.get("label"),
+                "confidence": confidence,
+                "focus_confidence": self._guidance.policy.focus_confidence,
+                "acquisition_confidence": (
+                    self._guidance.policy.acquisition_confidence
+                ),
+                "tracking_confidence": (
+                    self._guidance.policy.close_range_tracking_confidence
+                ),
+                "center_x_ratio": _finite_float(detection_record.get("center_x_ratio")),
+                "center_y_ratio": _finite_float(detection_record.get("center_y_ratio")),
+                "bottom_ratio": _finite_float(detection_record.get("bottom_ratio")),
+                "guidance_phase": decision.phase.value,
+                "guidance_action": action,
+                "guidance_reason": reason,
+                "terminal": decision.terminal,
+                "arrival_confirmed": decision.arrival_confirmed,
+                "arrival_eligible": decision.arrival_eligible,
+                "centered_fresh_samples": decision.centered_fresh_samples,
+                "near_fresh_samples": decision.near_fresh_samples,
+                "near_loss_samples": decision.near_loss_samples,
+                "frame_advanced": decision.frame_advanced,
+                "resulting_command": decision.command.to_dict(),
+                "command_sent": False,
+            }
+        )
+
+    def mark_command_sent(self) -> None:
+        if not self._trace:
+            return
+        self._trace[-1]["command_sent"] = True
+        command = self._trace[-1]["resulting_command"]
+        if not isinstance(command, dict):
+            return
+        forward_mps = _finite_float(command.get("forward_mps"))
+        if forward_mps is not None and forward_mps > 0.0:
+            self._forward_commands_sent += 1
+        if self._trace[-1]["guidance_action"] == GuidanceAction.STOP.value:
+            self._stop_commands_sent += 1
+
+    def evidence(self) -> dict[str, object]:
+        recorded = len(self._trace)
+        dropped = self._samples - recorded
+        confidence_average = (
+            self._confidence_total / self._confidence_count
+            if self._confidence_count
+            else None
+        )
+        return {
+            "approach_trace": [dict(sample) for sample in self._trace],
+            "approach_trace_limit": APPROACH_TRACE_LIMIT,
+            "approach_trace_dropped": dropped,
+            "approach_summary": {
+                "samples": self._samples,
+                "recorded_samples": recorded,
+                "dropped_samples": dropped,
+                "action_counts": dict(sorted(self._action_counts.items())),
+                "reason_counts": dict(sorted(self._reason_counts.items())),
+                "confidence": {
+                    "detected_frames": self._confidence_count,
+                    "minimum": self._confidence_minimum,
+                    "maximum": self._confidence_maximum,
+                    "average": confidence_average,
+                    "lock_confidence": None,
+                },
+                "forward_decisions": self._forward_decisions,
+                "stop_decisions": self._stop_decisions,
+                "forward_commands_sent": self._forward_commands_sent,
+                "stop_commands_sent": self._stop_commands_sent,
+                "final_guidance_reason": (
+                    self._trace[-1]["guidance_reason"] if self._trace else None
+                ),
+            },
+        }
 
 
 class HardwareManager:
@@ -1005,6 +1148,11 @@ class HardwareManager:
             previous_search_yaw: float | None = None
             search_trace: list[dict[str, object]] = []
             started = time.monotonic()
+            approach_recorder = (
+                _ApproachRecorder(guidance, started_s=started)
+                if allow_forward
+                else None
+            )
             try:
                 assert self._motion is not None and self._pose is not None
                 if not allow_forward:
@@ -1044,9 +1192,7 @@ class HardwareManager:
                                     "search_sweep_rad": guidance.config.search_sweep_rad,
                                     "samples": samples,
                                     "search_trace": search_trace,
-                                    "confidence_summary": confidence_summary(
-                                        search_trace
-                                    ),
+                                    "confidence_summary": confidence_summary(search_trace),
                                 },
                             )
                     status = status_reader()
@@ -1056,6 +1202,8 @@ class HardwareManager:
                         allow_forward=allow_forward,
                     )
                     samples += 1
+                    if approach_recorder is not None:
+                        approach_recorder.record(status, decision, now_s=now)
                     if not allow_forward:
                         source = status.get("source")
                         detection = status.get("detection")
@@ -1089,7 +1237,12 @@ class HardwareManager:
                             }
                         )
                     if decision.action is GuidanceAction.STOP and decision.terminal:
-                        if decision.command.reason == "camera_failure":
+                        diagnostics = (
+                            approach_recorder.evidence()
+                            if approach_recorder is not None
+                            else {}
+                        )
+                        if decision.camera_failure:
                             raise CameraFailure(
                                 f"camera guidance stopped: {decision.reason}",
                                 evidence={
@@ -1098,6 +1251,7 @@ class HardwareManager:
                                     "confidence_summary": confidence_summary(
                                         search_trace
                                     ),
+                                    **diagnostics,
                                 },
                             )
                         raise TargetLost(
@@ -1109,10 +1263,13 @@ class HardwareManager:
                                 "confidence_summary": confidence_summary(
                                     search_trace
                                 ),
+                                **diagnostics,
                             },
                         )
 
                     await self._send_motion_command(lease, decision.command)
+                    if approach_recorder is not None:
+                        approach_recorder.mark_command_sent()
                     commands_sent = commands_sent or (
                         decision.command.forward_mps != 0.0
                         or decision.command.yaw_rps != 0.0
@@ -1149,6 +1306,11 @@ class HardwareManager:
                             "search_trace": search_trace,
                             "confidence_summary": confidence_summary(search_trace),
                             "motion_commands_sent": commands_sent,
+                            **(
+                                approach_recorder.evidence()
+                                if approach_recorder is not None
+                                else {}
+                            ),
                         }
                         break
                     await asyncio.sleep(self.config.command_heartbeat_s)
@@ -1160,6 +1322,11 @@ class HardwareManager:
                             "samples": samples,
                             "search_trace": search_trace,
                             "confidence_summary": confidence_summary(search_trace),
+                            **(
+                                approach_recorder.evidence()
+                                if approach_recorder is not None
+                                else {}
+                            ),
                         },
                     )
             except Exception as exc:  # noqa: BLE001 - always disarm below

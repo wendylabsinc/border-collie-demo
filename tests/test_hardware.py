@@ -8,7 +8,7 @@ import pytest
 from border_collie_demo.config import HardwareConfig
 from border_collie_demo.go2_motion import MotionConfig
 from border_collie_demo.go2_pose import PoseStatus
-from border_collie_demo.guidance import FruitGuidance, GuidanceConfig
+from border_collie_demo.guidance import FruitGuidance, GuidanceConfig, GuidancePhase
 from border_collie_demo.hardware import (
     FORWARD_PULSE_CONFIRMATION,
     CameraFailure,
@@ -445,6 +445,303 @@ def test_mission_lifetime_guidance_keeps_identity_and_executes_one_final_push() 
             command.forward_mps == 0.6
             and command.reason == "fruit_lower_edge_final_push"
             for command in motion.commands
+        )
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_approach_trace_records_each_guidance_decision_and_arrival_counter() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+        guidance = FruitGuidance(
+            "pear",
+            config=GuidanceConfig(final_push_duration_s=0.001),
+        )
+
+        def status(
+            pts: int,
+            *,
+            confidence: float = 0.80,
+            center_x: float = 0.50,
+            center_y: float = 0.55,
+            bottom: float = 0.65,
+            visible: bool = True,
+        ) -> dict[str, object]:
+            return {
+                "camera_healthy": True,
+                "generation": "camera-approach",
+                "source": {
+                    "pts": pts,
+                    "time_base": "1/90000",
+                    "age_s": 0.01,
+                },
+                "detection": (
+                    {
+                        "label": "pear",
+                        "confidence": confidence,
+                        "generation": "camera-approach",
+                        "source_pts": pts,
+                        "source_time_base": "1/90000",
+                        "age_s": 0.02,
+                        "center_x_ratio": center_x,
+                        "center_y_ratio": center_y,
+                        "bottom_ratio": bottom,
+                    }
+                    if visible
+                    else None
+                ),
+            }
+
+        for pts in (1, 2, 3):
+            guidance.observe(status(pts), now_s=float(pts) / 10.0)
+        statuses = iter(
+            (
+                status(4, confidence=0.54),
+                status(5, visible=False),
+                status(6, center_x=0.80),
+                status(6, center_x=0.80),
+                status(7, center_y=0.80, bottom=0.92),
+                status(8, center_y=0.80, bottom=0.92),
+                status(9, center_y=0.80, bottom=0.92),
+                status(10, visible=False),
+                status(11, visible=False),
+                status(12, visible=False),
+            )
+        )
+
+        result = await manager.guide_target(
+            lambda: next(statuses, status(13, visible=False)),
+            guidance,
+            allow_forward=True,
+            timeout_s=0.5,
+        )
+
+        trace = result["approach_trace"]
+        assert [sample["guidance_action"] for sample in trace[:4]] == [
+            "stop",
+            "stop",
+            "align",
+            "hold",
+        ]
+        assert [sample["guidance_reason"] for sample in trace[:4]] == [
+            "tracking_confidence_below_floor",
+            "target_missing_after_lock",
+            "target_outside_outer_corridor",
+            "duplicate_frame_bounded_hold",
+        ]
+        assert trace[0] == {
+            **trace[0],
+            "sample": 1,
+            "generation": "camera-approach",
+            "source_pts": 4,
+            "source_time_base": "1/90000",
+            "source_age_s": 0.01,
+            "detection_age_s": 0.02,
+            "raw_label": "pear",
+            "confidence": 0.54,
+            "acquisition_confidence": 0.65,
+            "tracking_confidence": 0.55,
+            "center_x_ratio": 0.50,
+            "center_y_ratio": 0.55,
+            "bottom_ratio": 0.65,
+            "guidance_phase": "locked",
+            "guidance_action": "stop",
+            "guidance_reason": "tracking_confidence_below_floor",
+            "terminal": False,
+            "arrival_eligible": False,
+            "near_fresh_samples": 0,
+            "near_loss_samples": 0,
+            "centered_fresh_samples": 3,
+            "frame_advanced": True,
+            "resulting_command": {
+                "forward_mps": 0.0,
+                "yaw_rps": 0.0,
+                "reason": "tracking_confidence_below_floor",
+            },
+            "command_sent": True,
+        }
+        assert trace[3]["frame_advanced"] is False
+        assert trace[3]["resulting_command"]["yaw_rps"] == -0.50
+        assert [sample["near_fresh_samples"] for sample in trace[4:7]] == [1, 2, 3]
+        assert trace[7]["near_loss_samples"] == 1
+        assert trace[7]["arrival_eligible"] is True
+        assert trace[8]["near_loss_samples"] == 2
+        assert trace[8]["guidance_action"] == "final_push"
+        assert trace[-1]["guidance_action"] == "arrived"
+        assert result["approach_trace_limit"] == 256
+        assert result["approach_trace_dropped"] == 0
+        assert result["approach_summary"] == {
+            "samples": 10,
+            "recorded_samples": 10,
+            "dropped_samples": 0,
+            "action_counts": {
+                "align": 1,
+                "arrived": 1,
+                "drive": 3,
+                "final_push": 1,
+                "hold": 1,
+                "stop": 3,
+            },
+            "reason_counts": {
+                "bounded_final_push_complete": 1,
+                "duplicate_frame_bounded_hold": 1,
+                "lower_edge_disappearance_confirmed": 1,
+                "lower_edge_loss_confirmation_pending": 1,
+                "approach_target_continuous": 3,
+                "target_missing_after_lock": 1,
+                "target_outside_outer_corridor": 1,
+                "tracking_confidence_below_floor": 1,
+            },
+            "confidence": {
+                "detected_frames": 6,
+                "minimum": 0.54,
+                "maximum": 0.80,
+                "average": pytest.approx(4.54 / 6),
+                "lock_confidence": None,
+            },
+            "forward_decisions": 4,
+            "stop_decisions": 3,
+            "forward_commands_sent": 4,
+            "stop_commands_sent": 3,
+            "final_guidance_reason": "bounded_final_push_complete",
+        }
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_approach_trace_records_terminal_camera_failure_before_disarm() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+        guidance = FruitGuidance("pear")
+        guidance.acquisition_epoch = 1
+        guidance.phase = GuidancePhase.LOCKED
+        unhealthy = {
+            "camera_healthy": False,
+            "generation": "camera-1",
+            "source": {"pts": 90, "time_base": "1/90000", "age_s": 0.40},
+            "detection": None,
+            "detail": "source progress is stale",
+        }
+
+        with pytest.raises(CameraFailure) as raised:
+            await manager.guide_target(
+                lambda: unhealthy,
+                guidance,
+                allow_forward=True,
+                timeout_s=0.2,
+            )
+
+        evidence = raised.value.evidence
+        assert evidence["guidance_reason"] == "camera_unhealthy"
+        assert evidence["approach_trace"][-1]["guidance_reason"] == "camera_unhealthy"
+        assert evidence["approach_trace"][-1]["resulting_command"] == {
+            "forward_mps": 0.0,
+            "yaw_rps": 0.0,
+            "reason": "camera_unhealthy",
+        }
+        assert evidence["approach_trace"][-1]["terminal"] is True
+        assert evidence["approach_trace"][-1]["command_sent"] is False
+        assert evidence["approach_summary"]["reason_counts"] == {"camera_unhealthy": 1}
+        assert evidence["approach_summary"]["final_guidance_reason"] == (
+            "camera_unhealthy"
+        )
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_approach_timeout_aggregates_actual_low_confidence_stops() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+        manager.start_motion_trace("approach_fruit")
+        guidance = FruitGuidance("pear")
+        guidance.acquisition_epoch = 1
+        guidance.phase = GuidancePhase.LOCKED
+        calls = 0
+
+        def weak_status() -> dict[str, object]:
+            nonlocal calls
+            calls += 1
+            return {
+                "camera_healthy": True,
+                "generation": "camera-timeout",
+                "source": {
+                    "pts": calls,
+                    "time_base": "1/90000",
+                    "age_s": 0.01,
+                },
+                "detection": {
+                    "label": "pear",
+                    "confidence": 0.54,
+                    "generation": "camera-timeout",
+                    "source_pts": calls,
+                    "source_time_base": "1/90000",
+                    "age_s": 0.02,
+                    "center_x_ratio": 0.50,
+                    "center_y_ratio": 0.55,
+                    "bottom_ratio": 0.65,
+                },
+            }
+
+        with pytest.raises(TargetLost, match="camera guidance timed out") as raised:
+            await manager.guide_target(
+                weak_status,
+                guidance,
+                allow_forward=True,
+                timeout_s=0.045,
+            )
+
+        summary = raised.value.evidence["approach_summary"]
+        assert calls >= 3
+        assert summary == {
+            "samples": calls,
+            "recorded_samples": calls,
+            "dropped_samples": 0,
+            "action_counts": {"stop": calls},
+            "reason_counts": {"tracking_confidence_below_floor": calls},
+            "confidence": {
+                "detected_frames": calls,
+                "minimum": 0.54,
+                "maximum": 0.54,
+                "average": pytest.approx(0.54),
+                "lock_confidence": None,
+            },
+            "forward_decisions": 0,
+            "stop_decisions": calls,
+            "forward_commands_sent": 0,
+            "stop_commands_sent": calls,
+            "final_guidance_reason": "tracking_confidence_below_floor",
+        }
+        assert len(raised.value.evidence["approach_trace"]) == calls
+        assert all(
+            command["reason"] == "tracking_confidence_below_floor"
+            for command in manager.motion_trace()
         )
         assert motion.armed is False
         await manager.close()

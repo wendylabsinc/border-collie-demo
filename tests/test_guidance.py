@@ -472,3 +472,44 @@ def test_one_weak_close_frame_does_not_start_final_push() -> None:
     assert pending.reason == "lower_edge_loss_confirmation_pending"
     assert guidance.final_push_count == 0
     assert recovered.action is GuidanceAction.DRIVE
+
+
+def test_low_confidence_stop_preserves_the_exact_decision_reason() -> None:
+    guidance = FruitGuidance("pear")
+    for pts, now_s in ((1, 0.0), (2, 0.1), (3, 0.2)):
+        guidance.observe(observation(pts=pts, now_s=now_s), now_s=now_s)
+
+    stopped = guidance.observe(
+        observation(pts=4, now_s=0.3, confidence=0.54),
+        now_s=0.3,
+        allow_forward=True,
+    )
+
+    assert stopped.action is GuidanceAction.STOP
+    assert stopped.reason == "tracking_confidence_below_floor"
+    assert stopped.command.to_dict() == {
+        "forward_mps": 0.0,
+        "yaw_rps": 0.0,
+        "reason": "tracking_confidence_below_floor",
+    }
+    assert stopped.near_fresh_samples == 0
+
+
+def test_missing_target_stop_cannot_advance_arrival_counters() -> None:
+    guidance = FruitGuidance("pear")
+    for pts, now_s in ((1, 0.0), (2, 0.1), (3, 0.2)):
+        guidance.observe(observation(pts=pts, now_s=now_s), now_s=now_s)
+
+    stopped = guidance.observe(
+        observation(pts=4, now_s=0.3, label=None),
+        now_s=0.3,
+        allow_forward=True,
+    )
+
+    assert stopped.action is GuidanceAction.STOP
+    assert stopped.reason == "target_missing_after_lock"
+    assert stopped.command.reason == "target_missing_after_lock"
+    assert stopped.centered_fresh_samples == 3
+    assert stopped.near_fresh_samples == 0
+    assert stopped.near_loss_samples == 0
+    assert stopped.arrival_eligible is False
