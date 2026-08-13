@@ -83,20 +83,14 @@ def interpret_scan(
     sparse_map = voxelize(map_points, voxel_config, sensor_origin=sensor_origin)
     observations: list[Observation] = []
     if proximity_config is not None:
-        proximity = angular_proximity(scan_points, proximity_config)
         observations.append(
-            Observation(
-                idempotency_key=f"{identity.instance_id}:lidar.proximity:{message_key}",
-                producer_id=identity.producer_id,
-                instance_id=identity.instance_id,
-                deployment_generation=identity.deployment_generation,
-                stream="lidar.proximity",
-                observation_type="obstacles.angular_proximity",
+            interpret_proximity(
+                scan_points,
                 observed_at=observed_at,
-                frame_id=scan_frame_id,
-                confidence=_proximity_confidence(proximity),
-                ttl_seconds=proximity_config.ttl_seconds,
-                payload=proximity.to_payload(),
+                identity=identity,
+                message_key=message_key,
+                scan_frame_id=scan_frame_id,
+                config=proximity_config,
             )
         )
     observations.append(
@@ -136,6 +130,37 @@ def interpret_scan(
             )
         )
     return observations, sparse_map
+
+
+def interpret_proximity(
+    scan_points: Sequence[Point3D],
+    *,
+    observed_at: datetime,
+    identity: ProducerIdentity,
+    message_key: str,
+    scan_frame_id: str = "base_link",
+    config: ProximityConfig = ProximityConfig(),
+) -> Observation:
+    """Reduce one scan to the safety-critical proximity observation only.
+
+    This deliberately excludes voxel mapping and scan matching so the ROS
+    adapter can publish obstacle data before starting slower localization work.
+    """
+
+    proximity = angular_proximity(scan_points, config)
+    return Observation(
+        idempotency_key=f"{identity.instance_id}:lidar.proximity:{message_key}",
+        producer_id=identity.producer_id,
+        instance_id=identity.instance_id,
+        deployment_generation=identity.deployment_generation,
+        stream="lidar.proximity",
+        observation_type="obstacles.angular_proximity",
+        observed_at=observed_at,
+        frame_id=scan_frame_id,
+        confidence=_proximity_confidence(proximity),
+        ttl_seconds=config.ttl_seconds,
+        payload=proximity.to_payload(),
+    )
 
 
 def _map_confidence(voxel_map: SparseVoxelMap) -> float:

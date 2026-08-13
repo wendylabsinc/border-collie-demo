@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import math
 import os
+import threading
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any
 
@@ -27,7 +29,7 @@ from .core import (
     VoxelConfig,
     sensor_points_to_base,
 )
-from .producer import ProducerIdentity, interpret_scan
+from .producer import ProducerIdentity, interpret_proximity, interpret_scan
 
 
 def main() -> None:
@@ -90,6 +92,11 @@ def main() -> None:
             super().__init__("robotkit_lidar_voxel")
             self._odometry: Pose2D | None = None
             self._reference_map = initial_reference
+            self._map_lock = threading.Lock()
+            self._map_inflight = False
+            self._map_executor = ThreadPoolExecutor(
+                max_workers=1, thread_name_prefix="lidar-map"
+            )
             cloud_topic = os.getenv("LIDAR_POINT_CLOUD_TOPIC", "/utlidar/cloud")
             odometry_topic = os.getenv("LIDAR_ODOMETRY_TOPIC", "/utlidar/robot_odom")
             self.create_subscription(
@@ -139,29 +146,83 @@ def main() -> None:
                     f"{points_frame!r} for ROS frame {incoming_frame!r}"
                 )
             observed_at, message_key = _ros_stamp(message.header.stamp)
+            # Obstacle freshness is safety-critical. Publish it before the
+            # substantially slower voxel-map scan match, which must never hold
+            # up the next ROS cloud callback.
+            client.publish_observation(
+                interpret_proximity(
+                    points,
+                    observed_at=observed_at,
+                    identity=identity,
+                    message_key=message_key,
+                    scan_frame_id=scan_frame_id,
+                    config=proximity_config,
+                )
+            )
+
+            # Keep at most one expensive map update in flight. Intermediate
+            # clouds still publish proximity above; dropping redundant map jobs
+            # prevents an ever-growing queue when scan matching is slower than
+            # the sensor rate.
+            with self._map_lock:
+                if self._map_inflight:
+                    return
+                self._map_inflight = True
+            future = self._map_executor.submit(
+                self._update_map,
+                points,
+                scan_frame_id=scan_frame_id,
+                observed_at=observed_at,
+                message_key=message_key,
+                odometry_pose=self._odometry,
+            )
+            future.add_done_callback(self._map_done)
+
+        def _update_map(
+            self,
+            points: list[tuple[float, float, float]],
+            *,
+            scan_frame_id: str,
+            observed_at: datetime,
+            message_key: str,
+            odometry_pose: Pose2D | None,
+        ) -> None:
             observations, current_map = interpret_scan(
                 points,
                 observed_at=observed_at,
                 identity=identity,
                 message_key=message_key,
-                odometry_pose=self._odometry,
+                odometry_pose=odometry_pose,
                 reference_map=self._reference_map,
                 scan_frame_id=scan_frame_id,
                 map_frame_id=os.getenv("LIDAR_MAP_FRAME", "map"),
                 voxel_config=voxel_config,
                 search_config=search_config,
-                proximity_config=proximity_config,
+                proximity_config=None,
             )
             for observation in observations:
                 client.publish_observation(observation)
             # Disposable cache: it can be reconstructed from A after a restart.
             self._reference_map = current_map
 
+        def _map_done(self, future: Future[None]) -> None:
+            try:
+                future.result()
+            except Exception as error:
+                self.get_logger().error(f"LIDAR map update failed: {error}")
+            finally:
+                with self._map_lock:
+                    self._map_inflight = False
+
+        def close(self) -> None:
+            self._map_executor.shutdown(wait=True, cancel_futures=True)
+
     rclpy.init()
     node = LidarVoxelNode()
     try:
         rclpy.spin(node)
     finally:  # pragma: no cover - exercised in ROS image
+        node.close()
         node.destroy_node()
         client.close()
         rclpy.shutdown()

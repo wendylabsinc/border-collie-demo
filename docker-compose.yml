@@ -30,7 +30,7 @@ services:
       YOLO_DEVICE: "0"
       # The Go2 camera is wide-angle; approach still requires a corresponding
       # fresh LIDAR range, so this recall-oriented threshold cannot drive blind.
-      YOLO_CONFIDENCE: "0.15"
+      YOLO_CONFIDENCE: "0.25"
       YOLO_CLASSES: apple,banana,grapes,orange,pear
       ROBOTKIT_PRODUCER_ID: yoloe-fruits
       ROBOTKIT_DEPLOYMENT_GENERATION: "1"

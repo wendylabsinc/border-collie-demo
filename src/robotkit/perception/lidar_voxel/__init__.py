@@ -17,7 +17,7 @@ from .core import (
     transform_points,
     voxelize,
 )
-from .producer import ProducerIdentity, interpret_scan
+from .producer import ProducerIdentity, interpret_proximity, interpret_scan
 
 __all__ = [
     "Point3D",
@@ -33,6 +33,7 @@ __all__ = [
     "VoxelConfig",
     "angular_proximity",
     "estimate_pose",
+    "interpret_proximity",
     "interpret_scan",
     "sensor_points_to_base",
     "transform_points",

@@ -13,6 +13,7 @@ from robotkit.perception.lidar_voxel import (
     VoxelConfig,
     angular_proximity,
     estimate_pose,
+    interpret_proximity,
     interpret_scan,
     sensor_points_to_base,
     voxelize,
@@ -220,6 +221,38 @@ def test_interpret_scan_publishes_small_map_and_position_observations():
     assert sparse_map.omitted_voxel_count > 0
     assert observations[2].payload["source"] == "odometry"
     assert observations[2].deployment_generation == 4
+
+
+def test_proximity_can_be_published_without_slow_map_interpretation():
+    identity = ProducerIdentity("go2-lidar-voxel", "blue-1", 4)
+    observation = interpret_proximity(
+        [(0.5, 0.0, 0.0), (2.0, 0.0, 0.0)],
+        observed_at=NOW,
+        identity=identity,
+        message_key="42.000000001",
+        config=ProximityConfig(ttl_seconds=0.75),
+    )
+
+    assert observation.stream == "lidar.proximity"
+    assert observation.frame_id == "base_link"
+    assert observation.ttl_seconds == pytest.approx(0.75)
+    assert observation.payload["accepted_point_count"] == 2
+
+
+def test_interpret_scan_can_skip_proximity_for_background_mapping():
+    observations, _ = interpret_scan(
+        [(1.0, 0.0, 0.0)],
+        observed_at=NOW,
+        identity=ProducerIdentity("lidar", "test"),
+        message_key="one",
+        odometry_pose=Pose2D(0.0, 0.0, 0.0),
+        proximity_config=None,
+    )
+
+    assert [item.stream for item in observations] == [
+        "lidar.room_map",
+        "localization.pose",
+    ]
 
 
 def test_no_pose_keeps_map_local_and_does_not_invent_localization():
