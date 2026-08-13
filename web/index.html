@@ -212,7 +212,10 @@
           const body = await readJson(await fetch('/api/run', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({target_fruit: targetFruit.value}),
+            body: JSON.stringify({
+              target_fruit: targetFruit.value,
+              activation_id: crypto.randomUUID(),
+            }),
           }));
           showRun(body.run);
           await refreshStatus();

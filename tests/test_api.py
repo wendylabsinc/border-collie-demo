@@ -763,7 +763,7 @@ def test_stop_seals_the_active_demo_run_and_allows_another(tmp_path) -> None:
         assert client.post("/api/run", json={"target_fruit": "pear"}).status_code == 201
 
 
-def test_startup_seals_an_interrupted_demo_run(tmp_path) -> None:
+def test_orderly_shutdown_seals_an_interrupted_demo_run_after_disarm(tmp_path) -> None:
     with TestClient(ready_app(tmp_path)) as client:
         started = client.post("/api/run", json={"target_fruit": "pear"}).json()["run"]
 
@@ -773,8 +773,26 @@ def test_startup_seals_an_interrupted_demo_run(tmp_path) -> None:
         assert recovered["outcome"] == "FAILED"
         assert recovered["reason"] == "PROCESS_INTERRUPTED"
         assert recovered["current_phase"] == "failed"
-        assert recovered["final_safety_state"] == "UNKNOWN"
+        assert recovered["final_safety_state"] == "DISARMED_CONFIRMED"
         assert restarted.get("/api/status").json()["active_run_id"] is None
+
+
+def test_http_activation_id_replays_the_same_durable_run(tmp_path) -> None:
+    with TestClient(ready_app(tmp_path)) as client:
+        request = {
+            "target_fruit": "pear",
+            "activation_source": "audience_ui",
+            "activation_id": "browser-click-123",
+        }
+
+        first = client.post("/api/run", json=request)
+        replay = client.post("/api/run", json=request)
+
+        assert first.status_code == 201
+        assert replay.status_code == 201
+        assert replay.json()["idempotent_replay"] is True
+        assert replay.json()["run"] == first.json()["run"]
+        assert replay.json()["run"]["activation_id"] == "browser-click-123"
 
 
 def test_results_list_returns_newest_demo_run_first(tmp_path) -> None:

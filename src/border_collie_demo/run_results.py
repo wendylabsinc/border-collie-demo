@@ -66,6 +66,7 @@ class RunResultStore:
         *,
         target_fruit: str,
         activation_source: str,
+        activation_id: str | None = None,
     ) -> dict[str, Any]:
         if self._active_run_id is not None:
             raise ActiveRunError("a Demo Run is already active")
@@ -78,6 +79,7 @@ class RunResultStore:
             "run_id": run_id,
             "target_fruit": target_fruit,
             "activation_source": activation_source,
+            "activation_id": activation_id,
             "started_at_utc": started_utc,
             "started_monotonic_s": started_monotonic_s,
             "ended_at_utc": None,

@@ -6,6 +6,7 @@ from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
+from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse
@@ -15,14 +16,10 @@ from .evidence import EvidenceArtifact
 from .fruits import QUALIFIED_FRUITS, SUPPORTED_FRUITS
 from .hardware import HardwareManager, HardwareUnavailable
 from .mission import MissionMachine, RestartRequired
-from .orchestrator import (
-    EXECUTED_STAGES,
-    DemoOrchestrator,
-    FailureEpilogue,
-    StageExecutor,
-)
-from .preflight import evaluate_preflight, preflight_check_ready
+from .orchestrator import FailureEpilogue
+from .orchestrator import EXECUTED_STAGES, StageExecutor
 from .run_results import ActiveRunError, RunResultNotFound, RunResultStore
+from .stage_demo import ActivationConflict, FruitMission, StageDemo
 
 
 def build_label() -> str:
@@ -42,6 +39,7 @@ class ForwardPulseRequest(BaseModel):
 class RunRequest(BaseModel):
     target_fruit: Literal["apple", "banana", "pear"] = "pear"
     activation_source: Literal["audience_ui", "voice"] = "audience_ui"
+    activation_id: str | None = None
 
 
 class FruitPreviewRequest(BaseModel):
@@ -76,43 +74,25 @@ def create_app(
     )
     read_media = media_status
 
-    def current_media_status() -> dict[str, object] | None:
-        if read_media is None:
-            return None
-        try:
-            return read_media()
-        except Exception as exc:  # noqa: BLE001 - external adapter boundary
-            return {
-                "ready": False,
-                "detail": f"bark media readiness error: {exc}",
-            }
-
-    active_tasks: set[asyncio.Task[dict[str, object]]] = set()
-    orchestrator = (
-        None
-        if stage_executor is None
-        else DemoOrchestrator(
-            machine,
-            results,
-            stage_executor,
-            terminal_evidence=terminal_evidence,
-            failure_epilogue=failure_epilogue,
-        )
+    demo = StageDemo(
+        machine,
+        results,
+        robot,
+        read_camera_perception,
+        media_status=read_media,
+        select_perception_target=select_perception_target,
+        stage_executor=stage_executor,
+        terminal_evidence=terminal_evidence,
+        failure_epilogue=failure_epilogue,
     )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
-        results.seal_interrupted_runs()
-        await robot.start()
+        await demo.start()
         try:
             yield
         finally:
-            tasks = list(active_tasks)
-            for task in tasks:
-                task.cancel()
-            if tasks:
-                await asyncio.gather(*tasks, return_exceptions=True)
-            await robot.close()
+            await demo.close()
 
     app = FastAPI(
         title="Border Collie Demo",
@@ -187,130 +167,33 @@ def create_app(
 
     @app.get("/api/status")
     async def status() -> dict[str, object]:
-        try:
-            camera_perception = read_camera_perception()
-        except Exception as exc:  # noqa: BLE001 - external adapter boundary
-            camera_perception = {
-                "ready": False,
-                "detail": f"camera/perception readiness error: {exc}",
-            }
-        media = current_media_status()
-        preflight = evaluate_preflight(robot.status(), camera_perception, media)
+        current = demo.status()
         return {
             "build_label": build_label(),
             "runtime_mode": runtime_mode,
-            "mission": machine.status(),
-            "hardware": robot.status(),
-            "active_run_id": results.active_run_id,
-            "activation": {
-                "ready": preflight["ready"],
-                "blockers": [
-                    {
-                        "name": check["name"],
-                        "detail": check["detail"],
-                    }
-                    for check in preflight["checks"]
-                    if not check["ready"]
-                ],
-            },
+            **current,
         }
 
     @app.post("/api/run", status_code=201)
     async def activate_run(request: RunRequest) -> dict[str, object]:
-        if machine.takeover_latched:
-            raise HTTPException(
-                status_code=423,
-                detail="physical remote takeover is latched; restart required",
-            )
         try:
-            run = results.start_run(
-                target_fruit=request.target_fruit,
-                activation_source=request.activation_source,
+            activation = await demo.activate(
+                FruitMission(
+                    target_fruit=request.target_fruit,
+                    activation_source=request.activation_source,
+                    activation_id=request.activation_id or str(uuid4()),
+                )
             )
         except ActiveRunError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        machine.begin_run("Demo Run activation persisted")
-        run = results.enter_phase(
-            run["run_id"],
-            phase=machine.phase.value,
-            reason="PREFLIGHT_STARTED",
-            message="preflight entered; verifying production motion and media gates",
-        )
-        try:
-            if select_perception_target is not None:
-                select_perception_target(request.target_fruit)
-            camera_perception = read_camera_perception()
-        except Exception as exc:  # noqa: BLE001 - external adapter boundary
-            camera_perception = {
-                "ready": False,
-                "detail": f"camera/perception readiness error: {exc}",
-            }
-        media = current_media_status()
-        report = evaluate_preflight(robot.status(), camera_perception, media)
-        run = results.record_preflight(run["run_id"], report)
-        if not report["ready"]:
-            stop_errors = await robot.emergency_stop()
-            machine.fail("preflight readiness failed")
-            run = results.seal(
-                run["run_id"],
-                phase=machine.phase.value,
-                outcome="FAILED",
-                reason="PREFLIGHT_FAILURE",
-                message="required preflight readiness checks did not pass",
-                final_safety_state=(
-                    "DISARMED_CONFIRMED"
-                    if not stop_errors
-                    and preflight_check_ready(
-                        evaluate_preflight(robot.status(), camera_perception, media),
-                        "motion_disarmed",
-                    )
-                    else "STOP_REQUESTED_UNCONFIRMED"
-                ),
-                failed_phase="preflight",
-            )
-        else:
-            machine.advance("preflight readiness passed")
-            run = results.enter_phase(
-                run["run_id"],
-                phase=machine.phase.value,
-                reason="CAPTURE_HOME_STARTED",
-                message="preflight passed; ready to capture Home",
-            )
-            try:
-                home = robot.capture_home()
-                run = results.record_home(run["run_id"], home)
-            except Exception as exc:  # noqa: BLE001 - hardware evidence boundary
-                stop_errors = await robot.emergency_stop()
-                machine.fail("fresh Home pose capture failed")
-                run = results.seal(
-                    run["run_id"],
-                    phase=machine.phase.value,
-                    outcome="FAILED",
-                    reason="PREFLIGHT_FAILURE",
-                    message=f"fresh Home pose capture failed: {exc}",
-                    final_safety_state=(
-                        "DISARMED_CONFIRMED"
-                        if not stop_errors
-                        else "STOP_REQUESTED_UNCONFIRMED"
-                    ),
-                    failed_phase="capture_home",
-                )
-            else:
-                machine.advance("fresh Home pose captured")
-                run = results.enter_phase(
-                    run["run_id"],
-                    phase=machine.phase.value,
-                    reason="WAITING_FOR_COMMAND",
-                    message=(
-                        "Home captured; waiting for the qualified "
-                        f"{request.target_fruit} command"
-                    ),
-                )
-                if orchestrator is not None:
-                    task = asyncio.create_task(orchestrator.run(run["run_id"]))
-                    active_tasks.add(task)
-                    task.add_done_callback(active_tasks.discard)
-        return {"run": run}
+        except (ActivationConflict, ValueError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except RestartRequired as exc:
+            raise HTTPException(status_code=423, detail=str(exc)) from exc
+        return {
+            "run": activation.run,
+            "idempotent_replay": activation.idempotent_replay,
+        }
 
     @app.get("/api/results/{run_id}")
     async def get_result(run_id: str) -> dict[str, object]:
@@ -392,38 +275,6 @@ def create_app(
 
     @app.post("/api/stop")
     async def stop() -> dict[str, object]:
-        tasks = list(active_tasks)
-        for task in tasks:
-            task.cancel()
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
-        active_tasks.difference_update(tasks)
-        stop_errors = await robot.emergency_stop()
-        if stage_executor is not None:
-            stop_errors.extend(await stage_executor.stop())
-        try:
-            machine.stop()
-        except RestartRequired:
-            pass
-        run = None
-        if results.active_run_id is not None:
-            run = results.seal(
-                results.active_run_id,
-                phase=machine.phase.value,
-                outcome="STOPPED",
-                reason="OPERATOR_STOP",
-                message="operator stopped the Demo Run",
-                final_safety_state=(
-                    "DISARMED_CONFIRMED"
-                    if not stop_errors
-                    else "STOP_REQUESTED_UNCONFIRMED"
-                ),
-            )
-        return {
-            "mission": machine.status(),
-            "hardware": robot.status(),
-            "stop_errors": stop_errors,
-            "run": run,
-        }
+        return await demo.stop()
 
     return app
