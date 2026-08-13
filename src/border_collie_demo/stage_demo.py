@@ -64,7 +64,7 @@ class FruitMission:
             object.__setattr__(
                 self,
                 "search_experiment",
-                SearchExperimentTuning.defaults(),
+                SearchExperimentTuning.defaults(target),
             )
 
 

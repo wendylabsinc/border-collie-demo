@@ -8,13 +8,26 @@ from border_collie_demo.search_experiment import (
 )
 
 
-def test_search_experiment_tuning_has_bounded_stage_defaults() -> None:
-    tuning = SearchExperimentTuning.defaults()
+@pytest.mark.parametrize(
+    ("fruit", "focus", "lock"),
+    [
+        ("apple", 0.50, 0.40),
+        ("pear", None, 0.65),
+        ("banana", None, 0.20),
+    ],
+)
+def test_search_experiment_tuning_preserves_each_fruits_baseline_policy(
+    fruit: str,
+    focus: float | None,
+    lock: float,
+) -> None:
+    tuning = SearchExperimentTuning.defaults(fruit)
 
     assert tuning.to_dict() == {
+        "target_fruit": fruit,
         "search_yaw_rps": 0.40,
-        "apple_focus_confidence": 0.50,
-        "apple_acquisition_confidence": 0.40,
+        "focus_confidence": focus,
+        "lock_confidence": lock,
         "center_confirmations": 3,
         "center_tolerance_ratio": 0.08,
     }
@@ -22,16 +35,44 @@ def test_search_experiment_tuning_has_bounded_stage_defaults() -> None:
 
 def test_search_experiment_tuning_rejects_unsafe_or_inverted_values() -> None:
     with pytest.raises(ValueError, match="search_yaw_rps"):
-        SearchExperimentTuning(search_yaw_rps=0.30)
+        SearchExperimentTuning(target_fruit="apple", search_yaw_rps=0.30)
     with pytest.raises(ValueError, match="focus confidence"):
         SearchExperimentTuning(
-            apple_focus_confidence=0.50,
-            apple_acquisition_confidence=0.55,
+            target_fruit="apple",
+            focus_confidence=0.50,
+            lock_confidence=0.55,
+        )
+    with pytest.raises(ValueError, match="Pear lock confidence"):
+        SearchExperimentTuning(
+            target_fruit="pear",
+            focus_confidence=0.65,
+            lock_confidence=0.64,
+        )
+    with pytest.raises(ValueError, match="finite"):
+        SearchExperimentTuning(
+            target_fruit="banana",
+            focus_confidence=float("nan"),
+            lock_confidence=0.20,
+        )
+
+
+def test_search_experiment_rejects_a_persisted_target_mismatch() -> None:
+    with pytest.raises(ValueError, match="Target Fruit"):
+        SearchExperimentTuning.from_mapping(
+            "pear",
+            {
+                "target_fruit": "apple",
+                "focus_confidence": 0.65,
+                "lock_confidence": 0.65,
+            },
         )
 
 
 def test_search_experiment_scorecard_groups_lock_and_success_by_fruit_and_yaw() -> None:
-    tuning = SearchExperimentTuning(search_yaw_rps=0.45).to_dict()
+    tuning = SearchExperimentTuning(
+        target_fruit="apple",
+        search_yaw_rps=0.45,
+    ).to_dict()
     scorecard = search_experiment_scorecard(
         [
             {

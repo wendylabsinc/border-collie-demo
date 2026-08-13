@@ -120,10 +120,10 @@
           <legend>Search experiment · applies to next run</legend>
           <label for="search-yaw-rps">Search yaw speed (rad/s)</label>
           <input id="search-yaw-rps" type="number" min="0.40" max="0.80" step="0.05" value="0.40">
-          <label for="apple-focus-confidence">Apple focus confidence</label>
-          <input id="apple-focus-confidence" type="number" min="0.50" max="0.70" step="0.01" value="0.50">
-          <label for="apple-acquisition-confidence">Apple lock confidence</label>
-          <input id="apple-acquisition-confidence" type="number" min="0.40" max="0.70" step="0.01" value="0.40">
+          <label for="focus-confidence"><span class="confidence-fruit-label">Pear</span> focus confidence</label>
+          <input id="focus-confidence" type="number" min="0.65" max="0.85" step="0.01" value="0.65">
+          <label for="lock-confidence"><span class="confidence-fruit-label">Pear</span> lock confidence</label>
+          <input id="lock-confidence" type="number" min="0.65" max="0.85" step="0.01" value="0.65">
           <label for="center-confirmations">Centered frames to lock</label>
           <input id="center-confirmations" type="number" min="2" max="5" step="1" value="3">
           <label for="center-tolerance-ratio">Center tolerance (frame ratio)</label>
@@ -158,8 +158,9 @@
       const cameraFeed = document.querySelector('#camera-feed');
       const cameraState = document.querySelector('#camera-state');
       const searchYaw = document.querySelector('#search-yaw-rps');
-      const appleFocus = document.querySelector('#apple-focus-confidence');
-      const appleAcquisition = document.querySelector('#apple-acquisition-confidence');
+      const focusConfidence = document.querySelector('#focus-confidence');
+      const lockConfidence = document.querySelector('#lock-confidence');
+      const confidenceFruitLabels = document.querySelectorAll('.confidence-fruit-label');
       const centerConfirmations = document.querySelector('#center-confirmations');
       const centerTolerance = document.querySelector('#center-tolerance-ratio');
       const experimentControls = document.querySelector('#search-experiment-controls');
@@ -169,6 +170,22 @@
       let lastRunId = null;
       let cameraRefreshTimer = null;
       let tuningInitialized = false;
+      let experimentContract = null;
+
+      function applyFruitConfidenceProfile() {
+        const profile = experimentContract?.fruits?.[targetFruit.value];
+        if (!profile) return;
+        const label = targetFruit.options[targetFruit.selectedIndex].textContent;
+        confidenceFruitLabels.forEach((element) => {
+          element.textContent = label;
+        });
+        focusConfidence.min = profile.ranges.focus_confidence[0];
+        focusConfidence.max = profile.ranges.focus_confidence[1];
+        focusConfidence.value = profile.defaults.focus_confidence;
+        lockConfidence.min = profile.ranges.lock_confidence[0];
+        lockConfidence.max = profile.ranges.lock_confidence[1];
+        lockConfidence.value = profile.defaults.lock_confidence;
+      }
 
       function scheduleCameraRefresh(delayMs) {
         window.clearTimeout(cameraRefreshTimer);
@@ -239,12 +256,12 @@
         try {
           const current = await readJson(await fetch('/api/status'));
           if (!tuningInitialized && current.search_experiment) {
+            experimentContract = current.search_experiment;
             const defaults = current.search_experiment.defaults;
             searchYaw.value = defaults.search_yaw_rps;
-            appleFocus.value = defaults.apple_focus_confidence;
-            appleAcquisition.value = defaults.apple_acquisition_confidence;
             centerConfirmations.value = defaults.center_confirmations;
             centerTolerance.value = defaults.center_tolerance_ratio;
+            applyFruitConfidenceProfile();
             tuningInitialized = true;
           }
           buildLabel.hidden = !current.build_label;
@@ -325,8 +342,8 @@
               activation_id: crypto.randomUUID(),
               tuning: {
                 search_yaw_rps: Number(searchYaw.value),
-                apple_focus_confidence: Number(appleFocus.value),
-                apple_acquisition_confidence: Number(appleAcquisition.value),
+                focus_confidence: Number(focusConfidence.value),
+                lock_confidence: Number(lockConfidence.value),
                 center_confirmations: Number(centerConfirmations.value),
                 center_tolerance_ratio: Number(centerTolerance.value),
               },
@@ -340,6 +357,8 @@
           await refreshStatus();
         }
       });
+
+      targetFruit.addEventListener('change', applyFruitConfidenceProfile);
 
       stop.addEventListener('click', async () => {
         activate.disabled = true;

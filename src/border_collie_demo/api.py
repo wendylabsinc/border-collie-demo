@@ -10,7 +10,7 @@ from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .evidence import EvidenceArtifact
 from .fruits import QUALIFIED_FRUITS, SUPPORTED_FRUITS
@@ -20,6 +20,7 @@ from .orchestrator import EXECUTED_STAGES, FailureEpilogue, StageExecutor
 from .run_results import ActiveRunError, RunResultNotFound, RunResultStore
 from .search_experiment import (
     SearchExperimentTuning,
+    search_experiment_contract,
     search_experiment_scorecard,
 )
 from .stage_demo import ActivationConflict, FruitMission, StageDemo
@@ -40,12 +41,14 @@ class ForwardPulseRequest(BaseModel):
 
 
 class SearchExperimentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     search_yaw_rps: float | None = Field(default=None, ge=0.40, le=0.80)
-    apple_focus_confidence: float | None = Field(default=None, ge=0.50, le=0.70)
-    apple_acquisition_confidence: float | None = Field(
-        default=None,
-        ge=0.40,
-        le=0.70,
+    focus_confidence: float | None = Field(
+        default=None, ge=0.0, le=1.0, allow_inf_nan=False
+    )
+    lock_confidence: float | None = Field(
+        default=None, ge=0.0, le=1.0, allow_inf_nan=False
     )
     center_confirmations: int | None = Field(default=None, ge=2, le=5)
     center_tolerance_ratio: float | None = Field(default=None, ge=0.05, le=0.12)
@@ -188,16 +191,7 @@ def create_app(
             "build_label": build_label(),
             "runtime_mode": runtime_mode,
             **current,
-            "search_experiment": {
-                "defaults": SearchExperimentTuning.defaults().to_dict(),
-                "ranges": {
-                    "search_yaw_rps": [0.40, 0.80],
-                    "apple_focus_confidence": [0.50, 0.70],
-                    "apple_acquisition_confidence": [0.40, 0.70],
-                    "center_confirmations": [2, 5],
-                    "center_tolerance_ratio": [0.05, 0.12],
-                },
-            },
+            "search_experiment": search_experiment_contract(),
         }
 
     @app.post("/api/run", status_code=201)
@@ -209,6 +203,7 @@ def create_app(
                     activation_source=request.activation_source,
                     activation_id=request.activation_id or str(uuid4()),
                     search_experiment=SearchExperimentTuning.from_mapping(
+                        request.target_fruit,
                         None
                         if request.tuning is None
                         else request.tuning.model_dump(exclude_none=True)
