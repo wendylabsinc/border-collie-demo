@@ -1406,6 +1406,8 @@ class HardwareManager:
         arrival_tolerance_m: float,
         heading_gate_rad: float,
         maximum_yaw_rps: float,
+        minimum_yaw_rps: float = 0.50,
+        heading_tolerance_rad: float = math.radians(5.0),
         minimum_progress_m: float,
         stall_timeout_s: float,
         timeout_s: float,
@@ -1414,10 +1416,11 @@ class HardwareManager:
         home_pose = _home_pose(home)
         config = ReturnPlannerConfig(
             arrival_tolerance_m=arrival_tolerance_m,
-            heading_tolerance_rad=math.radians(5.0),
+            heading_tolerance_rad=heading_tolerance_rad,
             heading_gate_rad=heading_gate_rad,
             forward_mps=forward_mps,
             maximum_yaw_rps=maximum_yaw_rps,
+            minimum_yaw_rps=minimum_yaw_rps,
         )
         if forward_mps > self.config.maximum_forward_mps:
             raise ValueError("return speed is outside the configured limit")
@@ -1564,6 +1567,8 @@ class HardwareManager:
         arrival_tolerance_m: float,
         heading_gate_rad: float,
         maximum_yaw_rps: float,
+        minimum_yaw_rps: float = 0.50,
+        heading_tolerance_rad: float = math.radians(5.0),
         minimum_progress_m: float,
         stall_timeout_s: float,
         timeout_s: float,
@@ -1572,10 +1577,11 @@ class HardwareManager:
         home_pose = _home_pose(home)
         config = ReturnPlannerConfig(
             arrival_tolerance_m=arrival_tolerance_m,
-            heading_tolerance_rad=math.radians(5.0),
+            heading_tolerance_rad=heading_tolerance_rad,
             heading_gate_rad=heading_gate_rad,
             forward_mps=forward_mps,
             maximum_yaw_rps=maximum_yaw_rps,
+            minimum_yaw_rps=minimum_yaw_rps,
         )
         if forward_mps > self.config.maximum_forward_mps:
             raise ValueError("return speed is outside the configured limit")

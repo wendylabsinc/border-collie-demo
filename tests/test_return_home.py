@@ -17,7 +17,7 @@ def test_return_planner_turns_drives_at_reliable_speed_then_restores_heading() -
         heading_tolerance_rad=math.radians(5.0),
         heading_gate_rad=math.radians(20.0),
         forward_mps=0.50,
-        maximum_yaw_rps=0.30,
+        maximum_yaw_rps=0.50,
     )
     home = Pose2D(0.0, 0.0, 0.0)
 
@@ -56,7 +56,9 @@ def test_position_only_return_never_restores_heading_after_reaching_home() -> No
     assert step.yaw_rps == 0.0
 
 
-def test_position_planner_exposes_heading_escape_instead_of_authorizing_forward() -> None:
+def test_position_planner_exposes_heading_escape_instead_of_authorizing_forward() -> (
+    None
+):
     config = ReturnPlannerConfig(
         arrival_tolerance_m=0.10,
         heading_tolerance_rad=math.radians(5.0),
@@ -79,3 +81,48 @@ def test_position_planner_exposes_heading_escape_instead_of_authorizing_forward(
     assert steerable.mode is ReturnMode.DRIVE_TO_HOME
     assert steerable.forward_mps == 1.0
     assert 0.0 < abs(steerable.yaw_rps) <= 0.50
+
+
+@pytest.mark.parametrize(
+    ("heading_error_deg", "expected_yaw_rps"),
+    [
+        (4.0, 0.0),
+        (10.0, -0.50),
+        (-10.0, 0.50),
+        (35.0, -0.60),
+    ],
+)
+def test_moving_return_yaw_uses_deadband_verified_floor_sign_and_cap(
+    heading_error_deg: float,
+    expected_yaw_rps: float,
+) -> None:
+    config = ReturnPlannerConfig(
+        arrival_tolerance_m=0.10,
+        heading_tolerance_rad=math.radians(5.0),
+        heading_gate_rad=math.radians(40.0),
+        forward_mps=1.0,
+        minimum_yaw_rps=0.50,
+        maximum_yaw_rps=0.60,
+    )
+
+    step = plan_position_return_step(
+        Pose2D(0.0, 0.0, 0.0),
+        Pose2D(1.0, 0.0, math.pi + math.radians(heading_error_deg)),
+        config,
+    )
+
+    assert step.mode is ReturnMode.DRIVE_TO_HOME
+    assert step.forward_mps == 1.0
+    assert step.yaw_rps == pytest.approx(expected_yaw_rps)
+
+
+def test_return_planner_rejects_a_floor_below_the_verified_turning_signal() -> None:
+    with pytest.raises(ValueError, match="verified 0.50 rad/s"):
+        ReturnPlannerConfig(
+            arrival_tolerance_m=0.10,
+            heading_tolerance_rad=math.radians(5.0),
+            heading_gate_rad=math.radians(20.0),
+            forward_mps=1.0,
+            minimum_yaw_rps=0.49,
+            maximum_yaw_rps=0.50,
+        )

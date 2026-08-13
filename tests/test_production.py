@@ -585,6 +585,8 @@ def test_return_stages_use_captured_home_and_locked_arrival_rules() -> None:
             "forward_mps": 1.0,
             "arrival_tolerance_m": 0.10,
             "heading_gate_rad": pytest.approx(0.349066),
+            "heading_tolerance_rad": pytest.approx(0.0872665),
+            "minimum_yaw_rps": 0.50,
             "maximum_yaw_rps": 0.50,
             "minimum_progress_m": 0.03,
             "stall_timeout_s": 2.0,
@@ -598,7 +600,9 @@ def test_return_stages_use_captured_home_and_locked_arrival_rules() -> None:
     asyncio.run(scenario())
 
 
-def test_return_cannot_start_when_home_turn_did_not_finish_inside_bearing_gate() -> None:
+def test_return_cannot_start_when_home_turn_did_not_finish_inside_bearing_gate() -> (
+    None
+):
     class BadHomeTurnHardware(FakeProductionHardware):
         async def turn_toward_home(
             self, home: dict[str, object], **options: float

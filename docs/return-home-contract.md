@@ -41,7 +41,12 @@ The executable, hardware-free design probe lives in
    outbound forward-heartbeat count through a
    collision-aware motion owner while continuously measuring Home Distance,
    pose age, route state, and progress. Every non-zero command combines forward
-   translation with bounded yaw steering.
+   translation with bounded yaw steering. Yaw is exactly zero inside the
+   per-run moving-yaw deadband. Outside it, a correction uses at least the
+   configured minimum and no more than the configured maximum. The production
+   defaults are a 5-degree deadband and 0.50 rad/s for both minimum and maximum;
+   the minimum cannot be configured below the physically verified 0.50 rad/s
+   factory-avoidance turning signal.
 5. Stop translation inside the position gate.
 6. If the bearing escapes the qualified forward-steering gate after translation
    starts, command exact zero, disarm, and fail. Do not re-enter an in-place

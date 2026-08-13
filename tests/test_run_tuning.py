@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 
 import pytest
 from fastapi.testclient import TestClient
@@ -72,6 +73,25 @@ def test_apple_40_percent_defaults_round_trip_through_activation_validation() ->
             },
             "below direct Arrival",
         ),
+        ({"home": {"return_minimum_yaw_rps": 0.45}}, "within"),
+        (
+            {
+                "home": {
+                    "return_minimum_yaw_rps": 0.65,
+                    "return_yaw_rps": 0.60,
+                }
+            },
+            "cannot exceed",
+        ),
+        (
+            {
+                "home": {
+                    "return_yaw_deadband_deg": 15.0,
+                    "heading_gate_deg": 15.0,
+                }
+            },
+            "smaller",
+        ),
     ],
 )
 def test_invalid_tuning_is_rejected_at_the_one_public_seam(payload, message) -> None:
@@ -100,6 +120,44 @@ def test_server_contract_documents_every_control() -> None:
                 "safety",
             } <= set(field)
     assert "exact-zero disarm" in contract["hard_invariants"]
+
+
+def test_home_return_minimum_yaw_is_a_validated_runtime_control() -> None:
+    tuning = RunTuning.from_payload(
+        "pear",
+        {
+            "home": {
+                "return_minimum_yaw_rps": 0.55,
+                "return_yaw_rps": 0.65,
+            }
+        },
+    )
+
+    assert tuning.home.return_minimum_yaw_rps == 0.55
+    fields = {field["name"]: field for field in RunTuning.contract()["groups"]["home"]}
+    assert fields["return_minimum_yaw_rps"] == {
+        "name": "return_minimum_yaw_rps",
+        "label": "Minimum moving Home yaw",
+        "unit": "rad/s",
+        "minimum": 0.5,
+        "maximum": 0.8,
+        "step": 0.05,
+        "safety": "Never lower than the physically verified 0.50 rad/s turning signal.",
+        "target_specific": False,
+    }
+
+
+def test_home_return_yaw_deadband_is_a_validated_runtime_control() -> None:
+    tuning = RunTuning.from_payload(
+        "pear",
+        {"home": {"return_yaw_deadband_deg": 7.0}},
+    )
+
+    assert tuning.home.return_yaw_deadband_deg == 7.0
+    fields = {field["name"]: field for field in RunTuning.contract()["groups"]["home"]}
+    assert fields["return_yaw_deadband_deg"]["unit"] == "deg"
+    assert fields["return_yaw_deadband_deg"]["minimum"] == 3
+    assert fields["return_yaw_deadband_deg"]["maximum"] == 15
 
 
 def test_activation_persists_exact_effective_tuning_in_result_and_black_box(
@@ -257,7 +315,9 @@ def test_production_consumes_guidance_and_home_values_from_the_snapshot() -> Non
             "home": {
                 "align_yaw_rps": 0.60,
                 "return_forward_mps": 0.75,
-                "return_yaw_rps": 0.60,
+                "return_yaw_deadband_deg": 7.0,
+                "return_minimum_yaw_rps": 0.55,
+                "return_yaw_rps": 0.65,
                 "arrival_tolerance_m": 0.20,
             },
         },
@@ -288,3 +348,8 @@ def test_production_consumes_guidance_and_home_values_from_the_snapshot() -> Non
     assert hardware.home_calls[0][1]["yaw_rps"] == 0.60
     assert hardware.home_calls[1][1]["forward_mps"] == 0.75
     assert hardware.home_calls[1][1]["arrival_tolerance_m"] == 0.20
+    assert hardware.home_calls[1][1]["heading_tolerance_rad"] == pytest.approx(
+        math.radians(7.0)
+    )
+    assert hardware.home_calls[1][1]["minimum_yaw_rps"] == 0.55
+    assert hardware.home_calls[1][1]["maximum_yaw_rps"] == 0.65

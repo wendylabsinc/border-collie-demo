@@ -74,9 +74,13 @@ down hold still completes before `STAND` begins.
 regular SportClient path and must finish on a new fresh pose whose measured
 bearing is inside the configured course gate. Only then may `RETURN_HOME` arm
 factory obstacle avoidance and replay forward heartbeats with bounded yaw
-steering. Once translation starts it never falls back to yaw-only correction;
-a heading escape outside the qualified forward-steering gate stops and fails
-closed.
+steering. Moving yaw is exactly zero inside the configured deadband (5 degrees
+by default). Outside that deadband, each non-zero correction is at least the
+physically verified 0.50 rad/s signal and no greater than the configured
+maximum. Both values are frozen in the per-run tuning snapshot and exposed in
+the UI. Once translation starts it never falls back to yaw-only correction; a
+heading escape outside the qualified forward-steering gate (20 degrees by
+default) stops and fails closed.
 
 The bounded failed-run epilogue uses the same two-phase Home contract after its
 down/hold/stand posture sequence: it first proves a fresh bearing within 5

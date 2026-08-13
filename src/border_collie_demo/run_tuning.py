@@ -123,6 +123,8 @@ class HomeTuning:
     return_forward_mps: float = 1.0
     arrival_tolerance_m: float = 0.10
     heading_gate_deg: float = 20.0
+    return_yaw_deadband_deg: float = 5.0
+    return_minimum_yaw_rps: float = 0.50
     return_yaw_rps: float = 0.50
     minimum_progress_m: float = 0.03
     stall_timeout_s: float = 2.0
@@ -308,6 +310,8 @@ class RunTuning:
                 "return_forward_mps",
                 "arrival_tolerance_m",
                 "heading_gate_deg",
+                "return_yaw_deadband_deg",
+                "return_minimum_yaw_rps",
                 "return_yaw_rps",
                 "minimum_progress_m",
                 "stall_timeout_s",
@@ -502,6 +506,20 @@ class RunTuning:
                 heading_gate_deg=_number(
                     home, "heading_gate_deg", defaults.home.heading_gate_deg, 10.0, 45.0
                 ),
+                return_yaw_deadband_deg=_number(
+                    home,
+                    "return_yaw_deadband_deg",
+                    defaults.home.return_yaw_deadband_deg,
+                    3.0,
+                    15.0,
+                ),
+                return_minimum_yaw_rps=_number(
+                    home,
+                    "return_minimum_yaw_rps",
+                    defaults.home.return_minimum_yaw_rps,
+                    0.50,
+                    0.80,
+                ),
                 return_yaw_rps=_number(
                     home, "return_yaw_rps", defaults.home.return_yaw_rps, 0.50, 0.80
                 ),
@@ -535,6 +553,10 @@ class RunTuning:
             raise ValueError("detection age cannot exceed source age")
         if self.approach.duplicate_hold_s > self.approach.detection_maximum_age_s:
             raise ValueError("duplicate hold cannot exceed detection freshness")
+        if self.home.return_minimum_yaw_rps > self.home.return_yaw_rps:
+            raise ValueError("minimum moving Home yaw cannot exceed its maximum")
+        if self.home.return_yaw_deadband_deg >= self.home.heading_gate_deg:
+            raise ValueError("moving Home yaw deadband must be smaller than its gate")
         if 0.0 < self.arrival.final_push_duration_s < 0.10:
             raise ValueError(
                 "final push duration must be 0 (disabled) or at least 0.10 seconds"
@@ -731,7 +753,38 @@ class RunTuning:
                 _field(
                     "heading_gate_deg", "Moving Home heading gate", "deg", 10, 45, 1
                 ),
-                _field("return_yaw_rps", "Moving Home yaw", "rad/s", 0.50, 0.80, 0.05),
+                _field(
+                    "return_yaw_deadband_deg",
+                    "Moving Home yaw deadband",
+                    "deg",
+                    3,
+                    15,
+                    1,
+                    safety=(
+                        "Yaw is exactly zero inside this band; outside it the "
+                        "verified minimum turning signal applies."
+                    ),
+                ),
+                _field(
+                    "return_minimum_yaw_rps",
+                    "Minimum moving Home yaw",
+                    "rad/s",
+                    0.50,
+                    0.80,
+                    0.05,
+                    safety=(
+                        "Never lower than the physically verified 0.50 rad/s "
+                        "turning signal."
+                    ),
+                ),
+                _field(
+                    "return_yaw_rps",
+                    "Maximum moving Home yaw",
+                    "rad/s",
+                    0.50,
+                    0.80,
+                    0.05,
+                ),
                 _field(
                     "minimum_progress_m", "Minimum Home progress", "m", 0.01, 0.20, 0.01
                 ),

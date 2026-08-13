@@ -170,6 +170,30 @@ class HeadingEscapePose(FakePose):
         return PoseStatus(self._last, 0.0, self.started, None)
 
 
+class PhysicalReturnHeadingDriftPose(FakePose):
+    """Minimized pose replay from run 864c856b's failed Home return."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        # Home is the origin, so the bearing is pi while x remains positive.
+        # The physical run began near -0.10 rad, drifted through -0.30 rad,
+        # then crossed the existing 20-degree fail-closed gate.
+        heading_errors = (-0.099, -0.072, -0.122, -0.180, -0.223, -0.299, -0.351)
+        self._poses = iter(
+            Pose(distance, 0.0, math.pi - error, 1.0 + index * 0.1)
+            for index, (distance, error) in enumerate(
+                zip((1.49, 1.42, 1.31, 1.18, 1.02, 0.83, 0.70), heading_errors),
+                start=1,
+            )
+        )
+        self._last = Pose(1.49, 0.0, math.pi + 0.099, 1.0)
+
+    def status(self) -> PoseStatus:
+        if self.started:
+            self._last = next(self._poses, self._last)
+        return PoseStatus(self._last, 0.0, self.started, None)
+
+
 class HomeTurnPose(FakePose):
     def __init__(self) -> None:
         super().__init__()
@@ -1617,7 +1641,7 @@ def test_return_home_replays_outbound_pulses_and_logs_measured_home_distance() -
             forward_pulse_count=3,
             arrival_tolerance_m=0.10,
             heading_gate_rad=math.radians(20.0),
-            maximum_yaw_rps=0.30,
+            maximum_yaw_rps=0.50,
             minimum_progress_m=0.03,
             stall_timeout_s=0.10,
             timeout_s=0.50,
@@ -1729,6 +1753,39 @@ def test_position_only_return_stops_when_heading_escapes_instead_of_yaw_only() -
         assert motion.commands[0].forward_mps == 1.0
         assert all(command.forward_mps > 0.0 for command in motion.commands)
         assert motion.command_modes == ["factory_avoidance"]
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_position_return_replay_never_emits_subthreshold_moving_yaw() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: PhysicalReturnHeadingDriftPose(),
+        )
+        await manager.start()
+
+        with pytest.raises(HardwareUnavailable, match="heading escaped"):
+            await manager.return_home_position(
+                {"x_m": 0.0, "y_m": 0.0, "yaw_rad": 0.0},
+                forward_mps=1.0,
+                arrival_tolerance_m=0.10,
+                heading_gate_rad=math.radians(20.0),
+                maximum_yaw_rps=0.50,
+                minimum_progress_m=0.03,
+                stall_timeout_s=0.50,
+                timeout_s=1.0,
+            )
+
+        moving = [command for command in motion.commands if command.forward_mps > 0.0]
+        assert moving
+        assert all(abs(command.yaw_rps) >= 0.50 for command in moving)
+        assert all(command.forward_mps > 0.0 for command in motion.commands)
         assert motion.armed is False
         await manager.close()
 

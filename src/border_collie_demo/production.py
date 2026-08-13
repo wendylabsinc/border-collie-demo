@@ -302,6 +302,8 @@ class ProductionStageExecutor:
                 forward_mps=tuning.home.return_forward_mps,
                 arrival_tolerance_m=tuning.home.arrival_tolerance_m,
                 heading_gate_rad=math.radians(tuning.home.heading_gate_deg),
+                heading_tolerance_rad=math.radians(tuning.home.return_yaw_deadband_deg),
+                minimum_yaw_rps=tuning.home.return_minimum_yaw_rps,
                 maximum_yaw_rps=tuning.home.return_yaw_rps,
                 minimum_progress_m=tuning.home.minimum_progress_m,
                 stall_timeout_s=tuning.home.stall_timeout_s,
