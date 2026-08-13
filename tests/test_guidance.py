@@ -395,7 +395,7 @@ def test_any_fruit_lower_edge_identity_collapse_arrives_without_three_samples(
     assert guidance.final_push_count == 0
 
 
-def test_disappearance_after_forward_approach_assumes_arrival_without_lower_edge_frame() -> None:
+def test_disappearance_after_forward_approach_stops_without_lower_edge_frame() -> None:
     guidance = FruitGuidance("pear")
     for pts, now_s in ((1, 0.0), (2, 0.1), (3, 0.2)):
         guidance.observe(observation(pts=pts, now_s=now_s), now_s=now_s)
@@ -418,9 +418,9 @@ def test_disappearance_after_forward_approach_assumes_arrival_without_lower_edge
         allow_forward=True,
     )
 
-    assert missing.action is GuidanceAction.ARRIVED
-    assert missing.reason == "target_missing_after_approach_arrival"
-    assert missing.arrival_confirmed is True
+    assert missing.action is GuidanceAction.STOP
+    assert missing.reason == "target_missing_after_lock"
+    assert missing.arrival_confirmed is False
     assert missing.command.forward_mps == 0.0
     assert missing.command.yaw_rps == 0.0
 
@@ -436,6 +436,39 @@ def test_disappearance_before_forward_approach_does_not_assume_arrival() -> None
         allow_forward=True,
     )
 
+    assert missing.action is GuidanceAction.STOP
+    assert missing.reason == "target_missing_after_lock"
+    assert missing.arrival_confirmed is False
+
+
+def test_disappearance_after_sub_threshold_bottom_frame_stops() -> None:
+    guidance = FruitGuidance("banana")
+    for pts, now_s in ((1, 0.0), (2, 0.1), (3, 0.2)):
+        guidance.observe(
+            observation(pts=pts, now_s=now_s, label="banana"),
+            now_s=now_s,
+        )
+
+    moving = guidance.observe(
+        observation(
+            pts=4,
+            now_s=0.3,
+            label="banana",
+            confidence=0.70,
+            center_x=0.50,
+            center_y=0.72,
+            bottom=0.899,
+        ),
+        now_s=0.3,
+        allow_forward=True,
+    )
+    missing = guidance.observe(
+        observation(pts=5, now_s=0.4, label=None),
+        now_s=0.4,
+        allow_forward=True,
+    )
+
+    assert moving.action is GuidanceAction.DRIVE
     assert missing.action is GuidanceAction.STOP
     assert missing.reason == "target_missing_after_lock"
     assert missing.arrival_confirmed is False

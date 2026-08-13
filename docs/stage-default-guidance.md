@@ -50,7 +50,7 @@ motion safety limits.
 | `BORDER_COLLIE_GUIDANCE_NEAR_CENTER_RATIO` | frame-height ratio | `0.72` | greater than `0`, at most `1` | Counts only on fresh matching evidence. |
 | `BORDER_COLLIE_GUIDANCE_NEAR_CONFIRMATIONS` | fresh frames | `3` | integer `>=1` | Duplicate or weak observations never advance Arrival. |
 | `BORDER_COLLIE_GUIDANCE_NEAR_LOSS_CONFIRMATIONS` | fresh frames | `2` | integer `>=2` | One weak or missing observation stops but cannot start the final push. |
-| `BORDER_COLLIE_GUIDANCE_NEAR_LOSS_GRACE_S` | seconds | `0.75` | greater than `0` | Retained for weak-confidence closeout; after at least one authorized approach command, a fresh no-fruit frame confirms stopped Arrival even when no 90% frame was observed. |
+| `BORDER_COLLIE_GUIDANCE_NEAR_LOSS_GRACE_S` | seconds | `0.75` | greater than `0` | A disappearance can confirm Arrival only after a fresh confidence-qualified observation reached the configured lower-edge threshold. Otherwise loss commands exact zero and waits for reacquisition until timeout. |
 | `BORDER_COLLIE_GUIDANCE_FINAL_PUSH_MPS` | m/s | `0.60` | `0.50..1.0` | Exactly one final-push episode is allowed. |
 | `BORDER_COLLIE_GUIDANCE_FINAL_PUSH_DURATION_S` | seconds | `1.0` | `0`, or `0.10..1.50` | The push is terminal and cannot be restarted. Zero disables it and leaves Arrival stopped. |
 
