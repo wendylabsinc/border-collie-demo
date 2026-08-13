@@ -52,6 +52,8 @@ def test_normalization_and_auditable_intent_extraction():
     assert text == "Hey, Go2, move forward 3 feet!"
     assert intent.name == "move"
     assert intent.slots == {"direction": "forward", "distance_m": 0.914}
+    assert extract_intent("stop").name == "stop"
+    assert extract_intent("Robot, stop!").name == "stop"
     assert extract_intent("emergency stop now").name == "stop"
     assert extract_intent("find the red apple").slots == {"target": "red apple"}
     assert extract_intent("go to apple").name == "find"

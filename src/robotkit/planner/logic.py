@@ -349,6 +349,15 @@ def plan(
     observations = _fresh(snapshot, at)
     current = _current_mission(current_goal)
     health = _offending_health(observations)
+    command = _latest_command(observations)
+    command_intent = _command_intent(command)
+
+    # A fresh operator stop is the highest-level motion interlock. It cancels
+    # ordinary missions as well as an in-progress health return; once the
+    # short-lived command expires, unresolved health state can initiate a new
+    # return mission.
+    if command is not None and command_intent == "stop":
+        return _stop_command_decision(command)
 
     # Once a health-return mission starts, retain its original event correlation
     # while newer health samples arrive. This prevents repeated go_home resets.
@@ -378,8 +387,6 @@ def plan(
             rationale=f"safety preemption from {health.stream}",
         )
 
-    command = _latest_command(observations)
-    command_intent = _command_intent(command)
     command_target = _command_target(command)
     requested_fruit = _fruit_command_target(command)
     failed_yolo = _failed_yolo(observations)
@@ -393,11 +400,6 @@ def plan(
         if current_goal is not None and current_goal.parameters.get("trigger_event_id")
         else None
     )
-
-    # Explicit stop commands fail closed before ordinary mission handling. A
-    # health-return sequence remains higher priority and is handled above.
-    if command is not None and command_intent == "stop":
-        return _stop_command_decision(command)
 
     if current is not None and current[0] in SUPPORTED_FRUITS:
         current_target = current[0]

@@ -47,6 +47,16 @@ def _configured_classes() -> frozenset[str]:
     return classes
 
 
+def _configured_prompt_templates() -> tuple[str, ...]:
+    configured = os.getenv("YOLO_PROMPT_TEMPLATES", "{name}")
+    templates = tuple(
+        value.strip() for value in configured.split(",") if value.strip()
+    )
+    if not templates or any("{name}" not in template for template in templates):
+        raise ValueError("YOLO_PROMPT_TEMPLATES must contain {name} templates")
+    return templates
+
+
 def _make_producer(client: WorldStateClient) -> YoloProducer:
     confidence = float(os.getenv("YOLO_CONFIDENCE", "0.25"))
     classes = _configured_classes()
@@ -56,6 +66,8 @@ def _make_producer(client: WorldStateClient) -> YoloProducer:
         confidence=confidence,
         device=os.getenv("YOLO_DEVICE") or None,
         classes=sorted(classes),
+        prompt_templates=_configured_prompt_templates(),
+        image_size=int(os.getenv("YOLO_IMAGE_SIZE", "640")),
     )
     return YoloProducer(
         detector,

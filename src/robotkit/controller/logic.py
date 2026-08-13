@@ -49,6 +49,26 @@ def _fresh_yolo_failure(snapshot: WorldSnapshot) -> ObservationRecord | None:
     )
 
 
+def _fresh_stop_command(snapshot: WorldSnapshot) -> ObservationRecord | None:
+    commands = [
+        observation
+        for observation in snapshot.observations
+        if observation.stream in {"voice.intent", "website.intent"}
+        and not observation.is_stale(snapshot.captured_at)
+    ]
+    latest = max(
+        commands,
+        key=lambda item: (item.observed_at, item.revision, str(item.event_id)),
+        default=None,
+    )
+    if latest is None:
+        return None
+    intent = str(
+        latest.payload.get("intent", latest.payload.get("command", ""))
+    ).strip().casefold()
+    return latest if intent == "stop" else None
+
+
 def control(
     snapshot: WorldSnapshot,
     goal: GoalRecord,
@@ -58,6 +78,28 @@ def control(
     """Translate a mission stage into one bounded, independently auditable action."""
 
     stage = str(goal.parameters.get("mission_stage", goal.goal_type))
+
+    # Do not wait for the planner to replace the current mission before
+    # cancelling motion. The resulting zero-velocity effect is still tied to
+    # the active goal, so it can pass the normal executor safety checks during
+    # that handoff.
+    stop_command = _fresh_stop_command(snapshot)
+    if stop_command is not None:
+        return EffectDecision(
+            "cmd_vel",
+            {
+                "linear_x_mps": 0.0,
+                "angular_z_rps": 0.0,
+                **_mission_metadata(
+                    goal,
+                    stage_complete=False,
+                    reason=f"stopped by {stop_command.stream} command",
+                ),
+                "stop_reason": "command",
+                "stop_event_id": str(stop_command.event_id),
+            },
+        )
+
     if stage == "lie_down":
         return EffectDecision("unitree_lie_down")
 

@@ -27,6 +27,28 @@ def test_idle_at_home_produces_zero_velocity(snapshot_factory, goal_factory):
     assert effect.parameters["stage_complete"] is True
 
 
+def test_fresh_voice_stop_immediately_overrides_active_motion(
+    observation_factory, snapshot_factory, goal_factory
+):
+    stop = observation_factory(
+        stream="voice.intent",
+        payload={"intent": "stop", "slots": {"emergency": False}},
+        ttl_seconds=30,
+    )
+
+    effect = control(
+        snapshot_factory([stop]),
+        _mission_goal(goal_factory, "search_apple"),
+    )
+
+    assert effect.effect_type == "cmd_vel"
+    assert effect.parameters["linear_x_mps"] == 0.0
+    assert effect.parameters["angular_z_rps"] == 0.0
+    assert effect.parameters["stop_reason"] == "command"
+    assert effect.parameters["stop_event_id"] == str(stop.event_id)
+    assert effect.parameters["stage_complete"] is False
+
+
 def test_search_rotates_until_an_apple_is_visible(snapshot_factory, goal_factory):
     effect = control(
         snapshot_factory(), _mission_goal(goal_factory, "search_apple")

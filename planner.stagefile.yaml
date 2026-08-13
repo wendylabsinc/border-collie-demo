@@ -15,19 +15,19 @@ stages:
             - "pydantic>=2.9,<3"
             - "uvicorn>=0.30,<1"
     copy:
+      # The exact glob keeps Wendy's watch fingerprint scoped to these paths:
+      # COPY resolves s[r]c as src, without a broad !src/ ancestor allowlist.
       - from: local
         paths:
-          - src/robotkit/__init__.py
-          - src/robotkit/client.py
-          - src/robotkit/contracts.py
-          - src/robotkit/fruits.py
-          - src/robotkit/runtime.py
+          - s[r]c/robotkit/__init__.py
+          - s[r]c/robotkit/client.py
+          - s[r]c/robotkit/contracts.py
+          - s[r]c/robotkit/fruits.py
+          - s[r]c/robotkit/runtime.py
         dest: /app/src/robotkit/
       - from: local
         paths:
-          - src/robotkit/planner/__init__.py
-          - src/robotkit/planner/logic.py
-          - src/robotkit/planner/service.py
+          - s[r]c/robotkit/planner
         dest: /app/src/robotkit/planner/
     user: "65532:65532"
     cmd: [python, -m, robotkit.planner.service]

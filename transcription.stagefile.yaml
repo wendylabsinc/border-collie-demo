@@ -25,24 +25,21 @@ stages:
             - "faster-whisper>=1.1,<2"
             - "sounddevice>=0.5,<1"
     copy:
+      # The exact glob keeps Wendy's watch fingerprint scoped to these paths:
+      # COPY resolves s[r]c as src, without a broad !src/ ancestor allowlist.
       - from: local
         paths:
-          - src/robotkit/__init__.py
-          - src/robotkit/client.py
-          - src/robotkit/contracts.py
-          - src/robotkit/runtime.py
+          - s[r]c/robotkit/__init__.py
+          - s[r]c/robotkit/client.py
+          - s[r]c/robotkit/contracts.py
+          - s[r]c/robotkit/runtime.py
         dest: /app/src/robotkit/
       - from: local
-        paths: [src/robotkit/perception/__init__.py]
+        paths: ["s[r]c/robotkit/perception/__init__.py"]
         dest: /app/src/robotkit/perception/__init__.py
       - from: local
         paths:
-          - src/robotkit/perception/transcription/__init__.py
-          - src/robotkit/perception/transcription/__main__.py
-          - src/robotkit/perception/transcription/audio.py
-          - src/robotkit/perception/transcription/backend.py
-          - src/robotkit/perception/transcription/interpretation.py
-          - src/robotkit/perception/transcription/producer.py
+          - s[r]c/robotkit/perception/transcription
         dest: /app/src/robotkit/perception/transcription/
     entrypoint:
       source: /opt/ros/humble/setup.bash

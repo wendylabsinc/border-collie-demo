@@ -15,16 +15,16 @@ stages:
             - "pydantic>=2.9,<3"
             - "uvicorn>=0.30,<1"
     copy:
+      # The exact glob keeps Wendy's watch fingerprint scoped to these paths:
+      # COPY resolves s[r]c as src, without a broad !src/ ancestor allowlist.
       - from: local
         paths:
-          - src/robotkit/__init__.py
-          - src/robotkit/contracts.py
+          - s[r]c/robotkit/__init__.py
+          - s[r]c/robotkit/contracts.py
         dest: /app/src/robotkit/
       - from: local
         paths:
-          - src/robotkit/world_state/__init__.py
-          - src/robotkit/world_state/app.py
-          - src/robotkit/world_state/store.py
+          - s[r]c/robotkit/world_state
         dest: /app/src/robotkit/world_state/
       # Seed the named volume with a directory writable by Stagefile's
       # non-root runtime UID. SQLite is the only durable state in this image.

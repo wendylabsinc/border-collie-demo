@@ -199,6 +199,36 @@ def test_stop_command_cancels_an_active_apple_search(
     assert decision.parameters["emergency"] is True
 
 
+def test_stop_command_interrupts_an_active_health_return(
+    observation_factory, snapshot_factory
+):
+    temperature = observation_factory(
+        stream="health.temperature",
+        key="temperature-high",
+        payload={"band": "critical_high"},
+        ttl_seconds=30,
+    )
+    active = _goal(plan(snapshot_factory([temperature]), NOW), key="health-return")
+    stop = observation_factory(
+        stream="voice.intent",
+        key="spoken-stop",
+        revision=2,
+        observed_at=NOW + timedelta(milliseconds=1),
+        payload={"intent": "stop", "slots": {"emergency": False}},
+        ttl_seconds=30,
+    )
+
+    decision = plan(
+        snapshot_factory([temperature, stop]),
+        NOW + timedelta(seconds=1),
+        current_goal=active,
+    )
+
+    assert decision.goal_type == "idle_at_home"
+    assert decision.parameters["trigger_event_id"] == str(stop.event_id)
+    assert decision.parameters["stop_reason"] == "command"
+
+
 def test_fresh_yolo_failure_stops_an_active_apple_search(
     observation_factory, snapshot_factory
 ):

@@ -88,25 +88,22 @@ stages:
           packages:
             - "git+https://github.com/unitreerobotics/unitree_sdk2_python.git@db9b2d210081387fcd1e7ed9ac4c56a02983bb85"
     copy:
+      # The exact glob keeps Wendy's watch fingerprint scoped to these paths:
+      # COPY resolves s[r]c as src, without a broad !src/ ancestor allowlist.
       - from: local
         paths:
-          - src/robotkit/__init__.py
-          - src/robotkit/client.py
-          - src/robotkit/contracts.py
-          - src/robotkit/fruits.py
-          - src/robotkit/runtime.py
+          - s[r]c/robotkit/__init__.py
+          - s[r]c/robotkit/client.py
+          - s[r]c/robotkit/contracts.py
+          - s[r]c/robotkit/fruits.py
+          - s[r]c/robotkit/runtime.py
         dest: /app/src/robotkit/
       - from: local
-        paths: [src/robotkit/perception/__init__.py]
+        paths: ["s[r]c/robotkit/perception/__init__.py"]
         dest: /app/src/robotkit/perception/__init__.py
       - from: local
         paths:
-          - src/robotkit/perception/yolo/__init__.py
-          - src/robotkit/perception/yolo/__main__.py
-          - src/robotkit/perception/yolo/adapters.py
-          - src/robotkit/perception/yolo/core.py
-          - src/robotkit/perception/yolo/producer.py
-          - src/robotkit/perception/yolo/run.py
+          - s[r]c/robotkit/perception/yolo
         dest: /app/src/robotkit/perception/yolo/
       - from: local
         paths: [stage-assets/unitree_b2_init.py]

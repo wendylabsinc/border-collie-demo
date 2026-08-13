@@ -21,23 +21,21 @@ stages:
             - "pydantic>=2.9,<3"
             - "uvicorn>=0.30,<1"
     copy:
+      # The exact glob keeps Wendy's watch fingerprint scoped to these paths:
+      # COPY resolves s[r]c as src, without a broad !src/ ancestor allowlist.
       - from: local
         paths:
-          - src/robotkit/__init__.py
-          - src/robotkit/client.py
-          - src/robotkit/contracts.py
-          - src/robotkit/runtime.py
+          - s[r]c/robotkit/__init__.py
+          - s[r]c/robotkit/client.py
+          - s[r]c/robotkit/contracts.py
+          - s[r]c/robotkit/runtime.py
         dest: /app/src/robotkit/
       - from: local
-        paths: [src/robotkit/perception/__init__.py]
+        paths: ["s[r]c/robotkit/perception/__init__.py"]
         dest: /app/src/robotkit/perception/__init__.py
       - from: local
         paths:
-          - src/robotkit/perception/lidar_voxel/__init__.py
-          - src/robotkit/perception/lidar_voxel/__main__.py
-          - src/robotkit/perception/lidar_voxel/core.py
-          - src/robotkit/perception/lidar_voxel/producer.py
-          - src/robotkit/perception/lidar_voxel/ros2.py
+          - s[r]c/robotkit/perception/lidar_voxel
         dest: /app/src/robotkit/perception/lidar_voxel/
     entrypoint:
       source: /opt/ros/humble/setup.bash

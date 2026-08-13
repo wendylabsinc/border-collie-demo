@@ -126,6 +126,54 @@ def test_ultralytics_adapter_configures_yoloe_prompts_once():
     ]
 
 
+def test_ultralytics_adapter_maps_prompt_aliases_to_canonical_class():
+    boxes = SimpleNamespace(
+        cls=[1.0],
+        conf=[0.8],
+        xyxy=[[10.0, 20.0, 30.0, 40.0]],
+    )
+    result = SimpleNamespace(
+        orig_shape=(1080, 1920),
+        boxes=boxes,
+        names={0: "pear", 1: "toy pear"},
+    )
+
+    class FakeYoloE:
+        def __init__(self):
+            self.prompt_calls = []
+            self.predict_calls = []
+
+        def get_text_pe(self, names):
+            self.prompt_calls.append(("embed", names))
+            return "embeddings"
+
+        def set_classes(self, names, embeddings):
+            self.prompt_calls.append(("classes", names, embeddings))
+
+        def predict(self, **kwargs):
+            self.predict_calls.append(kwargs)
+            return [result]
+
+    model = FakeYoloE()
+    detector = UltralyticsDetector(
+        model=model,
+        classes=["pear"],
+        prompt_templates=("{name}", "toy {name}"),
+        image_size=1280,
+    )
+
+    frame = detector.detect("frame.jpg")
+
+    assert frame.detections[0].class_name == "pear"
+    assert model.prompt_calls == [
+        ("embed", ["pear", "toy pear"]),
+        ("classes", ["pear", "toy pear"], "embeddings"),
+    ]
+    assert model.predict_calls == [
+        {"source": "frame.jpg", "conf": 0.25, "verbose": False, "imgsz": 1280}
+    ]
+
+
 def test_producer_builds_versioned_idempotent_observation():
     class FakeDetector:
         def detect(self, image):

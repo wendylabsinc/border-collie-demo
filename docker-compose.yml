@@ -28,9 +28,13 @@ services:
       # The Stagefile pins the JetPack-compatible CUDA stack. Keep inference
       # off the CPU so perception cannot starve motion-command renewals.
       YOLO_DEVICE: "0"
+      # Preserve canonical fruit labels while giving YOLOE embeddings that
+      # match the small plastic fruit used by this deployment.
+      YOLO_PROMPT_TEMPLATES: "{name},toy {name}"
+      YOLO_IMAGE_SIZE: "1280"
       # The Go2 camera is wide-angle; approach still requires a corresponding
       # fresh LIDAR range, so this recall-oriented threshold cannot drive blind.
-      YOLO_CONFIDENCE: "0.25"
+      YOLO_CONFIDENCE: "0.15"
       YOLO_CLASSES: apple,banana,grapes,orange,pear
       ROBOTKIT_PRODUCER_ID: yoloe-fruits
       ROBOTKIT_DEPLOYMENT_GENERATION: "1"
@@ -132,6 +136,9 @@ services:
       ROBOTKIT_DEPLOYMENT_GENERATION: "1"
       INTERVAL_SECONDS: "0.1"
       CONTROL_RENEWAL_SECONDS: "0.1"
+      # One full search sweep takes about eight seconds before accounting for
+      # the Go2's acceleration and hardware response.
+      SEARCH_ANGULAR_RPS: "0.8"
       # Several perception streams update between controller publication and
       # executor validation. Time/freshness safety is still bounded by the
       # one-second effect TTL and each decision's required streams.

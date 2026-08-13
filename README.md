@@ -115,13 +115,16 @@ otherwise
 ```
 
 Search rotates until a fresh detection of the requested fruit exists. The deployed detector runs on
-CUDA device 0 with a `0.15` confidence threshold for the Go2's wide-angle
-camera. Approach steers from that fruit's normalized image bearing and uses the
+CUDA device 0 at 1280-pixel inference size with a `0.15` confidence threshold
+for the Go2's wide-angle camera. It prompts both canonical fruit names and
+their toy-fruit variants, while publishing only canonical labels. Approach
+steers from that fruit's normalized image bearing and uses the
 corresponding fresh LIDAR angular sector for range; it sends zero velocity
 rather than moving without a valid range. Home return recomputes a command from
 fresh `localization.pose` and the configured `HOME_X_M`, `HOME_Y_M`, and
 `HOME_YAW_RAD` on every cycle. The stateless controller renews effects at 10 Hz
-on A-derived time buckets and the executor polls at 20 Hz. Pending velocity
+on A-derived time buckets, searches at `0.8 rad/s` (about eight seconds per full
+sweep), and the executor polls at 20 Hz. Pending velocity
 renewals use latest-wins semantics, so device load cannot turn them into a FIFO
 backlog of expired commands; the executor keeps Unitree's 0.8-second velocity
 dead-man fed without process-local mission state. `MAX_STATE_DRIFT` defaults to
@@ -129,7 +132,8 @@ dead-man fed without process-local mission state. `MAX_STATE_DRIFT` defaults to
 legitimately advance A many times while an effect crosses the HTTP boundary;
 the one-second effect TTL and required-stream freshness checks provide the
 time-based safety bounds.
-An explicit `stop` command cancels an active fruit mission. A fresh failed YOLO
+An explicit `stop` command immediately emits zero velocity and cancels any
+active motion mission, including a health return. A fresh failed YOLO
 diagnostic also cancels the mission, while the controller independently emits
 zero velocity so perception failure cannot leave search rotation running.
 `FRUIT_STOP_DISTANCE_M` configures the approach threshold for every fruit;

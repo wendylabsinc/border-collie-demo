@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from collections.abc import Sequence
 from typing import Any
 
 from robotkit.perception.yolo.core import Detection
@@ -42,16 +42,25 @@ class UltralyticsDetector:
         confidence: float = 0.25,
         device: str | None = None,
         classes: Sequence[str] | None = None,
+        prompt_templates: Sequence[str] = ("{name}",),
+        image_size: int | None = None,
         model: Any | None = None,
     ) -> None:
         if not 0.0 <= confidence <= 1.0:
             raise ValueError("confidence must be between 0 and 1")
+        if image_size is not None and image_size <= 0:
+            raise ValueError("image_size must be positive")
+        if not prompt_templates or any("{name}" not in item for item in prompt_templates):
+            raise ValueError("prompt_templates must contain {name}")
         self.model_name = model_name
         self.confidence = confidence
         self.device = device
         self.classes = tuple(classes or ())
+        self.prompt_templates = tuple(prompt_templates)
+        self.image_size = image_size
         self._model = model
         self._classes_configured = False
+        self._prompt_to_class: Mapping[str, str] = {}
 
     def _load_model(self) -> Any:
         if self._model is None:
@@ -66,9 +75,21 @@ class UltralyticsDetector:
             # YOLOE-11 is open-vocabulary. Encode the configured fruit names
             # once at startup, then reuse those embeddings for every frame.
             # Ultralytics 8.3.x requires embeddings explicitly here.
-            names = list(self.classes)
+            names: list[str] = []
+            prompt_to_class: dict[str, str] = {}
+            for canonical_name in self.classes:
+                for template in self.prompt_templates:
+                    prompt = template.format(name=canonical_name)
+                    previous = prompt_to_class.setdefault(prompt, canonical_name)
+                    if previous != canonical_name:
+                        raise ValueError(
+                            f"YOLO prompt {prompt!r} maps to multiple classes"
+                        )
+                    if prompt not in names:
+                        names.append(prompt)
             embeddings = self._model.get_text_pe(names)
             self._model.set_classes(names, embeddings)
+            self._prompt_to_class = prompt_to_class
             self._classes_configured = True
         return self._model
 
@@ -76,6 +97,8 @@ class UltralyticsDetector:
         kwargs: dict[str, Any] = {"source": image, "conf": self.confidence, "verbose": False}
         if self.device:
             kwargs["device"] = self.device
+        if self.image_size is not None:
+            kwargs["imgsz"] = self.image_size
         results = self._load_model().predict(**kwargs)
         if not results:
             raise RuntimeError("Ultralytics returned no result for the image")
@@ -93,7 +116,9 @@ class UltralyticsDetector:
         detections = tuple(
             Detection(
                 class_id=int(class_id),
-                class_name=str(names[int(class_id)]),
+                class_name=self._prompt_to_class.get(
+                    str(names[int(class_id)]), str(names[int(class_id)])
+                ),
                 confidence=float(confidence),
                 xyxy=tuple(float(value) for value in xyxy),  # type: ignore[arg-type]
             )
