@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 
 import pytest
 
@@ -10,6 +11,7 @@ from border_collie_demo.hardware import CameraFailure, TargetLost
 from border_collie_demo.models import MissionPhase
 from border_collie_demo.orchestrator import StageContext, StageFailure
 from border_collie_demo.production import ProductionStageExecutor
+from border_collie_demo.run_tuning import RunTuning
 
 
 class FakeProductionHardware:
@@ -58,7 +60,12 @@ class FakeProductionHardware:
         self, home: dict[str, object], **options: float
     ) -> dict[str, object]:
         self.calls.append(("turn_toward_home", home, options))
-        return {"home_bearing_error_rad": 0.02, "motion_commands_sent": True}
+        return {
+            "home_bearing_error_rad": 0.02,
+            "motion_path": "sport_yaw",
+            "pose_age_s": 0.02,
+            "motion_commands_sent": True,
+        }
 
     async def return_home_position(
         self, home: dict[str, object], **options: float
@@ -81,16 +88,31 @@ class FakeBark:
         return {"bark_played": True}
 
 
+class FailedBark:
+    async def bark(self) -> dict[str, object]:
+        raise RuntimeError("bark sidecar timed out")
+
+
 def context(
     *,
     outbound_forward_pulses: int = 0,
     search_experiment: dict[str, object] | None = None,
+    final_push: dict[str, float] | None = None,
 ) -> StageContext:
+    tuning_payload = None
+    if final_push is not None:
+        tuning_payload = {
+            "arrival": {
+                "final_push_mps": final_push["speed_mps"],
+                "final_push_duration_s": final_push["duration_s"],
+            }
+        }
     return StageContext(
         run_id="run-1",
         target_fruit="pear",
         home={"x_m": 0.0, "y_m": 0.0, "yaw_rad": 0.0},
         outbound_forward_pulses=outbound_forward_pulses,
+        run_tuning=RunTuning.from_payload("pear", tuning_payload).to_dict(),
         search_experiment=search_experiment,
     )
 
@@ -249,7 +271,10 @@ def test_approach_uses_measured_factory_motion_and_one_final_push() -> None:
         status_reader = lambda: {"ready": True}
         stages = ProductionStageExecutor(hardware, status_reader, FakeBark())
 
-        evidence = await stages.execute(MissionPhase.APPROACH_FRUIT, context())
+        evidence = await stages.execute(
+            MissionPhase.APPROACH_FRUIT,
+            context(final_push={"speed_mps": 0.60, "duration_s": 0.40}),
+        )
 
         name, reader, fruit, options = hardware.calls[0]
         assert (name, reader, fruit) == ("approach_target", status_reader, "pear")
@@ -257,19 +282,47 @@ def test_approach_uses_measured_factory_motion_and_one_final_push() -> None:
             # The factory-avoidance calibration established 0.50 m/s as the
             # deadband edge, not a production value with usable margin. The
             # camera-guided approach uses the separately verified 1.0 m/s
-            # signal, while the final off-screen movement is softened to
-            # 0.3 m/s before the explicit stop-and-lie-down sequence.
+            # signal, while the final off-screen movement uses this Demo Run's
+            # bounded activation tuning before stop-and-lie-down.
             "forward_mps": 1.0,
             "maximum_yaw_rps": 0.30,
             "near_bottom_ratio": 0.86,
             "near_center_ratio": 0.72,
             "near_confirmations": 3,
             "near_loss_grace_s": 0.75,
-            "final_push_mps": 0.3,
-            "final_push_duration_s": 1.0,
+            "final_push_mps": 0.6,
+            "final_push_duration_s": 0.4,
             "timeout_s": 20.0,
         }
         assert evidence["arrival_confirmed"] is True
+
+    asyncio.run(scenario())
+
+
+def test_mission_lifetime_guidance_uses_the_exact_one_run_final_push_tuning() -> None:
+    class GuidedHardware(FakeProductionHardware):
+        async def guide_target(
+            self, _status_reader, guidance, *, allow_forward: bool, timeout_s: float
+        ) -> dict[str, object]:
+            assert allow_forward is True
+            assert timeout_s == 20.0
+            return {
+                "arrival_confirmed": True,
+                "forward_pulse_count": 1,
+                "final_push_mps": guidance.config.final_push_mps,
+                "final_push_duration_s": guidance.config.final_push_duration_s,
+            }
+
+    async def scenario() -> None:
+        stages = ProductionStageExecutor(GuidedHardware(), dict, FakeBark())
+
+        evidence = await stages.execute(
+            MissionPhase.APPROACH_FRUIT,
+            context(final_push={"speed_mps": 0.60, "duration_s": 0.40}),
+        )
+
+        assert evidence["final_push_mps"] == 0.60
+        assert evidence["final_push_duration_s"] == 0.40
 
     asyncio.run(scenario())
 
@@ -468,6 +521,40 @@ def test_audience_action_sits_barks_then_stands_in_separate_stages() -> None:
     asyncio.run(scenario())
 
 
+def test_bark_failure_is_recorded_but_cannot_skip_hold_stand_or_home() -> None:
+    async def scenario() -> None:
+        hardware = FakeProductionHardware()
+        holds: list[float] = []
+
+        async def hold(duration_s: float) -> None:
+            holds.append(duration_s)
+
+        stages = ProductionStageExecutor(hardware, dict, FailedBark(), sleep=hold)
+
+        action = await stages.execute(MissionPhase.SIT_AND_BARK, context())
+        standing = await stages.execute(MissionPhase.STAND, context())
+        turned = await stages.execute(MissionPhase.TURN_TOWARD_HOME, context())
+        returned = await stages.execute(MissionPhase.RETURN_HOME, context())
+
+        assert action["posture"] == "stand_down"
+        assert action["bark_played"] is False
+        assert action["bark_error"] == "bark sidecar timed out"
+        assert action["down_hold_s"] == 5.0
+        assert holds == [1.0, 5.0]
+        assert standing["posture"] == "balance_stand"
+        assert turned["home_bearing_error_rad"] == 0.02
+        assert returned["home_distance_m"] == 0.08
+        assert [call[0] for call in hardware.calls] == [
+            "emergency_stop",
+            "stand_down",
+            "stand_up",
+            "turn_toward_home",
+            "return_home_position",
+        ]
+
+    asyncio.run(scenario())
+
+
 def test_return_stages_use_captured_home_and_locked_arrival_rules() -> None:
     async def scenario() -> None:
         hardware = FakeProductionHardware()
@@ -507,6 +594,31 @@ def test_return_stages_use_captured_home_and_locked_arrival_rules() -> None:
         assert returned["home_distance_m"] == 0.08
         assert restored["heading_restoration_skipped"] is True
         assert restored["motion_commands_sent"] is False
+
+    asyncio.run(scenario())
+
+
+def test_return_cannot_start_when_home_turn_did_not_finish_inside_bearing_gate() -> None:
+    class BadHomeTurnHardware(FakeProductionHardware):
+        async def turn_toward_home(
+            self, home: dict[str, object], **options: float
+        ) -> dict[str, object]:
+            self.calls.append(("turn_toward_home", home, options))
+            return {
+                "home_bearing_error_rad": math.radians(9.0),
+                "motion_path": "sport_yaw",
+                "pose_age_s": 0.02,
+                "motion_commands_sent": True,
+            }
+
+    async def scenario() -> None:
+        hardware = BadHomeTurnHardware()
+        stages = ProductionStageExecutor(hardware, dict, FakeBark())
+
+        with pytest.raises(StageFailure, match="fresh bearing gate"):
+            await stages.execute(MissionPhase.TURN_TOWARD_HOME, context())
+
+        assert [call[0] for call in hardware.calls] == ["turn_toward_home"]
 
     asyncio.run(scenario())
 

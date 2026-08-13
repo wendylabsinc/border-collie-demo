@@ -17,7 +17,6 @@ from .orchestrator import SimulatedStageExecutor
 from .perception import PerceptionStatusClient
 from .production import ProductionStageExecutor
 from .simulation import SimulatedHardware, simulated_camera_perception
-from .system_audio import SystemAudioConfig, create_system_audio_policy
 
 
 def build_app_from_env() -> FastAPI:
@@ -41,10 +40,19 @@ def build_app_from_env() -> FastAPI:
     hardware = HardwareManager(HardwareConfig.from_env(), black_box=black_box)
     perception = PerceptionStatusClient(PerceptionConfig.from_env())
     bark = BarkClient(BarkConfig.from_env())
-    system_audio = create_system_audio_policy(
-        bark,
-        SystemAudioConfig.from_env(),
-    )
+
+    def best_effort_bark_status() -> dict[str, object]:
+        try:
+            status = bark.status()
+        except Exception as exc:  # noqa: BLE001 - bark cannot block motion readiness
+            status = {"ready": False, "detail": str(exc)}
+        return {
+            "ready": True,
+            "detail": "bark is best effort and does not block Demo Run readiness",
+            "bark_ready": status.get("ready") is True,
+            "bark_detail": status.get("detail"),
+        }
+
     terminal_evidence = TerminalEvidenceClient.from_env()
     return create_app(
         hardware=hardware,
@@ -52,14 +60,13 @@ def build_app_from_env() -> FastAPI:
         camera_frame=perception.camera_frame,
         select_perception_target=perception.select_target,
         runs_root=runs_root,
-        media_status=system_audio.status,
+        media_status=best_effort_bark_status,
         stage_executor=ProductionStageExecutor(
-            hardware, perception.status, system_audio
+            hardware, perception.status, bark
         ),
         terminal_evidence=terminal_evidence.capture,
         failure_epilogue=PositionOnlyFailureEpilogue(hardware),
         black_box=black_box,
-        system_audio=system_audio,
         runtime_mode="production",
     )
 

@@ -457,8 +457,8 @@ class RunTuning:
                     arrival,
                     "final_push_duration_s",
                     defaults.arrival.final_push_duration_s,
-                    0.10,
-                    1.0,
+                    0.0,
+                    1.50,
                 ),
             ),
             home=HomeTuning(
@@ -525,6 +525,10 @@ class RunTuning:
             raise ValueError("detection age cannot exceed source age")
         if self.approach.duplicate_hold_s > self.approach.detection_maximum_age_s:
             raise ValueError("duplicate hold cannot exceed detection freshness")
+        if 0.0 < self.arrival.final_push_duration_s < 0.10:
+            raise ValueError(
+                "final push duration must be 0 (disabled) or at least 0.10 seconds"
+            )
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -667,7 +671,16 @@ class RunTuning:
                 _field("loss_grace_s", "Near-loss grace", "s", 0.10, 1.5, 0.05),
                 _field("final_push_mps", "Final push speed", "m/s", 0.50, 1.0, 0.05),
                 _field(
-                    "final_push_duration_s", "Final push duration", "s", 0.10, 1.0, 0.05
+                    "final_push_duration_s",
+                    "Final push duration (0 disables)",
+                    "s",
+                    0.0,
+                    1.50,
+                    0.10,
+                    safety=(
+                        "Zero disables the push; non-zero values must be at least "
+                        "0.10 s and remain bounded by the server."
+                    ),
                 ),
             ],
             "home": [

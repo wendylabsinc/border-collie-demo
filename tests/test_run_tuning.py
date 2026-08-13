@@ -204,7 +204,11 @@ def test_production_consumes_guidance_and_home_values_from_the_snapshot() -> Non
 
         async def turn_toward_home(self, _home, **options):
             self.home_calls.append(("align", options))
-            return {"motion_commands_sent": False}
+            return {
+                "home_bearing_error_rad": 0.0,
+                "motion_path": "sport_yaw",
+                "motion_commands_sent": False,
+            }
 
         async def return_home_position(self, _home, **options):
             self.home_calls.append(("return", options))

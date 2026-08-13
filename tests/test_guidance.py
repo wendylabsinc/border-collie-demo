@@ -363,6 +363,38 @@ def test_lower_edge_disappearance_allows_exactly_one_bounded_final_push() -> Non
     assert guidance.final_push_count == 1
 
 
+def test_zero_duration_disables_final_push_and_arrival_remains_stopped() -> None:
+    guidance = FruitGuidance(
+        "pear",
+        config=GuidanceConfig(final_push_mps=0.60, final_push_duration_s=0.0),
+    )
+    for pts, now_s in ((1, 0.0), (2, 0.1), (3, 0.2)):
+        guidance.observe(observation(pts=pts, now_s=now_s), now_s=now_s)
+    for pts, now_s in ((4, 0.3), (5, 0.4), (6, 0.5)):
+        guidance.observe(
+            observation(pts=pts, now_s=now_s, center_y=0.80, bottom=0.92),
+            now_s=now_s,
+            allow_forward=True,
+        )
+
+    guidance.observe(
+        observation(pts=7, now_s=0.6, label=None),
+        now_s=0.6,
+        allow_forward=True,
+    )
+    arrived = guidance.observe(
+        observation(pts=8, now_s=0.7, label=None),
+        now_s=0.7,
+        allow_forward=True,
+    )
+
+    assert arrived.action is GuidanceAction.ARRIVED
+    assert arrived.reason == "bounded_final_push_disabled"
+    assert arrived.command.forward_mps == 0.0
+    assert arrived.arrival_confirmed is True
+    assert guidance.final_push_count == 0
+
+
 def test_stale_detection_replay_stops_without_reusing_motion_authority() -> None:
     guidance = FruitGuidance("pear")
     for pts, now_s in ((1, 0.0), (2, 0.1), (3, 0.2), (4, 0.3)):

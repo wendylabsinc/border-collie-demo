@@ -115,13 +115,15 @@ class GuidanceConfig:
             raise ValueError("near_loss_grace_s must be positive")
         if not 0.50 <= self.final_push_mps <= 1.0:
             raise ValueError("final_push_mps must stay within 0.50..1.0 m/s")
-        if not 0.0 < self.final_push_duration_s <= 1.0:
-            raise ValueError("final_push_duration_s must stay within 0.0..1.0 seconds")
+        if not 0.0 <= self.final_push_duration_s <= 1.50:
+            raise ValueError(
+                "final_push_duration_s must stay within 0.0..1.50 seconds"
+            )
 
     @classmethod
     def from_env(cls) -> GuidanceConfig:
         prefix = "BORDER_COLLIE_GUIDANCE_"
-        return cls(
+        config = cls(
             search_yaw_rps=float(os.environ.get(prefix + "SEARCH_YAW_RPS", "0.40")),
             search_sweep_rad=float(
                 os.environ.get(prefix + "SEARCH_SWEEP_RAD", str(2.0 * math.pi))
@@ -175,6 +177,14 @@ class GuidanceConfig:
                 os.environ.get(prefix + "FINAL_PUSH_DURATION_S", "1.0")
             ),
         )
+        # Global runtime defaults have the same practical bounds as one-run UI
+        # tuning. Direct construction remains available to deterministic tests
+        # that use a shorter synthetic clock.
+        if 0.0 < config.final_push_duration_s < 0.10:
+            raise ValueError(
+                "final push duration must be 0 (disabled) or at least 0.10 seconds"
+            )
+        return config
 
 
 @dataclass(frozen=True)
@@ -589,6 +599,15 @@ class FruitGuidance:
             self._near_loss_samples += 1
             if self._near_loss_samples < self.config.near_loss_confirmations:
                 return self._stop("lower_edge_loss_confirmation_pending")
+            if self.config.final_push_duration_s == 0.0:
+                self.phase = GuidancePhase.ARRIVED
+                return self._decision(
+                    GuidanceAction.ARRIVED,
+                    VelocityCommand(reason="bounded_final_push_disabled"),
+                    "bounded_final_push_disabled",
+                    terminal=True,
+                    arrival_confirmed=True,
+                )
             self.phase = GuidancePhase.FINAL_PUSH
             self._final_push_started_s = now_s
             self.final_push_count += 1

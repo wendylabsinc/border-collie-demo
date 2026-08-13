@@ -10,7 +10,10 @@ The defaults retain the physically useful base behavior with the qualified
 slower-search experiment: search at `0.40 rad/s`, require three fresh centered samples, translate
 continuously at `1.0 m/s`, steer while moving outside the center band, remove
 forward authority outside the outer corridor, and permit one `0.60 m/s` by
-`1.0 s` final push only after centered lower-edge evidence disappears.
+`1.0 s` final push only after centered lower-edge evidence disappears. An
+activation may replace the final-push speed and duration for that one run;
+those values are frozen with the mission and never mutate process-wide
+guidance.
 
 ## Per-run tuning
 
@@ -49,7 +52,7 @@ motion safety limits.
 | `BORDER_COLLIE_GUIDANCE_NEAR_LOSS_CONFIRMATIONS` | fresh frames | `2` | integer `>=2` | One weak or missing observation stops but cannot start the final push. |
 | `BORDER_COLLIE_GUIDANCE_NEAR_LOSS_GRACE_S` | seconds | `0.75` | greater than `0` | Missing fruit can close out only while the centered near latch is recent. |
 | `BORDER_COLLIE_GUIDANCE_FINAL_PUSH_MPS` | m/s | `0.60` | `0.50..1.0` | Exactly one final-push episode is allowed. |
-| `BORDER_COLLIE_GUIDANCE_FINAL_PUSH_DURATION_S` | seconds | `1.0` | greater than `0`, at most `1.0` | The push is terminal and cannot be restarted. |
+| `BORDER_COLLIE_GUIDANCE_FINAL_PUSH_DURATION_S` | seconds | `1.0` | `0`, or `0.10..1.50` | The push is terminal and cannot be restarted. Zero disables it and leaves Arrival stopped. |
 
 Fruit acquisition and tracking confidence remain owned by
 `border_collie_demo.fruits.FRUIT_POLICIES`, including the Banana specialist's
@@ -62,6 +65,13 @@ persisted with the selected fruit before preflight, and applied by replacing
 the `FruitPolicy` passed to that run's `FruitGuidance`. The process-wide policy
 map is never mutated. Activations without an override preserve the baseline
 policy, including no separate focus phase for Pear and Banana.
+
+The same activation may include `final_push.speed_mps` in `0.50..1.0` m/s and
+`final_push.duration_s` equal to `0` or in `0.10..1.50` seconds. For example,
+`0.60 m/s` for `0.40 s` is a valid one-run experiment. The server rejects
+unknown, non-finite, or out-of-range fields before preflight, persists the exact
+effective pair in the activation, Run Result, and black-box trace, and treats a
+changed pair under the same activation ID as an idempotency conflict.
 
 ## Safety behavior
 

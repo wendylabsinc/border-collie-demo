@@ -34,21 +34,26 @@ The executable, hardware-free design probe lives in
 
 1. Stop and settle after standing from the fruit action.
 2. Read a fresh pose and recompute bearing and distance to Home.
-3. Turn in place until the measured Home bearing enters the qualified course
-   gate.
-4. Replay the recorded outbound forward-heartbeat count through a
+3. In `TURN_TOWARD_HOME`, turn in place through regular SportClient until a new
+   fresh pose proves the measured Home bearing is inside the qualified course
+   gate. This is the only Home phase that may issue yaw-only commands.
+4. In `RETURN_HOME`, arm factory obstacle avoidance and replay the recorded
+   outbound forward-heartbeat count through a
    collision-aware motion owner while continuously measuring Home Distance,
-   pose age, route state, and progress.
+   pose age, route state, and progress. Every non-zero command combines forward
+   translation with bounded yaw steering.
 5. Stop translation inside the position gate.
-6. Restore the captured Home heading in place.
-7. Re-read position after the heading turn. If the position gate was lost,
-   repeat the bounded turn-and-translate sequence within the same limits.
-8. Request stop, release the motion owner, and confirm disarm.
-9. Report success only when fresh pose confirms both position and heading gates
-   and the final safety state is `DISARMED_CONFIRMED`.
+6. If the bearing escapes the qualified forward-steering gate after translation
+   starts, command exact zero, disarm, and fail. Do not re-enter an in-place
+   turn from `RETURN_HOME`.
+7. Request stop, release the motion owner, and confirm disarm.
+8. Report success only when fresh pose confirms the position gate and the final
+   safety state is `DISARMED_CONFIRMED`. Captured heading remains evidence, not
+   a completion gate.
 
-The initial acceptance targets are **0.10 meters** Home Distance and **5 degrees**
-heading error. They are proposed gates, not qualified claims. The earlier
+The initial acceptance target is **0.10 meters** Home Distance. The
+`TURN_TOWARD_HOME` course-entry gate is **5 degrees**. They are proposed gates,
+not qualified claims. The earlier
 prototype failed its 0.10-meter gate with 0.207 meters remaining, so the clean
 implementation must earn these values in a new acceptance run.
 
@@ -70,6 +75,9 @@ position as a new Home.
 
 - Translation is forward-only. The return controller does not reverse toward
   an unseen route. Bounded course correction may accompany forward replay.
+- All yaw-only Home commands precede the first forward command. After that
+  first forward command, an excessive course error is a terminal safety event,
+  not authorization for a stationary correction.
 - Translation must retain factory obstacle avoidance or use another
   independently qualified collision-aware planner. Direct unprotected body
   translation cannot implement production return-to-Home.

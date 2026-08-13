@@ -14,6 +14,8 @@ The audience route is intentionally minimal:
 - server-described per-run controls for search, selected-fruit confidence,
   centering, approach, Arrival, and Home, with effective values displayed and
   persisted before activation and no process-wide configuration mutation;
+- bounded final-push speed and duration within the Arrival tuning group; zero
+  duration explicitly disables the push without rebuilding or redeploying;
 - a read-only annotated camera preview showing model state and Target Fruit
   evidence;
 - readiness or the exact reason activation is unavailable;
@@ -131,6 +133,8 @@ Automated and browser acceptance must prove:
 
 - repeated activation cannot create concurrent runs;
 - the Run Result exists before the first hardware call;
+- exact effective per-run final-push values appear in the activation, persisted
+  Run Result, and black-box trace;
 - disabled activation explains the blocking readiness gate;
 - Stop Woof remains reachable in every audience state;
 - camera failure, target loss, operator stop, return failure, and Remote

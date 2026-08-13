@@ -23,8 +23,11 @@ and heading restoration as a success gate. Those experiments remain in their
 existing worktrees and Git history; they are not hidden switches in the stage
 controller.
 
-Release identity: `stage-default-v2-muted-black-box`, Wendy application version
-`1.1.1-stage-default`. This iteration adds the muted-except-bark system audio
-policy and the append-only per-run black-box trace; physical speaker behavior
-and timing remain unqualified until deployment and a supervised zero-motion
-audio check.
+Release identity at the branch point: `stage-default-v2-muted-black-box`, Wendy
+application version `1.1.1-stage-default`. This derived candidate removes the
+muted-except-bark startup dependency: direct bark is best effort and cannot
+block readiness, posture cleanup, or Home. It also makes the final push a
+frozen one-run UI tuning and separates Home alignment (regular Sports,
+yaw-only) from Home translation (factory avoidance, forward plus bounded yaw).
+The integrating branch must assign a new release identity before deployment;
+none of these changes is physically qualified by this worktree.

@@ -220,6 +220,7 @@ class ProductionStageExecutor:
                 timeout_s=9.0,
             )
         if phase is MissionPhase.APPROACH_FRUIT:
+            tuning = RunTuning.from_payload(context.target_fruit, context.run_tuning)
             return await self._hardware.approach_target(
                 self._perception_status,
                 context.target_fruit,
@@ -228,15 +229,15 @@ class ProductionStageExecutor:
                 # physical step during camera-guided approach. Once qualified
                 # lower-edge disappearance proves arrival, soften the one
                 # bounded final movement before the stop-and-lie-down stage.
-                forward_mps=1.0,
-                maximum_yaw_rps=0.30,
-                near_bottom_ratio=0.86,
-                near_center_ratio=0.72,
-                near_confirmations=3,
-                near_loss_grace_s=0.75,
-                final_push_mps=0.3,
-                final_push_duration_s=1.0,
-                timeout_s=20.0,
+                forward_mps=tuning.approach.forward_mps,
+                maximum_yaw_rps=tuning.centering.approach_yaw_rps,
+                near_bottom_ratio=tuning.arrival.near_bottom_ratio,
+                near_center_ratio=tuning.arrival.near_center_ratio,
+                near_confirmations=tuning.arrival.near_confirmations,
+                near_loss_grace_s=tuning.arrival.loss_grace_s,
+                final_push_mps=tuning.arrival.final_push_mps,
+                final_push_duration_s=tuning.arrival.final_push_duration_s,
+                timeout_s=tuning.approach.timeout_s,
             )
         if phase is MissionPhase.SIT_AND_BARK:
             stop_errors = await self._hardware.emergency_stop()
@@ -246,7 +247,14 @@ class ProductionStageExecutor:
                 )
             await self._sleep(ARRIVAL_STOP_SETTLE_S)
             evidence = await self._hardware.stand_down()
-            bark = await self._bark.bark()
+            try:
+                bark = await self._bark.bark()
+            except Exception as exc:  # noqa: BLE001 - bark is audience-only
+                bark = {
+                    "bark_played": False,
+                    "bark_error": str(exc)[:240] or type(exc).__name__,
+                    "bark_error_type": type(exc).__name__,
+                }
             await self._sleep(DOWN_HOLD_S)
             return {
                 **evidence,
@@ -259,15 +267,31 @@ class ProductionStageExecutor:
             return await self._hardware.stand_up(settle_s=STAND_UP_SETTLE_S)
         if phase is MissionPhase.TURN_TOWARD_HOME:
             tuning = RunTuning.from_payload(context.target_fruit, context.run_tuning)
-            return await self._hardware.turn_toward_home(
+            tolerance_rad = math.radians(tuning.home.align_tolerance_deg)
+            evidence = await self._hardware.turn_toward_home(
                 context.home,
                 yaw_rps=tuning.home.align_yaw_rps,
-                tolerance_rad=math.radians(tuning.home.align_tolerance_deg),
+                tolerance_rad=tolerance_rad,
                 response_timeout_s=0.75,
                 response_min_progress_rad=math.radians(2.0),
                 recovery_settle_s=1.0,
                 timeout_s=tuning.home.align_timeout_s,
             )
+            error = evidence.get("home_bearing_error_rad")
+            if (
+                not isinstance(error, (int, float))
+                or isinstance(error, bool)
+                or not math.isfinite(float(error))
+                or abs(float(error)) > tolerance_rad
+            ):
+                raise HardwareUnavailable(
+                    "turn toward Home did not finish inside the fresh bearing gate"
+                )
+            if evidence.get("motion_path") != "sport_yaw":
+                raise HardwareUnavailable(
+                    "turn toward Home did not use regular SportClient yaw"
+                )
+            return evidence
         if phase is MissionPhase.RETURN_HOME:
             tuning = RunTuning.from_payload(context.target_fruit, context.run_tuning)
             return await self._hardware.return_home_position(

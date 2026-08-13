@@ -39,11 +39,13 @@ reference, but it is not a runtime dependency.
    edge may Woof send the single bounded final movement.
 8. First turn at a fixed 0.50 rad/s until the Target Fruit is within the middle
    16% of the camera, then hold zero yaw for three fresh centered samples. After
-   qualified lower-edge disappearance, send one 0.3 m/s by
-   1.0-second final push, stop, lie down, bark, and remain down for 5 seconds.
-9. Stand, turn toward Home, replay the recorded number of outbound forward
-   heartbeats at 1.0 m/s, and restore the original heading. Fresh pose remains
-   the authority for the 10 cm Home success gate and recorded Home Distance.
+   qualified lower-edge disappearance, send the one-run bounded final push
+   (default 0.60 m/s by 1.0 second), stop, lie down, attempt the best-effort
+   bark, and remain down for 5 seconds.
+9. Stand, align toward Home through regular Sports yaw, then replay the recorded
+   number of outbound forward heartbeats through factory obstacle avoidance at
+   1.0 m/s with bounded moving yaw. Fresh pose remains the authority for the
+   10 cm position-only Home success gate and recorded Home Distance.
 10. Stop all motion, record the result, and report completion.
 
 Arbitrary typed commands remain on the separate debug surface. The supervised
@@ -155,8 +157,8 @@ evidence before sealing success. Loss of pose freshness during capture also fail
 **Stop Woof** seals an active run and permits another activation, while process
 restart seals unfinished work as `PROCESS_INTERRUPTED`. The production executor
 uses measured pose turns, bounded camera-guided search, geometry-gated approach,
-one 0.3 m/s by 1.0 s off-screen final push, Unitree posture actions, bark, and
-closed-loop odometry return through factory obstacle avoidance.
+one bounded per-run off-screen final push, Unitree posture actions, best-effort
+bark, and closed-loop odometry return through factory obstacle avoidance.
 The initial turn/search is explicitly **conditional**, not an unconditional
 part of every run. Target Fruit qualification may already be present when
 `TURN_TO_FRUIT` begins. Fresh qualified evidence for the selected Target Fruit
@@ -250,8 +252,9 @@ Two independent environment gates are required:
   perception status adapter. It independently enforces the qualified source and
   pear thresholds against the configured sidecar evidence and fails closed when
   that evidence is missing, stale, malformed, or unreachable.
-- `BORDER_COLLIE_BARK_ENABLED=1` requires the media sidecar to prove AudioHub
-  bark readiness during preflight and permits the arrival bark request.
+- `BORDER_COLLIE_BARK_ENABLED=1` enables the direct best-effort AudioHub bark
+  request after Woof lies down. Bark readiness is observable but never blocks
+  activation or motion, and bark failure never skips the five-second down hold.
 
 The production media process is `media.perception_sidecar:app` on port `8111`.
 It owns one Go2 WebRTC connection, advances PTS/time-base evidence, binds every
@@ -339,29 +342,15 @@ selects all three automatically for a whole-project deployment; generated
 Dockerfiles are build artifacts and are not committed. Deploy with
 `wendy run --detach` and do not pass a Dockerfile override.
 
-### System audio policy
+### Audience bark
 
-Production starts with the embedded Go2 speaker muted and keeps it muted through
-search, obstacle-avoidance transitions, approach, posture changes, and Return
-Home. Only the audience bark opens a bounded audible window; the speaker is
-re-muted and verified even when bark playback fails. This also suppresses the
-onboard offline-voice response and factory obstacle-mode announcements while
-the demo owns the speaker.
-
-- `BORDER_COLLIE_SYSTEM_AUDIO_POLICY`: `muted_except_bark` (default) or
-  `normal`.
-- `BORDER_COLLIE_BARK_VOLUME`: integer Go2 VUI level `0..10`; default `6`.
-- `BORDER_COLLIE_BARK_AUDIBLE_S`: unmuted bark window in seconds, `0.25..10`;
-  default `2.0` and requires physical qualification against the selected clip.
-- `BORDER_COLLIE_VUI_TIMEOUT_S`: VUI operation timeout in seconds; default
-  `3.0`.
-- `BORDER_COLLIE_RESTORE_SPEAKER_ON_CLOSE`: default `0`, leaving the robot
-  muted on orderly shutdown. Set `1` only when restoring the captured pre-demo
-  volume is explicitly desired.
-
-The mute is device-global and can suppress useful robot warnings. Hard process
-termination during the audible bark window can leave the speaker unmuted until
-the app restarts and reasserts the policy.
+Production uses the direct bark sidecar and does not own or change the Go2's
+device-global VUI volume. Onboard prompts such as "I'm here" and obstacle-mode
+announcements may therefore remain audible. Bark is audience polish, not a
+motion or posture safety gate: a bark timeout or playback error is persisted as
+`bark_played: false`, the five-second down hold still completes, and Stand and
+Return Home continue. Stop, StandDown, hold, Stand, and Home failures remain
+terminal.
 
 ### Per-run black box
 

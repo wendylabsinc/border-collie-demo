@@ -100,6 +100,8 @@ class MotionAdapterProtocol(Protocol):
 
     async def arm(self) -> str: ...
 
+    async def arm_sport_yaw(self) -> str: ...
+
     async def command(
         self, lease: str, command: VelocityCommand
     ) -> VelocityCommand: ...
@@ -434,6 +436,7 @@ class HardwareManager:
         timeout_s: float,
         response_timeout_s: float = 0.75,
         response_min_progress_rad: float = math.radians(2.0),
+        motion_path: str = "factory_avoidance",
     ) -> dict[str, object]:
         """Turn through a measured robot-local yaw change, then disarm."""
         requested = float(angle_rad)
@@ -464,6 +467,8 @@ class HardwareManager:
             raise ValueError("turn timeout must be positive")
         if response_timeout <= 0.0 or response_min_progress <= 0.0:
             raise ValueError("turn response gate must be positive")
+        if motion_path not in {"factory_avoidance", "sport_yaw"}:
+            raise ValueError("turn motion_path must be factory_avoidance or sport_yaw")
         self._require_autonomy_ready()
 
         async with self._operation_lock:
@@ -486,7 +491,11 @@ class HardwareManager:
                         initial.error or "fresh Go2 pose is required before motion"
                     )
                 previous_yaw = initial.pose.yaw_rad
-                lease = await self._motion.arm()
+                lease = (
+                    await self._motion.arm_sport_yaw()
+                    if motion_path == "sport_yaw"
+                    else await self._motion.arm()
+                )
                 command_started = time.monotonic()
                 deadline = started + timeout
                 while time.monotonic() < deadline:
@@ -550,7 +559,7 @@ class HardwareManager:
             if release_error is not None:
                 raise HardwareUnavailable(f"measured turn stop failed: {release_error}")
             return {
-                "motion_path": "factory_avoidance",
+                "motion_path": motion_path,
                 "requested_angle_rad": requested,
                 "measured_yaw_change_rad": progress,
                 "yaw_rps": direction * rate,
@@ -833,7 +842,8 @@ class HardwareManager:
             raise ValueError("near-fruit geometry thresholds are invalid")
         if (
             near_confirmations < 1
-            or min(near_loss_grace_s, final_push_duration_s, timeout_s) <= 0.0
+            or min(near_loss_grace_s, timeout_s) <= 0.0
+            or final_push_duration_s < 0.0
         ):
             raise ValueError("approach timing or confirmation count is invalid")
         self._require_autonomy_ready()
@@ -982,6 +992,11 @@ class HardwareManager:
                             )
                             await asyncio.sleep(self.config.command_heartbeat_s)
                             continue
+                        if final_push_duration_s == 0.0:
+                            await self._send_motion_command(
+                                lease,
+                                VelocityCommand(reason="bounded_final_push_disabled"),
+                            )
                         push_deadline = now + final_push_duration_s
                         while time.monotonic() < push_deadline:
                             push_status = status_reader()
@@ -1013,7 +1028,9 @@ class HardwareManager:
                             "near_confirmations": confirmations,
                             "final_push_mps": final_push_mps,
                             "final_push_duration_s": final_push_duration_s,
-                            "final_push_count": 1,
+                            "final_push_count": (
+                                0 if final_push_duration_s == 0.0 else 1
+                            ),
                             "initial_center_confirmations": (
                                 initial_center_confirmations
                             ),
@@ -1476,14 +1493,14 @@ class HardwareManager:
                         raise HardwareUnavailable(
                             f"return Home stalled at {step.distance_m:.3f} m"
                         )
-                    command = (
-                        VelocityCommand(0.0, step.yaw_rps, "return_course_correction")
-                        if step.mode is ReturnMode.TURN_TO_HOME
-                        else VelocityCommand(
-                            step.forward_mps,
-                            step.yaw_rps,
-                            "return_home",
+                    if step.mode is ReturnMode.TURN_TO_HOME:
+                        raise HardwareUnavailable(
+                            "return Home heading escaped the forward steering gate"
                         )
+                    command = VelocityCommand(
+                        step.forward_mps,
+                        step.yaw_rps,
+                        "return_home",
                     )
                     await self._send_motion_command(lease, command)
                     commands_sent = True
@@ -1622,18 +1639,14 @@ class HardwareManager:
                         raise HardwareUnavailable(
                             f"return Home stalled at {step.distance_m:.3f} m"
                         )
-                    command = (
-                        VelocityCommand(
-                            0.0,
-                            step.yaw_rps,
-                            "return_course_correction",
+                    if step.mode is ReturnMode.TURN_TO_HOME:
+                        raise HardwareUnavailable(
+                            "return Home heading escaped the forward steering gate"
                         )
-                        if step.mode is ReturnMode.TURN_TO_HOME
-                        else VelocityCommand(
-                            step.forward_mps,
-                            step.yaw_rps,
-                            "return_home_position",
-                        )
+                    command = VelocityCommand(
+                        step.forward_mps,
+                        step.yaw_rps,
+                        "return_home_position",
                     )
                     await self._send_motion_command(lease, command)
                     commands_sent = True
@@ -1694,6 +1707,8 @@ class HardwareManager:
         self._require_autonomy_ready()
         deadline = time.monotonic() + timeout_s
         recovery_count = 0
+        measured_yaw_change = 0.0
+        commands_sent = False
         while True:
             assert self._pose is not None
             sample = self._pose.status()
@@ -1708,18 +1723,24 @@ class HardwareManager:
                 return {
                     "home_distance_m": distance,
                     "home_bearing_error_rad": 0.0,
-                    "measured_yaw_change_rad": 0.0,
+                    "measured_yaw_change_rad": measured_yaw_change,
                     "turn_recovery_count": recovery_count,
-                    "motion_commands_sent": False,
+                    "motion_path": "sport_yaw",
+                    "pose_age_s": sample.age_s,
+                    "bearing_tolerance_rad": tolerance_rad,
+                    "motion_commands_sent": commands_sent,
                 }
             bearing_error = normalize_angle(math.atan2(dy, dx) - sample.pose.yaw_rad)
             if abs(bearing_error) <= tolerance_rad:
                 return {
                     "home_distance_m": distance,
                     "home_bearing_error_rad": bearing_error,
-                    "measured_yaw_change_rad": 0.0,
+                    "measured_yaw_change_rad": measured_yaw_change,
                     "turn_recovery_count": recovery_count,
-                    "motion_commands_sent": False,
+                    "motion_path": "sport_yaw",
+                    "pose_age_s": sample.age_s,
+                    "bearing_tolerance_rad": tolerance_rad,
+                    "motion_commands_sent": commands_sent,
                 }
             remaining_s = deadline - time.monotonic()
             if remaining_s <= 0.0:
@@ -1732,6 +1753,7 @@ class HardwareManager:
                     timeout_s=remaining_s,
                     response_timeout_s=response_timeout_s,
                     response_min_progress_rad=response_min_progress_rad,
+                    motion_path="sport_yaw",
                 )
             except TurnNoResponse as exc:
                 if recovery_count >= 1:
@@ -1743,12 +1765,8 @@ class HardwareManager:
                 await self.stand_up(settle_s=recovery_settle_s)
                 recovery_count += 1
                 continue
-            return {
-                **evidence,
-                "home_distance_m": distance,
-                "home_bearing_error_rad": bearing_error,
-                "turn_recovery_count": recovery_count,
-            }
+            measured_yaw_change += float(evidence["measured_yaw_change_rad"])
+            commands_sent = True
 
     async def restore_home_heading(
         self,
@@ -1904,10 +1922,12 @@ class HardwareManager:
                 "forward command blocked before approach or return motion"
             )
         sent = await self._motion.command(lease, command)
+        motion_status = self._motion.status()
         event = {
             "sequence": len(self._motion_trace) + 1,
             "phase": self._motion_trace_phase,
             "recorded_monotonic_s": time.monotonic(),
+            "motion_path": motion_status.get("mode"),
             **sent.to_dict(),
         }
         self._motion_trace.append(event)

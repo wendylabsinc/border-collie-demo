@@ -265,7 +265,7 @@ class SimulatedStageExecutor:
         },
         MissionPhase.APPROACH_FRUIT: {
             "arrival_confirmed": True,
-            "final_push_mps": 0.3,
+            "final_push_mps": 0.6,
             "final_push_duration_s": 1.0,
             "forward_pulse_count": 7,
             "motion_commands_sent": False,
@@ -329,6 +329,13 @@ class SimulatedStageExecutor:
                 requested_forward_pulses=context.outbound_forward_pulses,
                 replayed_forward_pulses=context.outbound_forward_pulses,
             )
+        if phase is MissionPhase.APPROACH_FRUIT and context.run_tuning is not None:
+            arrival = context.run_tuning.get("arrival")
+            if isinstance(arrival, dict):
+                evidence.update(
+                    final_push_mps=arrival.get("final_push_mps"),
+                    final_push_duration_s=arrival.get("final_push_duration_s"),
+                )
         return evidence
 
     async def stop(self) -> list[str]:

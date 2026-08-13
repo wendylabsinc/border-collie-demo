@@ -362,7 +362,7 @@ def test_activate_demo_completes_every_stage_with_simulated_adapters(tmp_path) -
         ]
         assert run["stage_results"]["return_home"]["home_distance_m"] == 0.08
         assert run["stage_results"]["approach_fruit"]["forward_pulse_count"] == 7
-        assert run["stage_results"]["approach_fruit"]["final_push_mps"] == 0.3
+        assert run["stage_results"]["approach_fruit"]["final_push_mps"] == 0.6
         assert run["stage_results"]["approach_fruit"]["final_push_duration_s"] == 1.0
         assert run["stage_results"]["sit_and_bark"]["down_hold_s"] == 5.0
         assert run["stage_results"]["return_home"]["requested_forward_pulses"] == 7
@@ -996,6 +996,80 @@ def test_activation_id_conflicts_when_selected_fruit_tuning_changes(tmp_path) ->
         assert replay.json()["idempotent_replay"] is True
         assert conflict.status_code == 409
         assert "different Fruit Mission" in conflict.json()["detail"]
+
+
+def test_run_activation_persists_one_run_final_push_tuning_and_conflicts_on_change(
+    tmp_path,
+) -> None:
+    with TestClient(ready_app(tmp_path)) as client:
+        request = {
+            "target_fruit": "apple",
+            "activation_id": "apple-push-060x040",
+            "tuning": {
+                "arrival": {
+                    "final_push_mps": 0.60,
+                    "final_push_duration_s": 0.40,
+                }
+            },
+        }
+
+        first = client.post("/api/run", json=request)
+        replay = client.post("/api/run", json=request)
+        conflict = client.post(
+            "/api/run",
+            json={
+                **request,
+                "tuning": {
+                    "arrival": {
+                        "final_push_mps": 0.60,
+                        "final_push_duration_s": 0.50,
+                    }
+                },
+            },
+        )
+        run_id = first.json()["run"]["run_id"]
+        black_box = client.get(f"/api/results/{run_id}/black-box.ndjson")
+
+        assert first.status_code == 201
+        assert first.json()["run"]["run_tuning"]["arrival"]["final_push_mps"] == 0.60
+        assert (
+            first.json()["run"]["run_tuning"]["arrival"]["final_push_duration_s"]
+            == 0.40
+        )
+        assert replay.status_code == 201
+        assert replay.json()["idempotent_replay"] is True
+        assert conflict.status_code == 409
+        assert "different Fruit Mission" in conflict.json()["detail"]
+        assert b'"final_push_mps":0.6' in black_box.content
+        assert b'"final_push_duration_s":0.4' in black_box.content
+
+
+@pytest.mark.parametrize(
+    "arrival",
+    [
+        {"final_push_mps": 0.49, "final_push_duration_s": 0.40},
+        {"final_push_mps": 0.60, "final_push_duration_s": 0.05},
+        {"final_push_mps": 0.60, "final_push_duration_s": 1.51},
+        {"final_push_mps": "NaN", "final_push_duration_s": 0.40},
+        {
+            "final_push_mps": 0.60,
+            "final_push_duration_s": 0.40,
+            "surprise": True,
+        },
+    ],
+)
+def test_run_activation_rejects_unsafe_or_unknown_final_push_before_motion(
+    tmp_path,
+    arrival: dict[str, object],
+) -> None:
+    with TestClient(ready_app(tmp_path)) as client:
+        response = client.post(
+            "/api/run",
+            json={"target_fruit": "pear", "tuning": {"arrival": arrival}},
+        )
+
+        assert response.status_code == 409
+        assert client.get("/api/results").json()["runs"] == []
 
 
 def test_results_list_returns_newest_demo_run_first(tmp_path) -> None:

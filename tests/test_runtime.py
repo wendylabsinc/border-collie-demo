@@ -66,7 +66,11 @@ def test_production_runtime_wires_the_real_stage_executor(
 
         @staticmethod
         def status():
-            return {"ready": True, "detail": "bark ready"}
+            return {"ready": False, "detail": "bark unavailable"}
+
+        @staticmethod
+        async def bark():
+            return {"bark_played": False}
 
     class Evidence:
         @classmethod
@@ -80,7 +84,6 @@ def test_production_runtime_wires_the_real_stage_executor(
     hardware = SimulatedHardware()
     monkeypatch.setenv("BORDER_COLLIE_RUNTIME_MODE", "production")
     monkeypatch.setenv("BORDER_COLLIE_RUNS_DIR", str(tmp_path))
-    monkeypatch.setenv("BORDER_COLLIE_SYSTEM_AUDIO_POLICY", "normal")
     monkeypatch.setattr(
         main_module,
         "HardwareManager",
@@ -102,3 +105,4 @@ def test_production_runtime_wires_the_real_stage_executor(
 
     assert run["outcome"] == "COMPLETED"
     assert created and created[0][0] is hardware
+    assert isinstance(created[0][2], Bark)

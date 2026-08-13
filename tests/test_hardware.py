@@ -27,11 +27,14 @@ class FakeMotion:
         self.commands: list[VelocityCommand] = []
         self.stop_calls = 0
         self.postures: list[str] = []
+        self.mode: str | None = None
+        self.command_modes: list[str] = []
 
     def status(self) -> dict[str, object]:
         return {
             "initialized": self.initialized,
             "armed": self.armed,
+            "mode": self.mode,
             "fault": None,
             "last_command": (
                 self.commands[-1].to_dict()
@@ -45,25 +48,36 @@ class FakeMotion:
 
     async def arm(self) -> str:
         self.armed = True
+        self.mode = "factory_avoidance"
+        return "lease"
+
+    async def arm_sport_yaw(self) -> str:
+        self.armed = True
+        self.mode = "sport_yaw"
         return "lease"
 
     async def command(self, lease: str, command: VelocityCommand) -> VelocityCommand:
         assert lease == "lease"
         assert self.armed
         self.commands.append(command)
+        assert self.mode is not None
+        self.command_modes.append(self.mode)
         return command
 
     async def release(self, lease: str) -> None:
         assert lease == "lease"
         self.armed = False
+        self.mode = None
 
     async def emergency_stop(self) -> list[str]:
         self.stop_calls += 1
         self.armed = False
+        self.mode = None
         return []
 
     async def close(self) -> list[str]:
         self.armed = False
+        self.mode = None
         return []
 
     async def stand_down(self) -> None:
@@ -137,6 +151,25 @@ class ReturningPose(FakePose):
         )
 
 
+class HeadingEscapePose(FakePose):
+    def __init__(self) -> None:
+        super().__init__()
+        self._poses = iter(
+            (
+                Pose(1.0, 0.0, math.pi, 1.0),
+                Pose(0.9, 0.0, math.pi, 1.05),
+                Pose(0.8, 0.0, math.pi, 1.1),
+                Pose(0.6, 0.0, 0.0, 1.2),
+            )
+        )
+        self._last = Pose(0.6, 0.0, 0.0, 1.2)
+
+    def status(self) -> PoseStatus:
+        if self.started:
+            self._last = next(self._poses, self._last)
+        return PoseStatus(self._last, 0.0, self.started, None)
+
+
 class HomeTurnPose(FakePose):
     def __init__(self) -> None:
         super().__init__()
@@ -150,6 +183,21 @@ class HomeTurnPose(FakePose):
         if self.started:
             self._last = next(self._poses, self._last)
         return PoseStatus(self._last, 0.0, self.started, None)
+
+
+class HomeMotionSequencePose(HomeTurnPose):
+    def __init__(self) -> None:
+        super().__init__()
+        self._returning: ReturningPose | None = None
+
+    def begin_return(self) -> None:
+        self._returning = ReturningPose()
+        self._returning.started = self.started
+
+    def status(self) -> PoseStatus:
+        if self._returning is not None:
+            return self._returning.status()
+        return super().status()
 
 
 class RecoveringHomeTurnPose(FakePose):
@@ -415,7 +463,7 @@ def test_mission_lifetime_guidance_keeps_identity_and_executes_one_final_push() 
             "pear",
             config=GuidanceConfig(
                 duplicate_hold_s=0.025,
-                final_push_duration_s=0.02,
+                final_push_duration_s=0.10,
             ),
         )
         pts = 0
@@ -969,7 +1017,15 @@ def test_failed_search_reports_the_best_distant_pear_evidence() -> None:
     asyncio.run(scenario())
 
 
-def test_approach_requires_near_geometry_then_one_offscreen_final_push() -> None:
+@pytest.mark.parametrize(
+    ("final_push_duration_s", "final_push_count", "forward_pulse_count"),
+    [(0.001, 1, 5), (0.0, 0, 4)],
+)
+def test_approach_requires_near_geometry_then_bounded_optional_final_push(
+    final_push_duration_s: float,
+    final_push_count: int,
+    forward_pulse_count: int,
+) -> None:
     async def scenario() -> None:
         motion = FakeMotion()
         manager = HardwareManager(
@@ -1025,22 +1081,31 @@ def test_approach_requires_near_geometry_then_one_offscreen_final_push() -> None
             near_confirmations=3,
             near_loss_grace_s=0.75,
             final_push_mps=1.0,
-            final_push_duration_s=0.001,
+            final_push_duration_s=final_push_duration_s,
             timeout_s=0.5,
         )
 
         assert result["arrival_confirmed"] is True
         assert result["near_confirmations"] == 3
         assert result["final_push_mps"] == 1.0
-        assert result["final_push_count"] == 1
-        assert result["forward_pulse_count"] == 5
+        assert result["final_push_count"] == final_push_count
+        assert result["forward_pulse_count"] == forward_pulse_count
         assert any(
             command.reason == "approach_target_near_visible"
             and command.forward_mps == 0.50
             for command in motion.commands
         )
         assert any(command.forward_mps == 0.50 for command in motion.commands)
-        assert any(command.forward_mps == 1.0 for command in motion.commands)
+        assert any(command.forward_mps == 1.0 for command in motion.commands) is (
+            final_push_count == 1
+        )
+        if final_push_count == 0:
+            assert any(
+                command.reason == "bounded_final_push_disabled"
+                and command.forward_mps == 0.0
+                and command.yaw_rps == 0.0
+                for command in motion.commands
+            )
         assert motion.armed is False
         await manager.close()
 
@@ -1662,6 +1727,39 @@ def test_position_only_return_does_not_arm_when_already_home() -> None:
     asyncio.run(scenario())
 
 
+def test_position_only_return_stops_when_heading_escapes_instead_of_yaw_only() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: HeadingEscapePose(),
+        )
+        await manager.start()
+
+        with pytest.raises(HardwareUnavailable, match="heading escaped"):
+            await manager.return_home_position(
+                {"x_m": 0.0, "y_m": 0.0, "yaw_rad": 0.0},
+                forward_mps=1.0,
+                arrival_tolerance_m=0.10,
+                heading_gate_rad=math.radians(20.0),
+                maximum_yaw_rps=0.50,
+                minimum_progress_m=0.03,
+                stall_timeout_s=0.10,
+                timeout_s=0.50,
+            )
+
+        assert len(motion.commands) == 1
+        assert motion.commands[0].forward_mps == 1.0
+        assert all(command.forward_mps > 0.0 for command in motion.commands)
+        assert motion.command_modes == ["factory_avoidance"]
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
 def test_turn_toward_home_uses_current_bearing_and_measured_yaw() -> None:
     async def scenario() -> None:
         motion = FakeMotion()
@@ -1681,8 +1779,67 @@ def test_turn_toward_home_uses_current_bearing_and_measured_yaw() -> None:
         )
 
         assert result["home_distance_m"] == pytest.approx(1.0)
-        assert result["home_bearing_error_rad"] == pytest.approx(math.pi)
+        assert abs(result["home_bearing_error_rad"]) <= math.radians(5.0)
         assert result["measured_yaw_change_rad"] == pytest.approx(3.10)
+        assert result["motion_path"] == "sport_yaw"
+        assert motion.command_modes
+        assert set(motion.command_modes) == {"sport_yaw"}
+        assert all(command.forward_mps == 0.0 for command in motion.commands)
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_home_motion_orders_all_sports_yaw_before_factory_forward_translation() -> None:
+    async def scenario() -> None:
+        pose = HomeMotionSequencePose()
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: pose,
+        )
+        await manager.start()
+
+        turned = await manager.turn_toward_home(
+            {"x_m": 0.0, "y_m": 0.0, "yaw_rad": 0.0},
+            yaw_rps=0.50,
+            tolerance_rad=math.radians(5.0),
+            timeout_s=0.50,
+        )
+        pose.begin_return()
+        returned = await manager.return_home_position(
+            {"x_m": 0.0, "y_m": 0.0, "yaw_rad": 0.0},
+            forward_mps=1.0,
+            arrival_tolerance_m=0.10,
+            heading_gate_rad=math.radians(20.0),
+            maximum_yaw_rps=0.50,
+            minimum_progress_m=0.03,
+            stall_timeout_s=0.10,
+            timeout_s=0.50,
+        )
+
+        first_forward = next(
+            index
+            for index, command in enumerate(motion.commands)
+            if command.forward_mps > 0.0
+        )
+        assert all(
+            command.forward_mps == 0.0 and command.yaw_rps != 0.0
+            for command in motion.commands[:first_forward]
+        )
+        assert all(
+            command.forward_mps > 0.0
+            for command in motion.commands[first_forward:]
+        )
+        assert motion.command_modes[:first_forward] == ["sport_yaw"] * first_forward
+        assert motion.command_modes[first_forward:] == ["factory_avoidance"] * (
+            len(motion.commands) - first_forward
+        )
+        assert turned["motion_path"] == "sport_yaw"
+        assert returned["motion_path"] == "factory_avoidance"
         assert motion.armed is False
         await manager.close()
 
