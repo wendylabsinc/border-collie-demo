@@ -15,7 +15,12 @@ from .evidence import EvidenceArtifact
 from .fruits import QUALIFIED_FRUITS, SUPPORTED_FRUITS
 from .hardware import HardwareManager, HardwareUnavailable
 from .mission import MissionMachine, RestartRequired
-from .orchestrator import EXECUTED_STAGES, DemoOrchestrator, StageExecutor
+from .orchestrator import (
+    EXECUTED_STAGES,
+    DemoOrchestrator,
+    FailureEpilogue,
+    StageExecutor,
+)
 from .preflight import evaluate_preflight, preflight_check_ready
 from .run_results import ActiveRunError, RunResultNotFound, RunResultStore
 
@@ -54,6 +59,7 @@ def create_app(
     media_status: Callable[[], dict[str, object]] | None = None,
     stage_executor: StageExecutor | None = None,
     terminal_evidence: Callable[[], list[EvidenceArtifact]] | None = None,
+    failure_epilogue: FailureEpilogue | None = None,
     runtime_mode: Literal["production", "simulation"] = "production",
 ) -> FastAPI:
     machine = mission or MissionMachine()
@@ -90,6 +96,7 @@ def create_app(
             results,
             stage_executor,
             terminal_evidence=terminal_evidence,
+            failure_epilogue=failure_epilogue,
         )
     )
 

@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from .api import create_app
 from .config import HardwareConfig, PerceptionConfig
 from .evidence import TerminalEvidenceClient
+from .failure_epilogue import PositionOnlyFailureEpilogue
 from .hardware import HardwareManager
 from .media import BarkClient, BarkConfig
 from .orchestrator import SimulatedStageExecutor
@@ -42,6 +43,7 @@ def build_app_from_env() -> FastAPI:
         media_status=bark.status,
         stage_executor=ProductionStageExecutor(hardware, perception.status, bark),
         terminal_evidence=terminal_evidence.capture,
+        failure_epilogue=PositionOnlyFailureEpilogue(hardware),
         runtime_mode="production",
     )
 

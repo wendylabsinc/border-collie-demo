@@ -6,6 +6,7 @@ from border_collie_demo.return_home import (
     Pose2D,
     ReturnMode,
     ReturnPlannerConfig,
+    plan_position_return_step,
     plan_return_step,
 )
 
@@ -32,3 +33,24 @@ def test_return_planner_turns_drives_at_reliable_speed_then_restores_heading() -
     assert restore.mode is ReturnMode.RESTORE_HEADING
     assert restore.distance_m == pytest.approx(0.08)
     assert complete.mode is ReturnMode.COMPLETE
+
+
+def test_position_only_return_never_restores_heading_after_reaching_home() -> None:
+    config = ReturnPlannerConfig(
+        arrival_tolerance_m=0.10,
+        heading_tolerance_rad=math.radians(5.0),
+        heading_gate_rad=math.radians(20.0),
+        forward_mps=1.0,
+        maximum_yaw_rps=0.50,
+    )
+
+    step = plan_position_return_step(
+        Pose2D(0.0, 0.0, 0.0),
+        Pose2D(0.08, 0.0, 2.5),
+        config,
+    )
+
+    assert step.mode is ReturnMode.COMPLETE
+    assert step.distance_m == pytest.approx(0.08)
+    assert step.forward_mps == 0.0
+    assert step.yaw_rps == 0.0

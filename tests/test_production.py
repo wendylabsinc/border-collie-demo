@@ -46,13 +46,18 @@ class FakeProductionHardware:
         self.calls.append(("turn_toward_home", home, options))
         return {"home_bearing_error_rad": 0.02, "motion_commands_sent": True}
 
-    async def return_home(self, home: dict[str, object], **options: float) -> dict[str, object]:
-        self.calls.append(("return_home", home, options))
+    async def return_home_position(self, home: dict[str, object], **options: float) -> dict[str, object]:
+        self.calls.append(("return_home_position", home, options))
         return {"home_distance_m": 0.08, "motion_commands_sent": True}
 
-    async def restore_home_heading(self, home: dict[str, object], **options: float) -> dict[str, object]:
-        self.calls.append(("restore_home_heading", home, options))
-        return {"home_distance_m": 0.08, "heading_error_rad": 0.04, "motion_commands_sent": True}
+    def measure_home_position(self, home: dict[str, object]) -> dict[str, object]:
+        self.calls.append(("measure_home_position", home, {}))
+        return {
+            "home_distance_m": 0.08,
+            "pose_age_s": 0.02,
+            "pose_captured_monotonic_s": 42.0,
+            "pose_source": "rt/sportmodestate",
+        }
 
 
 class FakeBark:
@@ -298,8 +303,8 @@ def test_return_stages_use_captured_home_and_locked_arrival_rules() -> None:
 
         assert [call[0] for call in hardware.calls] == [
             "turn_toward_home",
-            "return_home",
-            "restore_home_heading",
+            "return_home_position",
+            "measure_home_position",
         ]
         assert all(call[1] == context().home for call in hardware.calls)
         assert hardware.calls[0][2] == {
@@ -312,23 +317,17 @@ def test_return_stages_use_captured_home_and_locked_arrival_rules() -> None:
         }
         assert hardware.calls[1][2] == {
             "forward_mps": 1.0,
-            "forward_pulse_count": 12,
             "arrival_tolerance_m": 0.10,
             "heading_gate_rad": pytest.approx(0.349066),
-            "maximum_yaw_rps": 0.30,
+            "maximum_yaw_rps": 0.50,
             "minimum_progress_m": 0.03,
             "stall_timeout_s": 2.0,
             "timeout_s": 30.0,
         }
-        assert hardware.calls[2][2] == {
-            "yaw_rps": 0.30,
-            "heading_tolerance_rad": pytest.approx(0.0872665),
-            "position_tolerance_m": 0.10,
-            "timeout_s": 15.0,
-        }
         assert turn["home_bearing_error_rad"] == 0.02
         assert returned["home_distance_m"] == 0.08
-        assert restored["heading_error_rad"] == 0.04
+        assert restored["heading_restoration_skipped"] is True
+        assert restored["motion_commands_sent"] is False
 
     asyncio.run(scenario())
 

@@ -181,25 +181,29 @@ class ProductionStageExecutor:
                 timeout_s=30.0,
             )
         if phase is MissionPhase.RETURN_HOME:
-            return await self._hardware.return_home(
+            return await self._hardware.return_home_position(
                 context.home,
                 forward_mps=1.0,
-                forward_pulse_count=context.outbound_forward_pulses,
                 arrival_tolerance_m=0.10,
                 heading_gate_rad=math.radians(20.0),
-                maximum_yaw_rps=0.30,
+                maximum_yaw_rps=0.50,
                 minimum_progress_m=0.03,
                 stall_timeout_s=2.0,
                 timeout_s=30.0,
             )
         if phase is MissionPhase.RESTORE_HEADING:
-            return await self._hardware.restore_home_heading(
-                context.home,
-                yaw_rps=0.30,
-                heading_tolerance_rad=math.radians(5.0),
-                position_tolerance_m=0.10,
-                timeout_s=15.0,
-            )
+            measurement = self._hardware.measure_home_position(context.home)
+            if float(measurement["home_distance_m"]) > 0.10:
+                raise HardwareUnavailable(
+                    "fresh Home position was outside the completion gate: "
+                    f"{float(measurement['home_distance_m']):.3f} m"
+                )
+            return {
+                **measurement,
+                "position_tolerance_m": 0.10,
+                "heading_restoration_skipped": True,
+                "motion_commands_sent": False,
+            }
         raise StageFailure("INTERNAL_ERROR", f"production stage is not implemented: {phase.value}")
 
     def _visible_target_evidence(self, target_fruit: str) -> dict[str, Any] | None:

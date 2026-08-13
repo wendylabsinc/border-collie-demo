@@ -79,6 +79,27 @@ class PoseLostAtHomeBoundary(ReadyHardwareBoundary):
         raise RuntimeError("pose sample became stale")
 
 
+class RecordingFailureEpilogue:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    async def recover(self, home, **context):
+        self.calls.append({"home": home, **context})
+        return {
+            "status": "RETURNED_HOME",
+            "reason": "bounded position-only return reached Home",
+            "attempted_return": True,
+            "exact_stop_confirmed": True,
+            "terminal_home_measurement": {
+                "home_distance_m": 0.04,
+                "pose_age_s": 0.02,
+                "pose_captured_monotonic_s": 42.0,
+                "pose_source": "rt/sportmodestate",
+            },
+            "return_evidence": {"heading_restoration_skipped": True},
+        }
+
+
 def test_audience_page_includes_the_annotated_camera_feed() -> None:
     response = TestClient(create_app()).get("/")
 
@@ -327,7 +348,7 @@ def test_activate_demo_completes_every_stage_with_simulated_adapters(tmp_path) -
         assert run["stage_results"]["restore_heading"]["heading_error_rad"] == 0.04
         assert run["terminal_measurements"] == {
             "home_distance_m": 0.08,
-            "heading_error_rad": 0.04,
+            "heading_error_rad": None,
         }
 
 
@@ -559,6 +580,57 @@ def test_each_stage_has_a_distinct_default_failure_result(
         assert run["reason"] == reason
         assert run["failed_phase"] == failed_phase
         assert run["final_safety_state"] == "DISARMED_CONFIRMED"
+
+
+def test_failed_run_remains_failed_after_one_successful_home_epilogue(
+    tmp_path,
+) -> None:
+    epilogue = RecordingFailureEpilogue()
+    with TestClient(
+        create_app(
+            runs_root=tmp_path,
+            hardware=ReadyHardwareBoundary(),
+            camera_perception_status=ready_camera_perception,
+            stage_executor=SimulatedStageExecutor(fail_at="sit_and_bark"),
+            failure_epilogue=epilogue,
+        )
+    ) as client:
+        run_id = client.post("/api/run", json={"target_fruit": "pear"}).json()[
+            "run"
+        ]["run_id"]
+
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            run = client.get(f"/api/results/{run_id}").json()["run"]
+            if run["outcome"] is not None:
+                break
+            time.sleep(0.01)
+
+    assert run["outcome"] == "FAILED"
+    assert run["reason"] == "ACTION_FAILURE"
+    assert run["failed_phase"] == "sit_and_bark"
+    assert run["stage_results"]["approach_fruit"]["forward_pulse_count"] == 7
+    assert run["failure_epilogue"]["status"] == "RETURNED_HOME"
+    assert run["terminal_measurements"] == {
+        "home_distance_m": 0.04,
+        "heading_error_rad": None,
+    }
+    assert run["final_safety_state"] == "DISARMED_CONFIRMED"
+    assert epilogue.calls == [
+        {
+            "home": {
+                "x_m": 1.25,
+                "y_m": -0.5,
+                "yaw_rad": 0.75,
+                "captured_monotonic_s": 123.0,
+                "age_s": 0.04,
+                "source": "rt/sportmodestate",
+            },
+            "original_reason": "ACTION_FAILURE",
+            "failed_phase": "sit_and_bark",
+            "takeover_latched": False,
+        }
+    ]
 
 
 def test_diagnostics_identifies_completed_failed_and_unreached_stages(

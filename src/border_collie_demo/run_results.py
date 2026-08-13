@@ -237,6 +237,26 @@ class RunResultStore:
         self._write_result(result)
         return deepcopy(result)
 
+    def record_failure_epilogue(
+        self,
+        run_id: str,
+        report: dict[str, object],
+    ) -> dict[str, Any]:
+        """Persist recovery evidence without changing the original outcome."""
+        result = self.get(run_id)
+        if result["outcome"] is not None:
+            raise ActiveRunError("terminal Demo Runs cannot be changed")
+        status = str(report.get("status") or "UNKNOWN")
+        self._append_event(
+            result,
+            phase="failure_epilogue",
+            reason=f"FAILURE_EPILOGUE_{status}",
+            message=str(report.get("reason") or "failure epilogue completed"),
+        )
+        result["failure_epilogue"] = deepcopy(report)
+        self._write_result(result)
+        return deepcopy(result)
+
     def seal(
         self,
         run_id: str,
@@ -274,18 +294,22 @@ class RunResultStore:
         stages = result.get("stage_results", {})
         home_distance = None
         heading_error = None
-        for stage_name in ("restore_heading", "return_home", "turn_toward_home"):
-            evidence = stages.get(stage_name)
-            if not isinstance(evidence, dict):
-                continue
-            if home_distance is None and isinstance(
+        epilogue = result.get("failure_epilogue")
+        terminal_measurement = (
+            epilogue.get("terminal_home_measurement")
+            if isinstance(epilogue, dict)
+            else None
+        )
+        if isinstance(terminal_measurement, dict) and isinstance(
+            terminal_measurement.get("home_distance_m"), (int, float)
+        ):
+            home_distance = terminal_measurement["home_distance_m"]
+        elif outcome == "COMPLETED":
+            evidence = stages.get("return_home")
+            if isinstance(evidence, dict) and isinstance(
                 evidence.get("home_distance_m"), (int, float)
             ):
                 home_distance = evidence["home_distance_m"]
-            if heading_error is None and isinstance(
-                evidence.get("heading_error_rad"), (int, float)
-            ):
-                heading_error = evidence["heading_error_rad"]
         result["terminal_measurements"] = {
             "home_distance_m": home_distance,
             "heading_error_rad": heading_error,

@@ -31,6 +31,17 @@ class StageExecutor(Protocol):
     async def stop(self) -> list[str]: ...
 
 
+class FailureEpilogue(Protocol):
+    async def recover(
+        self,
+        home: dict[str, Any] | None,
+        *,
+        original_reason: str,
+        failed_phase: str,
+        takeover_latched: bool,
+    ) -> dict[str, object]: ...
+
+
 class StageFailure(RuntimeError):
     def __init__(
         self,
@@ -75,11 +86,42 @@ class DemoOrchestrator:
         results: RunResultStore,
         stages: StageExecutor,
         terminal_evidence: Callable[[], list[EvidenceArtifact]] | None = None,
+        failure_epilogue: FailureEpilogue | None = None,
     ) -> None:
         self._mission = mission
         self._results = results
         self._stages = stages
         self._terminal_evidence = terminal_evidence
+        self._failure_epilogue = failure_epilogue
+
+    async def _run_failure_epilogue(
+        self,
+        run_id: str,
+        *,
+        reason: str,
+        failed_phase: str,
+    ) -> dict[str, object] | None:
+        if self._failure_epilogue is None:
+            return None
+        run = self._results.get(run_id)
+        try:
+            report = await self._failure_epilogue.recover(
+                run.get("home"),
+                original_reason=reason,
+                failed_phase=failed_phase,
+                takeover_latched=self._mission.takeover_latched,
+            )
+        except Exception as exc:  # noqa: BLE001 - never mask original failure
+            report = {
+                "status": "FAILED",
+                "reason": f"failure epilogue adapter failed: {exc}",
+                "attempted_return": False,
+                "exact_stop_confirmed": False,
+                "terminal_home_measurement": None,
+                "return_evidence": None,
+            }
+        self._results.record_failure_epilogue(run_id, report)
+        return report
 
     async def _capture_terminal_evidence(self, run_id: str) -> None:
         if self._terminal_evidence is None:
@@ -150,8 +192,17 @@ class DemoOrchestrator:
         except StageFailure as exc:
             failed_phase = self._mission.phase.value
             stop_errors = await self._stages.stop()
+            epilogue = await self._run_failure_epilogue(
+                run_id,
+                reason=exc.reason,
+                failed_phase=failed_phase,
+            )
             await self._capture_terminal_evidence(run_id)
             self._mission.fail(exc.message)
+            epilogue_stop = (
+                isinstance(epilogue, dict)
+                and epilogue.get("exact_stop_confirmed") is True
+            )
             return self._results.seal(
                 run_id,
                 phase=self._mission.phase.value,
@@ -160,7 +211,7 @@ class DemoOrchestrator:
                 message=exc.message,
                 final_safety_state=(
                     "DISARMED_CONFIRMED"
-                    if not stop_errors
+                    if not stop_errors and (epilogue is None or epilogue_stop)
                     else "STOP_REQUESTED_UNCONFIRMED"
                 ),
                 failed_phase=failed_phase,
@@ -169,8 +220,17 @@ class DemoOrchestrator:
         except Exception as exc:  # noqa: BLE001 - terminal safety boundary
             failed_phase = self._mission.phase.value
             stop_errors = await self._stages.stop()
+            epilogue = await self._run_failure_epilogue(
+                run_id,
+                reason="INTERNAL_ERROR",
+                failed_phase=failed_phase,
+            )
             await self._capture_terminal_evidence(run_id)
             self._mission.fail(f"Demo Run failed: {exc}")
+            epilogue_stop = (
+                isinstance(epilogue, dict)
+                and epilogue.get("exact_stop_confirmed") is True
+            )
             return self._results.seal(
                 run_id,
                 phase=self._mission.phase.value,
@@ -179,7 +239,7 @@ class DemoOrchestrator:
                 message=f"Demo Run failed: {exc}",
                 final_safety_state=(
                     "DISARMED_CONFIRMED"
-                    if not stop_errors
+                    if not stop_errors and (epilogue is None or epilogue_stop)
                     else "STOP_REQUESTED_UNCONFIRMED"
                 ),
                 failed_phase=failed_phase,

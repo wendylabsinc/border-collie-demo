@@ -22,6 +22,7 @@ from .return_home import (
     ReturnMode,
     ReturnPlannerConfig,
     normalize_angle,
+    plan_position_return_step,
     plan_return_step,
 )
 
@@ -139,6 +140,7 @@ class HardwareManager:
         self._last_pulse: dict[str, object] | None = None
         self._motion_trace_phase: str | None = None
         self._motion_trace: list[dict[str, object]] = []
+        self._posture = "unknown"
 
     async def start(self) -> None:
         if not self.config.enabled or self._connected:
@@ -1094,6 +1096,168 @@ class HardwareManager:
             assert evidence is not None
             return evidence
 
+    def measure_home_position(
+        self,
+        home: dict[str, object],
+    ) -> dict[str, object]:
+        """Read one fresh authoritative Go2 pose relative to captured Home."""
+        home_pose = _home_pose(home)
+        if not self.config.enabled:
+            raise HardwareUnavailable("Go2 hardware is disabled")
+        if not self._connected or self._pose is None or self._motion is None:
+            raise HardwareUnavailable(self._fault or "Go2 hardware is not connected")
+        sample = self._pose.status()
+        if not sample.healthy or sample.pose is None or sample.age_s is None:
+            raise HardwareUnavailable(
+                sample.error or "fresh Go2 pose is unavailable for Home measurement"
+            )
+        return {
+            "home_distance_m": math.hypot(
+                home_pose.x_m - sample.pose.x_m,
+                home_pose.y_m - sample.pose.y_m,
+            ),
+            "pose_age_s": sample.age_s,
+            "pose_captured_monotonic_s": sample.pose.captured_monotonic_s,
+            "pose_source": "rt/sportmodestate",
+        }
+
+    async def return_home_position(
+        self,
+        home: dict[str, object],
+        *,
+        forward_mps: float,
+        arrival_tolerance_m: float,
+        heading_gate_rad: float,
+        maximum_yaw_rps: float,
+        minimum_progress_m: float,
+        stall_timeout_s: float,
+        timeout_s: float,
+    ) -> dict[str, object]:
+        """Return to measured Home position with no pulse or heading credit."""
+        home_pose = _home_pose(home)
+        config = ReturnPlannerConfig(
+            arrival_tolerance_m=arrival_tolerance_m,
+            heading_tolerance_rad=math.radians(5.0),
+            heading_gate_rad=heading_gate_rad,
+            forward_mps=forward_mps,
+            maximum_yaw_rps=maximum_yaw_rps,
+        )
+        if forward_mps > self.config.maximum_forward_mps:
+            raise ValueError("return speed is outside the configured limit")
+        if maximum_yaw_rps > self.config.maximum_yaw_rps:
+            raise ValueError("return yaw is outside the configured limit")
+        if minimum_progress_m <= 0.0 or stall_timeout_s <= 0.0 or timeout_s <= 0.0:
+            raise ValueError("return progress and timing values must be positive")
+        self._require_autonomy_ready()
+
+        initial = self.measure_home_position(home)
+        initial_distance = float(initial["home_distance_m"])
+        if initial_distance <= arrival_tolerance_m:
+            return {
+                **initial,
+                "arrival_tolerance_m": arrival_tolerance_m,
+                "pose_samples": 1,
+                "motion_path": "factory_avoidance",
+                "motion_commands_sent": False,
+                "heading_restoration_skipped": True,
+                "measured_after_disarm": True,
+            }
+
+        async with self._operation_lock:
+            if self._active_operation is not None:
+                raise HardwareUnavailable(
+                    f"hardware operation already active: {self._active_operation}"
+                )
+            self._active_operation = "return_home"
+            lease: str | None = None
+            release_error: str | None = None
+            operation_error: Exception | None = None
+            started = time.monotonic()
+            best_distance = initial_distance
+            progress_at = started
+            samples = 1
+            commands_sent = False
+            try:
+                assert self._motion is not None and self._pose is not None
+                lease = await self._motion.arm()
+                deadline = started + timeout_s
+                while time.monotonic() < deadline:
+                    sample = self._pose.status()
+                    if not sample.healthy or sample.pose is None:
+                        raise HardwareUnavailable(
+                            sample.error or "Go2 pose became stale during return Home"
+                        )
+                    current = Pose2D(
+                        sample.pose.x_m,
+                        sample.pose.y_m,
+                        sample.pose.yaw_rad,
+                    )
+                    step = plan_position_return_step(home_pose, current, config)
+                    samples += 1
+                    if step.mode is ReturnMode.COMPLETE:
+                        break
+                    now = time.monotonic()
+                    if step.distance_m <= best_distance - minimum_progress_m:
+                        best_distance = step.distance_m
+                        progress_at = now
+                    elif now - progress_at > stall_timeout_s:
+                        raise HardwareUnavailable(
+                            f"return Home stalled at {step.distance_m:.3f} m"
+                        )
+                    command = (
+                        VelocityCommand(
+                            0.0,
+                            step.yaw_rps,
+                            "return_course_correction",
+                        )
+                        if step.mode is ReturnMode.TURN_TO_HOME
+                        else VelocityCommand(
+                            step.forward_mps,
+                            step.yaw_rps,
+                            "return_home_position",
+                        )
+                    )
+                    await self._send_motion_command(lease, command)
+                    commands_sent = True
+                    await asyncio.sleep(self.config.command_heartbeat_s)
+                else:
+                    raise HardwareUnavailable("return Home timed out")
+            except Exception as exc:  # noqa: BLE001 - always disarm below
+                operation_error = exc
+            finally:
+                if lease is not None and self._motion is not None and self._motion.armed:
+                    try:
+                        await self._motion.release(lease)
+                    except MotionError as exc:
+                        release_error = str(exc)
+                        await self._motion.emergency_stop()
+                elif self._motion is not None:
+                    stop_errors = await self._motion.emergency_stop()
+                    if stop_errors:
+                        release_error = "; ".join(stop_errors)
+                self._active_operation = None
+
+            if operation_error is not None:
+                raise operation_error
+            if release_error is not None:
+                raise HardwareUnavailable(f"return Home stop failed: {release_error}")
+            terminal = self.measure_home_position(home)
+            terminal_distance = float(terminal["home_distance_m"])
+            if terminal_distance > arrival_tolerance_m:
+                raise HardwareUnavailable(
+                    "return ended outside Home after disarm: "
+                    f"{terminal_distance:.3f} m"
+                )
+            return {
+                **terminal,
+                "arrival_tolerance_m": arrival_tolerance_m,
+                "pose_samples": samples + 1,
+                "motion_path": "factory_avoidance",
+                "motion_commands_sent": commands_sent,
+                "heading_restoration_skipped": True,
+                "measured_after_disarm": True,
+            }
+
     async def turn_toward_home(
         self,
         home: dict[str, object],
@@ -1286,6 +1450,7 @@ class HardwareManager:
             "fault": self._fault,
             "network_interface": self.config.network_interface,
             "active_operation": self._active_operation,
+            "posture": self._posture,
             "can_pulse_forward": can_pulse,
             "forward_pulse": {
                 "mps": self.config.forward_pulse_mps,
@@ -1357,8 +1522,10 @@ class HardwareManager:
             try:
                 if operation == "stand_down":
                     await self._motion.stand_down()
+                    self._posture = "down"
                 else:
                     await self._motion.stand_up(settle_s=settle_s)
+                    self._posture = "standing"
             except Exception as exc:
                 raise HardwareUnavailable(f"{operation} failed: {exc}") from exc
             finally:

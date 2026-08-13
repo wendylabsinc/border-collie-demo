@@ -92,6 +92,30 @@ def plan_return_step(
     )
 
 
+def plan_position_return_step(
+    home: Pose2D,
+    current: Pose2D,
+    config: ReturnPlannerConfig,
+) -> ReturnStep:
+    """Plan toward Home while treating position as the only terminal gate.
+
+    Heading is used only to steer toward the captured position. Once the
+    measured position is inside the arrival tolerance, no heading-restoration
+    command is authorized: turning after reaching Home can move the body back
+    outside the position gate on the Go2.
+    """
+    step = plan_return_step(home, current, config)
+    if step.distance_m <= config.arrival_tolerance_m:
+        return ReturnStep(
+            ReturnMode.COMPLETE,
+            step.distance_m,
+            step.heading_error_rad,
+            0.0,
+            0.0,
+        )
+    return step
+
+
 def normalize_angle(angle_rad: float) -> float:
     return math.atan2(math.sin(angle_rad), math.cos(angle_rad))
 

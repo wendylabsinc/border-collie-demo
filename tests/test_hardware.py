@@ -1110,6 +1110,72 @@ def test_return_home_replays_outbound_pulses_and_logs_measured_home_distance() -
     asyncio.run(scenario())
 
 
+def test_position_only_return_uses_fresh_pose_until_home_then_disarms() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: ReturningPose(),
+        )
+        await manager.start()
+
+        result = await manager.return_home_position(
+            {"x_m": 0.0, "y_m": 0.0, "yaw_rad": 0.0},
+            forward_mps=1.0,
+            arrival_tolerance_m=0.10,
+            heading_gate_rad=math.radians(20.0),
+            maximum_yaw_rps=0.50,
+            minimum_progress_m=0.03,
+            stall_timeout_s=0.10,
+            timeout_s=0.50,
+        )
+
+        assert result["home_distance_m"] == pytest.approx(0.09)
+        assert result["measured_after_disarm"] is True
+        assert result["heading_restoration_skipped"] is True
+        assert result["pose_source"] == "rt/sportmodestate"
+        assert len(motion.commands) == 2
+        assert all(command.forward_mps == 1.0 for command in motion.commands)
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_position_only_return_does_not_arm_when_already_home() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+
+        result = await manager.return_home_position(
+            {"x_m": 0.0, "y_m": 0.0, "yaw_rad": 2.5},
+            forward_mps=1.0,
+            arrival_tolerance_m=0.10,
+            heading_gate_rad=math.radians(20.0),
+            maximum_yaw_rps=0.50,
+            minimum_progress_m=0.03,
+            stall_timeout_s=0.10,
+            timeout_s=0.50,
+        )
+
+        assert result["home_distance_m"] == 0.0
+        assert result["motion_commands_sent"] is False
+        assert result["heading_restoration_skipped"] is True
+        assert motion.commands == []
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
 def test_turn_toward_home_uses_current_bearing_and_measured_yaw() -> None:
     async def scenario() -> None:
         motion = FakeMotion()
