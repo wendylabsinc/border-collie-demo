@@ -617,6 +617,39 @@ def test_one_weak_close_frame_declares_stopped_arrival() -> None:
     assert recovered.action is GuidanceAction.ARRIVED
 
 
+@pytest.mark.parametrize("fruit", ["apple", "banana", "pear"])
+def test_first_lower_edge_frame_ignores_tracking_confidence_after_lock(
+    fruit: str,
+) -> None:
+    """Replay Pear run 7e7afe7a at the shared fruit-guidance seam."""
+    guidance = FruitGuidance(fruit)
+    for pts, now_s in ((1, 0.0), (2, 0.1), (3, 0.2)):
+        guidance.observe(
+            observation(pts=pts, now_s=now_s, label=fruit),
+            now_s=now_s,
+        )
+
+    arrived = guidance.observe(
+        observation(
+            pts=4,
+            now_s=0.3,
+            label=fruit,
+            confidence=0.4707366,
+            center_x=0.6046875,
+            center_y=0.8833333,
+            bottom=0.9444444,
+        ),
+        now_s=0.3,
+        allow_forward=True,
+    )
+
+    assert arrived.action is GuidanceAction.ARRIVED
+    assert arrived.reason == "first_qualified_lower_edge_arrival"
+    assert arrived.arrival_confirmed is True
+    assert arrived.command.forward_mps == 0.0
+    assert arrived.command.yaw_rps == 0.0
+
+
 def test_low_confidence_stop_preserves_the_exact_decision_reason() -> None:
     guidance = FruitGuidance("pear")
     for pts, now_s in ((1, 0.0), (2, 0.1), (3, 0.2)):

@@ -46,11 +46,11 @@ motion safety limits.
 | `BORDER_COLLIE_GUIDANCE_DUPLICATE_HOLD_S` | seconds | `0.250` | greater than `0`, at most `0.250` | A duplicate cannot extend the original fresh-evidence authority window. |
 | `BORDER_COLLIE_GUIDANCE_SOURCE_MAXIMUM_AGE_S` | seconds | `0.350` | greater than `0`, at most `0.350` | Older source evidence stops terminally. |
 | `BORDER_COLLIE_GUIDANCE_DETECTION_MAXIMUM_AGE_S` | seconds | `0.250` | greater than `0`, at most `0.250` | Older detection evidence stops terminally. |
-| `BORDER_COLLIE_GUIDANCE_NEAR_BOTTOM_RATIO` | frame-height ratio | `0.90` | greater than `0`, at most `1` | One fresh confidence-qualified observation at or below this image edge confirms Arrival. |
+| `BORDER_COLLIE_GUIDANCE_NEAR_BOTTOM_RATIO` | frame-height ratio | `0.90` | greater than `0`, at most `1` | After target lock, one fresh, same-fruit, geometrically valid observation at or below this image edge confirms Arrival. Per-frame confidence is intentionally ignored at this boundary for every fruit because it commonly collapses when the fruit fills or is clipped by the lower edge. |
 | `BORDER_COLLIE_GUIDANCE_NEAR_CENTER_RATIO` | frame-height ratio | `0.72` | greater than `0`, at most `1` | Counts only on fresh matching evidence. |
 | `BORDER_COLLIE_GUIDANCE_NEAR_CONFIRMATIONS` | fresh frames | `3` | integer `>=1` | Duplicate or weak observations never advance Arrival. |
 | `BORDER_COLLIE_GUIDANCE_NEAR_LOSS_CONFIRMATIONS` | fresh frames | `2` | integer `>=2` | One weak or missing observation stops but cannot start the final push. |
-| `BORDER_COLLIE_GUIDANCE_NEAR_LOSS_GRACE_S` | seconds | `0.75` | greater than `0` | A disappearance can confirm Arrival only after a fresh confidence-qualified observation reached the configured lower-edge threshold. Otherwise loss commands exact zero and waits for reacquisition until timeout. |
+| `BORDER_COLLIE_GUIDANCE_NEAR_LOSS_GRACE_S` | seconds | `0.75` | greater than `0` | A disappearance can confirm Arrival only after a fresh, same-fruit, geometrically valid observation reached the configured lower-edge threshold. Otherwise loss commands exact zero and waits for reacquisition until timeout. |
 | `BORDER_COLLIE_GUIDANCE_FINAL_PUSH_MPS` | m/s | `0.60` | `0.50..1.0` | Exactly one final-push episode is allowed. |
 | `BORDER_COLLIE_GUIDANCE_FINAL_PUSH_DURATION_S` | seconds | `1.0` | `0`, or `0.10..1.50` | The push is terminal and cannot be restarted. Zero disables it and leaves Arrival stopped. |
 

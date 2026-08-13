@@ -349,26 +349,27 @@ class FruitGuidance:
             self._last_decision = decision
             return decision
 
-        if parsed.confidence < self.policy.close_range_tracking_confidence:
-            self._near_fresh_samples = 0
-            decision = self._closeout_loss(
-                now_s,
-                pending_reason="tracking_confidence_below_floor",
-            )
-            self._last_decision = decision
-            return decision
-
         if (
             parsed.bottom >= self.config.near_bottom_ratio
             and parsed.center_y >= self.config.near_center_ratio
         ):
             # Stage reliability deliberately treats the first fresh,
-            # confidence-qualified lower-edge observation after lock as
-            # Arrival. Do not wait for additional close frames that commonly
-            # disappear as a floor-level fruit is clipped by the camera.
+            # geometrically valid lower-edge observation after lock as
+            # Arrival. Confidence commonly collapses as a floor-level fruit
+            # fills or is clipped by the bottom of the camera frame, so the
+            # per-fruit tracking floor does not apply at this boundary.
             self._lower_edge_seen_at_s = now_s
             decision = self._lower_edge_arrival(
                 reason="first_qualified_lower_edge_arrival"
+            )
+            self._last_decision = decision
+            return decision
+
+        if parsed.confidence < self.policy.close_range_tracking_confidence:
+            self._near_fresh_samples = 0
+            decision = self._closeout_loss(
+                now_s,
+                pending_reason="tracking_confidence_below_floor",
             )
             self._last_decision = decision
             return decision
