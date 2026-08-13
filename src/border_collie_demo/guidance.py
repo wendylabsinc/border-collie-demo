@@ -41,6 +41,7 @@ class GuidanceConfig:
     """Runtime-tunable guidance policy with hardware-safety validation."""
 
     search_yaw_rps: float = 0.50
+    search_sweep_rad: float = 2.0 * math.pi
     center_tolerance_ratio: float = 0.08
     center_confirmations: int = 3
     approach_forward_mps: float = 1.0
@@ -53,6 +54,7 @@ class GuidanceConfig:
     near_bottom_ratio: float = 0.86
     near_center_ratio: float = 0.72
     near_confirmations: int = 3
+    near_loss_confirmations: int = 2
     near_loss_grace_s: float = 0.75
     final_push_mps: float = 0.60
     final_push_duration_s: float = 1.0
@@ -60,6 +62,7 @@ class GuidanceConfig:
     def __post_init__(self) -> None:
         finite = (
             self.search_yaw_rps,
+            self.search_sweep_rad,
             self.center_tolerance_ratio,
             self.approach_forward_mps,
             self.approach_yaw_rps,
@@ -78,6 +81,8 @@ class GuidanceConfig:
             raise ValueError("guidance values must be finite")
         if not 0.50 <= self.search_yaw_rps <= 0.80:
             raise ValueError("search_yaw_rps must stay within 0.50..0.80 rad/s")
+        if not 0.0 < self.search_sweep_rad <= 2.0 * math.pi:
+            raise ValueError("search_sweep_rad must stay within one revolution")
         if not 0.0 < self.center_tolerance_ratio < self.outer_corridor_ratio < 0.5:
             raise ValueError("center and outer corridor ratios are invalid")
         if self.center_confirmations < 1:
@@ -104,6 +109,8 @@ class GuidanceConfig:
             raise ValueError("near_center_ratio must be within 0.0..1.0")
         if self.near_confirmations < 1:
             raise ValueError("near_confirmations must be positive")
+        if self.near_loss_confirmations < 2:
+            raise ValueError("near_loss_confirmations must be at least two")
         if self.near_loss_grace_s <= 0.0:
             raise ValueError("near_loss_grace_s must be positive")
         if not 0.50 <= self.final_push_mps <= 1.0:
@@ -116,6 +123,9 @@ class GuidanceConfig:
         prefix = "BORDER_COLLIE_GUIDANCE_"
         return cls(
             search_yaw_rps=float(os.environ.get(prefix + "SEARCH_YAW_RPS", "0.50")),
+            search_sweep_rad=float(
+                os.environ.get(prefix + "SEARCH_SWEEP_RAD", str(2.0 * math.pi))
+            ),
             center_tolerance_ratio=float(
                 os.environ.get(prefix + "CENTER_TOLERANCE_RATIO", "0.08")
             ),
@@ -151,6 +161,9 @@ class GuidanceConfig:
             ),
             near_confirmations=int(
                 os.environ.get(prefix + "NEAR_CONFIRMATIONS", "3")
+            ),
+            near_loss_confirmations=int(
+                os.environ.get(prefix + "NEAR_LOSS_CONFIRMATIONS", "2")
             ),
             near_loss_grace_s=float(
                 os.environ.get(prefix + "NEAR_LOSS_GRACE_S", "0.75")
@@ -210,6 +223,7 @@ class FruitGuidance:
         self._last_decision: GuidanceDecision | None = None
         self._centered_fresh_samples = 0
         self._near_fresh_samples = 0
+        self._near_loss_samples = 0
         self._near_latched_at_s: float | None = None
         self._final_push_started_s: float | None = None
 
@@ -327,7 +341,10 @@ class FruitGuidance:
 
         if parsed.confidence < self.policy.close_range_tracking_confidence:
             self._near_fresh_samples = 0
-            decision = self._stop("tracking_confidence_below_floor")
+            decision = self._closeout_loss(
+                now_s,
+                pending_reason="tracking_confidence_below_floor",
+            )
             self._last_decision = decision
             return decision
 
@@ -340,6 +357,7 @@ class FruitGuidance:
         self._near_fresh_samples = self._near_fresh_samples + 1 if near else 0
         if self._near_fresh_samples >= self.config.near_confirmations:
             self._near_latched_at_s = now_s
+        self._near_loss_samples = 0
 
         if not allow_forward:
             self.phase = GuidancePhase.LOCKED
@@ -516,10 +534,21 @@ class FruitGuidance:
         if not self.acquisition_epoch:
             self._centered_fresh_samples = 0
             return self._search("searching_for_target")
+        return self._closeout_loss(now_s, pending_reason="target_missing_after_lock")
+
+    def _closeout_loss(
+        self,
+        now_s: float,
+        *,
+        pending_reason: str,
+    ) -> GuidanceDecision:
         if (
             self._near_latched_at_s is not None
             and now_s - self._near_latched_at_s <= self.config.near_loss_grace_s
         ):
+            self._near_loss_samples += 1
+            if self._near_loss_samples < self.config.near_loss_confirmations:
+                return self._stop("lower_edge_loss_confirmation_pending")
             self.phase = GuidancePhase.FINAL_PUSH
             self._final_push_started_s = now_s
             self.final_push_count += 1
@@ -533,7 +562,8 @@ class FruitGuidance:
                 "lower_edge_disappearance_confirmed",
             )
         self._near_fresh_samples = 0
-        return self._stop("target_missing_after_lock")
+        self._near_loss_samples = 0
+        return self._stop(pending_reason)
 
     def _search(self, reason: str) -> GuidanceDecision:
         self.phase = GuidancePhase.SEARCHING

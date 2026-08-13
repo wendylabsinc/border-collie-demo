@@ -29,6 +29,7 @@ class RecoveryRobot:
         self.last_command = {"forward_mps": 0.0, "yaw_rps": 0.0}
         self.stop_calls = 0
         self.return_calls = 0
+        self.posture_calls: list[object] = []
 
     async def emergency_stop(self) -> list[str]:
         self.stop_calls += 1
@@ -52,6 +53,14 @@ class RecoveryRobot:
                 "last_command": dict(self.last_command),
             },
         }
+
+    async def stand_down(self) -> dict[str, object]:
+        self.posture_calls.append("stand_down")
+        return {"posture": "stand_down"}
+
+    async def stand_up(self, *, settle_s: float = 1.0) -> dict[str, object]:
+        self.posture_calls.append(("stand_up", settle_s))
+        return {"posture": "balance_stand", "settle_s": settle_s}
 
     def measure_home_position(
         self,
@@ -91,7 +100,12 @@ def recover(robot: RecoveryRobot, **overrides: object) -> dict[str, object]:
         "takeover_latched": False,
     }
     arguments.update(overrides)
-    return asyncio.run(PositionOnlyFailureEpilogue(robot).recover(HOME, **arguments))
+    async def no_wait(_duration_s: float) -> None:
+        return None
+
+    return asyncio.run(
+        PositionOnlyFailureEpilogue(robot, sleep=no_wait).recover(HOME, **arguments)
+    )
 
 
 def test_failure_after_outbound_motion_gets_one_position_only_return() -> None:
@@ -104,7 +118,9 @@ def test_failure_after_outbound_motion_gets_one_position_only_return() -> None:
     assert report["exact_stop_confirmed"] is True
     assert report["terminal_home_measurement"]["home_distance_m"] == 0.05
     assert robot.return_calls == 1
-    assert robot.stop_calls == 2
+    assert robot.stop_calls == 3
+    assert robot.posture_calls == ["stand_down", ("stand_up", 1.0)]
+    assert report["posture_evidence"]["bark_played"] is False
     assert robot.armed is False
     assert robot.last_command == {"forward_mps": 0.0, "yaw_rps": 0.0}
 
@@ -194,6 +210,6 @@ def test_recovery_fails_if_exact_final_disarm_is_not_confirmed() -> None:
     report = recover(robot)
 
     assert report["status"] == "FAILED"
-    assert report["reason"] == "final exact stop/disarm could not be confirmed"
+    assert report["reason"] == "exact stop after failure posture could not be confirmed"
     assert report["exact_stop_confirmed"] is False
-    assert robot.return_calls == 1
+    assert robot.return_calls == 0

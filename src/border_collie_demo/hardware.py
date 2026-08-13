@@ -993,13 +993,47 @@ class HardwareManager:
             commands_sent = False
             forward_pulse_count = 0
             samples = 0
+            search_progress_rad = 0.0
+            previous_search_yaw: float | None = None
             started = time.monotonic()
             try:
-                assert self._motion is not None
+                assert self._motion is not None and self._pose is not None
+                if not allow_forward:
+                    initial_pose = self._pose.status()
+                    if not initial_pose.healthy or initial_pose.pose is None:
+                        raise HardwareUnavailable(
+                            initial_pose.error
+                            or "fresh Go2 pose is required before Target Fruit search"
+                        )
+                    previous_search_yaw = initial_pose.pose.yaw_rad
                 lease = await self._motion.arm()
                 deadline = started + timeout_s
                 while time.monotonic() < deadline:
                     now = time.monotonic()
+                    if not allow_forward:
+                        pose = self._pose.status()
+                        if not pose.healthy or pose.pose is None:
+                            raise HardwareUnavailable(
+                                pose.error
+                                or "Go2 pose became stale during Target Fruit search"
+                            )
+                        assert previous_search_yaw is not None
+                        yaw_delta = math.atan2(
+                            math.sin(pose.pose.yaw_rad - previous_search_yaw),
+                            math.cos(pose.pose.yaw_rad - previous_search_yaw),
+                        )
+                        search_progress_rad += max(0.0, yaw_delta)
+                        previous_search_yaw = pose.pose.yaw_rad
+                        if search_progress_rad >= guidance.config.search_sweep_rad:
+                            raise TargetLost(
+                                f"{guidance.target_fruit} was not found in the bounded search sweep",
+                                evidence={
+                                    "guidance_phase": guidance.phase.value,
+                                    "search_progress_rad": search_progress_rad,
+                                    "search_sweep_rad": guidance.config.search_sweep_rad,
+                                    "samples": samples,
+                                },
+                            )
                     decision = guidance.observe(
                         status_reader(),
                         now_s=now,
@@ -1050,6 +1084,7 @@ class HardwareManager:
                                 self.config.command_heartbeat_s
                             ),
                             "samples": samples,
+                            "search_progress_rad": search_progress_rad,
                             "motion_commands_sent": commands_sent,
                         }
                         break

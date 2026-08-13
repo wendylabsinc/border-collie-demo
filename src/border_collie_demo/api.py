@@ -16,8 +16,7 @@ from .evidence import EvidenceArtifact
 from .fruits import QUALIFIED_FRUITS, SUPPORTED_FRUITS
 from .hardware import HardwareManager, HardwareUnavailable
 from .mission import MissionMachine, RestartRequired
-from .orchestrator import FailureEpilogue
-from .orchestrator import EXECUTED_STAGES, StageExecutor
+from .orchestrator import EXECUTED_STAGES, FailureEpilogue, StageExecutor
 from .run_results import ActiveRunError, RunResultNotFound, RunResultStore
 from .stage_demo import ActivationConflict, FruitMission, StageDemo
 

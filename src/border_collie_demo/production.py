@@ -7,8 +7,8 @@ import math
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
-from .hardware import CameraFailure, HardwareUnavailable, TargetLost
 from .guidance import FruitGuidance, GuidanceConfig, GuidancePhase
+from .hardware import CameraFailure, HardwareUnavailable, TargetLost
 from .media import BarkFailure
 from .models import MissionPhase
 from .orchestrator import (

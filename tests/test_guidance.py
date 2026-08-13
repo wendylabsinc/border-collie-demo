@@ -230,27 +230,34 @@ def test_lower_edge_disappearance_allows_exactly_one_bounded_final_push() -> Non
         )
     assert near.near_fresh_samples == 3
 
-    push = guidance.observe(
+    pending = guidance.observe(
         observation(pts=7, now_s=0.6, label=None),
         now_s=0.6,
         allow_forward=True,
     )
+    push = guidance.observe(
+        observation(pts=8, now_s=0.7, label=None),
+        now_s=0.7,
+        allow_forward=True,
+    )
     during = guidance.observe(
-        observation(pts=8, now_s=1.1, label=None),
+        observation(pts=9, now_s=1.1, label=None),
         now_s=1.1,
         allow_forward=True,
     )
     arrived = guidance.observe(
-        observation(pts=9, now_s=1.6, label=None),
-        now_s=1.6,
-        allow_forward=True,
-    )
-    still_arrived = guidance.observe(
         observation(pts=10, now_s=1.7, label=None),
         now_s=1.7,
         allow_forward=True,
     )
+    still_arrived = guidance.observe(
+        observation(pts=11, now_s=1.8, label=None),
+        now_s=1.8,
+        allow_forward=True,
+    )
 
+    assert pending.action is GuidanceAction.STOP
+    assert pending.terminal is False
     assert push.action is GuidanceAction.FINAL_PUSH
     assert push.command.forward_mps == 0.6
     assert during.action is GuidanceAction.FINAL_PUSH
@@ -330,3 +337,32 @@ def test_guidance_env_defaults_match_the_physically_proven_base_contract(
     assert config.outer_corridor_ratio == 0.20
     assert config.final_push_mps == 0.6
     assert config.final_push_duration_s == 1.0
+    assert config.near_loss_confirmations == 2
+
+
+def test_one_weak_close_frame_does_not_start_final_push() -> None:
+    guidance = FruitGuidance("pear")
+    for pts, now_s in ((1, 0.0), (2, 0.1), (3, 0.2)):
+        guidance.observe(observation(pts=pts, now_s=now_s), now_s=now_s)
+    for pts, now_s in ((4, 0.3), (5, 0.4), (6, 0.5)):
+        guidance.observe(
+            observation(pts=pts, now_s=now_s, center_y=0.8, bottom=0.92),
+            now_s=now_s,
+            allow_forward=True,
+        )
+
+    pending = guidance.observe(
+        observation(pts=7, now_s=0.6, confidence=0.40, center_y=0.8, bottom=0.94),
+        now_s=0.6,
+        allow_forward=True,
+    )
+    recovered = guidance.observe(
+        observation(pts=8, now_s=0.7, confidence=0.70, center_y=0.8, bottom=0.94),
+        now_s=0.7,
+        allow_forward=True,
+    )
+
+    assert pending.action is GuidanceAction.STOP
+    assert pending.reason == "lower_edge_loss_confirmation_pending"
+    assert guidance.final_push_count == 0
+    assert recovered.action is GuidanceAction.DRIVE

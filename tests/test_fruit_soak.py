@@ -159,7 +159,7 @@ def test_wait_for_terminal_stops_robot_on_overrun():
     pending = {"run": {"run_id": "run-1", "outcome": None}}
     client = FakeClient([READY], results_by_id={"run-1": [pending]})
     clock_values = iter([0.0] * 4 + [500.0] * 4)
-    run, samples, note = wait_for_terminal(
+    _run, samples, note = wait_for_terminal(
         client,
         "run-1",
         target_fruit="pear",
@@ -179,7 +179,7 @@ def test_wait_for_terminal_samples_confidence_and_proximity():
         results_by_id={"run-1": [running, running, terminal("run-1")]},
         sidecar=SIDECAR,
     )
-    run, samples, note = wait_for_terminal(
+    _run, samples, note = wait_for_terminal(
         client, "run-1", target_fruit="pear", sleep=lambda _: None
     )
     assert note is None

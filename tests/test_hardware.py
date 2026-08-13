@@ -8,6 +8,7 @@ import pytest
 from border_collie_demo.config import HardwareConfig
 from border_collie_demo.go2_motion import MotionConfig
 from border_collie_demo.go2_pose import PoseStatus
+from border_collie_demo.guidance import FruitGuidance, GuidanceConfig
 from border_collie_demo.hardware import (
     FORWARD_PULSE_CONFIRMATION,
     CameraFailure,
@@ -15,7 +16,6 @@ from border_collie_demo.hardware import (
     HardwareUnavailable,
     TargetLost,
 )
-from border_collie_demo.guidance import FruitGuidance, GuidanceConfig
 from border_collie_demo.models import Pose, VelocityCommand
 
 

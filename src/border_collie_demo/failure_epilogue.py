@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass
 from typing import Any, Protocol
 
 
 class PositionHomeRobot(Protocol):
     async def emergency_stop(self) -> list[str]: ...
+
+    async def stand_down(self) -> dict[str, object]: ...
+
+    async def stand_up(self, *, settle_s: float = 1.0) -> dict[str, object]: ...
 
     def status(self) -> dict[str, object]: ...
 
@@ -38,6 +44,7 @@ class FailureEpilogueReport:
     exact_stop_confirmed: bool
     terminal_home_measurement: dict[str, object] | None = None
     return_evidence: dict[str, object] | None = None
+    posture_evidence: dict[str, object] | None = None
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -62,9 +69,13 @@ class PositionOnlyFailureEpilogue:
         minimum_progress_m: float = 0.03,
         stall_timeout_s: float = 2.0,
         timeout_s: float = 30.0,
+        down_hold_s: float = 5.0,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._robot = robot
         self._arrival_tolerance_m = arrival_tolerance_m
+        self._down_hold_s = down_hold_s
+        self._sleep = sleep
         self._return_options = {
             "forward_mps": forward_mps,
             "arrival_tolerance_m": arrival_tolerance_m,
@@ -128,14 +139,54 @@ class PositionOnlyFailureEpilogue:
                 exact_stop_confirmed=self._is_exactly_disarmed(),
             )
         distance = before.get("home_distance_m")
-        if isinstance(distance, (int, float)) and not isinstance(distance, bool):
-            if float(distance) <= self._arrival_tolerance_m:
-                return self._report(
-                    "ALREADY_HOME",
-                    "fresh measured pose is already inside the Home gate",
-                    exact_stop_confirmed=self._is_exactly_disarmed(),
-                    terminal_home_measurement=before,
-                )
+        if (
+            isinstance(distance, (int, float))
+            and not isinstance(distance, bool)
+            and float(distance) <= self._arrival_tolerance_m
+        ):
+            return self._report(
+                "ALREADY_HOME",
+                "fresh measured pose is already inside the Home gate",
+                exact_stop_confirmed=self._is_exactly_disarmed(),
+                terminal_home_measurement=before,
+            )
+        posture_evidence: dict[str, object]
+        try:
+            down = await self._robot.stand_down()
+            await self._sleep(self._down_hold_s)
+            up = await self._robot.stand_up(settle_s=1.0)
+            posture_evidence = {
+                "stand_down": down,
+                "down_hold_s": self._down_hold_s,
+                "stand_up": up,
+                "bark_played": False,
+            }
+        except Exception as exc:  # noqa: BLE001 - preserve original failure
+            stop_errors = await self._robot.emergency_stop()
+            return self._report(
+                "FAILED",
+                f"failure posture sequence failed: {exc}",
+                exact_stop_confirmed=(
+                    not stop_errors and self._is_exactly_disarmed()
+                ),
+            )
+        posture_stop_errors = await self._robot.emergency_stop()
+        if posture_stop_errors or not self._is_exactly_disarmed():
+            return self._report(
+                "FAILED",
+                "exact stop after failure posture could not be confirmed",
+                exact_stop_confirmed=False,
+                posture_evidence=posture_evidence,
+            )
+        try:
+            self._robot.measure_home_position(home)
+        except Exception as exc:  # noqa: BLE001 - moving on stale pose is unsafe
+            return self._report(
+                "FAILED",
+                f"fresh Home pose after failure posture is unavailable: {exc}",
+                exact_stop_confirmed=True,
+                posture_evidence=posture_evidence,
+            )
         try:
             returned = await self._robot.return_home_position(
                 home,
@@ -152,6 +203,7 @@ class PositionOnlyFailureEpilogue:
                     not stop_errors and self._is_exactly_disarmed()
                 ),
                 terminal_home_measurement=measurement,
+                posture_evidence=posture_evidence,
             )
 
         final_stop_errors = await self._robot.emergency_stop()
@@ -165,6 +217,7 @@ class PositionOnlyFailureEpilogue:
                 exact_stop_confirmed=False,
                 terminal_home_measurement=measurement,
                 return_evidence=returned,
+                posture_evidence=posture_evidence,
             )
         if measurement is None:
             return self._report(
@@ -173,6 +226,7 @@ class PositionOnlyFailureEpilogue:
                 attempted_return=True,
                 exact_stop_confirmed=True,
                 return_evidence=returned,
+                posture_evidence=posture_evidence,
             )
         terminal_distance = measurement.get("home_distance_m")
         if not isinstance(terminal_distance, (int, float)) or isinstance(
@@ -185,6 +239,7 @@ class PositionOnlyFailureEpilogue:
                 exact_stop_confirmed=True,
                 terminal_home_measurement=measurement,
                 return_evidence=returned,
+                posture_evidence=posture_evidence,
             )
         return self._report(
             "RETURNED_HOME",
@@ -193,6 +248,7 @@ class PositionOnlyFailureEpilogue:
             exact_stop_confirmed=True,
             terminal_home_measurement=measurement,
             return_evidence=returned,
+            posture_evidence=posture_evidence,
         )
 
     def _unsafe_reason(self) -> str | None:
@@ -244,6 +300,7 @@ class PositionOnlyFailureEpilogue:
         exact_stop_confirmed: bool,
         terminal_home_measurement: dict[str, object] | None = None,
         return_evidence: dict[str, object] | None = None,
+        posture_evidence: dict[str, object] | None = None,
     ) -> dict[str, object]:
         return FailureEpilogueReport(
             status=status,
@@ -252,4 +309,5 @@ class PositionOnlyFailureEpilogue:
             exact_stop_confirmed=exact_stop_confirmed,
             terminal_home_measurement=terminal_home_measurement,
             return_evidence=return_evidence,
+            posture_evidence=posture_evidence,
         ).to_dict()

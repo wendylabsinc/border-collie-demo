@@ -22,6 +22,7 @@ camera freshness or hardware motion safety limits.
 | Environment variable | Units | Default | Valid range | Safety constraint |
 | --- | --- | ---: | ---: | --- |
 | `BORDER_COLLIE_GUIDANCE_SEARCH_YAW_RPS` | rad/s | `0.50` | `0.50..0.80` | Values below the observed useful factory-avoidance yaw are rejected. |
+| `BORDER_COLLIE_GUIDANCE_SEARCH_SWEEP_RAD` | radians | `6.283185` | greater than `0`, at most one revolution | Fresh measured pose bounds the search; command duration is not treated as rotation proof. |
 | `BORDER_COLLIE_GUIDANCE_CENTER_TOLERANCE_RATIO` | frame-width ratio from center | `0.08` | greater than `0`, less than outer corridor | Three fresh samples must be inside this band before lock. |
 | `BORDER_COLLIE_GUIDANCE_CENTER_CONFIRMATIONS` | fresh frames | `3` | integer `>=1` | Duplicate frames never advance this count. |
 | `BORDER_COLLIE_GUIDANCE_APPROACH_FORWARD_MPS` | m/s | `1.0` | `0.50..1.0` | Preserves the factory-avoidance translation floor and configured maximum. |
@@ -34,6 +35,7 @@ camera freshness or hardware motion safety limits.
 | `BORDER_COLLIE_GUIDANCE_NEAR_BOTTOM_RATIO` | frame-height ratio | `0.86` | greater than `0`, at most `1` | Counts only while the fruit is also centered. |
 | `BORDER_COLLIE_GUIDANCE_NEAR_CENTER_RATIO` | frame-height ratio | `0.72` | greater than `0`, at most `1` | Counts only on fresh matching evidence. |
 | `BORDER_COLLIE_GUIDANCE_NEAR_CONFIRMATIONS` | fresh frames | `3` | integer `>=1` | Duplicate or weak observations never advance Arrival. |
+| `BORDER_COLLIE_GUIDANCE_NEAR_LOSS_CONFIRMATIONS` | fresh frames | `2` | integer `>=2` | One weak or missing observation stops but cannot start the final push. |
 | `BORDER_COLLIE_GUIDANCE_NEAR_LOSS_GRACE_S` | seconds | `0.75` | greater than `0` | Missing fruit can close out only while the centered near latch is recent. |
 | `BORDER_COLLIE_GUIDANCE_FINAL_PUSH_MPS` | m/s | `0.60` | `0.50..1.0` | Exactly one final-push episode is allowed. |
 | `BORDER_COLLIE_GUIDANCE_FINAL_PUSH_DURATION_S` | seconds | `1.0` | greater than `0`, at most `1.0` | The push is terminal and cannot be restarted. |

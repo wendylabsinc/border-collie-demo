@@ -9,9 +9,9 @@ execution, and terminal exact-zero disarm finalization.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Awaitable, Protocol
+from typing import Any, Protocol
 
 from .evidence import EvidenceArtifact
 from .fruits import QUALIFIED_FRUITS
