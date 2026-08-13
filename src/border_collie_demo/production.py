@@ -128,6 +128,7 @@ class ProductionStageExecutor:
         ):
             if self._guidance_run_id != context.run_id or self._guidance is None:
                 tuning = SearchExperimentTuning.from_mapping(
+                    context.target_fruit,
                     context.search_experiment
                 )
                 config = replace(
@@ -137,14 +138,11 @@ class ProductionStageExecutor:
                     center_tolerance_ratio=tuning.center_tolerance_ratio,
                 )
                 policy = fruit_policy(context.target_fruit)
-                if context.target_fruit == "apple":
-                    policy = replace(
-                        policy,
-                        focus_confidence=tuning.apple_focus_confidence,
-                        acquisition_confidence=(
-                            tuning.apple_acquisition_confidence
-                        ),
-                    )
+                policy = replace(
+                    policy,
+                    focus_confidence=tuning.focus_confidence,
+                    acquisition_confidence=tuning.lock_confidence,
+                )
                 self._guidance_run_id = context.run_id
                 self._guidance = FruitGuidance(
                     context.target_fruit,

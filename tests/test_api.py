@@ -795,17 +795,30 @@ def test_http_activation_id_replays_the_same_durable_run(tmp_path) -> None:
         assert replay.json()["run"]["activation_id"] == "browser-click-123"
 
 
-def test_run_activation_persists_per_run_search_experiment_tuning(tmp_path) -> None:
+@pytest.mark.parametrize(
+    ("fruit", "focus", "lock"),
+    [
+        ("apple", 0.52, 0.42),
+        ("pear", 0.70, 0.66),
+        ("banana", 0.30, 0.25),
+    ],
+)
+def test_run_activation_persists_selected_fruit_search_confidence_tuning(
+    tmp_path,
+    fruit: str,
+    focus: float,
+    lock: float,
+) -> None:
     with TestClient(ready_app(tmp_path)) as client:
         response = client.post(
             "/api/run",
             json={
-                "target_fruit": "apple",
-                "activation_id": "apple-yaw-045",
+                "target_fruit": fruit,
+                "activation_id": f"{fruit}-yaw-045",
                 "tuning": {
                     "search_yaw_rps": 0.45,
-                    "apple_focus_confidence": 0.52,
-                    "apple_acquisition_confidence": 0.42,
+                    "focus_confidence": focus,
+                    "lock_confidence": lock,
                     "center_confirmations": 4,
                     "center_tolerance_ratio": 0.10,
                 },
@@ -814,9 +827,10 @@ def test_run_activation_persists_per_run_search_experiment_tuning(tmp_path) -> N
 
         assert response.status_code == 201
         assert response.json()["run"]["search_experiment"] == {
+            "target_fruit": fruit,
             "search_yaw_rps": 0.45,
-            "apple_focus_confidence": 0.52,
-            "apple_acquisition_confidence": 0.42,
+            "focus_confidence": focus,
+            "lock_confidence": lock,
             "center_confirmations": 4,
             "center_tolerance_ratio": 0.10,
         }
@@ -836,6 +850,69 @@ def test_run_activation_rejects_search_experiment_outside_safety_bounds(
 
         assert response.status_code == 422
         assert client.get("/api/results").json()["runs"] == []
+
+
+@pytest.mark.parametrize(
+    ("fruit", "tuning", "message"),
+    [
+        (
+            "pear",
+            {"focus_confidence": 0.70, "lock_confidence": 0.64},
+            "Pear lock confidence",
+        ),
+        (
+            "banana",
+            {"focus_confidence": 0.25, "lock_confidence": 0.30},
+            "focus confidence",
+        ),
+    ],
+)
+def test_run_activation_rejects_per_fruit_or_inverted_confidence_before_motion(
+    tmp_path,
+    fruit: str,
+    tuning: dict[str, float],
+    message: str,
+) -> None:
+    with TestClient(ready_app(tmp_path)) as client:
+        response = client.post(
+            "/api/run",
+            json={"target_fruit": fruit, "tuning": tuning},
+        )
+
+        assert response.status_code == 409
+        assert message in response.json()["detail"]
+        assert client.get("/api/results").json()["runs"] == []
+
+
+def test_activation_id_conflicts_when_selected_fruit_tuning_changes(tmp_path) -> None:
+    with TestClient(ready_app(tmp_path)) as client:
+        base = {
+            "target_fruit": "banana",
+            "activation_id": "banana-confidence-1",
+            "tuning": {
+                "focus_confidence": 0.30,
+                "lock_confidence": 0.25,
+            },
+        }
+
+        first = client.post("/api/run", json=base)
+        replay = client.post("/api/run", json=base)
+        conflict = client.post(
+            "/api/run",
+            json={
+                **base,
+                "tuning": {
+                    "focus_confidence": 0.31,
+                    "lock_confidence": 0.25,
+                },
+            },
+        )
+
+        assert first.status_code == 201
+        assert replay.status_code == 201
+        assert replay.json()["idempotent_replay"] is True
+        assert conflict.status_code == 409
+        assert "different Fruit Mission" in conflict.json()["detail"]
 
 
 def test_results_list_returns_newest_demo_run_first(tmp_path) -> None:
@@ -879,20 +956,52 @@ def test_stage_ui_exposes_search_experiment_controls_and_posts_tuning(
 
     assert response.status_code == 200
     assert 'id="search-yaw-rps"' in response.text
-    assert 'id="apple-focus-confidence"' in response.text
-    assert 'id="apple-acquisition-confidence"' in response.text
+    assert 'id="focus-confidence"' in response.text
+    assert 'id="lock-confidence"' in response.text
+    assert "applyFruitConfidenceProfile" in response.text
+    assert "targetFruit.addEventListener('change'" in response.text
     assert 'id="center-confirmations"' in response.text
     assert 'id="center-tolerance-ratio"' in response.text
     assert 'id="search-trace"' in response.text
     assert "measured_yaw_rad" in response.text
     assert "confidence" in response.text
     assert "search_yaw_rps: Number(searchYaw.value)" in response.text
-    assert "apple_focus_confidence: Number(appleFocus.value)" in response.text
+    assert "focus_confidence: Number(focusConfidence.value)" in response.text
+    assert "lock_confidence: Number(lockConfidence.value)" in response.text
     assert "fetch('/api/experiments/search')" in response.text
     # woof.local is served over plain HTTP, where Web Crypto UUID generation is
     # unavailable. The API already creates the durable activation ID.
     assert "crypto.randomUUID" not in response.text
     assert "activation_id:" not in response.text
+
+
+def test_status_exposes_selected_fruit_confidence_defaults_and_ranges(tmp_path) -> None:
+    with TestClient(create_app(runs_root=tmp_path)) as client:
+        experiment = client.get("/api/status").json()["search_experiment"]
+
+    assert experiment["fruits"] == {
+        "apple": {
+            "defaults": {"focus_confidence": 0.50, "lock_confidence": 0.40},
+            "ranges": {
+                "focus_confidence": [0.50, 0.70],
+                "lock_confidence": [0.40, 0.70],
+            },
+        },
+        "banana": {
+            "defaults": {"focus_confidence": 0.20, "lock_confidence": 0.20},
+            "ranges": {
+                "focus_confidence": [0.20, 0.70],
+                "lock_confidence": [0.20, 0.70],
+            },
+        },
+        "pear": {
+            "defaults": {"focus_confidence": 0.65, "lock_confidence": 0.65},
+            "ranges": {
+                "focus_confidence": [0.65, 0.85],
+                "lock_confidence": [0.65, 0.85],
+            },
+        },
+    }
 
 
 def test_activate_records_voice_as_the_activation_source(tmp_path) -> None:

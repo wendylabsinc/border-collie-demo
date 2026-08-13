@@ -46,6 +46,14 @@ Fruit acquisition and tracking confidence remain owned by
 `border_collie_demo.fruits.FRUIT_POLICIES`, including the Banana specialist's
 sidecar route. Guidance does not replace or bypass those per-fruit thresholds.
 
+The audience UI may supply bounded focus and lock confidence for the selected
+Target Fruit as part of one Demo Run activation. Those values are validated
+against the per-fruit ranges in [`search-experiment.md`](search-experiment.md),
+persisted with the selected fruit before preflight, and applied by replacing
+the `FruitPolicy` passed to that run's `FruitGuidance`. The process-wide policy
+map is never mutated. Activations without an override preserve the baseline
+policy, including no separate focus phase for Pear and Banana.
+
 ## Safety behavior
 
 - Camera/source staleness, generation changes, regressed frames, invalid

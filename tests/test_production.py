@@ -4,6 +4,7 @@ import asyncio
 
 import pytest
 
+from border_collie_demo.fruits import fruit_policy
 from border_collie_demo.guidance import GuidancePhase
 from border_collie_demo.hardware import CameraFailure, TargetLost
 from border_collie_demo.models import MissionPhase
@@ -310,7 +311,21 @@ def test_production_reuses_one_guidance_identity_across_all_fruit_stages() -> No
     asyncio.run(scenario())
 
 
-def test_production_applies_the_run_search_experiment_to_guidance() -> None:
+@pytest.mark.parametrize(
+    ("fruit", "focus", "lock"),
+    [
+        ("apple", 0.52, 0.42),
+        ("pear", 0.70, 0.66),
+        ("banana", 0.30, 0.25),
+    ],
+)
+def test_production_applies_selected_fruit_search_confidence_only_to_the_run(
+    fruit: str,
+    focus: float,
+    lock: float,
+) -> None:
+    baseline = fruit_policy(fruit)
+
     class GuidedHardware(FakeProductionHardware):
         async def guide_target(
             self,
@@ -325,24 +340,26 @@ def test_production_applies_the_run_search_experiment_to_guidance() -> None:
             assert guidance.config.search_yaw_rps == 0.45
             assert guidance.config.center_confirmations == 4
             assert guidance.config.center_tolerance_ratio == 0.10
-            assert guidance.policy.focus_confidence == 0.52
-            assert guidance.policy.acquisition_confidence == 0.42
+            assert guidance.target_fruit == fruit
+            assert guidance.policy.focus_confidence == focus
+            assert guidance.policy.acquisition_confidence == lock
             guidance.acquisition_epoch = 1
             guidance.phase = GuidancePhase.LOCKED
-            return {"label": "apple", "acquisition_epoch": 1}
+            return {"label": fruit, "acquisition_epoch": 1}
 
     async def scenario() -> None:
         stages = ProductionStageExecutor(GuidedHardware(), dict, FakeBark())
         evidence = await stages.execute(
             MissionPhase.TURN_TO_FRUIT,
             StageContext(
-                run_id="apple-experiment",
-                target_fruit="apple",
+                run_id=f"{fruit}-experiment",
+                target_fruit=fruit,
                 home={"x_m": 0.0, "y_m": 0.0, "yaw_rad": 0.0},
                 search_experiment={
+                    "target_fruit": fruit,
                     "search_yaw_rps": 0.45,
-                    "apple_focus_confidence": 0.52,
-                    "apple_acquisition_confidence": 0.42,
+                    "focus_confidence": focus,
+                    "lock_confidence": lock,
                     "center_confirmations": 4,
                     "center_tolerance_ratio": 0.10,
                 },
@@ -350,6 +367,51 @@ def test_production_applies_the_run_search_experiment_to_guidance() -> None:
         )
 
         assert evidence["acquisition_epoch"] == 1
+
+    asyncio.run(scenario())
+    assert fruit_policy(fruit) == baseline
+
+
+@pytest.mark.parametrize(
+    ("fruit", "focus", "lock"),
+    [
+        ("apple", 0.50, 0.40),
+        ("pear", None, 0.65),
+        ("banana", None, 0.20),
+    ],
+)
+def test_production_preserves_baseline_fruit_policy_without_an_override(
+    fruit: str,
+    focus: float | None,
+    lock: float,
+) -> None:
+    class GuidedHardware(FakeProductionHardware):
+        async def guide_target(
+            self,
+            _status_reader,
+            guidance,
+            *,
+            allow_forward: bool,
+            timeout_s: float,
+        ) -> dict[str, object]:
+            assert allow_forward is False
+            assert timeout_s == 30.0
+            assert guidance.policy.focus_confidence == focus
+            assert guidance.policy.acquisition_confidence == lock
+            guidance.acquisition_epoch = 1
+            guidance.phase = GuidancePhase.LOCKED
+            return {"label": fruit, "acquisition_epoch": 1}
+
+    async def scenario() -> None:
+        stages = ProductionStageExecutor(GuidedHardware(), dict, FakeBark())
+        await stages.execute(
+            MissionPhase.TURN_TO_FRUIT,
+            StageContext(
+                run_id=f"{fruit}-baseline",
+                target_fruit=fruit,
+                home={"x_m": 0.0, "y_m": 0.0, "yaw_rad": 0.0},
+            ),
+        )
 
     asyncio.run(scenario())
 
