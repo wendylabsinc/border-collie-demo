@@ -99,7 +99,7 @@ Neither YOLO nor Whisper weights are downloaded by tests or image builds. They
 are fetched by their model libraries on first use into the shared persistent
 `/models` cache, then survive blue/green image deployments.
 
-The companion [`wendy.json`](wendy.json) grants ROS2-compatible host networking, GPU access to YOLO, audio access to transcription/execution, and a persistent `/data` volume only to A. Adjust the ROS topic environment variables in [`docker-compose.yml`](docker-compose.yml) to match the installed Go2 driver.
+The companion [`wendy.json`](wendy.json) grants ROS2-compatible host networking, GPU access to YOLO, audio access to transcription/execution, and a persistent `/data` volume only to A. It also declares conservative resource-ceiling guidance: lightweight services inherit `512Mi` and `0.5` CPU, while state/control paths and the heavier LIDAR, Whisper, YOLO, and Unitree SDK services receive explicit overrides. These are deployment starting points rather than measured requirements; use `wendy device top` under representative camera, LIDAR, voice, and motion load before tightening them. PID limits are omitted intentionally so Wendy applies its default guard. Adjust the ROS topic environment variables in [`docker-compose.yml`](docker-compose.yml) to match the installed Go2 driver.
 
 The deployed mission is:
 

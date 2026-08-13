@@ -2,14 +2,25 @@
   "appId": "sh.wendy.robotkit.go2",
   "platform": "linux",
   "version": "0.1.0",
+  "resources": {
+    "memory": "512Mi",
+    "cpus": "0.5"
+  },
   "services": {
     "world-state": {
+      "resources": {
+        "cpus": "1"
+      },
       "entitlements": [
         { "type": "network", "mode": "host" },
         { "type": "persist", "name": "robotkit-world-state", "path": "/data" }
       ]
     },
     "yolo-fruits": {
+      "resources": {
+        "memory": "4Gi",
+        "cpus": "2"
+      },
       "frameworks": {
         "ros2": {
           "domainId": 0,
@@ -25,6 +36,10 @@
       ]
     },
     "lidar-voxel": {
+      "resources": {
+        "memory": "1Gi",
+        "cpus": "2"
+      },
       "frameworks": {
         "ros2": {
           "domainId": 0,
@@ -36,6 +51,10 @@
       "entitlements": [{ "type": "network", "mode": "host" }]
     },
     "transcription": {
+      "resources": {
+        "memory": "2Gi",
+        "cpus": "2"
+      },
       "frameworks": {
         "ros2": {
           "domainId": 0,
@@ -65,12 +84,22 @@
       "entitlements": [{ "type": "network", "mode": "host" }]
     },
     "planner": {
+      "resources": {
+        "cpus": "1"
+      },
       "entitlements": [{ "type": "network", "mode": "host" }]
     },
     "controller": {
+      "resources": {
+        "cpus": "1"
+      },
       "entitlements": [{ "type": "network", "mode": "host" }]
     },
     "executor": {
+      "resources": {
+        "memory": "1Gi",
+        "cpus": "1"
+      },
       "entitlements": [
         { "type": "network", "mode": "host" },
         { "type": "audio" }
