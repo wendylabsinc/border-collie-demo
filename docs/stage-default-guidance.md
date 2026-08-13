@@ -6,22 +6,25 @@ executes only the returned command. The module privately retains the acquired
 fruit identity, camera generation, fresh-frame counters, lower-edge latch, and
 final-push state; there is no search-to-approach handoff token.
 
-The defaults intentionally reproduce the physically useful base behavior:
-search at `0.50 rad/s`, require three fresh centered samples, translate
+The defaults retain the physically useful base behavior with the qualified
+slower-search experiment: search at `0.40 rad/s`, require three fresh centered samples, translate
 continuously at `1.0 m/s`, steer while moving outside the center band, remove
 forward authority outside the outer corridor, and permit one `0.60 m/s` by
 `1.0 s` final push only after centered lower-edge evidence disappears.
 
 ## Runtime environment
 
-All values are read when a `FruitGuidance` instance is created. Changing one
-therefore requires restarting only the app service, not rebuilding the image or
-restarting the media service. Validation is fail-fast and cannot widen the
-camera freshness or hardware motion safety limits.
+Guidance values are read when a `FruitGuidance` instance is created and require
+only an app-service restart. Apple acquisition confidence is shared with the
+media sidecar, so changing it requires restarting both app and media without an
+image rebuild. Validation is fail-fast and cannot widen the camera freshness or
+hardware motion safety limits.
 
 | Environment variable | Units | Default | Valid range | Safety constraint |
 | --- | --- | ---: | ---: | --- |
 | `BORDER_COLLIE_GUIDANCE_SEARCH_YAW_RPS` | rad/s | `0.40` | `0.40..0.80` | `0.50` is physically proven; `0.40` is the supervised slower-search experiment. Lower values remain rejected because `0.24..0.30` produced posture changes without a useful turn. |
+| `BORDER_COLLIE_APPLE_FOCUS_CONFIDENCE` | confidence ratio | `0.50` | `0.50..0.70`, at least the Apple acquisition floor | The first fresh Apple observation at this floor stops the broad sweep and starts zero-motion focused confirmation. It never authorizes translation. |
+| `BORDER_COLLIE_APPLE_ACQUISITION_CONFIDENCE` | confidence ratio | `0.40` | `0.40..0.70`, at most the Apple focus floor | After focus begins, three fresh centered Apple observations at or above this floor lock identity. A weaker or missing observation holds at zero and resets confirmation; stale or unhealthy evidence still fails closed. This shared app/media value requires both services to restart. |
 | `BORDER_COLLIE_GUIDANCE_SEARCH_SWEEP_RAD` | radians | `6.283185` | greater than `0`, at most one revolution | Fresh measured pose bounds the search; command duration is not treated as rotation proof. |
 | `BORDER_COLLIE_GUIDANCE_CENTER_TOLERANCE_RATIO` | frame-width ratio from center | `0.08` | greater than `0`, less than outer corridor | Three fresh samples must be inside this band before lock. |
 | `BORDER_COLLIE_GUIDANCE_CENTER_CONFIRMATIONS` | fresh frames | `3` | integer `>=1` | Duplicate frames never advance this count. |

@@ -184,7 +184,6 @@ def test_outer_corridor_removes_forward_authority_and_recenters() -> None:
 @pytest.mark.parametrize(
     ("fruit", "below", "accepted"),
     [
-        ("apple", 0.69, 0.70),
         ("banana", 0.19, 0.20),
         ("pear", 0.64, 0.65),
     ],
@@ -209,6 +208,103 @@ def test_acquisition_uses_the_existing_per_fruit_confidence_policy(
     assert rejected.centered_fresh_samples == 0
     assert first.centered_fresh_samples == 1
     assert guidance.policy.acquisition_confidence == accepted
+
+
+def test_apple_high_confidence_candidate_holds_then_sustained_tracking_locks() -> None:
+    guidance = FruitGuidance("apple")
+
+    sweeping = guidance.observe(
+        observation(pts=1, now_s=0.0, label="apple", confidence=0.49),
+        now_s=0.0,
+    )
+    focused = guidance.observe(
+        observation(pts=2, now_s=0.1, label="apple", confidence=0.50),
+        now_s=0.1,
+    )
+    confirming = guidance.observe(
+        observation(pts=3, now_s=0.2, label="apple", confidence=0.41),
+        now_s=0.2,
+    )
+    locked = guidance.observe(
+        observation(pts=4, now_s=0.3, label="apple", confidence=0.40),
+        now_s=0.3,
+    )
+
+    assert sweeping.action is GuidanceAction.SEARCH
+    assert sweeping.command.yaw_rps == 0.40
+    assert focused.action is GuidanceAction.HOLD
+    assert focused.command.forward_mps == 0.0
+    assert focused.command.yaw_rps == 0.0
+    assert focused.reason == "apple_candidate_focus_started"
+    assert confirming.action is GuidanceAction.HOLD
+    assert locked.phase is GuidancePhase.LOCKED
+    assert locked.reason == "target_identity_locked"
+    assert guidance.acquisition_epoch == 1
+
+
+def test_apple_focus_resets_confirmation_below_40_without_resuming_sweep() -> None:
+    guidance = FruitGuidance("apple")
+
+    guidance.observe(
+        observation(pts=1, now_s=0.0, label="apple", confidence=0.55),
+        now_s=0.0,
+    )
+    guidance.observe(
+        observation(pts=2, now_s=0.1, label="apple", confidence=0.42),
+        now_s=0.1,
+    )
+    weak = guidance.observe(
+        observation(pts=3, now_s=0.2, label="apple", confidence=0.39),
+        now_s=0.2,
+    )
+
+    assert weak.action is GuidanceAction.HOLD
+    assert weak.command.forward_mps == 0.0
+    assert weak.command.yaw_rps == 0.0
+    assert weak.reason == "apple_candidate_focus_below_acquisition"
+    assert weak.centered_fresh_samples == 0
+    assert guidance.acquisition_epoch == 0
+
+
+def test_apple_focus_holds_through_one_missing_observation() -> None:
+    guidance = FruitGuidance("apple")
+    guidance.observe(
+        observation(pts=1, now_s=0.0, label="apple", confidence=0.55),
+        now_s=0.0,
+    )
+
+    missing = guidance.observe(
+        observation(pts=2, now_s=0.1, label=None),
+        now_s=0.1,
+    )
+
+    assert missing.action is GuidanceAction.HOLD
+    assert missing.command.forward_mps == 0.0
+    assert missing.command.yaw_rps == 0.0
+    assert missing.reason == "apple_candidate_focus_missing"
+    assert guidance.acquisition_epoch == 0
+
+
+def test_apple_focus_and_acquisition_thresholds_are_runtime_tunable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BORDER_COLLIE_APPLE_FOCUS_CONFIDENCE", "0.56")
+    monkeypatch.setenv("BORDER_COLLIE_APPLE_ACQUISITION_CONFIDENCE", "0.44")
+    guidance = FruitGuidance("apple")
+
+    still_sweeping = guidance.observe(
+        observation(pts=1, now_s=0.0, label="apple", confidence=0.55),
+        now_s=0.0,
+    )
+    focused = guidance.observe(
+        observation(pts=2, now_s=0.1, label="apple", confidence=0.56),
+        now_s=0.1,
+    )
+
+    assert guidance.policy.focus_confidence == 0.56
+    assert guidance.policy.acquisition_confidence == 0.44
+    assert still_sweeping.action is GuidanceAction.SEARCH
+    assert focused.action is GuidanceAction.HOLD
 
 
 def test_lower_edge_disappearance_allows_exactly_one_bounded_final_push() -> None:

@@ -226,6 +226,7 @@ class FruitGuidance:
         self._near_loss_samples = 0
         self._near_latched_at_s: float | None = None
         self._final_push_started_s: float | None = None
+        self._candidate_focus_active = False
 
     def observe(
         self,
@@ -501,11 +502,33 @@ class FruitGuidance:
         confidence: float,
         horizontal_error: float,
     ) -> GuidanceDecision:
+        focus_started = False
+        if (
+            self.policy.focus_confidence is not None
+            and not self._candidate_focus_active
+        ):
+            if confidence < self.policy.focus_confidence:
+                self._centered_fresh_samples = 0
+                return self._search("target_below_focus_confidence")
+            self._candidate_focus_active = True
+            focus_started = True
         if confidence < self.policy.acquisition_confidence:
             self._centered_fresh_samples = 0
+            if self._candidate_focus_active:
+                return self._decision(
+                    GuidanceAction.HOLD,
+                    VelocityCommand(reason="apple_candidate_focus_below_acquisition"),
+                    "apple_candidate_focus_below_acquisition",
+                )
             return self._search("target_below_acquisition_confidence")
         centered = abs(horizontal_error) <= self.config.center_tolerance_ratio
         self._centered_fresh_samples = self._centered_fresh_samples + 1 if centered else 0
+        if focus_started:
+            return self._decision(
+                GuidanceAction.HOLD,
+                VelocityCommand(reason="apple_candidate_focus_started"),
+                "apple_candidate_focus_started",
+            )
         if self._centered_fresh_samples >= self.config.center_confirmations:
             self.acquisition_epoch = 1
             self.phase = GuidancePhase.LOCKED
@@ -533,6 +556,12 @@ class FruitGuidance:
     def _missing_target(self, now_s: float) -> GuidanceDecision:
         if not self.acquisition_epoch:
             self._centered_fresh_samples = 0
+            if self._candidate_focus_active:
+                return self._decision(
+                    GuidanceAction.HOLD,
+                    VelocityCommand(reason="apple_candidate_focus_missing"),
+                    "apple_candidate_focus_missing",
+                )
             return self._search("searching_for_target")
         return self._closeout_loss(now_s, pending_reason="target_missing_after_lock")
 

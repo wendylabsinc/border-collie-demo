@@ -62,14 +62,14 @@ def test_qualified_apple_evidence_uses_its_own_threshold() -> None:
     payload["target_fruit"] = "apple"
     payload["supported_fruits"] = ["apple", "banana", "pear"]
     payload["detection"]["label"] = "apple"
-    payload["detection"]["confidence"] = 0.70
+    payload["detection"]["confidence"] = 0.40
 
     status = client_for(payload).status()
 
     assert status["target_fruit"] == "apple"
     assert status["target_ready"] is True
     assert status["motion_qualified"] is True
-    assert status["thresholds"]["target_minimum_confidence"] == 0.70
+    assert status["thresholds"]["target_minimum_confidence"] == 0.40
 
 
 def test_perception_client_selects_target_through_the_read_only_sidecar() -> None:
