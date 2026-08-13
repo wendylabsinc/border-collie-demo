@@ -330,7 +330,7 @@ def test_guidance_env_defaults_match_the_physically_proven_base_contract(
 
     config = GuidanceConfig.from_env()
 
-    assert config.search_yaw_rps == 0.5
+    assert config.search_yaw_rps == 0.4
     assert config.center_tolerance_ratio == 0.08
     assert config.center_confirmations == 3
     assert config.approach_forward_mps == 1.0

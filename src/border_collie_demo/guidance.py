@@ -40,7 +40,7 @@ class GuidanceAction(str, Enum):
 class GuidanceConfig:
     """Runtime-tunable guidance policy with hardware-safety validation."""
 
-    search_yaw_rps: float = 0.50
+    search_yaw_rps: float = 0.40
     search_sweep_rad: float = 2.0 * math.pi
     center_tolerance_ratio: float = 0.08
     center_confirmations: int = 3
@@ -122,7 +122,7 @@ class GuidanceConfig:
     def from_env(cls) -> GuidanceConfig:
         prefix = "BORDER_COLLIE_GUIDANCE_"
         return cls(
-            search_yaw_rps=float(os.environ.get(prefix + "SEARCH_YAW_RPS", "0.50")),
+            search_yaw_rps=float(os.environ.get(prefix + "SEARCH_YAW_RPS", "0.40")),
             search_sweep_rad=float(
                 os.environ.get(prefix + "SEARCH_SWEEP_RAD", str(2.0 * math.pi))
             ),
