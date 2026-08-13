@@ -1,6 +1,6 @@
 version: 1
 stages:
-  - name: builder
+  - name: native
     from: python:3.11-slim-bookworm
     env:
       CYCLONEDDS_HOME: /usr/local
@@ -17,6 +17,11 @@ stages:
             BUILD_EXAMPLES: "OFF"
             BUILD_TESTING: "OFF"
           jobs: 2
+  - name: builder
+    from: native
+    env:
+      CYCLONEDDS_HOME: /usr/local
+    install:
       pip:
         - packages:
             - fastapi>=0.115,<1

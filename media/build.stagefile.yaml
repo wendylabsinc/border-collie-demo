@@ -6,6 +6,7 @@ stages:
     env:
       PIP_INDEX_URL: https://pypi.org/simple
       PIP_EXTRA_INDEX_URL: ""
+      PYTHONPATH: /usr/local/lib/python3.12/site-packages
       PYTHONUNBUFFERED: "1"
       UNITREE_ROBOT_IP: 192.168.123.161
       PEAR_MODEL_PATH: /media/model.engine
@@ -29,6 +30,7 @@ stages:
       pip:
         - requirements: requirements.txt
           index: https://pypi.org/simple
+          buildPackages: [build-essential, portaudio19-dev]
     copy:
       - from: local
         paths: [model/model.engine]

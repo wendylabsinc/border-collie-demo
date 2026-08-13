@@ -333,10 +333,11 @@ An activation request with an ambiguous response aborts the session without an
 automatic retry. A restart-required application state also aborts immediately.
 Individual terminal run failures are recorded and the supervised soak continues
 unless the deployed application's safety state prevents another activation.
-The root app and `media` service each have a committed `build.stagefile.yaml`
-and digest-pinned lockfile. A Stagefile-capable Wendy CLI selects both
-automatically for the multi-service deployment; generated Dockerfiles are build
-artifacts and are not committed.
+The root app, `media`, and `voice` services each have a committed
+`build.stagefile.yaml` and digest-pinned lockfile. A Stagefile-capable Wendy CLI
+selects all three automatically for a whole-project deployment; generated
+Dockerfiles are build artifacts and are not committed. Deploy with
+`wendy run --detach` and do not pass a Dockerfile override.
 
 ## Local validation
 
@@ -351,12 +352,12 @@ the physical adapter boundaries with deterministic pose/perception replays, the
 complete zero-motion HTTP run, all default failure reasons, and diagnostic
 stage classification.
 
-## Docker optimization proof
+## Historical Docker optimization proof
 
-Docker build changes are measured with DLO using the repository contract in
-`.dlo.yml`. The current Dockerfile keeps dependency installation in the stable
-builder layer and copies application source directly into the final image, so a
-source-only edit does not reinstall the project package.
+The repository retains an older Docker/DLO benchmark as historical evidence,
+but Dockerfiles and DLO are not part of the current deployment path. The
+committed Stagefiles declare stable dependency and model inputs before volatile
+application source, and Wendy compiles them into ignored generated Dockerfiles.
 
 The first controlled proof used three paired source-only trials plus no-op and
 dependency-change controls. It reduced the source-edit median from 8.743 s to

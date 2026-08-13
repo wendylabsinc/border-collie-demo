@@ -38,9 +38,9 @@ def test_voice_service_uses_the_stage_default_dog_identity_and_local_boundaries(
     )["path"] == "/models"
 
 
-def test_voice_has_equivalent_stagefile_and_docker_builds() -> None:
+def test_voice_build_is_stagefile_only() -> None:
     stagefile = yaml.safe_load((ROOT / "voice/build.stagefile.yaml").read_text())
-    assert (ROOT / "voice/Dockerfile").is_file()
+    assert not (ROOT / "voice/Dockerfile").exists()
     assert (ROOT / "voice/build.stagefile.lock.yaml").is_file()
 
     stage = stagefile["stages"][-1]
