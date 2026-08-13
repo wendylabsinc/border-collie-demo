@@ -78,6 +78,12 @@ steering. Once translation starts it never falls back to yaw-only correction;
 a heading escape outside the qualified forward-steering gate stops and fails
 closed.
 
+The bounded failed-run epilogue uses the same two-phase Home contract after its
+down/hold/stand posture sequence: it first proves a fresh bearing within 5
+degrees through regular SportClient yaw, confirms exact-zero disarm, and only
+then permits the factory-avoidance position return. A failed or unverifiable
+alignment records its own evidence and never authorizes forward recovery.
+
 Return-to-Home must not use open-ended recovery. Loss of trustworthy pose or
 failure to make bounded progress must stop and disarm Woof, terminate the run
 as `FAILED`, and record `RETURN_HOME_FAILURE`. The Run Result must include the

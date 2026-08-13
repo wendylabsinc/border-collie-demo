@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass
 from typing import Any, Protocol
@@ -20,6 +21,18 @@ class PositionHomeRobot(Protocol):
     def measure_home_position(
         self,
         home: dict[str, object],
+    ) -> dict[str, object]: ...
+
+    async def turn_toward_home(
+        self,
+        home: dict[str, object],
+        *,
+        yaw_rps: float,
+        tolerance_rad: float,
+        response_timeout_s: float,
+        response_min_progress_rad: float,
+        recovery_settle_s: float,
+        timeout_s: float,
     ) -> dict[str, object]: ...
 
     async def return_home_position(
@@ -42,6 +55,8 @@ class FailureEpilogueReport:
     reason: str
     attempted_return: bool
     exact_stop_confirmed: bool
+    attempted_alignment: bool = False
+    home_alignment_evidence: dict[str, object] | None = None
     terminal_home_measurement: dict[str, object] | None = None
     return_evidence: dict[str, object] | None = None
     posture_evidence: dict[str, object] | None = None
@@ -69,6 +84,9 @@ class PositionOnlyFailureEpilogue:
         minimum_progress_m: float = 0.03,
         stall_timeout_s: float = 2.0,
         timeout_s: float = 30.0,
+        align_yaw_rps: float = 0.50,
+        align_tolerance_rad: float = 0.08726646259971647,
+        align_timeout_s: float = 30.0,
         down_hold_s: float = 5.0,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
@@ -76,6 +94,15 @@ class PositionOnlyFailureEpilogue:
         self._arrival_tolerance_m = arrival_tolerance_m
         self._down_hold_s = down_hold_s
         self._sleep = sleep
+        self._align_tolerance_rad = align_tolerance_rad
+        self._align_options = {
+            "yaw_rps": align_yaw_rps,
+            "tolerance_rad": align_tolerance_rad,
+            "response_timeout_s": 0.75,
+            "response_min_progress_rad": math.radians(2.0),
+            "recovery_settle_s": 1.0,
+            "timeout_s": align_timeout_s,
+        }
         self._return_options = {
             "forward_mps": forward_mps,
             "arrival_tolerance_m": arrival_tolerance_m,
@@ -188,6 +215,48 @@ class PositionOnlyFailureEpilogue:
                 posture_evidence=posture_evidence,
             )
         try:
+            aligned = await self._robot.turn_toward_home(
+                home,
+                **self._align_options,
+            )
+        except Exception as exc:  # noqa: BLE001 - recovery must preserve failure
+            stop_errors = await self._robot.emergency_stop()
+            return self._report(
+                "FAILED",
+                f"yaw-only Home alignment failed: {exc}",
+                attempted_alignment=True,
+                exact_stop_confirmed=(
+                    not stop_errors and self._is_exactly_disarmed()
+                ),
+                terminal_home_measurement=self._measure_if_safe(home),
+                posture_evidence=posture_evidence,
+            )
+        bearing_error = aligned.get("home_bearing_error_rad")
+        alignment_valid = bool(
+            aligned.get("motion_path") == "sport_yaw"
+            and isinstance(bearing_error, (int, float))
+            and not isinstance(bearing_error, bool)
+            and math.isfinite(float(bearing_error))
+            and abs(float(bearing_error)) <= self._align_tolerance_rad
+        )
+        alignment_stop_errors = await self._robot.emergency_stop()
+        if (
+            not alignment_valid
+            or alignment_stop_errors
+            or not self._is_exactly_disarmed()
+        ):
+            return self._report(
+                "FAILED",
+                "yaw-only Home alignment did not finish inside the fresh bearing gate",
+                attempted_alignment=True,
+                exact_stop_confirmed=(
+                    not alignment_stop_errors and self._is_exactly_disarmed()
+                ),
+                terminal_home_measurement=self._measure_if_safe(home),
+                home_alignment_evidence=aligned,
+                posture_evidence=posture_evidence,
+            )
+        try:
             returned = await self._robot.return_home_position(
                 home,
                 **self._return_options,
@@ -198,11 +267,13 @@ class PositionOnlyFailureEpilogue:
             return self._report(
                 "FAILED",
                 f"bounded position-only return failed: {exc}",
+                attempted_alignment=True,
                 attempted_return=True,
                 exact_stop_confirmed=(
                     not stop_errors and self._is_exactly_disarmed()
                 ),
                 terminal_home_measurement=measurement,
+                home_alignment_evidence=aligned,
                 posture_evidence=posture_evidence,
             )
 
@@ -213,19 +284,23 @@ class PositionOnlyFailureEpilogue:
             return self._report(
                 "FAILED",
                 "final exact stop/disarm could not be confirmed",
+                attempted_alignment=True,
                 attempted_return=True,
                 exact_stop_confirmed=False,
                 terminal_home_measurement=measurement,
                 return_evidence=returned,
+                home_alignment_evidence=aligned,
                 posture_evidence=posture_evidence,
             )
         if measurement is None:
             return self._report(
                 "FAILED",
                 "fresh terminal Home measurement is unavailable",
+                attempted_alignment=True,
                 attempted_return=True,
                 exact_stop_confirmed=True,
                 return_evidence=returned,
+                home_alignment_evidence=aligned,
                 posture_evidence=posture_evidence,
             )
         terminal_distance = measurement.get("home_distance_m")
@@ -235,19 +310,23 @@ class PositionOnlyFailureEpilogue:
             return self._report(
                 "FAILED",
                 "bounded return ended outside the measured Home gate",
+                attempted_alignment=True,
                 attempted_return=True,
                 exact_stop_confirmed=True,
                 terminal_home_measurement=measurement,
                 return_evidence=returned,
+                home_alignment_evidence=aligned,
                 posture_evidence=posture_evidence,
             )
         return self._report(
             "RETURNED_HOME",
             "one bounded position-only return reached the measured Home gate",
+            attempted_alignment=True,
             attempted_return=True,
             exact_stop_confirmed=True,
             terminal_home_measurement=measurement,
             return_evidence=returned,
+            home_alignment_evidence=aligned,
             posture_evidence=posture_evidence,
         )
 
@@ -296,10 +375,12 @@ class PositionOnlyFailureEpilogue:
         status: str,
         reason: str,
         *,
+        attempted_alignment: bool = False,
         attempted_return: bool = False,
         exact_stop_confirmed: bool,
         terminal_home_measurement: dict[str, object] | None = None,
         return_evidence: dict[str, object] | None = None,
+        home_alignment_evidence: dict[str, object] | None = None,
         posture_evidence: dict[str, object] | None = None,
     ) -> dict[str, object]:
         return FailureEpilogueReport(
@@ -307,6 +388,8 @@ class PositionOnlyFailureEpilogue:
             reason=reason,
             attempted_return=attempted_return,
             exact_stop_confirmed=exact_stop_confirmed,
+            attempted_alignment=attempted_alignment,
+            home_alignment_evidence=home_alignment_evidence,
             terminal_home_measurement=terminal_home_measurement,
             return_evidence=return_evidence,
             posture_evidence=posture_evidence,

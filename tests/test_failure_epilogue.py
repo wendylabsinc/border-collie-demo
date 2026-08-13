@@ -14,6 +14,7 @@ class RecoveryRobot:
         fault: str | None = None,
         pose_error: str | None = None,
         return_error: str | None = None,
+        turn_error: str | None = None,
         final_stop_arms: bool = False,
         posture: str = "standing",
     ) -> None:
@@ -23,13 +24,16 @@ class RecoveryRobot:
         self.fault = fault
         self.pose_error = pose_error
         self.return_error = return_error
+        self.turn_error = turn_error
         self.final_stop_arms = final_stop_arms
         self.posture = posture
         self.armed = False
         self.last_command = {"forward_mps": 0.0, "yaw_rps": 0.0}
         self.stop_calls = 0
         self.return_calls = 0
+        self.turn_calls = 0
         self.posture_calls: list[object] = []
+        self.events: list[str] = []
 
     async def emergency_stop(self) -> list[str]:
         self.stop_calls += 1
@@ -55,10 +59,12 @@ class RecoveryRobot:
         }
 
     async def stand_down(self) -> dict[str, object]:
+        self.events.append("stand_down")
         self.posture_calls.append("stand_down")
         return {"posture": "stand_down"}
 
     async def stand_up(self, *, settle_s: float = 1.0) -> dict[str, object]:
+        self.events.append("stand_up")
         self.posture_calls.append(("stand_up", settle_s))
         return {"posture": "balance_stand", "settle_s": settle_s}
 
@@ -76,12 +82,28 @@ class RecoveryRobot:
             "pose_source": "rt/sportmodestate",
         }
 
+    async def turn_toward_home(
+        self,
+        _home: dict[str, object],
+        **_options: float,
+    ) -> dict[str, object]:
+        self.turn_calls += 1
+        self.events.append("turn_toward_home")
+        if self.turn_error is not None:
+            raise RuntimeError(self.turn_error)
+        return {
+            "home_distance_m": self._last_distance,
+            "home_bearing_error_rad": 0.0,
+            "motion_path": "sport_yaw",
+        }
+
     async def return_home_position(
         self,
         _home: dict[str, object],
         **_options: float,
     ) -> dict[str, object]:
         self.return_calls += 1
+        self.events.append("return_home_position")
         if self.return_error is not None:
             raise RuntimeError(self.return_error)
         return {
@@ -115,10 +137,19 @@ def test_failure_after_outbound_motion_gets_one_position_only_return() -> None:
 
     assert report["status"] == "RETURNED_HOME"
     assert report["attempted_return"] is True
+    assert report["attempted_alignment"] is True
+    assert report["home_alignment_evidence"]["motion_path"] == "sport_yaw"
     assert report["exact_stop_confirmed"] is True
     assert report["terminal_home_measurement"]["home_distance_m"] == 0.05
     assert robot.return_calls == 1
-    assert robot.stop_calls == 3
+    assert robot.turn_calls == 1
+    assert robot.events == [
+        "stand_down",
+        "stand_up",
+        "turn_toward_home",
+        "return_home_position",
+    ]
+    assert robot.stop_calls == 4
     assert robot.posture_calls == ["stand_down", ("stand_up", 1.0)]
     assert report["posture_evidence"]["bark_played"] is False
     assert robot.armed is False
@@ -201,6 +232,24 @@ def test_failed_bounded_return_preserves_a_fresh_terminal_measurement() -> None:
     assert report["attempted_return"] is True
     assert report["terminal_home_measurement"]["home_distance_m"] == 0.65
     assert robot.return_calls == 1
+    assert robot.armed is False
+
+
+def test_failed_home_alignment_stops_without_attempting_forward_return() -> None:
+    robot = RecoveryRobot([1.0, 1.0], turn_error="sport yaw did not respond")
+
+    report = recover(robot)
+
+    assert report["status"] == "FAILED"
+    assert report["attempted_alignment"] is True
+    assert report["attempted_return"] is False
+    assert report["reason"] == (
+        "yaw-only Home alignment failed: sport yaw did not respond"
+    )
+    assert report["exact_stop_confirmed"] is True
+    assert report["terminal_home_measurement"]["home_distance_m"] == 1.0
+    assert robot.turn_calls == 1
+    assert robot.return_calls == 0
     assert robot.armed is False
 
 
