@@ -51,7 +51,7 @@ class GuidanceConfig:
     duplicate_hold_s: float = 0.250
     source_maximum_age_s: float = 0.350
     detection_maximum_age_s: float = 0.250
-    near_bottom_ratio: float = 0.86
+    near_bottom_ratio: float = 0.90
     near_center_ratio: float = 0.72
     near_confirmations: int = 3
     near_loss_confirmations: int = 2
@@ -148,7 +148,7 @@ class GuidanceConfig:
                 os.environ.get(prefix + "DETECTION_MAXIMUM_AGE_S", "0.250")
             ),
             near_bottom_ratio=float(
-                os.environ.get(prefix + "NEAR_BOTTOM_RATIO", "0.86")
+                os.environ.get(prefix + "NEAR_BOTTOM_RATIO", "0.90")
             ),
             near_center_ratio=float(
                 os.environ.get(prefix + "NEAR_CENTER_RATIO", "0.72")
@@ -231,6 +231,7 @@ class FruitGuidance:
         self._arrival_eligible = False
         self._final_push_started_s: float | None = None
         self._candidate_focus_active = False
+        self._forward_authorized_once = False
 
     def observe(
         self,
@@ -422,6 +423,7 @@ class FruitGuidance:
                 ),
                 "approach_target_continuous",
             )
+            self._forward_authorized_once = True
         self._last_decision = decision
         return decision
 
@@ -593,6 +595,8 @@ class FruitGuidance:
                     "apple_candidate_focus_missing",
                 )
             return self._search("searching_for_target")
+        if self._forward_authorized_once:
+            return self._lower_edge_arrival(reason="target_missing_after_approach_arrival")
         if self._recent_lower_edge(now_s):
             return self._lower_edge_arrival()
         return self._closeout_loss(now_s, pending_reason="target_missing_after_lock")

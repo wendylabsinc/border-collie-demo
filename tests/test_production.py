@@ -286,7 +286,7 @@ def test_approach_uses_measured_factory_motion_and_one_final_push() -> None:
             # bounded activation tuning before stop-and-lie-down.
             "forward_mps": 1.0,
             "maximum_yaw_rps": 0.30,
-            "near_bottom_ratio": 0.86,
+            "near_bottom_ratio": 0.90,
             "near_center_ratio": 0.72,
             "near_confirmations": 3,
             "near_loss_grace_s": 0.75,

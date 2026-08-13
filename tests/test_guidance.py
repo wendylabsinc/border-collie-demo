@@ -395,7 +395,7 @@ def test_any_fruit_lower_edge_identity_collapse_arrives_without_three_samples(
     assert guidance.final_push_count == 0
 
 
-def test_pear_disappearance_without_recent_lower_edge_evidence_still_stops() -> None:
+def test_disappearance_after_forward_approach_assumes_arrival_without_lower_edge_frame() -> None:
     guidance = FruitGuidance("pear")
     for pts, now_s in ((1, 0.0), (2, 0.1), (3, 0.2)):
         guidance.observe(observation(pts=pts, now_s=now_s), now_s=now_s)
@@ -415,6 +415,24 @@ def test_pear_disappearance_without_recent_lower_edge_evidence_still_stops() -> 
     missing = guidance.observe(
         observation(pts=5, now_s=0.4, label=None),
         now_s=0.4,
+        allow_forward=True,
+    )
+
+    assert missing.action is GuidanceAction.ARRIVED
+    assert missing.reason == "target_missing_after_approach_arrival"
+    assert missing.arrival_confirmed is True
+    assert missing.command.forward_mps == 0.0
+    assert missing.command.yaw_rps == 0.0
+
+
+def test_disappearance_before_forward_approach_does_not_assume_arrival() -> None:
+    guidance = FruitGuidance("pear")
+    for pts, now_s in ((1, 0.0), (2, 0.1), (3, 0.2)):
+        guidance.observe(observation(pts=pts, now_s=now_s), now_s=now_s)
+
+    missing = guidance.observe(
+        observation(pts=4, now_s=0.3, label=None),
+        now_s=0.3,
         allow_forward=True,
     )
 

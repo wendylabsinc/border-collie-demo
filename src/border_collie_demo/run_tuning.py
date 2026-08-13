@@ -105,7 +105,7 @@ class ApproachTuning:
 
 @dataclass(frozen=True)
 class ArrivalTuning:
-    near_bottom_ratio: float = 0.86
+    near_bottom_ratio: float = 0.90
     near_center_ratio: float = 0.72
     near_confirmations: int = 3
     loss_confirmations: int = 2
