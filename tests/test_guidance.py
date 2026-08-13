@@ -214,11 +214,11 @@ def test_apple_high_confidence_candidate_holds_then_sustained_tracking_locks() -
     guidance = FruitGuidance("apple")
 
     sweeping = guidance.observe(
-        observation(pts=1, now_s=0.0, label="apple", confidence=0.49),
+        observation(pts=1, now_s=0.0, label="apple", confidence=0.39),
         now_s=0.0,
     )
     focused = guidance.observe(
-        observation(pts=2, now_s=0.1, label="apple", confidence=0.50),
+        observation(pts=2, now_s=0.1, label="apple", confidence=0.40),
         now_s=0.1,
     )
     confirming = guidance.observe(

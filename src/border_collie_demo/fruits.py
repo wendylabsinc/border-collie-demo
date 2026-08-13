@@ -18,7 +18,7 @@ FRUIT_POLICIES: dict[str, FruitPolicy] = {
         acquisition_confidence=0.40,
         close_range_tracking_confidence=0.10,
         motion_qualified=True,
-        focus_confidence=0.50,
+        focus_confidence=0.40,
     ),
     # Banana is motion-qualified only because every published banana detection
     # is already gated by the resident banana specialist (0.55 confidence with
@@ -60,7 +60,7 @@ def fruit_policy(target_fruit: str) -> FruitPolicy:
     focus = _bounded_confidence_env(
         "BORDER_COLLIE_APPLE_FOCUS_CONFIDENCE",
         policy.focus_confidence,
-        minimum=0.50,
+        minimum=0.40,
         maximum=0.70,
     )
     if focus < acquisition:

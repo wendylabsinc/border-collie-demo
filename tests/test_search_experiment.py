@@ -11,7 +11,7 @@ from border_collie_demo.search_experiment import (
 @pytest.mark.parametrize(
     ("fruit", "focus", "lock"),
     [
-        ("apple", 0.50, 0.40),
+        ("apple", 0.40, 0.40),
         ("pear", None, 0.65),
         ("banana", None, 0.20),
     ],

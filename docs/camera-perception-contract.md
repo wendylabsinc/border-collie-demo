@@ -203,15 +203,16 @@ or in-run recovery.
 
 ## Apple search hysteresis
 
-Apple search uses two confidence thresholds. A fresh Apple observation at or
-above `0.50` stops the broad sweep and enters a zero-motion focus state. Once
-focused, three fresh centered observations at or above `0.40` lock identity
+Apple search exposes separate focus and acquisition controls, both currently
+defaulted to `0.40`. A fresh Apple observation at or above `0.40` stops the
+broad sweep and enters a zero-motion focus state. Once focused, three fresh
+centered observations at or above `0.40` lock identity
 and permit the mission to continue. A weaker observation resets confirmation
 and remains zero-motion. Stale evidence, invalid geometry, camera failure, and
 camera-generation changes still fail closed.
 
 `BORDER_COLLIE_APPLE_FOCUS_CONFIDENCE` is a unitless app-side ratio with a
-`0.50` default and `0.50..0.70` valid range.
+`0.40` default and `0.40..0.70` valid range.
 `BORDER_COLLIE_APPLE_ACQUISITION_CONFIDENCE` is app-owned, has a `0.40` default
 and `0.40..0.70` valid range, and controls focused acquisition. The media
 sidecar publishes raw same-label temporal evidence and does not read either

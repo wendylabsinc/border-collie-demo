@@ -12,7 +12,7 @@ from .fruits import fruit_policy
 
 _CONFIDENCE_RANGES: dict[str, dict[str, tuple[float, float]]] = {
     "apple": {
-        "focus_confidence": (0.50, 0.70),
+        "focus_confidence": (0.40, 0.70),
         "lock_confidence": (0.40, 0.70),
     },
     "banana": {

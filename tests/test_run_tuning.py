@@ -20,7 +20,7 @@ def test_defaults_preserve_kinda_good_behavior_for_every_fruit() -> None:
     pear = RunTuning.defaults("pear")
     banana = RunTuning.defaults("banana")
 
-    assert apple.recognition.focus_confidence == 0.50
+    assert apple.recognition.focus_confidence == 0.40
     assert apple.recognition.lock_confidence == 0.40
     assert apple.recognition.tracking_confidence == 0.10
     assert pear.recognition.focus_confidence is None

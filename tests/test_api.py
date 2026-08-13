@@ -1133,9 +1133,9 @@ def test_status_exposes_selected_fruit_confidence_defaults_and_ranges(tmp_path) 
 
     assert experiment["fruits"] == {
         "apple": {
-            "defaults": {"focus_confidence": 0.50, "lock_confidence": 0.40},
+            "defaults": {"focus_confidence": 0.40, "lock_confidence": 0.40},
             "ranges": {
-                "focus_confidence": [0.50, 0.70],
+                "focus_confidence": [0.40, 0.70],
                 "lock_confidence": [0.40, 0.70],
             },
         },
