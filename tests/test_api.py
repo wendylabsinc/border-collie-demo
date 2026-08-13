@@ -889,6 +889,10 @@ def test_stage_ui_exposes_search_experiment_controls_and_posts_tuning(
     assert "search_yaw_rps: Number(searchYaw.value)" in response.text
     assert "apple_focus_confidence: Number(appleFocus.value)" in response.text
     assert "fetch('/api/experiments/search')" in response.text
+    # woof.local is served over plain HTTP, where Web Crypto UUID generation is
+    # unavailable. The API already creates the durable activation ID.
+    assert "crypto.randomUUID" not in response.text
+    assert "activation_id:" not in response.text
 
 
 def test_activate_records_voice_as_the_activation_source(tmp_path) -> None:

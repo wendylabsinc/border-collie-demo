@@ -322,7 +322,6 @@
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
               target_fruit: targetFruit.value,
-              activation_id: crypto.randomUUID(),
               tuning: {
                 search_yaw_rps: Number(searchYaw.value),
                 apple_focus_confidence: Number(appleFocus.value),
