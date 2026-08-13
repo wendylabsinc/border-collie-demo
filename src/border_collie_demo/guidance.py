@@ -239,7 +239,7 @@ class FruitGuidance:
         self._near_fresh_samples = 0
         self._near_loss_samples = 0
         self._near_latched_at_s: float | None = None
-        self._pear_lower_edge_seen_at_s: float | None = None
+        self._lower_edge_seen_at_s: float | None = None
         self._arrival_eligible = False
         self._final_push_started_s: float | None = None
         self._candidate_focus_active = False
@@ -337,6 +337,10 @@ class FruitGuidance:
 
         if parsed.label != self.target_fruit:
             if self.acquisition_epoch:
+                if self._recent_lower_edge(now_s):
+                    decision = self._lower_edge_arrival()
+                    self._last_decision = decision
+                    return decision
                 return self._fail("target_identity_changed", camera=False)
             self._centered_fresh_samples = 0
             decision = self._search("searching_for_target")
@@ -367,16 +371,14 @@ class FruitGuidance:
             return decision
 
         if (
-            self.target_fruit == "pear"
-            and parsed.bottom >= self.config.near_bottom_ratio
+            parsed.bottom >= self.config.near_bottom_ratio
             and parsed.center_y >= self.config.near_center_ratio
         ):
-            # A close Pear can be clipped out of the camera before it remains
-            # inside the narrow centering corridor for three frames. Preserve
-            # the last qualified lower-edge observation independently from the
-            # stricter multi-frame Arrival latch so the next fresh, healthy
-            # missing frame can close the approach at exact zero motion.
-            self._pear_lower_edge_seen_at_s = now_s
+            # Any fruit can be clipped out of the camera before it remains in
+            # the narrow centering corridor for three frames. Preserve one
+            # qualified lower-edge observation so the next fresh identity
+            # collapse closes the approach at exact zero motion.
+            self._lower_edge_seen_at_s = now_s
 
         centered = abs(horizontal_error) <= self.config.center_tolerance_ratio
         near = (
@@ -596,21 +598,8 @@ class FruitGuidance:
                     "apple_candidate_focus_missing",
                 )
             return self._search("searching_for_target")
-        if (
-            self.target_fruit == "pear"
-            and self._pear_lower_edge_seen_at_s is not None
-            and now_s - self._pear_lower_edge_seen_at_s
-            <= self.config.near_loss_grace_s
-        ):
-            self.phase = GuidancePhase.ARRIVED
-            self._arrival_eligible = True
-            return self._decision(
-                GuidanceAction.ARRIVED,
-                VelocityCommand(reason="pear_lower_edge_disappearance_arrival"),
-                "pear_lower_edge_disappearance_arrival",
-                terminal=True,
-                arrival_confirmed=True,
-            )
+        if self._recent_lower_edge(now_s):
+            return self._lower_edge_arrival()
         return self._closeout_loss(now_s, pending_reason="target_missing_after_lock")
 
     def _closeout_loss(
@@ -619,6 +608,8 @@ class FruitGuidance:
         *,
         pending_reason: str,
     ) -> GuidanceDecision:
+        if self._recent_lower_edge(now_s):
+            return self._lower_edge_arrival()
         if (
             self._near_latched_at_s is not None
             and now_s - self._near_latched_at_s <= self.config.near_loss_grace_s
@@ -652,6 +643,23 @@ class FruitGuidance:
         self._near_loss_samples = 0
         self._arrival_eligible = False
         return self._stop(pending_reason)
+
+    def _recent_lower_edge(self, now_s: float) -> bool:
+        return bool(
+            self._lower_edge_seen_at_s is not None
+            and now_s - self._lower_edge_seen_at_s <= self.config.near_loss_grace_s
+        )
+
+    def _lower_edge_arrival(self) -> GuidanceDecision:
+        self.phase = GuidancePhase.ARRIVED
+        self._arrival_eligible = True
+        return self._decision(
+            GuidanceAction.ARRIVED,
+            VelocityCommand(reason="lower_edge_identity_collapse_arrival"),
+            "lower_edge_identity_collapse_arrival",
+            terminal=True,
+            arrival_confirmed=True,
+        )
 
     def _search(self, reason: str) -> GuidanceDecision:
         self.phase = GuidancePhase.SEARCHING

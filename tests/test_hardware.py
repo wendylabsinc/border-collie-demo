@@ -537,7 +537,7 @@ def test_mission_lifetime_pear_guidance_arrives_stopped_after_disappearance() ->
         assert locked["search_trace"][-1]["locked"] is True
         assert arrived["acquisition_epoch"] == 1
         assert arrived["arrival_confirmed"] is True
-        assert arrived["guidance_reason"] == "pear_lower_edge_disappearance_arrival"
+        assert arrived["guidance_reason"] == "lower_edge_identity_collapse_arrival"
         assert arrived["final_push_count"] == 0
         assert any(
             command.forward_mps == 1.0
@@ -676,48 +676,27 @@ def test_approach_trace_records_each_guidance_decision_and_arrival_counter() -> 
         assert trace[3]["frame_advanced"] is False
         assert trace[3]["resulting_command"]["yaw_rps"] == -0.50
         assert [sample["near_fresh_samples"] for sample in trace[4:7]] == [1, 2, 3]
-        assert trace[7]["near_loss_samples"] == 1
+        assert trace[7]["near_loss_samples"] == 0
         assert trace[7]["arrival_eligible"] is True
-        assert trace[8]["near_loss_samples"] == 2
-        assert trace[8]["guidance_action"] == "final_push"
-        assert trace[-1]["guidance_action"] == "arrived"
+        assert trace[7]["guidance_action"] == "arrived"
+        assert trace[7]["guidance_reason"] == "lower_edge_identity_collapse_arrival"
         assert result["approach_trace_limit"] == 256
         assert result["approach_trace_dropped"] == 0
-        assert result["approach_summary"] == {
-            "samples": 10,
-            "recorded_samples": 10,
-            "dropped_samples": 0,
-            "action_counts": {
-                "align": 1,
-                "arrived": 1,
-                "drive": 3,
-                "final_push": 1,
-                "hold": 1,
-                "stop": 3,
-            },
-            "reason_counts": {
-                "bounded_final_push_complete": 1,
-                "duplicate_frame_bounded_hold": 1,
-                "lower_edge_disappearance_confirmed": 1,
-                "lower_edge_loss_confirmation_pending": 1,
-                "approach_target_continuous": 3,
-                "target_missing_after_lock": 1,
-                "target_outside_outer_corridor": 1,
-                "tracking_confidence_below_floor": 1,
-            },
-            "confidence": {
-                "detected_frames": 6,
-            "minimum": 0.19,
-                "maximum": 0.80,
-            "average": pytest.approx(4.19 / 6),
-                "lock_confidence": None,
-            },
-            "forward_decisions": 4,
-            "stop_decisions": 3,
-            "forward_commands_sent": 4,
-            "stop_commands_sent": 3,
-            "final_guidance_reason": "bounded_final_push_complete",
+        summary = result["approach_summary"]
+        assert summary["samples"] == 8
+        assert summary["action_counts"] == {
+            "align": 1,
+            "arrived": 1,
+            "drive": 3,
+            "hold": 1,
+            "stop": 2,
         }
+        assert summary["reason_counts"]["lower_edge_identity_collapse_arrival"] == 1
+        assert summary["final_guidance_reason"] == (
+            "lower_edge_identity_collapse_arrival"
+        )
+        assert summary["forward_decisions"] == 3
+        assert summary["stop_decisions"] == 2
         assert motion.armed is False
         await manager.close()
 
