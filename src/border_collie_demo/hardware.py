@@ -26,6 +26,7 @@ from .return_home import (
     plan_position_return_step,
     plan_return_step,
 )
+from .search_experiment import confidence_summary
 
 FORWARD_PULSE_CONFIRMATION = "PATH CLEAR - MOVE WOOF FORWARD"
 INITIAL_CENTER_TOLERANCE_RATIO = 0.08
@@ -61,7 +62,14 @@ class HardwareUnavailable(RuntimeError):
 
 
 class CameraFailure(HardwareUnavailable):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        evidence: dict[str, object] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.evidence = dict(evidence or {})
 
 
 class TargetLost(HardwareUnavailable):
@@ -995,6 +1003,7 @@ class HardwareManager:
             samples = 0
             search_progress_rad = 0.0
             previous_search_yaw: float | None = None
+            search_trace: list[dict[str, object]] = []
             started = time.monotonic()
             try:
                 assert self._motion is not None and self._pose is not None
@@ -1010,6 +1019,7 @@ class HardwareManager:
                 deadline = started + timeout_s
                 while time.monotonic() < deadline:
                     now = time.monotonic()
+                    measured_yaw_rad: float | None = None
                     if not allow_forward:
                         pose = self._pose.status()
                         if not pose.healthy or pose.pose is None:
@@ -1018,6 +1028,7 @@ class HardwareManager:
                                 or "Go2 pose became stale during Target Fruit search"
                             )
                         assert previous_search_yaw is not None
+                        measured_yaw_rad = pose.pose.yaw_rad
                         yaw_delta = math.atan2(
                             math.sin(pose.pose.yaw_rad - previous_search_yaw),
                             math.cos(pose.pose.yaw_rad - previous_search_yaw),
@@ -1032,23 +1043,73 @@ class HardwareManager:
                                     "search_progress_rad": search_progress_rad,
                                     "search_sweep_rad": guidance.config.search_sweep_rad,
                                     "samples": samples,
+                                    "search_trace": search_trace,
+                                    "confidence_summary": confidence_summary(
+                                        search_trace
+                                    ),
                                 },
                             )
+                    status = status_reader()
                     decision = guidance.observe(
-                        status_reader(),
+                        status,
                         now_s=now,
                         allow_forward=allow_forward,
                     )
                     samples += 1
+                    if not allow_forward:
+                        source = status.get("source")
+                        detection = status.get("detection")
+                        search_trace.append(
+                            {
+                                "sample": samples,
+                                "elapsed_s": round(now - started, 4),
+                                "target_fruit": guidance.target_fruit,
+                                "source_pts": (
+                                    source.get("pts")
+                                    if isinstance(source, dict)
+                                    else None
+                                ),
+                                "confidence": (
+                                    detection.get("confidence")
+                                    if isinstance(detection, dict)
+                                    else None
+                                ),
+                                "center_x_ratio": (
+                                    detection.get("center_x_ratio")
+                                    if isinstance(detection, dict)
+                                    else None
+                                ),
+                                "measured_yaw_rad": measured_yaw_rad,
+                                "search_progress_rad": search_progress_rad,
+                                "commanded_yaw_rps": decision.command.yaw_rps,
+                                "guidance_action": decision.action.value,
+                                "guidance_reason": decision.reason,
+                                "frame_advanced": decision.frame_advanced,
+                                "locked": decision.phase is GuidancePhase.LOCKED,
+                            }
+                        )
                     if decision.action is GuidanceAction.STOP and decision.terminal:
                         if decision.command.reason == "camera_failure":
                             raise CameraFailure(
-                                f"camera guidance stopped: {decision.reason}"
+                                f"camera guidance stopped: {decision.reason}",
+                                evidence={
+                                    "guidance_reason": decision.reason,
+                                    "search_trace": search_trace,
+                                    "confidence_summary": confidence_summary(
+                                        search_trace
+                                    ),
+                                },
                             )
                         raise TargetLost(
                             f"{guidance.target_fruit} guidance stopped: "
                             f"{decision.reason}",
-                            evidence={"guidance_reason": decision.reason},
+                            evidence={
+                                "guidance_reason": decision.reason,
+                                "search_trace": search_trace,
+                                "confidence_summary": confidence_summary(
+                                    search_trace
+                                ),
+                            },
                         )
 
                     await self._send_motion_command(lease, decision.command)
@@ -1085,6 +1146,8 @@ class HardwareManager:
                             ),
                             "samples": samples,
                             "search_progress_rad": search_progress_rad,
+                            "search_trace": search_trace,
+                            "confidence_summary": confidence_summary(search_trace),
                             "motion_commands_sent": commands_sent,
                         }
                         break
@@ -1095,6 +1158,8 @@ class HardwareManager:
                         evidence={
                             "guidance_phase": guidance.phase.value,
                             "samples": samples,
+                            "search_trace": search_trace,
+                            "confidence_summary": confidence_summary(search_trace),
                         },
                     )
             except Exception as exc:  # noqa: BLE001 - always disarm below

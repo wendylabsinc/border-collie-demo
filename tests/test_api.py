@@ -795,6 +795,49 @@ def test_http_activation_id_replays_the_same_durable_run(tmp_path) -> None:
         assert replay.json()["run"]["activation_id"] == "browser-click-123"
 
 
+def test_run_activation_persists_per_run_search_experiment_tuning(tmp_path) -> None:
+    with TestClient(ready_app(tmp_path)) as client:
+        response = client.post(
+            "/api/run",
+            json={
+                "target_fruit": "apple",
+                "activation_id": "apple-yaw-045",
+                "tuning": {
+                    "search_yaw_rps": 0.45,
+                    "apple_focus_confidence": 0.52,
+                    "apple_acquisition_confidence": 0.42,
+                    "center_confirmations": 4,
+                    "center_tolerance_ratio": 0.10,
+                },
+            },
+        )
+
+        assert response.status_code == 201
+        assert response.json()["run"]["search_experiment"] == {
+            "search_yaw_rps": 0.45,
+            "apple_focus_confidence": 0.52,
+            "apple_acquisition_confidence": 0.42,
+            "center_confirmations": 4,
+            "center_tolerance_ratio": 0.10,
+        }
+
+
+def test_run_activation_rejects_search_experiment_outside_safety_bounds(
+    tmp_path,
+) -> None:
+    with TestClient(ready_app(tmp_path)) as client:
+        response = client.post(
+            "/api/run",
+            json={
+                "target_fruit": "apple",
+                "tuning": {"search_yaw_rps": 0.25},
+            },
+        )
+
+        assert response.status_code == 422
+        assert client.get("/api/results").json()["runs"] == []
+
+
 def test_results_list_returns_newest_demo_run_first(tmp_path) -> None:
     with TestClient(create_app(runs_root=tmp_path)) as client:
         first = client.post("/api/run", json={"target_fruit": "pear"}).json()["run"]
@@ -826,6 +869,26 @@ def test_activate_accepts_the_qualified_red_apple_target(tmp_path) -> None:
         assert response.status_code == 201
         assert response.json()["run"]["target_fruit"] == "apple"
         assert selected == ["apple"]
+
+
+def test_stage_ui_exposes_search_experiment_controls_and_posts_tuning(
+    tmp_path,
+) -> None:
+    with TestClient(create_app(runs_root=tmp_path)) as client:
+        response = client.get("/")
+
+    assert response.status_code == 200
+    assert 'id="search-yaw-rps"' in response.text
+    assert 'id="apple-focus-confidence"' in response.text
+    assert 'id="apple-acquisition-confidence"' in response.text
+    assert 'id="center-confirmations"' in response.text
+    assert 'id="center-tolerance-ratio"' in response.text
+    assert 'id="search-trace"' in response.text
+    assert "measured_yaw_rad" in response.text
+    assert "confidence" in response.text
+    assert "search_yaw_rps: Number(searchYaw.value)" in response.text
+    assert "apple_focus_confidence: Number(appleFocus.value)" in response.text
+    assert "fetch('/api/experiments/search')" in response.text
 
 
 def test_activate_records_voice_as_the_activation_source(tmp_path) -> None:

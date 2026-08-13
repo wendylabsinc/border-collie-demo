@@ -57,6 +57,22 @@
         padding: 0 0.75rem;
         font: inherit;
       }
+      input {
+        min-height: 2.5rem;
+        padding: 0 0.5rem;
+        font: inherit;
+      }
+      fieldset {
+        display: grid;
+        grid-template-columns: minmax(12rem, 1fr) minmax(7rem, 10rem);
+        gap: 0.65rem;
+        align-items: center;
+        text-align: left;
+        border-radius: 0.75rem;
+      }
+      fieldset legend { font-weight: 700; }
+      table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+      th, td { padding: 0.5rem; border-bottom: 1px solid currentColor; }
       #status {
         min-height: 3rem;
       }
@@ -94,11 +110,36 @@
           <option value="apple">Red apple</option>
           <option value="banana">Banana</option>
         </select>
+        <fieldset id="search-experiment-controls">
+          <legend>Search experiment · applies to next run</legend>
+          <label for="search-yaw-rps">Search yaw speed (rad/s)</label>
+          <input id="search-yaw-rps" type="number" min="0.40" max="0.80" step="0.05" value="0.40">
+          <label for="apple-focus-confidence">Apple focus confidence</label>
+          <input id="apple-focus-confidence" type="number" min="0.50" max="0.70" step="0.01" value="0.50">
+          <label for="apple-acquisition-confidence">Apple lock confidence</label>
+          <input id="apple-acquisition-confidence" type="number" min="0.40" max="0.70" step="0.01" value="0.40">
+          <label for="center-confirmations">Centered frames to lock</label>
+          <input id="center-confirmations" type="number" min="2" max="5" step="1" value="3">
+          <label for="center-tolerance-ratio">Center tolerance (frame ratio)</label>
+          <input id="center-tolerance-ratio" type="number" min="0.05" max="0.12" step="0.01" value="0.08">
+        </fieldset>
         <button id="activate" type="button" disabled>Activate Demo</button>
         <button id="stop" type="button">Stop Woof</button>
       </div>
       <p id="status" role="status" aria-live="polite">Checking readiness…</p>
       <p id="run-id"></p>
+      <details>
+        <summary>Latest initial-turn yaw and confidence trace</summary>
+        <pre id="search-trace">No recorded search trace yet.</pre>
+      </details>
+      <section aria-labelledby="experiment-title">
+        <h2 id="experiment-title">Search experiment results</h2>
+        <p>Lock and end-to-end success rates are grouped by fruit and requested yaw.</p>
+        <table>
+          <thead><tr><th>Fruit</th><th>Yaw</th><th>Runs</th><th>Lock</th><th>Success</th></tr></thead>
+          <tbody id="experiment-results"></tbody>
+        </table>
+      </section>
     </main>
     <script>
       const activate = document.querySelector('#activate');
@@ -110,9 +151,18 @@
       const buildLabel = document.querySelector('#build-label');
       const cameraFeed = document.querySelector('#camera-feed');
       const cameraState = document.querySelector('#camera-state');
+      const searchYaw = document.querySelector('#search-yaw-rps');
+      const appleFocus = document.querySelector('#apple-focus-confidence');
+      const appleAcquisition = document.querySelector('#apple-acquisition-confidence');
+      const centerConfirmations = document.querySelector('#center-confirmations');
+      const centerTolerance = document.querySelector('#center-tolerance-ratio');
+      const experimentControls = document.querySelector('#search-experiment-controls');
+      const experimentResults = document.querySelector('#experiment-results');
+      const searchTrace = document.querySelector('#search-trace');
       const cameraFrameUrl = '/api/camera/frame.jpg';
       let lastRunId = null;
       let cameraRefreshTimer = null;
+      let tuningInitialized = false;
 
       function scheduleCameraRefresh(delayMs) {
         window.clearTimeout(cameraRefreshTimer);
@@ -158,11 +208,39 @@
         status.textContent = run.outcome
           ? `${run.outcome} — ${run.reason}: ${run.message}`
           : `${run.current_phase}: ${run.message}`;
+        const completedTrace = run.stage_results?.turn_to_fruit?.search_trace;
+        const failedTrace = run.failure_details?.recognition?.search_trace;
+        const trace = completedTrace || failedTrace || [];
+        searchTrace.textContent = trace.length
+          ? [
+              'sample\tseconds\tconfidence\tcenter_x\tcommanded_yaw_rps\tmeasured_yaw_rad\tprogress_rad\taction\tlocked',
+              ...trace.map((sample) => [
+                sample.sample,
+                sample.elapsed_s,
+                sample.confidence ?? '',
+                sample.center_x_ratio ?? '',
+                sample.commanded_yaw_rps,
+                sample.measured_yaw_rad,
+                sample.search_progress_rad,
+                sample.guidance_action,
+                sample.locked,
+              ].join('\t')),
+            ].join('\n')
+          : 'No recorded search trace yet.';
       }
 
       async function refreshStatus() {
         try {
           const current = await readJson(await fetch('/api/status'));
+          if (!tuningInitialized && current.search_experiment) {
+            const defaults = current.search_experiment.defaults;
+            searchYaw.value = defaults.search_yaw_rps;
+            appleFocus.value = defaults.apple_focus_confidence;
+            appleAcquisition.value = defaults.apple_acquisition_confidence;
+            centerConfirmations.value = defaults.center_confirmations;
+            centerTolerance.value = defaults.center_tolerance_ratio;
+            tuningInitialized = true;
+          }
           buildLabel.hidden = !current.build_label;
           buildLabel.textContent = current.build_label
             ? `Build: ${current.build_label}`
@@ -177,6 +255,7 @@
             !current.activation.ready
           );
           targetFruit.disabled = Boolean(current.active_run_id);
+          experimentControls.disabled = Boolean(current.active_run_id);
           if (current.active_run_id) {
             const detail = await readJson(
               await fetch(`/api/results/${current.active_run_id}`)
@@ -204,6 +283,29 @@
         }
       }
 
+      async function refreshExperiments() {
+        try {
+          const body = await readJson(await fetch('/api/experiments/search'));
+          experimentResults.replaceChildren(...body.cohorts.map((cohort) => {
+            const row = document.createElement('tr');
+            for (const value of [
+              cohort.target_fruit,
+              `${cohort.search_yaw_rps.toFixed(2)} rad/s`,
+              cohort.runs,
+              `${cohort.lock_rate_percent.toFixed(1)}%`,
+              `${cohort.success_rate_percent.toFixed(1)}%`,
+            ]) {
+              const cell = document.createElement('td');
+              cell.textContent = value;
+              row.appendChild(cell);
+            }
+            return row;
+          }));
+        } catch (_error) {
+          // Readiness remains authoritative; scorecard failure cannot arm motion.
+        }
+      }
+
       activate.addEventListener('click', async () => {
         activate.disabled = true;
         targetFruit.disabled = true;
@@ -215,10 +317,18 @@
             body: JSON.stringify({
               target_fruit: targetFruit.value,
               activation_id: crypto.randomUUID(),
+              tuning: {
+                search_yaw_rps: Number(searchYaw.value),
+                apple_focus_confidence: Number(appleFocus.value),
+                apple_acquisition_confidence: Number(appleAcquisition.value),
+                center_confirmations: Number(centerConfirmations.value),
+                center_tolerance_ratio: Number(centerTolerance.value),
+              },
             }),
           }));
           showRun(body.run);
           await refreshStatus();
+          await refreshExperiments();
         } catch (error) {
           status.textContent = error.message;
           await refreshStatus();
@@ -249,8 +359,10 @@
       });
 
       refreshStatus();
+      refreshExperiments();
       refreshCamera();
       setInterval(refreshStatus, 1000);
+      setInterval(refreshExperiments, 5000);
     </script>
   </body>
 </html>

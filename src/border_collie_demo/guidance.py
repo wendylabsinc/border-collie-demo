@@ -210,9 +210,10 @@ class FruitGuidance:
         target_fruit: str,
         *,
         config: GuidanceConfig | None = None,
+        policy: FruitPolicy | None = None,
     ) -> None:
         self.target_fruit = target_fruit.casefold().strip()
-        self.policy: FruitPolicy = fruit_policy(self.target_fruit)
+        self.policy: FruitPolicy = policy or fruit_policy(self.target_fruit)
         self.config = config or GuidanceConfig.from_env()
         self.phase = GuidancePhase.SEARCHING
         self.acquisition_epoch = 0

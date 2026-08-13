@@ -10,7 +10,7 @@ from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .evidence import EvidenceArtifact
 from .fruits import QUALIFIED_FRUITS, SUPPORTED_FRUITS
@@ -18,6 +18,10 @@ from .hardware import HardwareManager, HardwareUnavailable
 from .mission import MissionMachine, RestartRequired
 from .orchestrator import EXECUTED_STAGES, FailureEpilogue, StageExecutor
 from .run_results import ActiveRunError, RunResultNotFound, RunResultStore
+from .search_experiment import (
+    SearchExperimentTuning,
+    search_experiment_scorecard,
+)
 from .stage_demo import ActivationConflict, FruitMission, StageDemo
 
 
@@ -35,10 +39,23 @@ class ForwardPulseRequest(BaseModel):
     confirmation: str
 
 
+class SearchExperimentRequest(BaseModel):
+    search_yaw_rps: float | None = Field(default=None, ge=0.40, le=0.80)
+    apple_focus_confidence: float | None = Field(default=None, ge=0.50, le=0.70)
+    apple_acquisition_confidence: float | None = Field(
+        default=None,
+        ge=0.40,
+        le=0.70,
+    )
+    center_confirmations: int | None = Field(default=None, ge=2, le=5)
+    center_tolerance_ratio: float | None = Field(default=None, ge=0.05, le=0.12)
+
+
 class RunRequest(BaseModel):
     target_fruit: Literal["apple", "banana", "pear"] = "pear"
     activation_source: Literal["audience_ui", "voice"] = "audience_ui"
     activation_id: str | None = None
+    tuning: SearchExperimentRequest | None = None
 
 
 class FruitPreviewRequest(BaseModel):
@@ -171,6 +188,16 @@ def create_app(
             "build_label": build_label(),
             "runtime_mode": runtime_mode,
             **current,
+            "search_experiment": {
+                "defaults": SearchExperimentTuning.defaults().to_dict(),
+                "ranges": {
+                    "search_yaw_rps": [0.40, 0.80],
+                    "apple_focus_confidence": [0.50, 0.70],
+                    "apple_acquisition_confidence": [0.40, 0.70],
+                    "center_confirmations": [2, 5],
+                    "center_tolerance_ratio": [0.05, 0.12],
+                },
+            },
         }
 
     @app.post("/api/run", status_code=201)
@@ -181,6 +208,11 @@ def create_app(
                     target_fruit=request.target_fruit,
                     activation_source=request.activation_source,
                     activation_id=request.activation_id or str(uuid4()),
+                    search_experiment=SearchExperimentTuning.from_mapping(
+                        None
+                        if request.tuning is None
+                        else request.tuning.model_dump(exclude_none=True)
+                    ),
                 )
             )
         except ActiveRunError as exc:
@@ -218,6 +250,10 @@ def create_app(
     @app.get("/api/results")
     async def list_results() -> dict[str, object]:
         return {"runs": results.list_results()}
+
+    @app.get("/api/experiments/search")
+    async def search_experiments() -> dict[str, object]:
+        return search_experiment_scorecard(results.list_results())
 
     @app.get("/api/diagnostics/stages")
     async def diagnostic_stages() -> dict[str, object]:

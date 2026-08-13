@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import math
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from typing import Any, Protocol
 
+from .fruits import fruit_policy
 from .guidance import FruitGuidance, GuidanceConfig, GuidancePhase
 from .hardware import CameraFailure, HardwareUnavailable, TargetLost
 from .media import BarkFailure
@@ -16,6 +18,7 @@ from .orchestrator import (
     StageContext,
     StageFailure,
 )
+from .search_experiment import SearchExperimentTuning
 
 
 class BarkPort(Protocol):
@@ -59,7 +62,9 @@ class ProductionStageExecutor:
             raise StageFailure(
                 "CAMERA_FAILURE",
                 str(exc),
-                details=self._failure_details(),
+                details=self._failure_details(
+                    {"recognition": exc.evidence} if exc.evidence else None
+                ),
             ) from exc
         except TargetLost as exc:
             search_phase = phase in (
@@ -122,10 +127,29 @@ class ProductionStageExecutor:
             MissionPhase.APPROACH_FRUIT,
         ):
             if self._guidance_run_id != context.run_id or self._guidance is None:
+                tuning = SearchExperimentTuning.from_mapping(
+                    context.search_experiment
+                )
+                config = replace(
+                    GuidanceConfig.from_env(),
+                    search_yaw_rps=tuning.search_yaw_rps,
+                    center_confirmations=tuning.center_confirmations,
+                    center_tolerance_ratio=tuning.center_tolerance_ratio,
+                )
+                policy = fruit_policy(context.target_fruit)
+                if context.target_fruit == "apple":
+                    policy = replace(
+                        policy,
+                        focus_confidence=tuning.apple_focus_confidence,
+                        acquisition_confidence=(
+                            tuning.apple_acquisition_confidence
+                        ),
+                    )
                 self._guidance_run_id = context.run_id
                 self._guidance = FruitGuidance(
                     context.target_fruit,
-                    config=GuidanceConfig.from_env(),
+                    config=config,
+                    policy=policy,
                 )
             if phase is MissionPhase.FIND_FRUIT and (
                 self._guidance.phase is GuidancePhase.LOCKED

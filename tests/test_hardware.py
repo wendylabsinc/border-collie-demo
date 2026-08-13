@@ -411,6 +411,28 @@ def test_mission_lifetime_guidance_keeps_identity_and_executes_one_final_push() 
         )
 
         assert locked["acquisition_epoch"] == 1
+        assert locked["confidence_summary"] == {
+            "detected_frames": 3,
+            "minimum": 0.8,
+            "maximum": 0.8,
+            "average": pytest.approx(0.8),
+            "lock_confidence": 0.8,
+        }
+        assert [sample["source_pts"] for sample in locked["search_trace"]] == [
+            1,
+            2,
+            3,
+        ]
+        assert all(
+            sample["target_fruit"] == "pear"
+            and sample["confidence"] == 0.8
+            and sample["measured_yaw_rad"] == pytest.approx(0.0)
+            and "commanded_yaw_rps" in sample
+            and "search_progress_rad" in sample
+            and "guidance_action" in sample
+            for sample in locked["search_trace"]
+        )
+        assert locked["search_trace"][-1]["locked"] is True
         assert arrived["acquisition_epoch"] == 1
         assert arrived["arrival_confirmed"] is True
         assert arrived["final_push_count"] == 1

@@ -19,6 +19,7 @@ class StageContext:
     target_fruit: str
     home: dict[str, Any]
     outbound_forward_pulses: int = 0
+    search_experiment: dict[str, object] | None = None
 
 
 class StageExecutor(Protocol):
@@ -145,6 +146,7 @@ class DemoOrchestrator:
             run_id=run_id,
             target_fruit=run["target_fruit"],
             home=run["home"],
+            search_experiment=run.get("search_experiment"),
         )
         try:
             for phase in EXECUTED_STAGES:

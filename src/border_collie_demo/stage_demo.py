@@ -19,6 +19,7 @@ from .mission import MissionMachine, RestartRequired
 from .orchestrator import DemoOrchestrator, FailureEpilogue, StageExecutor
 from .preflight import evaluate_preflight, preflight_check_ready
 from .run_results import ActiveRunError, RunResultStore
+from .search_experiment import SearchExperimentTuning
 
 
 class HardwareBoundary(Protocol):
@@ -44,6 +45,7 @@ class FruitMission:
     target_fruit: str
     activation_source: str
     activation_id: str
+    search_experiment: SearchExperimentTuning | None = None
 
     def __post_init__(self) -> None:
         target = self.target_fruit.casefold().strip()
@@ -58,6 +60,12 @@ class FruitMission:
         object.__setattr__(self, "target_fruit", target)
         object.__setattr__(self, "activation_source", source)
         object.__setattr__(self, "activation_id", activation_id)
+        if self.search_experiment is None:
+            object.__setattr__(
+                self,
+                "search_experiment",
+                SearchExperimentTuning.defaults(),
+            )
 
 
 @dataclass(frozen=True)
@@ -188,6 +196,7 @@ class StageDemo:
                 target_fruit=mission.target_fruit,
                 activation_source=mission.activation_source,
                 activation_id=mission.activation_id,
+                search_experiment=mission.search_experiment.to_dict(),
             )
             self._mission.begin_run("Demo Run activation persisted")
             run = self._results.enter_phase(
@@ -400,6 +409,7 @@ class StageDemo:
         if (
             run.get("target_fruit") != mission.target_fruit
             or run.get("activation_source") != mission.activation_source
+            or run.get("search_experiment") != mission.search_experiment.to_dict()
         ):
             raise ActivationConflict(
                 "activation_id already belongs to a different Fruit Mission"

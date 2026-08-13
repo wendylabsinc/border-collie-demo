@@ -66,12 +66,17 @@ class FakeBark:
         return {"bark_played": True}
 
 
-def context(*, outbound_forward_pulses: int = 0) -> StageContext:
+def context(
+    *,
+    outbound_forward_pulses: int = 0,
+    search_experiment: dict[str, object] | None = None,
+) -> StageContext:
     return StageContext(
         run_id="run-1",
         target_fruit="pear",
         home={"x_m": 0.0, "y_m": 0.0, "yaw_rad": 0.0},
         outbound_forward_pulses=outbound_forward_pulses,
+        search_experiment=search_experiment,
     )
 
 
@@ -301,6 +306,50 @@ def test_production_reuses_one_guidance_identity_across_all_fruit_stages() -> No
             ("guide_target", False, 30.0),
             ("guide_target", True, 20.0),
         ]
+
+    asyncio.run(scenario())
+
+
+def test_production_applies_the_run_search_experiment_to_guidance() -> None:
+    class GuidedHardware(FakeProductionHardware):
+        async def guide_target(
+            self,
+            _status_reader,
+            guidance,
+            *,
+            allow_forward: bool,
+            timeout_s: float,
+        ) -> dict[str, object]:
+            assert allow_forward is False
+            assert timeout_s == 30.0
+            assert guidance.config.search_yaw_rps == 0.45
+            assert guidance.config.center_confirmations == 4
+            assert guidance.config.center_tolerance_ratio == 0.10
+            assert guidance.policy.focus_confidence == 0.52
+            assert guidance.policy.acquisition_confidence == 0.42
+            guidance.acquisition_epoch = 1
+            guidance.phase = GuidancePhase.LOCKED
+            return {"label": "apple", "acquisition_epoch": 1}
+
+    async def scenario() -> None:
+        stages = ProductionStageExecutor(GuidedHardware(), dict, FakeBark())
+        evidence = await stages.execute(
+            MissionPhase.TURN_TO_FRUIT,
+            StageContext(
+                run_id="apple-experiment",
+                target_fruit="apple",
+                home={"x_m": 0.0, "y_m": 0.0, "yaw_rad": 0.0},
+                search_experiment={
+                    "search_yaw_rps": 0.45,
+                    "apple_focus_confidence": 0.52,
+                    "apple_acquisition_confidence": 0.42,
+                    "center_confirmations": 4,
+                    "center_tolerance_ratio": 0.10,
+                },
+            ),
+        )
+
+        assert evidence["acquisition_epoch"] == 1
 
     asyncio.run(scenario())
 
