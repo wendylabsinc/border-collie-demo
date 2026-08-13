@@ -16,7 +16,9 @@ class FakeProductionHardware:
     def __init__(self) -> None:
         self.calls: list[tuple[object, ...]] = []
 
-    async def turn_relative(self, angle_rad: float, **options: float) -> dict[str, object]:
+    async def turn_relative(
+        self, angle_rad: float, **options: float
+    ) -> dict[str, object]:
         self.calls.append(("turn_relative", angle_rad, options))
         return {"measured_yaw_change_rad": angle_rad, "motion_commands_sent": True}
 
@@ -24,11 +26,19 @@ class FakeProductionHardware:
         self.calls.append(("emergency_stop",))
         return []
 
-    async def find_target(self, status_reader, target_fruit: str, **options: float) -> dict[str, object]:
+    async def find_target(
+        self, status_reader, target_fruit: str, **options: float
+    ) -> dict[str, object]:
         self.calls.append(("find_target", status_reader, target_fruit, options))
-        return {"label": target_fruit, "stable_detections": 5, "motion_commands_sent": True}
+        return {
+            "label": target_fruit,
+            "stable_detections": 5,
+            "motion_commands_sent": True,
+        }
 
-    async def approach_target(self, status_reader, target_fruit: str, **options: float) -> dict[str, object]:
+    async def approach_target(
+        self, status_reader, target_fruit: str, **options: float
+    ) -> dict[str, object]:
         self.calls.append(("approach_target", status_reader, target_fruit, options))
         return {"arrival_confirmed": True, "motion_commands_sent": True}
 
@@ -44,11 +54,15 @@ class FakeProductionHardware:
             **options,
         }
 
-    async def turn_toward_home(self, home: dict[str, object], **options: float) -> dict[str, object]:
+    async def turn_toward_home(
+        self, home: dict[str, object], **options: float
+    ) -> dict[str, object]:
         self.calls.append(("turn_toward_home", home, options))
         return {"home_bearing_error_rad": 0.02, "motion_commands_sent": True}
 
-    async def return_home_position(self, home: dict[str, object], **options: float) -> dict[str, object]:
+    async def return_home_position(
+        self, home: dict[str, object], **options: float
+    ) -> dict[str, object]:
         self.calls.append(("return_home_position", home, options))
         return {"home_distance_m": 0.08, "motion_commands_sent": True}
 
@@ -195,8 +209,9 @@ def test_stage_result_records_the_exact_velocity_commands() -> None:
             super().__init__()
             self.phase: str | None = None
 
-        def start_motion_trace(self, phase: str) -> None:
+        def start_motion_trace(self, phase: str, *, run_id: str | None = None) -> None:
             self.phase = phase
+            self.run_id = run_id
 
         def motion_trace(self) -> list[dict[str, object]]:
             return [

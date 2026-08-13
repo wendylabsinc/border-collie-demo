@@ -126,6 +126,20 @@ def test_camera_preview_is_proxied_through_the_main_app() -> None:
     assert response.content == jpeg
 
 
+def test_run_black_box_can_be_downloaded_while_the_run_is_active(tmp_path) -> None:
+    with TestClient(ready_app(tmp_path)) as client:
+        run = client.post(
+            "/api/run",
+            json={"target_fruit": "pear", "activation_id": "black-box-test"},
+        ).json()["run"]
+
+        response = client.get(f"/api/results/{run['run_id']}/black-box.ndjson")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/x-ndjson")
+    assert b'"kind":"run_started"' in response.content
+
+
 def test_fruit_test_page_can_select_supported_fruit_without_motion() -> None:
     selected: list[str] = []
     app = create_app(
@@ -656,9 +670,9 @@ def test_failed_run_remains_failed_after_one_successful_home_epilogue(
             failure_epilogue=epilogue,
         )
     ) as client:
-        run_id = client.post("/api/run", json={"target_fruit": "pear"}).json()[
-            "run"
-        ]["run_id"]
+        run_id = client.post("/api/run", json={"target_fruit": "pear"}).json()["run"][
+            "run_id"
+        ]
 
         deadline = time.monotonic() + 1.0
         while time.monotonic() < deadline:

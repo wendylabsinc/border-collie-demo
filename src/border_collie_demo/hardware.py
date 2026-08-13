@@ -7,6 +7,7 @@ from collections import Counter, deque
 from collections.abc import Callable
 from typing import Protocol
 
+from .black_box import RunBlackBox
 from .config import HardwareConfig
 from .fruits import fruit_policy
 from .go2_motion import (
@@ -130,7 +131,13 @@ DdsInitializer = Callable[[str | None], None]
 class _ApproachRecorder:
     """Bounded, image-free record of every approach guidance decision."""
 
-    def __init__(self, guidance: FruitGuidance, *, started_s: float) -> None:
+    def __init__(
+        self,
+        guidance: FruitGuidance,
+        *,
+        started_s: float,
+        event_sink: Callable[[dict[str, object]], None] | None = None,
+    ) -> None:
         self._guidance = guidance
         self._started_s = started_s
         self._trace: deque[dict[str, object]] = deque(maxlen=APPROACH_TRACE_LIMIT)
@@ -145,6 +152,7 @@ class _ApproachRecorder:
         self._forward_commands_sent = 0
         self._stop_commands_sent = 0
         self._samples = 0
+        self._event_sink = event_sink
 
     def record(
         self,
@@ -180,44 +188,43 @@ class _ApproachRecorder:
             self._forward_decisions += 1
         if decision.action is GuidanceAction.STOP:
             self._stop_decisions += 1
-        self._trace.append(
-            {
-                "sample": self._samples,
-                "recorded_monotonic_s": now_s,
-                "elapsed_s": round(now_s - self._started_s, 4),
-                "target_fruit": self._guidance.target_fruit,
-                "camera_healthy": status.get("camera_healthy") is True,
-                "generation": status.get("generation"),
-                "source_pts": source_record.get("pts"),
-                "source_time_base": source_record.get("time_base"),
-                "source_age_s": _finite_float(source_record.get("age_s")),
-                "detection_age_s": _finite_float(detection_record.get("age_s")),
-                "raw_label": detection_record.get("label"),
-                "confidence": confidence,
-                "focus_confidence": self._guidance.policy.focus_confidence,
-                "acquisition_confidence": (
-                    self._guidance.policy.acquisition_confidence
-                ),
-                "tracking_confidence": (
-                    self._guidance.policy.close_range_tracking_confidence
-                ),
-                "center_x_ratio": _finite_float(detection_record.get("center_x_ratio")),
-                "center_y_ratio": _finite_float(detection_record.get("center_y_ratio")),
-                "bottom_ratio": _finite_float(detection_record.get("bottom_ratio")),
-                "guidance_phase": decision.phase.value,
-                "guidance_action": action,
-                "guidance_reason": reason,
-                "terminal": decision.terminal,
-                "arrival_confirmed": decision.arrival_confirmed,
-                "arrival_eligible": decision.arrival_eligible,
-                "centered_fresh_samples": decision.centered_fresh_samples,
-                "near_fresh_samples": decision.near_fresh_samples,
-                "near_loss_samples": decision.near_loss_samples,
-                "frame_advanced": decision.frame_advanced,
-                "resulting_command": decision.command.to_dict(),
-                "command_sent": False,
-            }
-        )
+        sample = {
+            "sample": self._samples,
+            "recorded_monotonic_s": now_s,
+            "elapsed_s": round(now_s - self._started_s, 4),
+            "target_fruit": self._guidance.target_fruit,
+            "camera_healthy": status.get("camera_healthy") is True,
+            "generation": status.get("generation"),
+            "source_pts": source_record.get("pts"),
+            "source_time_base": source_record.get("time_base"),
+            "source_age_s": _finite_float(source_record.get("age_s")),
+            "detection_age_s": _finite_float(detection_record.get("age_s")),
+            "raw_label": detection_record.get("label"),
+            "confidence": confidence,
+            "focus_confidence": self._guidance.policy.focus_confidence,
+            "acquisition_confidence": (self._guidance.policy.acquisition_confidence),
+            "tracking_confidence": (
+                self._guidance.policy.close_range_tracking_confidence
+            ),
+            "center_x_ratio": _finite_float(detection_record.get("center_x_ratio")),
+            "center_y_ratio": _finite_float(detection_record.get("center_y_ratio")),
+            "bottom_ratio": _finite_float(detection_record.get("bottom_ratio")),
+            "guidance_phase": decision.phase.value,
+            "guidance_action": action,
+            "guidance_reason": reason,
+            "terminal": decision.terminal,
+            "arrival_confirmed": decision.arrival_confirmed,
+            "arrival_eligible": decision.arrival_eligible,
+            "centered_fresh_samples": decision.centered_fresh_samples,
+            "near_fresh_samples": decision.near_fresh_samples,
+            "near_loss_samples": decision.near_loss_samples,
+            "frame_advanced": decision.frame_advanced,
+            "resulting_command": decision.command.to_dict(),
+            "command_sent": False,
+        }
+        self._trace.append(sample)
+        if self._event_sink is not None:
+            self._event_sink(dict(sample))
 
     def mark_command_sent(self) -> None:
         if not self._trace:
@@ -276,6 +283,7 @@ class HardwareManager:
         dds_initializer: DdsInitializer = initialize_dds,
         motion_factory: MotionFactory | None = None,
         pose_factory: PoseFactory | None = None,
+        black_box: RunBlackBox | None = None,
     ) -> None:
         self.config = config or HardwareConfig()
         self._dds_initializer = dds_initializer
@@ -293,6 +301,8 @@ class HardwareManager:
         self._motion_trace_phase: str | None = None
         self._motion_trace: list[dict[str, object]] = []
         self._posture = "unknown"
+        self._black_box = black_box
+        self._motion_trace_run_id: str | None = None
 
     async def start(self) -> None:
         if not self.config.enabled or self._connected:
@@ -513,7 +523,11 @@ class HardwareManager:
             except Exception as exc:  # noqa: BLE001 - always disarm below
                 operation_error = exc
             finally:
-                if lease is not None and self._motion is not None and self._motion.armed:
+                if (
+                    lease is not None
+                    and self._motion is not None
+                    and self._motion.armed
+                ):
                     try:
                         await self._motion.release(lease)
                     except MotionError as exc:
@@ -604,7 +618,10 @@ class HardwareManager:
                     recognition["samples"] = int(recognition["samples"]) + 1
                     if not status.get("camera_healthy"):
                         raise CameraFailure(
-                            str(status.get("detail") or "camera evidence became unhealthy")
+                            str(
+                                status.get("detail")
+                                or "camera evidence became unhealthy"
+                            )
                         )
                     detection = status.get("detection")
                     if isinstance(detection, dict):
@@ -631,9 +648,7 @@ class HardwareManager:
                                 int(recognition["maximum_consecutive_detections"]),
                                 consecutive,
                             )
-                        area_ratio = _finite_float(
-                            detection.get("bbox_area_ratio")
-                        )
+                        area_ratio = _finite_float(detection.get("bbox_area_ratio"))
                         maximum_area = _finite_float(
                             recognition["maximum_bbox_area_ratio"]
                         )
@@ -674,9 +689,9 @@ class HardwareManager:
                                     )
                                     + 1
                                 )
-                                recognition[
-                                    "crop_candidate_confidence_threshold"
-                                ] = SEARCH_CROP_CANDIDATE_CONFIDENCE
+                                recognition["crop_candidate_confidence_threshold"] = (
+                                    SEARCH_CROP_CANDIDATE_CONFIDENCE
+                                )
                     if status.get("target_ready") and isinstance(detection, dict):
                         label = str(detection.get("label") or "").casefold()
                         if label == target_fruit.casefold():
@@ -761,7 +776,11 @@ class HardwareManager:
             except Exception as exc:  # noqa: BLE001 - always disarm below
                 operation_error = exc
             finally:
-                if lease is not None and self._motion is not None and self._motion.armed:
+                if (
+                    lease is not None
+                    and self._motion is not None
+                    and self._motion.armed
+                ):
                     try:
                         await self._motion.release(lease)
                     except MotionError as exc:
@@ -812,7 +831,10 @@ class HardwareManager:
             raise ValueError("approach yaw is outside the configured limit")
         if not 0.0 < near_bottom_ratio <= 1.0 or not 0.0 < near_center_ratio <= 1.0:
             raise ValueError("near-fruit geometry thresholds are invalid")
-        if near_confirmations < 1 or min(near_loss_grace_s, final_push_duration_s, timeout_s) <= 0.0:
+        if (
+            near_confirmations < 1
+            or min(near_loss_grace_s, final_push_duration_s, timeout_s) <= 0.0
+        ):
             raise ValueError("approach timing or confirmation count is invalid")
         self._require_autonomy_ready()
 
@@ -848,7 +870,10 @@ class HardwareManager:
                     status = status_reader()
                     if not status.get("camera_healthy"):
                         raise CameraFailure(
-                            str(status.get("detail") or "camera evidence became unhealthy")
+                            str(
+                                status.get("detail")
+                                or "camera evidence became unhealthy"
+                            )
                         )
                     detection = status.get("detection")
                     target_ready = bool(status.get("target_ready"))
@@ -920,9 +945,7 @@ class HardwareManager:
                         and detection_label == target_fruit.casefold()
                     )
                     if requested_target_ready:
-                        tracking_confirmations = (
-                            self.config.pear_tracking_confirmations
-                        )
+                        tracking_confirmations = self.config.pear_tracking_confirmations
                     elif tracking_candidate:
                         tracking_confirmations += 1
                     elif close_range_continuation:
@@ -933,12 +956,14 @@ class HardwareManager:
                     else:
                         tracking_confirmations = 0
                     track_ready = (
-                        requested_target_ready
-                    ) or (
-                        tracking_candidate
-                        and tracking_confirmations
-                        >= self.config.pear_tracking_confirmations
-                    ) or close_range_continuation
+                        (requested_target_ready)
+                        or (
+                            tracking_candidate
+                            and tracking_confirmations
+                            >= self.config.pear_tracking_confirmations
+                        )
+                        or close_range_continuation
+                    )
                     if not track_ready:
                         if not initial_centered:
                             initial_center_confirmations = 0
@@ -1076,8 +1101,7 @@ class HardwareManager:
                     horizontal_error = center_x - 0.5
                     yaw = (
                         0.0
-                        if abs(horizontal_error)
-                        <= APPROACH_CENTER_TOLERANCE_RATIO
+                        if abs(horizontal_error) <= APPROACH_CENTER_TOLERANCE_RATIO
                         else -math.copysign(
                             maximum_yaw_rps,
                             horizontal_error,
@@ -1103,7 +1127,11 @@ class HardwareManager:
             except Exception as exc:  # noqa: BLE001 - always disarm below
                 operation_error = exc
             finally:
-                if lease is not None and self._motion is not None and self._motion.armed:
+                if (
+                    lease is not None
+                    and self._motion is not None
+                    and self._motion.armed
+                ):
                     try:
                         await self._motion.release(lease)
                     except MotionError as exc:
@@ -1149,7 +1177,13 @@ class HardwareManager:
             search_trace: list[dict[str, object]] = []
             started = time.monotonic()
             approach_recorder = (
-                _ApproachRecorder(guidance, started_s=started)
+                _ApproachRecorder(
+                    guidance,
+                    started_s=started,
+                    event_sink=lambda event: self._record_black_box(
+                        "guidance_decision", event
+                    ),
+                )
                 if allow_forward
                 else None
             )
@@ -1192,7 +1226,9 @@ class HardwareManager:
                                     "search_sweep_rad": guidance.config.search_sweep_rad,
                                     "samples": samples,
                                     "search_trace": search_trace,
-                                    "confidence_summary": confidence_summary(search_trace),
+                                    "confidence_summary": confidence_summary(
+                                        search_trace
+                                    ),
                                 },
                             )
                     status = status_reader()
@@ -1207,35 +1243,33 @@ class HardwareManager:
                     if not allow_forward:
                         source = status.get("source")
                         detection = status.get("detection")
-                        search_trace.append(
-                            {
-                                "sample": samples,
-                                "elapsed_s": round(now - started, 4),
-                                "target_fruit": guidance.target_fruit,
-                                "source_pts": (
-                                    source.get("pts")
-                                    if isinstance(source, dict)
-                                    else None
-                                ),
-                                "confidence": (
-                                    detection.get("confidence")
-                                    if isinstance(detection, dict)
-                                    else None
-                                ),
-                                "center_x_ratio": (
-                                    detection.get("center_x_ratio")
-                                    if isinstance(detection, dict)
-                                    else None
-                                ),
-                                "measured_yaw_rad": measured_yaw_rad,
-                                "search_progress_rad": search_progress_rad,
-                                "commanded_yaw_rps": decision.command.yaw_rps,
-                                "guidance_action": decision.action.value,
-                                "guidance_reason": decision.reason,
-                                "frame_advanced": decision.frame_advanced,
-                                "locked": decision.phase is GuidancePhase.LOCKED,
-                            }
-                        )
+                        search_event = {
+                            "sample": samples,
+                            "elapsed_s": round(now - started, 4),
+                            "target_fruit": guidance.target_fruit,
+                            "source_pts": (
+                                source.get("pts") if isinstance(source, dict) else None
+                            ),
+                            "confidence": (
+                                detection.get("confidence")
+                                if isinstance(detection, dict)
+                                else None
+                            ),
+                            "center_x_ratio": (
+                                detection.get("center_x_ratio")
+                                if isinstance(detection, dict)
+                                else None
+                            ),
+                            "measured_yaw_rad": measured_yaw_rad,
+                            "search_progress_rad": search_progress_rad,
+                            "commanded_yaw_rps": decision.command.yaw_rps,
+                            "guidance_action": decision.action.value,
+                            "guidance_reason": decision.reason,
+                            "frame_advanced": decision.frame_advanced,
+                            "locked": decision.phase is GuidancePhase.LOCKED,
+                        }
+                        search_trace.append(search_event)
+                        self._record_black_box("guidance_decision", search_event)
                     if decision.action is GuidanceAction.STOP and decision.terminal:
                         diagnostics = (
                             approach_recorder.evidence()
@@ -1260,9 +1294,7 @@ class HardwareManager:
                             evidence={
                                 "guidance_reason": decision.reason,
                                 "search_trace": search_trace,
-                                "confidence_summary": confidence_summary(
-                                    search_trace
-                                ),
+                                "confidence_summary": confidence_summary(search_trace),
                                 **diagnostics,
                             },
                         )
@@ -1278,8 +1310,7 @@ class HardwareManager:
                         forward_pulse_count += 1
 
                     terminal_for_call = (
-                        not allow_forward
-                        and decision.phase is GuidancePhase.LOCKED
+                        not allow_forward and decision.phase is GuidancePhase.LOCKED
                     ) or decision.arrival_confirmed
                     if terminal_for_call:
                         evidence = {
@@ -1287,9 +1318,7 @@ class HardwareManager:
                             "guidance_phase": decision.phase.value,
                             "guidance_reason": decision.reason,
                             "acquisition_epoch": guidance.acquisition_epoch,
-                            "centered_fresh_samples": (
-                                decision.centered_fresh_samples
-                            ),
+                            "centered_fresh_samples": (decision.centered_fresh_samples),
                             "near_confirmations": decision.near_fresh_samples,
                             "arrival_confirmed": decision.arrival_confirmed,
                             "final_push_mps": guidance.config.final_push_mps,
@@ -1298,9 +1327,7 @@ class HardwareManager:
                             ),
                             "final_push_count": guidance.final_push_count,
                             "forward_pulse_count": forward_pulse_count,
-                            "forward_pulse_period_s": (
-                                self.config.command_heartbeat_s
-                            ),
+                            "forward_pulse_period_s": (self.config.command_heartbeat_s),
                             "samples": samples,
                             "search_progress_rad": search_progress_rad,
                             "search_trace": search_trace,
@@ -1332,7 +1359,11 @@ class HardwareManager:
             except Exception as exc:  # noqa: BLE001 - always disarm below
                 operation_error = exc
             finally:
-                if lease is not None and self._motion is not None and self._motion.armed:
+                if (
+                    lease is not None
+                    and self._motion is not None
+                    and self._motion.armed
+                ):
                     try:
                         await self._motion.release(lease)
                     except MotionError as exc:
@@ -1464,7 +1495,11 @@ class HardwareManager:
             except Exception as exc:  # noqa: BLE001 - always disarm below
                 operation_error = exc
             finally:
-                if lease is not None and self._motion is not None and self._motion.armed:
+                if (
+                    lease is not None
+                    and self._motion is not None
+                    and self._motion.armed
+                ):
                     try:
                         await self._motion.release(lease)
                     except MotionError as exc:
@@ -1608,7 +1643,11 @@ class HardwareManager:
             except Exception as exc:  # noqa: BLE001 - always disarm below
                 operation_error = exc
             finally:
-                if lease is not None and self._motion is not None and self._motion.armed:
+                if (
+                    lease is not None
+                    and self._motion is not None
+                    and self._motion.armed
+                ):
                     try:
                         await self._motion.release(lease)
                     except MotionError as exc:
@@ -1628,8 +1667,7 @@ class HardwareManager:
             terminal_distance = float(terminal["home_distance_m"])
             if terminal_distance > arrival_tolerance_m:
                 raise HardwareUnavailable(
-                    "return ended outside Home after disarm: "
-                    f"{terminal_distance:.3f} m"
+                    f"return ended outside Home after disarm: {terminal_distance:.3f} m"
                 )
             return {
                 **terminal,
@@ -1674,9 +1712,7 @@ class HardwareManager:
                     "turn_recovery_count": recovery_count,
                     "motion_commands_sent": False,
                 }
-            bearing_error = normalize_angle(
-                math.atan2(dy, dx) - sample.pose.yaw_rad
-            )
+            bearing_error = normalize_angle(math.atan2(dy, dx) - sample.pose.yaw_rad)
             if abs(bearing_error) <= tolerance_rad:
                 return {
                     "home_distance_m": distance,
@@ -1845,8 +1881,9 @@ class HardwareManager:
             "last_pulse": self._last_pulse,
         }
 
-    def start_motion_trace(self, phase: str) -> None:
+    def start_motion_trace(self, phase: str, *, run_id: str | None = None) -> None:
         self._motion_trace_phase = str(phase)
+        self._motion_trace_run_id = run_id
         self._motion_trace = []
 
     def motion_trace(self) -> list[dict[str, object]]:
@@ -1867,15 +1904,25 @@ class HardwareManager:
                 "forward command blocked before approach or return motion"
             )
         sent = await self._motion.command(lease, command)
-        self._motion_trace.append(
-            {
-                "sequence": len(self._motion_trace) + 1,
-                "phase": self._motion_trace_phase,
-                "recorded_monotonic_s": time.monotonic(),
-                **sent.to_dict(),
-            }
-        )
+        event = {
+            "sequence": len(self._motion_trace) + 1,
+            "phase": self._motion_trace_phase,
+            "recorded_monotonic_s": time.monotonic(),
+            **sent.to_dict(),
+        }
+        self._motion_trace.append(event)
+        self._record_black_box("motion_command", event)
         return sent
+
+    def _record_black_box(self, kind: str, payload: dict[str, object]) -> None:
+        if self._black_box is None or self._motion_trace_run_id is None:
+            return
+        self._black_box.record(
+            self._motion_trace_run_id,
+            kind,
+            phase=self._motion_trace_phase,
+            payload=payload,
+        )
 
     async def _best_effort_stop(self) -> None:
         if self._motion is None:
@@ -1900,7 +1947,9 @@ class HardwareManager:
                 )
             assert self._motion is not None
             if self._motion.armed:
-                raise HardwareUnavailable("motion must be disarmed before posture change")
+                raise HardwareUnavailable(
+                    "motion must be disarmed before posture change"
+                )
             self._active_operation = operation
             try:
                 if operation == "stand_down":

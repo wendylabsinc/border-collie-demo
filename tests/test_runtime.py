@@ -80,7 +80,12 @@ def test_production_runtime_wires_the_real_stage_executor(
     hardware = SimulatedHardware()
     monkeypatch.setenv("BORDER_COLLIE_RUNTIME_MODE", "production")
     monkeypatch.setenv("BORDER_COLLIE_RUNS_DIR", str(tmp_path))
-    monkeypatch.setattr(main_module, "HardwareManager", lambda _config: hardware)
+    monkeypatch.setenv("BORDER_COLLIE_SYSTEM_AUDIO_POLICY", "normal")
+    monkeypatch.setattr(
+        main_module,
+        "HardwareManager",
+        lambda _config, **_options: hardware,
+    )
     monkeypatch.setattr(main_module, "PerceptionStatusClient", Perception)
     monkeypatch.setattr(main_module, "BarkClient", Bark)
     monkeypatch.setattr(main_module, "TerminalEvidenceClient", Evidence)

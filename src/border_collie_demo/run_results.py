@@ -10,6 +10,7 @@ from time import monotonic
 from typing import Any
 from uuid import UUID, uuid4
 
+from .black_box import RunBlackBox
 from .evidence import EvidenceArtifact
 
 
@@ -28,8 +29,9 @@ def _utc_now() -> str:
 class RunResultStore:
     """Append-only Demo Run journal with an atomically materialized result."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, *, black_box: RunBlackBox | None = None) -> None:
         self.root = root.resolve()
+        self.black_box = black_box or RunBlackBox(self.root)
         self._active_run_id: str | None = None
 
     @property
@@ -98,6 +100,17 @@ class RunResultStore:
         run_dir = self.root / run_id
         run_dir.mkdir()
         (run_dir / "snapshots").mkdir()
+        self.black_box.record(
+            run_id,
+            "run_started",
+            phase="idle",
+            payload={
+                "target_fruit": target_fruit,
+                "activation_source": activation_source,
+                "activation_id": activation_id,
+                "search_experiment": deepcopy(search_experiment),
+            },
+        )
         self._append_event(
             result,
             phase="idle",
@@ -189,6 +202,12 @@ class RunResultStore:
             message=f"{phase} completed",
         )
         result.setdefault("stage_results", {})[phase] = deepcopy(evidence)
+        self.black_box.record(
+            run_id,
+            "stage_result",
+            phase=phase,
+            payload=evidence,
+        )
         result["message"] = result["events"][-1]["message"]
         self._write_result(result)
         return deepcopy(result)
@@ -258,6 +277,12 @@ class RunResultStore:
             message=str(report.get("reason") or "failure epilogue completed"),
         )
         result["failure_epilogue"] = deepcopy(report)
+        self.black_box.record(
+            run_id,
+            "failure_epilogue",
+            phase="failure_epilogue",
+            payload=dict(report),
+        )
         self._write_result(result)
         return deepcopy(result)
 
@@ -320,6 +345,17 @@ class RunResultStore:
         }
         result["ended_at_utc"] = _utc_now()
         result["duration_s"] = monotonic() - result["started_monotonic_s"]
+        self.black_box.record(
+            run_id,
+            "run_sealed",
+            phase=phase,
+            payload={
+                "outcome": outcome,
+                "reason": reason,
+                "failed_phase": result["failed_phase"],
+                "final_safety_state": final_safety_state,
+            },
+        )
         self._write_result(result)
         if self._active_run_id == run_id:
             self._active_run_id = None
@@ -404,6 +440,12 @@ class RunResultStore:
             journal.flush()
             os.fsync(journal.fileno())
         result["events"].append(event)
+        self.black_box.record(
+            result["run_id"],
+            "mission_event",
+            phase=phase,
+            payload=event,
+        )
 
     def _write_result(self, result: dict[str, Any]) -> None:
         run_dir = self.root / result["run_id"]

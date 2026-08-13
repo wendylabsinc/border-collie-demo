@@ -1,12 +1,12 @@
 {
   "appId": "border-collie-demo",
-  "version": "1.1.0-stage-default",
+  "version": "1.1.1-stage-default",
   "services": {
     "app": {
       "context": ".",
       "env": {
         "BORDER_COLLIE_PORT": "8110",
-        "BORDER_COLLIE_BUILD_LABEL": "stage-default-v1-base-guardrails",
+        "BORDER_COLLIE_BUILD_LABEL": "stage-default-v2-muted-black-box",
         "BORDER_COLLIE_RUNTIME_MODE": "production",
         "BORDER_COLLIE_HARDWARE_ENABLED": "1",
         "BORDER_COLLIE_AUTONOMY_ENABLED": "1",
@@ -19,6 +19,11 @@
         "BORDER_COLLIE_BARK_ENABLED": "1",
         "BORDER_COLLIE_BARK_URL": "http://127.0.0.1:8111/api/bark",
         "BORDER_COLLIE_BARK_STATUS_URL": "http://127.0.0.1:8111/status",
+        "BORDER_COLLIE_SYSTEM_AUDIO_POLICY": "muted_except_bark",
+        "BORDER_COLLIE_BARK_VOLUME": "6",
+        "BORDER_COLLIE_BARK_AUDIBLE_S": "2.0",
+        "BORDER_COLLIE_VUI_TIMEOUT_S": "3.0",
+        "BORDER_COLLIE_RESTORE_SPEAKER_ON_CLOSE": "0",
         "BORDER_COLLIE_EVIDENCE_BASE_URL": "http://127.0.0.1:8111/",
         "BORDER_COLLIE_EVIDENCE_TIMEOUT_S": "3.0",
         "BORDER_COLLIE_FORWARD_PULSE_MPS": "0.50",
@@ -75,7 +80,7 @@
         "PORT": "8092",
         "ACTION_MODE": "border_collie",
         "BORDER_COLLIE_URL": "http://127.0.0.1:8110",
-        "BORDER_COLLIE_EXPECTED_BUILD_LABEL": "stage-default-v1-base-guardrails",
+        "BORDER_COLLIE_EXPECTED_BUILD_LABEL": "stage-default-v2-muted-black-box",
         "CONTINUOUS_TRANSCRIPTION": "0",
         "AUTO_ARM_ACTIONS": "1",
         "AUDIO_DEVICE": "DJI MIC MINI",

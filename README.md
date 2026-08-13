@@ -339,6 +339,40 @@ selects all three automatically for a whole-project deployment; generated
 Dockerfiles are build artifacts and are not committed. Deploy with
 `wendy run --detach` and do not pass a Dockerfile override.
 
+### System audio policy
+
+Production starts with the embedded Go2 speaker muted and keeps it muted through
+search, obstacle-avoidance transitions, approach, posture changes, and Return
+Home. Only the audience bark opens a bounded audible window; the speaker is
+re-muted and verified even when bark playback fails. This also suppresses the
+onboard offline-voice response and factory obstacle-mode announcements while
+the demo owns the speaker.
+
+- `BORDER_COLLIE_SYSTEM_AUDIO_POLICY`: `muted_except_bark` (default) or
+  `normal`.
+- `BORDER_COLLIE_BARK_VOLUME`: integer Go2 VUI level `0..10`; default `6`.
+- `BORDER_COLLIE_BARK_AUDIBLE_S`: unmuted bark window in seconds, `0.25..10`;
+  default `2.0` and requires physical qualification against the selected clip.
+- `BORDER_COLLIE_VUI_TIMEOUT_S`: VUI operation timeout in seconds; default
+  `3.0`.
+- `BORDER_COLLIE_RESTORE_SPEAKER_ON_CLOSE`: default `0`, leaving the robot
+  muted on orderly shutdown. Set `1` only when restoring the captured pre-demo
+  volume is explicitly desired.
+
+The mute is device-global and can suppress useful robot warnings. Hard process
+termination during the audible bark window can leave the speaker unmuted until
+the app restarts and reasserts the policy.
+
+### Per-run black box
+
+Every Demo Run has an append-only, fsynced `black-box.ndjson` timeline beside
+its materialized `result.json`. It records mission lifecycle events, stage
+results, each camera-guidance decision, every resulting motion command, failure
+epilogue evidence, and the final outcome/safety state. It contains numeric and
+categorical evidence but no camera images. Download it at
+`/api/results/{run_id}/black-box.ndjson`; terminal image/clip evidence remains
+separate.
+
 ## Local validation
 
 ```bash

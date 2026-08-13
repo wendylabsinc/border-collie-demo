@@ -55,7 +55,7 @@ class ProductionStageExecutor:
     ) -> dict[str, Any]:
         start_trace = getattr(self._hardware, "start_motion_trace", None)
         if callable(start_trace):
-            start_trace(phase.value)
+            start_trace(phase.value, run_id=context.run_id)
         try:
             evidence = await self._execute(phase, context)
         except CameraFailure as exc:
@@ -128,8 +128,7 @@ class ProductionStageExecutor:
         ):
             if self._guidance_run_id != context.run_id or self._guidance is None:
                 tuning = SearchExperimentTuning.from_mapping(
-                    context.target_fruit,
-                    context.search_experiment
+                    context.target_fruit, context.search_experiment
                 )
                 config = replace(
                     GuidanceConfig.from_env(),
@@ -258,7 +257,9 @@ class ProductionStageExecutor:
                 "heading_restoration_skipped": True,
                 "motion_commands_sent": False,
             }
-        raise StageFailure("INTERNAL_ERROR", f"production stage is not implemented: {phase.value}")
+        raise StageFailure(
+            "INTERNAL_ERROR", f"production stage is not implemented: {phase.value}"
+        )
 
     def _visible_target_evidence(self, target_fruit: str) -> dict[str, Any] | None:
         """Skip broad search only for current, fully qualified target evidence."""

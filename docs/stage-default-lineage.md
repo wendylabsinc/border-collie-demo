@@ -23,5 +23,8 @@ and heading restoration as a success gate. Those experiments remain in their
 existing worktrees and Git history; they are not hidden switches in the stage
 controller.
 
-Release identity: `stage-default-v1-base-guardrails`, Wendy application version
-`1.1.0-stage-default`.
+Release identity: `stage-default-v2-muted-black-box`, Wendy application version
+`1.1.1-stage-default`. This iteration adds the muted-except-bark system audio
+policy and the append-only per-run black-box trace; physical speaker behavior
+and timing remain unqualified until deployment and a supervised zero-motion
+audio check.

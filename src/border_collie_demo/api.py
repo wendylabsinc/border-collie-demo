@@ -12,6 +12,7 @@ from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from .black_box import RunBlackBox
 from .evidence import EvidenceArtifact
 from .fruits import QUALIFIED_FRUITS, SUPPORTED_FRUITS
 from .hardware import HardwareManager, HardwareUnavailable
@@ -24,6 +25,7 @@ from .search_experiment import (
     search_experiment_scorecard,
 )
 from .stage_demo import ActivationConflict, FruitMission, StageDemo
+from .system_audio import SystemAudioPolicy
 
 
 def build_label() -> str:
@@ -33,7 +35,10 @@ def build_label() -> str:
     so an operator needs to confirm from the UI which build produced a run
     before recording its result against a branch.
     """
-    return os.environ.get("BORDER_COLLIE_BUILD_LABEL", "unlabelled").strip() or "unlabelled"
+    return (
+        os.environ.get("BORDER_COLLIE_BUILD_LABEL", "unlabelled").strip()
+        or "unlabelled"
+    )
 
 
 class ForwardPulseRequest(BaseModel):
@@ -77,13 +82,16 @@ def create_app(
     stage_executor: StageExecutor | None = None,
     terminal_evidence: Callable[[], list[EvidenceArtifact]] | None = None,
     failure_epilogue: FailureEpilogue | None = None,
+    black_box: RunBlackBox | None = None,
+    system_audio: SystemAudioPolicy | None = None,
     runtime_mode: Literal["production", "simulation"] = "production",
 ) -> FastAPI:
     machine = mission or MissionMachine()
     robot = hardware or HardwareManager()
     root = web_root or Path(os.environ.get("BORDER_COLLIE_WEB_ROOT", "web")).resolve()
     results = RunResultStore(
-        runs_root or Path(os.environ.get("BORDER_COLLIE_RUNS_DIR", "artifacts/runs"))
+        runs_root or Path(os.environ.get("BORDER_COLLIE_RUNS_DIR", "artifacts/runs")),
+        black_box=black_box,
     )
     read_camera_perception = camera_perception_status or (
         lambda: {
@@ -108,10 +116,15 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         await demo.start()
+        if system_audio is not None:
+            await system_audio.start_muted()
         try:
             yield
         finally:
             await demo.close()
+            if system_audio is not None:
+                await system_audio.close()
+            results.black_box.close()
 
     app = FastAPI(
         title="Border Collie Demo",
@@ -206,7 +219,7 @@ def create_app(
                         request.target_fruit,
                         None
                         if request.tuning is None
-                        else request.tuning.model_dump(exclude_none=True)
+                        else request.tuning.model_dump(exclude_none=True),
                     ),
                 )
             )
@@ -227,6 +240,20 @@ def create_app(
             return {"run": results.get(run_id)}
         except RunResultNotFound as exc:
             raise HTTPException(status_code=404, detail="Run Result not found") from exc
+
+    @app.get("/api/results/{run_id}/black-box.ndjson")
+    async def get_black_box(run_id: str) -> FileResponse:
+        try:
+            path = results.black_box.path(run_id)
+        except (ValueError, FileNotFoundError) as exc:
+            raise HTTPException(
+                status_code=404, detail="Run black-box trace not found"
+            ) from exc
+        return FileResponse(
+            path,
+            media_type="application/x-ndjson",
+            filename=f"{run_id}-black-box.ndjson",
+        )
 
     @app.get("/api/results/{run_id}/artifacts/{filename}")
     async def get_result_artifact(run_id: str, filename: str) -> FileResponse:
