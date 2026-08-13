@@ -1,0 +1,133 @@
+{
+  "schema_version": 1,
+  "date": "2026-08-13",
+  "deployed_commit": "3e4d55e8c791abaf1c55ef0115ea6fc517c0e31c",
+  "branch": "codex/kinda-good-integrated-iteration",
+  "build_label": "stage-default-v3-runtime-tuning-cohorts",
+  "arrival_contract": {
+    "near_bottom_ratio": 0.9,
+    "missing_after_forward_approach_confirms_arrival": true
+  },
+  "requested_sequence": [
+    "apple",
+    "pear",
+    "banana",
+    "pear",
+    "apple",
+    "banana"
+  ],
+  "execution_note": "The original balanced harness stopped after run 1 on the known hard RETURN_HOME_FAILURE label. Runs 2 through 6 were launched as independent checked harness sessions only after fresh Home clearance and exact-zero disarm were proven.",
+  "scorecard": {
+    "attempts": 6,
+    "machine_successes": 4,
+    "machine_failures": 2,
+    "fruit_actions_reaching_sit_and_stand": 6,
+    "fresh_returns_within_stage_home_margin": 6,
+    "confirmed_disarms": 6,
+    "network_polls": 153,
+    "network_poll_errors": 0,
+    "stage_home_margin_m": 0.5
+  },
+  "runs": [
+    {
+      "number": 1,
+      "run_id": "b1128108-042e-46db-81d6-60b3d0fbe9a2",
+      "target_fruit": "apple",
+      "outcome": "FAILED",
+      "reason": "RETURN_HOME_FAILURE",
+      "failed_phase": "return_home",
+      "fruit_action_completed": true,
+      "fresh_post_run_home_distance_m": 0.1133019348102876,
+      "returned_home": true,
+      "final_safety_state": "DISARMED_CONFIRMED",
+      "network_polls": 22,
+      "network_errors": 0,
+      "note": "The controller reported that Home heading escaped the forward steering gate; fresh inter-run evidence proved a safe physical return."
+    },
+    {
+      "number": 2,
+      "run_id": "52b6c841-f12f-4e6e-9afb-12237d4dc87a",
+      "target_fruit": "pear",
+      "outcome": "FAILED",
+      "reason": "RETURN_HOME_FAILURE",
+      "failed_phase": "return_home",
+      "fruit_action_completed": true,
+      "fresh_post_run_home_distance_m": 0.03584650856232842,
+      "returned_home": true,
+      "final_safety_state": "DISARMED_CONFIRMED",
+      "network_polls": 27,
+      "network_errors": 0,
+      "note": "The controller reported that Home heading escaped the forward steering gate; fresh inter-run evidence proved a safe physical return."
+    },
+    {
+      "number": 3,
+      "run_id": "df567ad9-4cb8-4334-966d-e6020c394b0c",
+      "target_fruit": "banana",
+      "outcome": "COMPLETED",
+      "reason": "SUCCESS",
+      "fruit_action_completed": true,
+      "terminal_home_distance_m": 0.059940888575113045,
+      "fresh_post_run_home_distance_m": 0.10145666126465129,
+      "returned_home": true,
+      "final_safety_state": "DISARMED_CONFIRMED",
+      "network_polls": 22,
+      "network_errors": 0
+    },
+    {
+      "number": 4,
+      "run_id": "020c1958-9371-463c-95cf-34758700cd84",
+      "target_fruit": "pear",
+      "outcome": "COMPLETED",
+      "reason": "SUCCESS",
+      "fruit_action_completed": true,
+      "terminal_home_distance_m": 0.008490692176360866,
+      "fresh_post_run_home_distance_m": 0.14528239629054593,
+      "returned_home": true,
+      "final_safety_state": "DISARMED_CONFIRMED",
+      "network_polls": 25,
+      "network_errors": 0
+    },
+    {
+      "number": 5,
+      "run_id": "dd90e684-b1f4-47c4-ad75-f08dd54984ad",
+      "target_fruit": "apple",
+      "outcome": "COMPLETED",
+      "reason": "SUCCESS",
+      "fruit_action_completed": true,
+      "terminal_home_distance_m": 0.05350536507338479,
+      "fresh_post_run_home_distance_m": 0.06009429797712584,
+      "returned_home": true,
+      "final_safety_state": "DISARMED_CONFIRMED",
+      "network_polls": 24,
+      "network_errors": 0
+    },
+    {
+      "number": 6,
+      "run_id": "ce7fd89b-5f53-4c01-b902-525be9df8f4e",
+      "target_fruit": "banana",
+      "outcome": "COMPLETED",
+      "reason": "SUCCESS",
+      "fruit_action_completed": true,
+      "terminal_home_distance_m": 0.0964165619595786,
+      "fresh_post_run_home_distance_m": 0.09911090747436126,
+      "returned_home": true,
+      "final_safety_state": "DISARMED_CONFIRMED",
+      "network_polls": 33,
+      "network_errors": 0
+    }
+  ],
+  "final_live_state": {
+    "mission_phase": "complete",
+    "active_run_id": null,
+    "activation_ready": true,
+    "home_distance_m": 0.10383718901147553,
+    "motion_armed": false,
+    "motion_fault": null,
+    "last_command_forward_mps": 0.0,
+    "last_command_yaw_rps": 0.0,
+    "maximum_motor_temperature_c": 64,
+    "imu_temperature_c": 79,
+    "battery_percent": 55
+  },
+  "conclusion": "The 0.90/no-fruit Arrival candidate completed the fruit action and safe return on all six attempts. Four runs were full machine successes; the remaining two were false-negative Return Home heading-gate outcomes."
+}
