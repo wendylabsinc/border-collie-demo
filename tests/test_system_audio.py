@@ -33,6 +33,14 @@ class FakeVui:
         return 0
 
 
+class StuckMutedVui(FakeVui):
+    def SetVolume(self, volume: int) -> int:
+        self.events.append(("set", volume))
+        if volume == 0:
+            self.volume = 0
+        return 0
+
+
 class FakeBark:
     def __init__(self, events: list[tuple[object, ...]], *, fail: bool = False) -> None:
         self.events = events
@@ -135,5 +143,29 @@ def test_system_audio_remutes_when_bark_fails() -> None:
 
         assert vui.volume == 0
         assert vui.events[-2:] == [("set", 0), ("get", 0)]
+
+    asyncio.run(scenario())
+
+
+def test_system_audio_records_inaudible_bark_without_failing_mission() -> None:
+    async def scenario() -> None:
+        vui = StuckMutedVui(volume=0)
+        policy = SystemAudioPolicy(
+            vui,
+            FakeBark(vui.events),
+            SystemAudioConfig(bark_volume=6, bark_audible_s=1.0),
+            sleep=lambda _duration: asyncio.sleep(0),
+        )
+        await policy.start_muted()
+
+        result = await policy.bark()
+
+        assert result["bark_played"] is True
+        assert result["speaker_audible"] is False
+        assert result["speaker_remuted"] is True
+        assert "expected 6, got 0" in str(result["speaker_warning"])
+        assert policy.status()["ready"] is True
+        assert "expected 6, got 0" in str(policy.status()["speaker_warning"])
+        assert vui.volume == 0
 
     asyncio.run(scenario())

@@ -95,6 +95,7 @@ class SystemAudioPolicy:
         self._muted = False
         self._original_volume: int | None = None
         self._error: str | None = None
+        self._warning: str | None = None
 
     async def start_muted(self) -> None:
         if self._started:
@@ -141,6 +142,7 @@ class SystemAudioPolicy:
             ),
             "speaker_muted": self._muted,
             "speaker_error": self._error,
+            "speaker_warning": self._warning,
         }
 
     async def bark(self) -> dict[str, object]:
@@ -149,13 +151,20 @@ class SystemAudioPolicy:
         if not self._ready or self._vui is None:
             raise BarkFailure(self._error or "Go2 speaker policy is not ready")
         async with self._lock:
+            unmute_error: Exception | None = None
             bark_error: Exception | None = None
             result: dict[str, object] | None = None
             try:
                 await self._set_and_verify(self.config.bark_volume)
                 self._muted = False
+                self._warning = None
+            except Exception as exc:  # noqa: BLE001 - silent bark is non-terminal
+                unmute_error = exc
+                self._warning = f"bark remained muted: {exc}"
+            try:
                 result = await self._bark.bark()
-                await self._sleep(self.config.bark_audible_s)
+                if unmute_error is None:
+                    await self._sleep(self.config.bark_audible_s)
             except Exception as exc:  # noqa: BLE001 - remute must always run
                 bark_error = exc
             try:
@@ -171,7 +180,7 @@ class SystemAudioPolicy:
                     raise bark_error
                 raise BarkFailure(f"bark audio failed: {bark_error}") from bark_error
             assert result is not None
-            return {
+            response: dict[str, object] = {
                 **result,
                 "speaker_policy": "muted_except_bark",
                 "bark_volume": self.config.bark_volume,
@@ -186,6 +195,23 @@ class SystemAudioPolicy:
                     {"state": "muted", "volume": 0},
                 ],
             }
+            if unmute_error is not None:
+                response.update(
+                    {
+                        "speaker_audible": False,
+                        "speaker_warning": self._warning,
+                        "audio_trace": [
+                            {
+                                "state": "audibility_degraded",
+                                "requested_volume": self.config.bark_volume,
+                                "error": str(unmute_error),
+                            },
+                            {"state": "bark_requested"},
+                            {"state": "muted", "volume": 0},
+                        ],
+                    }
+                )
+            return response
 
     async def close(self) -> list[str]:
         if not self.config.enabled or self._vui is None or not self._started:
