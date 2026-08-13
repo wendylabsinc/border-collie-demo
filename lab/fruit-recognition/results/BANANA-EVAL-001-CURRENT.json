@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "BANANA-EVAL-001-CURRENT",
+  "evaluation_id": "BANANA-EVAL-001",
+  "model_role": "current deployed baseline",
+  "camera_generation": "9f386fb1a46d4554926f856ea1e228db",
+  "target_class": "banana",
+  "thresholds": {
+    "confidence": 0.2,
+    "iou": 0.5,
+    "stable_detection_count": 5
+  },
+  "counts": {
+    "frames": 40,
+    "human_reviewed": 40,
+    "ground_truth_positive": 40,
+    "ground_truth_negative": 0,
+    "predictions_at_confidence_gate": 28,
+    "localization_matches": 40,
+    "true_positives_at_gate": 28,
+    "exact_model_proposals_accepted": 39
+  },
+  "metrics": {
+    "localization_recall_at_iou": 1.0,
+    "acquisition_recall_at_gate": 0.7,
+    "precision_at_gate": 1.0,
+    "maximum_qualifying_streak": 14,
+    "first_five_detection_completion_frame": 17,
+    "proposal_acceptance_ratio": 0.975,
+    "iou": {
+      "minimum": 0.7636363636363637,
+      "median": 1.0,
+      "mean": 0.9940909090909091,
+      "p95": 1.0,
+      "maximum": 1.0
+    },
+    "confidence": {
+      "minimum": 0.17217358946800232,
+      "median": 0.2094728946685791,
+      "mean": 0.21509630605578423,
+      "p95": 0.25683075189590454,
+      "maximum": 0.2877672612667084
+    },
+    "inference_s": {
+      "minimum": 0.07039267800007565,
+      "median": 0.10288788650001379,
+      "mean": 0.10978336845000455,
+      "p95": 0.15195158099993478,
+      "maximum": 0.19773753499998747
+    }
+  },
+  "interpretation": {
+    "primary_failure": "confidence instability on a small distant banana",
+    "latency_deadline_s": 0.2,
+    "latency_deadline_met": true,
+    "candidate_priority": "improve small-banana acquisition recall without regressing latency or qualified fruits"
+  },
+  "limitations": [
+    "No negative frames are present, so scene-level false-positive behavior is not measured.",
+    "Most human boxes exactly equal current-model proposals; localization metrics are biased toward the current model.",
+    "This is one static physical setup and cannot qualify a replacement model by itself."
+  ]
+}

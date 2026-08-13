@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "checkpoint": "mostly-working-2026-08-13",
+  "date": "2026-08-13",
+  "deployed_commit": "56838201e47eb23ad7d7e0cb239638df567052d9",
+  "runs": [
+    {
+      "run_id": "19d47cc5-04a4-4856-bf5d-c496242f2ff5",
+      "target_fruit": "pear",
+      "outcome": "FAILED",
+      "reason": "RETURN_HOME_FAILURE",
+      "failed_phase": "return_home",
+      "fruit_sequence": {
+        "arrival_confirmed": true,
+        "audience_action_reached": true,
+        "stand_reached": true
+      },
+      "live_post_run_home_distance_m": 0.10926672243913496,
+      "final_safety_state": "DISARMED_CONFIRMED",
+      "note": "Lower-edge disappearance fix worked; failure was the independent Home steering gate."
+    },
+    {
+      "run_id": "62a9723e-c154-4060-bfa3-9ad13ed056a8",
+      "target_fruit": "apple",
+      "outcome": "FAILED",
+      "reason": "ARRIVAL_FAILURE",
+      "failed_phase": "approach_fruit",
+      "approach": {
+        "forward_decisions": 23,
+        "stop_decisions": 159,
+        "maximum_near_fresh_samples": 2,
+        "tracking_confidence_below_floor": 137,
+        "target_missing_after_lock": 22
+      },
+      "terminal_home_distance_m": 1.5003968514218182,
+      "final_safety_state": "DISARMED_CONFIRMED",
+      "note": "Captured before the generalized all-fruit lower-edge identity-collapse Arrival fix."
+    },
+    {
+      "run_id": "7085ee1d-fe63-47ef-a887-b0faf11de3af",
+      "target_fruit": "apple",
+      "outcome": "FAILED",
+      "reason": "TARGET_RECOGNITION_FAILURE",
+      "failed_phase": "turn_to_fruit",
+      "search": {
+        "samples": 275,
+        "detected_frames": 224,
+        "maximum_confidence": 0.7676874399185181,
+        "average_confidence": 0.26661825898502556,
+        "frames_at_or_above_focus_0_50": 12,
+        "frames_at_or_above_lock_0_40": 18,
+        "maximum_centered_confidence": 0.08449193835258484,
+        "strong_detection_center_x_ratio": 0.105859375,
+        "failure": "candidate focus held zero yaw after confidence fell during centering"
+      },
+      "terminal_home_distance_m": 0.07934371331961397,
+      "final_safety_state": "DISARMED_CONFIRMED",
+      "note": "Primary bug for the next session: bound focus loss and resume alignment or broad search."
+    }
+  ]
+}

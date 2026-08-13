@@ -1,0 +1,6 @@
+av>=14,<17
+fastapi>=0.115,<1
+opencv-python-headless>=4.8,<5
+unitree_webrtc_connect==2.1.2
+ultralytics>=8.4,<9
+uvicorn[standard]>=0.30,<1

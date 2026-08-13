@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "source": "Open Images V7",
+  "source_split": "train",
+  "role": "whole-fruit curation candidate pool",
+  "training_eligible": false,
+  "source_files": {
+    "annotations_url": "https://storage.googleapis.com/openimages/v6/oidv6-train-annotations-bbox.csv",
+    "annotations_sha256": "dfc9637907a6b105f87e435bac91a5ee9b29af3ff8391168f86c1d63879786b6",
+    "metadata_url": "https://storage.googleapis.com/openimages/2018_04/train/train-images-boxable-with-rotation.csv",
+    "metadata_sha256": "05f3d68dbbb03728d1a37e51479f4f35c062b871e1a6cae8c4cefbe0e0c80ed0"
+  },
+  "candidate_manifest": {
+    "artifact_path": "artifacts/fruit-model/candidates/open-images-v7/manifest.json",
+    "sha256": "6a365daf2fc9e10da6e9253a16b005b0f752ac199439214d8cc3deefbd221156",
+    "images": 1758,
+    "boxes_by_class": {
+      "apple": 2987,
+      "banana": 1132,
+      "pear": 719
+    },
+    "images_by_class": {
+      "apple": 939,
+      "banana": 653,
+      "pear": 205
+    }
+  },
+  "filters_applied": {
+    "license": "https://creativecommons.org/licenses/by/2.0/",
+    "metadata_complete": true,
+    "group_of_boxes_excluded": true,
+    "depiction_boxes_excluded": true
+  },
+  "whole_fruit_ranking": {
+    "artifact_path": "artifacts/fruit-model/candidates/open-images-v7/whole-fruit-ranking.json",
+    "sha256": "32d96bd69c24c6b03dc0a8a1248fb1514618d0749ed78a1bf64f9155f21f4ecd",
+    "model": "OpenCLIP ViT-B-32 openai",
+    "purpose": "review ordering only",
+    "training_approval_authority": false
+  },
+  "remaining_gates": [
+    "Reject sliced, cut, peeled, cooked, juiced, plated, depicted, dense-bunch, and bad-box candidates.",
+    "Preserve review decisions and the source manifest hash.",
+    "Independently verify retained image rights and attribution before a production training run.",
+    "Combine retained public images with separate Go2 training sessions."
+  ]
+}

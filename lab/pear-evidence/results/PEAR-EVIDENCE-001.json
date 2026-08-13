@@ -1,0 +1,62 @@
+{
+  "camera": {
+    "decoded_frames": 858,
+    "dropped_for_inference": 131,
+    "error": "",
+    "identical_luma_frames": 0,
+    "last_time_base": "1/90000",
+    "pts_missing": 0,
+    "pts_regressed": 0,
+    "pts_repeated": 0,
+    "strict_source_identity": true,
+    "time_base_changes": 0,
+    "time_base_missing": 0
+  },
+  "detection_age_s": {
+    "maximum": 4.645201,
+    "mean": 0.091424,
+    "minimum": 0.061638,
+    "p95": 0.122844
+  },
+  "detector_error": "",
+  "inference_s": {
+    "maximum": 4.637798,
+    "mean": 0.071854,
+    "minimum": 0.056217,
+    "p95": 0.081585
+  },
+  "measurement_complete": true,
+  "mode": "read_only_no_motion_imports",
+  "model": {
+    "confidence_threshold": 0.35,
+    "path": "/probe/model.engine",
+    "pear_class_id": 2
+  },
+  "motion_commands_sent": false,
+  "observed_duration_s": 63.106,
+  "passed": true,
+  "recognition": {
+    "confidence": {
+      "maximum": 0.922483,
+      "mean": 0.870628,
+      "minimum": 0.811677,
+      "p95": 0.901923
+    },
+    "eligible_samples": 727,
+    "match_ratio": 1.0,
+    "matches": 727,
+    "maximum_consecutive_misses": 0,
+    "minimum_samples": 30,
+    "misses": 0,
+    "required_ratio": 0.8
+  },
+  "requested_duration_s": 60.0,
+  "robot_ip": "192.168.123.161",
+  "snapshot": {
+    "error": "",
+    "path": "snapshot.jpg",
+    "port": 8123,
+    "written": true
+  },
+  "test_id": "PEAR-EVIDENCE-001"
+}

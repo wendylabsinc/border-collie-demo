@@ -1,0 +1,46 @@
+{
+  "callback_error": "",
+  "callback_interval_s": {
+    "maximum": 0.14618,
+    "mean": 0.070134,
+    "minimum": 0.02684,
+    "p95": 0.089104
+  },
+  "dimensions": {
+    "height": 720,
+    "width": 1280
+  },
+  "frames": 430,
+  "identical_luma_frames": 0,
+  "measurement_complete": true,
+  "mode": "read_only_no_motion_imports",
+  "motion_commands_sent": false,
+  "observed_at": "2026-08-03T09:43:27-07:00",
+  "observed_duration_s": 32.411,
+  "presentation_delta_s": {
+    "maximum": 0.000667,
+    "mean": 0.000667,
+    "minimum": 0.000667,
+    "p95": 0.000667
+  },
+  "requested_duration_s": 30.0,
+  "robot_ip": "192.168.123.161",
+  "snapshot": {
+    "error": "",
+    "path": "CAMERA-SOURCE-001.jpg",
+    "sha256": "b59b677e1a1b1ed4a4ac3cf634aa5f1fa906fdb635507c3f4739330a9c711db5",
+    "written": true
+  },
+  "source_identity": {
+    "complete": true,
+    "last_pts": 26820,
+    "last_time_base": "1/90000",
+    "pts_missing": 0,
+    "pts_regressed": 0,
+    "pts_repeated": 0,
+    "strictly_advancing": true,
+    "time_base_changes": 0,
+    "time_base_missing": 0
+  },
+  "test_id": "CAMERA-SOURCE-001"
+}

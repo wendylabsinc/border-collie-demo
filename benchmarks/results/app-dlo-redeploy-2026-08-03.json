@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "project": "border-collie-demo",
+  "component": "app",
+  "tool_version": "0.5.0b3",
+  "status": "promising_below_strict_relative_threshold",
+  "environment": {
+    "device": "woof.local",
+    "builder": "docker",
+    "transfer": "wendy_forced_content_defined_chunking",
+    "target_architecture": "linux_arm64"
+  },
+  "source_edit_trials": {
+    "control_seconds": [9.687, 10.277, 10.643],
+    "candidate_seconds": [9.403, 9.276, 9.321],
+    "control_median_seconds": 10.277,
+    "candidate_median_seconds": 9.321,
+    "median_saving_seconds": 0.956,
+    "median_saving_percent": 9.30,
+    "control_nearest_rank_p95_seconds": 10.643,
+    "candidate_nearest_rank_p95_seconds": 9.403
+  },
+  "candidate_noop_seconds": 8.992,
+  "final_candidate_redeploy_seconds": 9.233,
+  "acceptance": {
+    "minimum_relative_improvement_percent": 10.0,
+    "minimum_absolute_improvement_seconds": 0.5,
+    "relative_gate_passed": false,
+    "absolute_gate_passed": true,
+    "p95_regression": false,
+    "correctness_checks_passed": true,
+    "strict_proof_passed": false
+  },
+  "verification": {
+    "pytest_passed": 70,
+    "production_ruff": "passed",
+    "compileall": "passed",
+    "woof_api": "healthy",
+    "mission": "idle",
+    "hardware_connected": true,
+    "motion_activated": false
+  },
+  "deployed": true,
+  "conclusion": "The candidate saved 0.956 seconds at the median and improved the three-sample nearest-rank p95 by 1.240 seconds, but 9.30% is below DLO's strict 10% relative threshold. Keep the already-verified candidate; do not claim this redeploy sample as a new strict proof."
+}

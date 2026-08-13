@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "date": "2026-08-13",
+  "run_id": "2df3a199-a349-474b-bce2-d40d37e4a053",
+  "target_fruit": "banana",
+  "home_policy": "current physical position captured as new Home after app restart",
+  "fruit_sequence_completed": true,
+  "arrival_confirmed": true,
+  "audience_action_completed": true,
+  "stand_completed": true,
+  "outcome": "FAILED",
+  "reason": "RETURN_HOME_FAILURE",
+  "failed_phase": "return_home",
+  "message": "return Home heading escaped the forward steering gate",
+  "live_post_run_home_distance_m": 0.1270476503312313,
+  "stage_home_margin_m": 0.5,
+  "returned_home": true,
+  "final_safety_state": "DISARMED_CONFIRMED",
+  "post_run_motion_fault": null,
+  "conclusion": "Banana fruit behavior succeeded; the remaining failure is the independent false Home steering-gate result."
+}

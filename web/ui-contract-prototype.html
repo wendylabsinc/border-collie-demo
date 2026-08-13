@@ -1,0 +1,93 @@
+<!doctype html>
+<!--
+  PROTOTYPE — not production UI.
+  Run: python3 -m http.server 8125 --directory web
+  Open: http://localhost:8125/ui-contract-prototype.html
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Border Collie UI contract prototype</title>
+    <style>
+      :root { color-scheme: dark; font-family: ui-sans-serif, system-ui, sans-serif; }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: #11130f; color: #f4f1e8; }
+      main { width: min(960px, calc(100% - 32px)); margin: 40px auto 120px; }
+      .eyebrow { color: #b9d48b; letter-spacing: .12em; text-transform: uppercase; font-size: 12px; }
+      h1 { font-size: clamp(36px, 7vw, 76px); margin: 10px 0; }
+      h2 { margin-top: 0; }
+      .subtle { color: #a9aa9f; }
+      .card { background: #1d211a; border: 1px solid #3b4232; border-radius: 18px; padding: 22px; margin: 18px 0; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
+      button { border: 0; border-radius: 14px; padding: 16px 22px; font: inherit; font-weight: 750; cursor: pointer; }
+      .activate { width: 100%; min-height: 110px; font-size: 26px; background: #b8ef65; color: #17200d; }
+      .stop { background: #802d25; color: white; }
+      .secondary { background: #343a2e; color: #f4f1e8; }
+      button:disabled { cursor: not-allowed; opacity: .42; }
+      .status { display: flex; align-items: center; gap: 10px; font-weight: 700; }
+      .dot { width: 12px; height: 12px; border-radius: 50%; background: #b8ef65; box-shadow: 0 0 18px #b8ef65; }
+      dl { display: grid; grid-template-columns: max-content 1fr; gap: 9px 18px; margin: 0; }
+      dt { color: #a9aa9f; } dd { margin: 0; font-variant-numeric: tabular-nums; }
+      code, pre { font-family: ui-monospace, SFMono-Regular, monospace; }
+      pre { white-space: pre-wrap; background: #0d0f0b; border-radius: 12px; padding: 16px; overflow: auto; }
+      .failure { border-color: #bd5a4b; }
+      .failure .dot { background: #ff7665; box-shadow: 0 0 18px #ff7665; }
+      nav { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); display: flex; gap: 8px; padding: 8px; background: #292e24ee; border: 1px solid #4b5440; border-radius: 16px; backdrop-filter: blur(12px); }
+      nav a { color: #f4f1e8; text-decoration: none; padding: 10px 14px; border-radius: 10px; }
+      nav a.active { background: #b8ef65; color: #17200d; }
+      .prototype { position: fixed; right: 12px; top: 12px; background: #f6b94f; color: #221a0b; padding: 6px 9px; border-radius: 8px; font-weight: 800; font-size: 11px; }
+    </style>
+  </head>
+  <body>
+    <span class="prototype">THROWAWAY PROTOTYPE</span>
+    <main id="surface"></main>
+    <nav>
+      <a data-surface="audience" href="?surface=audience">Audience</a>
+      <a data-surface="debug" href="?surface=debug">Diagnostics</a>
+      <a data-surface="result" href="?surface=result">Run Result</a>
+    </nav>
+    <script>
+      const state = {
+        active_run_id: null,
+        target_fruit: 'pear',
+        readiness: 'READY',
+        phase: 'idle',
+        camera: {healthy: true, preflight_frames: 10, required_frames: 10, source_age_ms: 81},
+        pose: {healthy: true, home_distance_m: 0.0},
+        motion: {armed: false, owner: null},
+        latest_result: {outcome: 'FAILED', reason: 'CAMERA_FAILURE', failed_phase: 'approach_fruit', safety_state: 'DISARMED_CONFIRMED'}
+      };
+      const views = {
+        audience: `
+          <p class="eyebrow">Audience surface</p><h1>Border Collie</h1>
+          <div class="card"><div class="status"><span class="dot"></span> Ready for pear</div>
+            <p class="subtle">Woof is facing the person. Camera, pose, motion, and result storage passed preflight.</p></div>
+          <button class="activate">Activate Demo</button>
+          <div class="card"><button class="stop">Stop Woof</button>
+            <p class="subtle">No fruit picker, typed command, phase control, calibration, or resume action appears here.</p></div>`,
+        debug: `
+          <p class="eyebrow">Operator-only diagnostics</p><h1>Demo evidence</h1>
+          <div class="grid">
+            <section class="card"><h2>Run</h2><dl><dt>Run</dt><dd>None active</dd><dt>Phase</dt><dd>idle</dd><dt>Target</dt><dd>pear</dd><dt>Home Distance</dt><dd>0.000 m</dd></dl></section>
+            <section class="card"><h2>Camera</h2><dl><dt>Health</dt><dd>healthy</dd><dt>Preflight</dt><dd>10 / 10</dd><dt>Source age</dt><dd>81 ms</dd><dt>Threshold</dt><dd>350 ms</dd></dl></section>
+            <section class="card"><h2>Motion</h2><dl><dt>Armed</dt><dd>false</dd><dt>Owner</dt><dd>none</dd><dt>Last stop</dt><dd>confirmed</dd></dl></section>
+          </div>
+          <section class="card"><h2>Isolated stage tools</h2><button class="secondary">Run camera preflight</button> <button class="secondary">Run pear evidence</button> <button disabled>Run guarded motion</button><p class="subtle">Tools cannot run during an audience Demo Run and cannot bypass their own safety gates.</p></section>
+          <section class="card"><h2>Recorded runs</h2><p><code>64f8a2e1…</code> — FAILED / CAMERA_FAILURE — approach_fruit — disarmed confirmed</p></section>`,
+        result: `
+          <p class="eyebrow">Durable Run Result</p><h1>Camera failure</h1>
+          <section class="card failure"><div class="status"><span class="dot"></span> Woof stopped and disarmed</div>
+            <p>The camera source stopped progressing during <strong>approach_fruit</strong>. This run cannot resume.</p></section>
+          <div class="grid">
+            <section class="card"><h2>Terminal state</h2><dl><dt>Outcome</dt><dd>FAILED</dd><dt>Reason</dt><dd>CAMERA_FAILURE</dd><dt>Safety</dt><dd>DISARMED_CONFIRMED</dd><dt>Home Distance</dt><dd>1.184 m</dd></dl></section>
+            <section class="card"><h2>Evidence</h2><dl><dt>Generation</dt><dd>8fa5a72e…</dd><dt>Last PTS</dt><dd>1380</dd><dt>Source age</dt><dd>411 ms</dd><dt>Limit</dt><dd>350 ms</dd></dl></section>
+          </div>
+          <section class="card"><h2>Last trustworthy snapshot</h2><p class="subtle">Shown with its actual generation, marker, and age. It is never labeled live.</p></section>`
+      };
+      const selected = new URLSearchParams(location.search).get('surface') || 'audience';
+      document.querySelector('#surface').innerHTML = (views[selected] || views.audience) + `<section class="card"><h2>Prototype state</h2><pre>${JSON.stringify(state, null, 2)}</pre></section>`;
+      document.querySelectorAll('nav a').forEach((link) => link.classList.toggle('active', link.dataset.surface === selected));
+    </script>
+  </body>
+</html>
