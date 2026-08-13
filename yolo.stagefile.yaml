@@ -3,14 +3,30 @@ stages:
   - name: yolo
     from: ros:humble-ros-base
     workdir: /models
-    cuda: true
     env:
       PYTHONDONTWRITEBYTECODE: "1"
       PYTHONUNBUFFERED: "1"
-      PYTHONPATH: /app/src
+      # ROS Humble ships pip 22, which misbuilds modern PEP 621 VCS projects
+      # such as CLIP as empty UNKNOWN wheels. Bootstrap a current pip into the
+      # isolated dependency overlay, then make later pip groups use it.
+      PATH: /opt/stagefile/pip/root/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      PYTHONPATH: /opt/stagefile/pip/root/usr/local/lib/python3.10/dist-packages:/app/src
       CYCLONEDDS_HOME: /usr/local
+      # Prefer NVIDIA's Tegra CUDA runtime from the JetPack repository.
+      # PyPI's ARM CUDA wheels are SBSA builds and fail on Orin when cuBLAS
+      # or cuDNN creates its first execution context.
+      LD_LIBRARY_PATH: /usr/local/cuda-12.6/targets/aarch64-linux/lib
     install:
       apt:
+        repositories:
+          - name: nvidia-jetson-r36.4
+            url: https://repo.download.nvidia.com/jetson/common
+            suites: [r36.4]
+            components: [main]
+            key:
+              url: https://repo.download.nvidia.com/jetson/jetson-ota-public.asc
+              sha256: 576f852981855e5c6cfb9b625ffb51b984ca451f1181b2e70435b005034fad55
+              format: armored
         packages:
           - python3-pip
           - python3-dev
@@ -20,10 +36,15 @@ stages:
           - pkg-config
           - libssl-dev
           - ros-humble-sensor-msgs
-          - libffi-dev
-          - portaudio19-dev
-          - libportaudio2
-          - libsrtp2-1
+          # Required by the Jetson PyTorch wheel (libopenblas.so.0).
+          - libopenblas0
+          # JetPack 6.2.1 / L4T r36.4 Tegra CUDA runtime. Keep these in the
+          # NVIDIA Jetson repository rather than installing the generic
+          # nvidia-*-cu12 PyPI wheels.
+          - cuda-libraries-12-6
+          - cuda-cupti-12-6
+          - cuda-nvtx-12-6
+          - libcudnn9-cuda-12
           - libgl1
           - libglib2.0-0
       cmake:
@@ -36,20 +57,31 @@ stages:
             BUILD_TESTING: "OFF"
             BUILD_IDLC: "ON"
       pip:
-        # Wendy resolves the Jetson-compatible wheel index and CUDA runtime
-        # from the Go2 target instead of baking an Orin-specific URL here.
+        - packages: ["pip==25.2"]
+        # Jetson-compatible PyTorch wheels. CUDA user-space libraries come
+        # from the JetPack apt repository above so they are Tegra builds.
         - packages: ["torch==2.8.0", "torchvision==0.23.0"]
-          cuda: true
+          index: https://pypi.jetson-ai-lab.io/jp6/cu126/
         - packages:
             - "fastapi>=0.115,<1"
             - "httpx>=0.27,<1"
-            - "aiortc==1.9.0"
             - "numpy==1.26.4"
             - "opencv-python==4.11.0.86"
             - "pydantic>=2.9,<3"
-            - "unitree-webrtc-connect==2.1.2"
             - "uvicorn>=0.30,<1"
-            - "ultralytics==8.3.0"
+            # YOLOE landed after 8.3.0. Keep the model API pinned and install
+            # its MobileCLIP prompt encoder during image construction rather
+            # than allowing an on-device runtime pip install.
+            - "ultralytics==8.3.175"
+        # pip 22 (from ROS Humble) identifies both VCS requirements as
+        # unknown==0.0.0 while resolving a single transaction. Install them
+        # separately so their PEP 517 metadata is built independently.
+        - packages:
+            # ultralytics.nn.text_model imports this compatibility package
+            # before selecting YOLOE's MobileCLIP encoder.
+            - "git+https://github.com/ultralytics/CLIP.git@488e81a6711eea7346872b46ea928b367da8889d"
+        - packages:
+            - "git+https://github.com/ultralytics/mobileclip.git@a17446aaa1860d25cab8531ec27c3ecac3c05bf5"
         - packages:
             - "cyclonedds==0.10.5"
         - index: https://pypi.org/simple
@@ -61,6 +93,7 @@ stages:
           - src/robotkit/__init__.py
           - src/robotkit/client.py
           - src/robotkit/contracts.py
+          - src/robotkit/fruits.py
           - src/robotkit/runtime.py
         dest: /app/src/robotkit/
       - from: local

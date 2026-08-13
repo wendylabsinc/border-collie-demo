@@ -1,4 +1,4 @@
-"""Pure COCO fruit detection interpretation.
+"""Pure fruit detection interpretation.
 
 Keeping this module free of model and middleware imports makes the audited
 post-processing behavior cheap to exercise with ordinary unit tests.
@@ -9,8 +9,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Iterable
 
+from robotkit.fruits import SUPPORTED_FRUITS
 
-COCO_FRUIT_CLASSES = frozenset({"apple", "banana", "orange"})
+FRUIT_CLASSES = SUPPORTED_FRUITS
+# Public compatibility alias from the original COCO-only implementation.
+COCO_FRUIT_CLASSES = FRUIT_CLASSES
 
 
 @dataclass(frozen=True)
@@ -42,10 +45,10 @@ def interpret_detections(
     *,
     image_width: int,
     image_height: int,
-    allowed_classes: frozenset[str] = COCO_FRUIT_CLASSES,
+    allowed_classes: frozenset[str] = FRUIT_CLASSES,
     min_confidence: float = 0.25,
 ) -> FruitInterpretation:
-    """Filter COCO detections and produce a deterministic frame snapshot.
+    """Filter fruit detections and produce a deterministic frame snapshot.
 
     Bounding boxes are clamped to the image and represented in both pixel and
     normalized coordinates. Degenerate boxes, disallowed labels, and detections
@@ -102,11 +105,11 @@ def interpret_detections(
     confidence = max((item["confidence"] for item in fruits), default=None)
     return FruitInterpretation(
         stream="vision.fruits",
-        observation_type="vision.coco_fruits.v1",
+        observation_type="vision.prompted_fruits.v1",
         confidence=confidence,
         payload={
             "payload_schema_version": "1",
-            "model_dataset": "COCO",
+            "model_dataset": "open_vocabulary",
             "image": {"width_px": image_width, "height_px": image_height},
             "filter": {
                 "classes": sorted(normalized_allowed),

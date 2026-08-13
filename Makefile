@@ -1,4 +1,4 @@
-.PHONY: test test-bag run down
+.PHONY: test test-bag run
 
 test:
 	PYTHONPATH=src pytest
@@ -8,7 +8,4 @@ test-bag:
 	PYTHONPATH=src python3 -m robotkit.testing.bag_replay "$(BAG)" $(ARGS)
 
 run:
-	docker compose up --build
-
-down:
-	docker compose down
+	wendy run

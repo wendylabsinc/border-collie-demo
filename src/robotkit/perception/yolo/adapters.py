@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Sequence
 from typing import Any
 
 from robotkit.perception.yolo.core import Detection
@@ -28,7 +29,7 @@ def _tolist(value: Any) -> list[Any]:
 
 
 class UltralyticsDetector:
-    """Thin adapter over an Ultralytics YOLO COCO checkpoint.
+    """Thin adapter over an Ultralytics YOLO/YOLOE checkpoint.
 
     ``model`` is injectable so adapter parsing is testable without importing
     Ultralytics or downloading weights.
@@ -36,10 +37,11 @@ class UltralyticsDetector:
 
     def __init__(
         self,
-        model_name: str = "yolo11n.pt",
+        model_name: str = "yoloe-11m-seg.pt",
         *,
         confidence: float = 0.25,
         device: str | None = None,
+        classes: Sequence[str] | None = None,
         model: Any | None = None,
     ) -> None:
         if not 0.0 <= confidence <= 1.0:
@@ -47,7 +49,9 @@ class UltralyticsDetector:
         self.model_name = model_name
         self.confidence = confidence
         self.device = device
+        self.classes = tuple(classes or ())
         self._model = model
+        self._classes_configured = False
 
     def _load_model(self) -> Any:
         if self._model is None:
@@ -55,9 +59,17 @@ class UltralyticsDetector:
                 from ultralytics import YOLO
             except ImportError as exc:  # pragma: no cover - depends on runtime image
                 raise RuntimeError(
-                    "Ultralytics is required at runtime; install yolo/requirements.txt"
+                    f"Ultralytics failed to import: {exc}"
                 ) from exc
             self._model = YOLO(self.model_name)
+        if self.classes and not self._classes_configured:
+            # YOLOE-11 is open-vocabulary. Encode the configured fruit names
+            # once at startup, then reuse those embeddings for every frame.
+            # Ultralytics 8.3.x requires embeddings explicitly here.
+            names = list(self.classes)
+            embeddings = self._model.get_text_pe(names)
+            self._model.set_classes(names, embeddings)
+            self._classes_configured = True
         return self._model
 
     def detect(self, image: Any) -> DetectionFrame:

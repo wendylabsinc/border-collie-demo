@@ -19,7 +19,7 @@ from robotkit.perception.yolo.adapters import (
     decode_image_bytes,
     decode_ros_image,
 )
-from robotkit.perception.yolo.core import COCO_FRUIT_CLASSES
+from robotkit.perception.yolo.core import FRUIT_CLASSES
 from robotkit.perception.yolo.producer import YoloProducer
 from robotkit.runtime import (
     configure_logging,
@@ -36,7 +36,7 @@ LOGGER = logging.getLogger(__name__)
 def _configured_classes() -> frozenset[str]:
     configured = os.getenv("YOLO_CLASSES")
     if not configured:
-        return COCO_FRUIT_CLASSES
+        return FRUIT_CLASSES
     classes = frozenset(
         value.strip().casefold()
         for value in configured.split(",")
@@ -49,21 +49,24 @@ def _configured_classes() -> frozenset[str]:
 
 def _make_producer(client: WorldStateClient) -> YoloProducer:
     confidence = float(os.getenv("YOLO_CONFIDENCE", "0.25"))
+    classes = _configured_classes()
+    model_name = os.getenv("YOLO_MODEL", "yoloe-11m-seg.pt")
     detector = UltralyticsDetector(
-        os.getenv("YOLO_MODEL", "yolo11n.pt"),
+        model_name,
         confidence=confidence,
         device=os.getenv("YOLO_DEVICE") or None,
+        classes=sorted(classes),
     )
     return YoloProducer(
         detector,
         client,
-        producer_id=os.getenv("ROBOTKIT_PRODUCER_ID", "yolo-coco-fruits"),
+        producer_id=os.getenv("ROBOTKIT_PRODUCER_ID", "yoloe-fruits"),
         instance_id=instance_id(),
         deployment_generation=deployment_generation(),
-        allowed_classes=_configured_classes(),
+        allowed_classes=classes,
         min_confidence=confidence,
         ttl_seconds=float(os.getenv("YOLO_TTL_SECONDS", "2.0")),
-        model_name=os.getenv("YOLO_MODEL", "yolo11n.pt"),
+        model_name=model_name,
         diagnostics_ttl_seconds=float(os.getenv("YOLO_DIAGNOSTICS_TTL_SECONDS", "10")),
     )
 

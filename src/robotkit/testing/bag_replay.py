@@ -188,8 +188,6 @@ def _compose_command(root: Path, project: str) -> list[str]:
         "--file",
         str(root / "docker-compose.yml"),
         "--file",
-        str(root / "docker-compose.local.yml"),
-        "--file",
         str(root / "docker-compose.bag-test.yml"),
     ]
 

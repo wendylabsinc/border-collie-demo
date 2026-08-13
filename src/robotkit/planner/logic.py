@@ -19,11 +19,15 @@ from robotkit.contracts import (
     ObservationRecord,
     WorldSnapshot,
 )
+from robotkit.fruits import SUPPORTED_FRUITS, normalize_fruit
 
 
 MISSION_SCHEMA_VERSION = "1"
-APPLE_STAGES = ("search_apple", "approach_apple", "bark", "go_home", "lie_down")
 HEALTH_STAGES = ("go_home", "lie_down")
+
+
+def _fruit_stages(target: str) -> tuple[str, ...]:
+    return (f"search_{target}", f"approach_{target}", "bark", "go_home", "lie_down")
 
 
 @dataclass(frozen=True)
@@ -61,8 +65,8 @@ def _mission_parameters(
     trigger_event_id: str | None = None,
     trigger_stream: str | None = None,
 ) -> dict[str, Any]:
-    stages = APPLE_STAGES if mission_type == "apple" else HEALTH_STAGES
-    return {
+    stages = _fruit_stages(mission_type) if mission_type in SUPPORTED_FRUITS else HEALTH_STAGES
+    parameters = {
         "mission_schema_version": MISSION_SCHEMA_VERSION,
         "mission_type": mission_type,
         "mission_stage": stage,
@@ -70,6 +74,11 @@ def _mission_parameters(
         "trigger_event_id": str(trigger.event_id) if trigger is not None else trigger_event_id,
         "trigger_stream": trigger.stream if trigger is not None else trigger_stream,
     }
+    # Preserve the original apple mission contract while making the target
+    # explicit for newly supported fruit missions.
+    if mission_type in SUPPORTED_FRUITS and mission_type != "apple":
+        parameters["target"] = mission_type
+    return parameters
 
 
 def _decision(
@@ -110,8 +119,12 @@ def _current_mission(goal: GoalRecord | None) -> tuple[str, str] | None:
         return None
     mission_type = goal.parameters.get("mission_type")
     stage = goal.parameters.get("mission_stage", goal.goal_type)
-    valid_stages = APPLE_STAGES if mission_type == "apple" else HEALTH_STAGES
-    if mission_type not in {"apple", "health_return"} or stage not in valid_stages:
+    valid_stages = (
+        _fruit_stages(str(mission_type))
+        if mission_type in SUPPORTED_FRUITS
+        else HEALTH_STAGES
+    )
+    if mission_type not in {*SUPPORTED_FRUITS, "health_return"} or stage not in valid_stages:
         return None
     return str(mission_type), str(stage)
 
@@ -161,8 +174,69 @@ def _command_target(command: ObservationRecord | None) -> str | None:
     return match.group(1).casefold() if match else None
 
 
-def _apple_command_intent(command: ObservationRecord | None) -> bool:
-    return _command_target(command) == "apple"
+def _fruit_command_target(command: ObservationRecord | None) -> str | None:
+    return normalize_fruit(_command_target(command) or "")
+
+
+def _command_intent(command: ObservationRecord | None) -> str:
+    if command is None:
+        return ""
+    return str(
+        command.payload.get("intent", command.payload.get("command", ""))
+    ).strip().casefold()
+
+
+def _stop_command_decision(command: ObservationRecord) -> GoalDecision:
+    slots = command.payload.get("slots")
+    slots = slots if isinstance(slots, Mapping) else {}
+    return GoalDecision(
+        "idle_at_home",
+        100 if slots.get("emergency") is True else 90,
+        {
+            "mission_schema_version": MISSION_SCHEMA_VERSION,
+            "mission_type": "idle",
+            "mission_stage": "idle_at_home",
+            "stage_index": 0,
+            "trigger_event_id": str(command.event_id),
+            "trigger_stream": command.stream,
+            "stop_reason": "command",
+            "emergency": slots.get("emergency") is True,
+        },
+        f"{command.stream} stop command cancelled active motion",
+    )
+
+
+def _failed_yolo(
+    observations: Mapping[str, ObservationRecord],
+) -> ObservationRecord | None:
+    diagnostic = observations.get("diagnostics.yolo")
+    if diagnostic is None:
+        return None
+    return (
+        diagnostic
+        if str(diagnostic.payload.get("status", "")).strip().casefold() == "failed"
+        else None
+    )
+
+
+def _perception_failure_decision(
+    diagnostic: ObservationRecord, target: str
+) -> GoalDecision:
+    return GoalDecision(
+        "idle_at_home",
+        80,
+        {
+            "mission_schema_version": MISSION_SCHEMA_VERSION,
+            "mission_type": "idle",
+            "mission_stage": "idle_at_home",
+            "stage_index": 0,
+            "trigger_event_id": str(diagnostic.event_id),
+            "trigger_stream": diagnostic.stream,
+            "stop_reason": "perception_failure",
+            "failed_stream": diagnostic.stream,
+        },
+        f"{target} mission stopped because YOLO perception failed",
+    )
 
 
 def _unsupported_target_decision(
@@ -179,9 +253,12 @@ def _unsupported_target_decision(
             "trigger_event_id": str(command.event_id),
             "trigger_stream": command.stream,
             "rejected_target": target,
-            "supported_targets": ["apple"],
+            "supported_targets": sorted(SUPPORTED_FRUITS),
         },
-        f"unsupported target {target!r}; supported mission targets: apple",
+        (
+            f"unsupported target {target!r}; supported mission targets: "
+            f"{', '.join(sorted(SUPPORTED_FRUITS))}"
+        ),
     )
 
 
@@ -200,7 +277,7 @@ def _latest_command(
     )
 
 
-def _fresh_apple(vision: ObservationRecord | None) -> bool:
+def _fresh_fruit(vision: ObservationRecord | None, target: str) -> bool:
     if vision is None:
         return False
     detections = vision.payload.get("detections")
@@ -208,7 +285,7 @@ def _fresh_apple(vision: ObservationRecord | None) -> bool:
         return False
     return any(
         isinstance(item, Mapping)
-        and str(item.get("class_name", item.get("label", ""))).casefold() == "apple"
+        and str(item.get("class_name", item.get("label", ""))).casefold() == target
         for item in detections
     )
 
@@ -238,14 +315,24 @@ def _advance_stage(
     current_goal: GoalRecord,
     latest_effect: EffectRecord | None,
 ) -> str:
-    if mission_type == "apple" and stage == "search_apple":
-        return "approach_apple" if _fresh_apple(observations.get("vision.fruits")) else stage
+    if mission_type in SUPPORTED_FRUITS and stage == f"search_{mission_type}":
+        return (
+            f"approach_{mission_type}"
+            if _fresh_fruit(observations.get("vision.fruits"), mission_type)
+            else stage
+        )
     if not _applied_to_goal(latest_effect, current_goal):
         return stage
     if stage == "bark":
         return "go_home"
-    if stage in {"approach_apple", "go_home"} and _effect_stage_complete(latest_effect):
-        stages = APPLE_STAGES if mission_type == "apple" else HEALTH_STAGES
+    if (
+        stage == f"approach_{mission_type}" or stage == "go_home"
+    ) and _effect_stage_complete(latest_effect):
+        stages = (
+            _fruit_stages(mission_type)
+            if mission_type in SUPPORTED_FRUITS
+            else HEALTH_STAGES
+        )
         return stages[stages.index(stage) + 1]
     return stage
 
@@ -292,11 +379,13 @@ def plan(
         )
 
     command = _latest_command(observations)
+    command_intent = _command_intent(command)
     command_target = _command_target(command)
-    command_requests_apple = _apple_command_intent(command)
+    requested_fruit = _fruit_command_target(command)
+    failed_yolo = _failed_yolo(observations)
     unsupported_target = (
         command_target
-        if command is not None and command_target is not None and command_target != "apple"
+        if command is not None and command_target is not None and requested_fruit is None
         else None
     )
     current_trigger = (
@@ -305,19 +394,29 @@ def plan(
         else None
     )
 
-    if current is not None and current[0] == "apple":
+    # Explicit stop commands fail closed before ordinary mission handling. A
+    # health-return sequence remains higher priority and is handled above.
+    if command is not None and command_intent == "stop":
+        return _stop_command_decision(command)
+
+    if current is not None and current[0] in SUPPORTED_FRUITS:
+        current_target = current[0]
         # A distinct command starts a distinct mission. The same observation is
         # ignored at the terminal stage, so its TTL cannot retrigger forever.
         if command is not None and str(command.event_id) != current_trigger:
             if unsupported_target is not None:
                 return _unsupported_target_decision(command, unsupported_target)
-        if command_requests_apple and command is not None and str(command.event_id) != current_trigger:
+        if failed_yolo is not None:
+            return _perception_failure_decision(failed_yolo, current_target)
+        if requested_fruit and command is not None and str(command.event_id) != current_trigger:
             return _decision(
-                "apple",
-                "search_apple",
+                requested_fruit,
+                f"search_{requested_fruit}",
                 priority=60,
                 trigger=command,
-                rationale=f"new {command.stream} command requested an apple mission",
+                rationale=(
+                    f"new {command.stream} command requested a {requested_fruit} mission"
+                ),
             )
         stage = _advance_stage(
             *current,
@@ -326,20 +425,22 @@ def plan(
             latest_effect=latest_effect,
         )
         return _decision(
-            "apple",
+            current_target,
             stage,
             priority=60,
             current_goal=current_goal,
-            rationale="continue durable apple mission",
+            rationale=f"continue durable {current_target} mission",
         )
 
-    if command_requests_apple and command is not None:
+    if requested_fruit and command is not None:
+        if failed_yolo is not None:
+            return _perception_failure_decision(failed_yolo, requested_fruit)
         return _decision(
-            "apple",
-            "search_apple",
+            requested_fruit,
+            f"search_{requested_fruit}",
             priority=60,
             trigger=command,
-            rationale=f"{command.stream} command requested an apple mission",
+            rationale=f"{command.stream} command requested a {requested_fruit} mission",
         )
 
     if command is not None and unsupported_target is not None:

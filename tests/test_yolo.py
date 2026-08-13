@@ -11,12 +11,14 @@ from robotkit.perception.yolo.producer import YoloProducer
 from robotkit.perception.yolo import run
 
 
-def test_interpretation_filters_coco_fruits_and_normalizes_boxes():
+def test_interpretation_filters_prompted_fruits_and_normalizes_boxes():
     interpreted = interpret_detections(
         [
             Detection(47, "apple", 0.8, (-10, 20, 110, 80)),
             Detection(46, "banana", 0.95, (20, 10, 60, 50)),
             Detection(49, "orange", 0.1, (1, 1, 2, 2)),
+            Detection(50, "pear", 0.75, (10, 10, 30, 40)),
+            Detection(51, "grapes", 0.7, (30, 10, 50, 40)),
             Detection(0, "person", 0.99, (0, 0, 100, 100)),
             Detection(47, "apple", 0.9, (10, 10, 10, 20)),
         ],
@@ -26,12 +28,14 @@ def test_interpretation_filters_coco_fruits_and_normalizes_boxes():
     )
 
     assert interpreted.stream == "vision.fruits"
-    assert interpreted.observation_type == "vision.coco_fruits.v1"
+    assert interpreted.observation_type == "vision.prompted_fruits.v1"
     assert interpreted.confidence == 0.95
-    assert interpreted.payload["count"] == 2
+    assert interpreted.payload["count"] == 4
     assert [item["class_name"] for item in interpreted.payload["detections"]] == [
         "banana",
         "apple",
+        "pear",
+        "grapes",
     ]
     assert interpreted.payload["detections"][1]["bbox_xyxy_px"] == [
         0.0,
@@ -91,6 +95,37 @@ def test_ultralytics_adapter_parses_injected_model_without_runtime_dependency():
     ]
 
 
+def test_ultralytics_adapter_configures_yoloe_prompts_once():
+    result = SimpleNamespace(orig_shape=(10, 20), boxes=None, names={})
+
+    class FakeYoloE:
+        def __init__(self):
+            self.prompt_calls = []
+
+        def get_text_pe(self, names):
+            self.prompt_calls.append(("embed", names))
+            return "embeddings"
+
+        def set_classes(self, names, embeddings):
+            self.prompt_calls.append(("classes", names, embeddings))
+
+        def predict(self, **kwargs):
+            return [result]
+
+    model = FakeYoloE()
+    detector = UltralyticsDetector(
+        model=model,
+        classes=["apple", "pear"],
+    )
+    detector.detect("first.jpg")
+    detector.detect("second.jpg")
+
+    assert model.prompt_calls == [
+        ("embed", ["apple", "pear"]),
+        ("classes", ["apple", "pear"], "embeddings"),
+    ]
+
+
 def test_producer_builds_versioned_idempotent_observation():
     class FakeDetector:
         def detect(self, image):
@@ -126,10 +161,10 @@ def test_producer_builds_versioned_idempotent_observation():
     observation = publisher.observations[0]
     assert result.revision == 1
     assert observation.schema_version == "1"
-    assert observation.producer_id == "yolo-coco-fruits"
+    assert observation.producer_id == "yoloe-fruits"
     assert observation.deployment_generation == 7
     assert observation.stream == "vision.fruits"
-    assert observation.observation_type == "vision.coco_fruits.v1"
+    assert observation.observation_type == "vision.prompted_fruits.v1"
     assert observation.frame_id == "front_camera"
     assert observation.payload["detections"][0]["class_name"] == "orange"
     assert observation.idempotency_key == publisher.observations[2].idempotency_key

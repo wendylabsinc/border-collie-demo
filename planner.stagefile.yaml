@@ -20,6 +20,7 @@ stages:
           - src/robotkit/__init__.py
           - src/robotkit/client.py
           - src/robotkit/contracts.py
+          - src/robotkit/fruits.py
           - src/robotkit/runtime.py
         dest: /app/src/robotkit/
       - from: local

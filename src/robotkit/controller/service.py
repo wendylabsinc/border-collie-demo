@@ -42,6 +42,11 @@ def main() -> None:
             os.getenv("CAMERA_HORIZONTAL_FOV_RAD", "1.5707963267948966")
         ),
         apple_stop_distance_m=float(os.getenv("APPLE_STOP_DISTANCE_M", "0.30")),
+        fruit_stop_distance_m=(
+            float(os.environ["FRUIT_STOP_DISTANCE_M"])
+            if "FRUIT_STOP_DISTANCE_M" in os.environ
+            else None
+        ),
         home_x_m=float(os.getenv("HOME_X_M", "0")),
         home_y_m=float(os.getenv("HOME_Y_M", "0")),
         home_yaw_rad=float(os.getenv("HOME_YAW_RAD", "0")),
@@ -49,7 +54,7 @@ def main() -> None:
         home_yaw_tolerance_rad=float(os.getenv("HOME_YAW_TOLERANCE_RAD", "0.15")),
     )
     effect_ttl_seconds = float(os.getenv("EFFECT_TTL_SECONDS", "1"))
-    renewal_seconds = float(os.getenv("CONTROL_RENEWAL_SECONDS", "0.25"))
+    renewal_seconds = float(os.getenv("CONTROL_RENEWAL_SECONDS", "0.1"))
     if renewal_seconds <= 0 or renewal_seconds >= effect_ttl_seconds:
         raise ValueError(
             "CONTROL_RENEWAL_SECONDS must be positive and less than EFFECT_TTL_SECONDS"
@@ -83,14 +88,20 @@ def main() -> None:
                 + timedelta(seconds=effect_ttl_seconds),
                 parameters=decision.parameters,
                 preconditions=Preconditions(
-                    max_world_revision_drift=int(os.getenv("MAX_STATE_DRIFT", "4")),
+                    # Camera, LIDAR, pose, and diagnostic producers can advance
+                    # A by more than four revisions while one command crosses
+                    # the controller/executor HTTP boundary.  The one-second
+                    # effect TTL and required-stream freshness remain the time
+                    # and sensor safety bounds; this revision bound catches a
+                    # genuinely backed-up command rather than normal churn.
+                    max_world_revision_drift=int(os.getenv("MAX_STATE_DRIFT", "32")),
                     require_fresh_streams=decision.require_fresh_streams,
                 ),
             )
         )
 
     try:
-        run_loop(step, float(os.getenv("INTERVAL_SECONDS", "0.25")))
+        run_loop(step, float(os.getenv("INTERVAL_SECONDS", "0.1")))
     finally:
         client.close()
 

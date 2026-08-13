@@ -1,0 +1,18 @@
+version: 1
+stages:
+  - name: bag-replay
+    from: ros:humble-ros-base
+    workdir: /bags
+    install:
+      apt:
+        packages:
+          - ros-humble-ros2bag
+          - ros-humble-rmw-cyclonedds-cpp
+          - ros-humble-rosbag2-storage-mcap
+          - ros-humble-sensor-msgs
+          - ros-humble-nav-msgs
+          - ros-humble-audio-common-msgs
+    entrypoint:
+      source: /opt/ros/humble/setup.bash
+      exec: [ros2, bag, play, /bags/bag]
+    user: root

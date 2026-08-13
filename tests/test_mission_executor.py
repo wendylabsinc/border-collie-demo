@@ -11,6 +11,8 @@ from robotkit.executor.mission import (
     approach_apple,
     bark,
     go_home,
+    approach_fruit,
+    search_fruit,
     search_apple,
 )
 from tests.conftest import NOW
@@ -77,6 +79,33 @@ def test_search_does_not_accept_a_stale_detection(observation_factory, snapshot_
     decision = search_apple(snapshot_factory([stale]), at=NOW)
     assert not decision.completed
     assert decision.parameters["angular_z_rps"] > 0
+
+
+@pytest.mark.parametrize("target", ["pear", "grapes", "banana", "orange"])
+def test_search_and_approach_support_other_fruits(
+    target, observation_factory, snapshot_factory
+):
+    fruit = _vision(observation_factory).model_copy(
+        update={
+            "payload": {
+                "detections": [
+                    {
+                        "class_name": target,
+                        "confidence": 0.91,
+                        "bbox_xyxy_normalized": [0.45, 0.2, 0.55, 0.7],
+                    }
+                ]
+            }
+        }
+    )
+    assert search_fruit(snapshot_factory([fruit]), target, at=NOW).completed
+
+    proximity = _proximity(observation_factory, 1.0)
+    decision = approach_fruit(
+        snapshot_factory([fruit, proximity]), target, at=NOW
+    )
+    assert decision.parameters["target"] == target
+    assert decision.parameters["linear_x_mps"] > 0
 
 
 def test_approach_fuses_bbox_bearing_and_lidar_range(

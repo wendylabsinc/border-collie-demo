@@ -160,6 +160,91 @@ def test_only_claiming_executor_can_complete_effect(tmp_path):
         )
 
 
+def test_new_velocity_effect_supersedes_pending_velocity(tmp_path):
+    store = WorldStateStore(tmp_path / "world.sqlite3")
+    goal = Goal(
+        idempotency_key="goal",
+        planner_id="planner",
+        instance_id="planner",
+        based_on_revision=0,
+        goal_type="search_apple",
+        created_at=NOW,
+        valid_until=FAR_FUTURE,
+    )
+    store.publish_goal(goal)
+
+    def velocity(key: str, angular: float) -> Effect:
+        return Effect(
+            idempotency_key=key,
+            controller_id="controller",
+            instance_id="controller",
+            goal_id=goal.goal_id,
+            based_on_revision=0,
+            effect_type="cmd_vel",
+            created_at=NOW,
+            valid_until=FAR_FUTURE,
+            parameters={"linear_x_mps": 0.0, "angular_z_rps": angular},
+        )
+
+    old = velocity("old", 0.45)
+    newest = velocity("newest", 0.0)
+    store.publish_effect(old)
+    store.publish_effect(newest)
+
+    claimed = store.claim_effect("executor")
+    assert claimed.effect_id == newest.effect_id
+    assert claimed.parameters["angular_z_rps"] == 0.0
+    assert store.claim_effect("executor") is None
+
+    rejected = [event for event in store.events() if event.category == "effect.rejected"]
+    assert len(rejected) == 1
+    assert rejected[0].entity_id == str(old.effect_id)
+    assert rejected[0].data["result"] == {
+        "reason": "superseded by newer velocity command"
+    }
+
+
+def test_velocity_coalescing_does_not_discard_semantic_effects(tmp_path):
+    store = WorldStateStore(tmp_path / "world.sqlite3")
+    goal = Goal(
+        idempotency_key="goal",
+        planner_id="planner",
+        instance_id="planner",
+        based_on_revision=0,
+        goal_type="bark",
+        created_at=NOW,
+        valid_until=FAR_FUTURE,
+    )
+    store.publish_goal(goal)
+    bark = Effect(
+        idempotency_key="bark",
+        controller_id="controller",
+        instance_id="controller",
+        goal_id=goal.goal_id,
+        based_on_revision=0,
+        effect_type="unitree_bark",
+        created_at=NOW,
+        valid_until=FAR_FUTURE,
+        parameters={"sound": "bark"},
+    )
+    stop = Effect(
+        idempotency_key="stop",
+        controller_id="controller",
+        instance_id="controller",
+        goal_id=goal.goal_id,
+        based_on_revision=0,
+        effect_type="cmd_vel",
+        created_at=NOW,
+        valid_until=FAR_FUTURE,
+        parameters={"linear_x_mps": 0.0, "angular_z_rps": 0.0},
+    )
+    store.publish_effect(bark)
+    store.publish_effect(stop)
+
+    assert store.claim_effect("executor").effect_id == bark.effect_id
+    assert store.claim_effect("executor").effect_id == stop.effect_id
+
+
 def test_higher_planner_generation_fences_old_planner(tmp_path):
     store = WorldStateStore(tmp_path / "world.sqlite3")
     common = dict(

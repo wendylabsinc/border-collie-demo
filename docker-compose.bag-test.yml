@@ -49,7 +49,7 @@ services:
   bag-replay:
     build:
       context: .
-      dockerfile: Dockerfile.bag-replay
+      dockerfile: bag-replay.stagefile.yaml
     environment:
       ROS_DOMAIN_ID: "${ROBOTKIT_BAG_TEST_ROS_DOMAIN_ID}"
     networks: [bag-test]

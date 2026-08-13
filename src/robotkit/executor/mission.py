@@ -1,4 +1,4 @@
-"""Pure, auditable policies for the apple mission's short-term actions.
+"""Pure, auditable policies for fruit missions' short-term actions.
 
 This module deliberately has no ROS2, audio, network, or model imports.  A
 controller can call :func:`decide_mission_action` with a world snapshot and
@@ -13,6 +13,7 @@ from datetime import datetime
 from typing import Any, Mapping, Sequence
 
 from robotkit.contracts import ObservationRecord, WorldSnapshot, utc_now
+from robotkit.fruits import DEFAULT_FRUIT, SUPPORTED_FRUITS, normalize_fruit
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,7 @@ class MissionConfig:
     camera_horizontal_fov_rad: float = math.radians(90.0)
     lidar_frame_id: str = "base_link"
     apple_stop_distance_m: float = 0.30
+    fruit_stop_distance_m: float | None = None
     home_x_m: float = 0.0
     home_y_m: float = 0.0
     home_yaw_rad: float = 0.0
@@ -37,7 +39,7 @@ class MissionConfig:
             "max_angular_rps": self.max_angular_rps,
             "steering_gain": self.steering_gain,
             "camera_horizontal_fov_rad": self.camera_horizontal_fov_rad,
-            "apple_stop_distance_m": self.apple_stop_distance_m,
+            "fruit_stop_distance_m": self.stop_distance_m,
             "home_position_tolerance_m": self.home_position_tolerance_m,
             "home_yaw_tolerance_rad": self.home_yaw_tolerance_rad,
         }
@@ -50,6 +52,16 @@ class MissionConfig:
             raise ValueError("home pose must be finite")
         if not self.lidar_frame_id:
             raise ValueError("lidar_frame_id must not be empty")
+
+    @property
+    def stop_distance_m(self) -> float:
+        """Configured distance for any fruit, with the legacy apple setting as fallback."""
+
+        return (
+            self.fruit_stop_distance_m
+            if self.fruit_stop_distance_m is not None
+            else self.apple_stop_distance_m
+        )
 
 
 @dataclass(frozen=True)
@@ -80,15 +92,25 @@ def decide_mission_action(
     *,
     at: datetime | None = None,
     config: MissionConfig = MissionConfig(),
+    target: str | None = None,
 ) -> MissionDecision:
     """Dispatch a semantic mission action to its deterministic policy."""
 
     normalized = action.strip().casefold().replace("-", "_").replace(" ", "_")
     at = at or snapshot.captured_at or utc_now()
-    if normalized == "search_apple":
-        return search_apple(snapshot, at=at, config=config)
-    if normalized in {"approach", "approach_apple"}:
-        return approach_apple(snapshot, at=at, config=config)
+    requested_target = normalize_fruit(target or "")
+    if normalized.startswith("search_"):
+        requested_target = normalize_fruit(normalized.removeprefix("search_"))
+        if requested_target:
+            return search_fruit(snapshot, requested_target, at=at, config=config)
+    if normalized.startswith("approach_"):
+        requested_target = normalize_fruit(normalized.removeprefix("approach_"))
+        if requested_target:
+            return approach_fruit(snapshot, requested_target, at=at, config=config)
+    if normalized == "approach":
+        return approach_fruit(
+            snapshot, requested_target or DEFAULT_FRUIT, at=at, config=config
+        )
     if normalized == "bark":
         return bark()
     if normalized in {"go_home", "return_home"}:
@@ -104,14 +126,27 @@ def search_apple(
     at: datetime,
     config: MissionConfig = MissionConfig(),
 ) -> MissionDecision:
+    """Backward-compatible apple-specific search entry point."""
+
+    return search_fruit(snapshot, "apple", at=at, config=config)
+
+
+def search_fruit(
+    snapshot: WorldSnapshot,
+    target: str,
+    *,
+    at: datetime,
+    config: MissionConfig = MissionConfig(),
+) -> MissionDecision:
+    target = _require_fruit(target)
     vision = _fresh_observation(snapshot, "vision.fruits", at)
-    if vision is not None and _best_apple(vision.payload) is not None:
-        return _stop(completed=True, reason="fresh YOLO observation contains an apple")
+    if vision is not None and _best_fruit(vision.payload, target) is not None:
+        return _stop(completed=True, reason=f"fresh YOLO observation contains {target}")
     return MissionDecision(
         "cmd_vel",
         {"linear_x_mps": 0.0, "angular_z_rps": config.search_angular_rps},
         completed=False,
-        reason="rotate to acquire an apple",
+        reason=f"rotate to acquire {target}",
     )
 
 
@@ -121,20 +156,33 @@ def approach_apple(
     at: datetime,
     config: MissionConfig = MissionConfig(),
 ) -> MissionDecision:
-    """Steer toward the YOLO apple using the LIDAR sector at its bearing.
+    """Backward-compatible apple-specific approach entry point."""
+
+    return approach_fruit(snapshot, "apple", at=at, config=config)
+
+
+def approach_fruit(
+    snapshot: WorldSnapshot,
+    target: str,
+    *,
+    at: datetime,
+    config: MissionConfig = MissionConfig(),
+) -> MissionDecision:
+    """Steer toward the requested fruit using the LIDAR sector at its bearing.
 
     Forward velocity is produced only when *both* observations are fresh and a
     finite range exists for the target bearing.  A missing target/range actively
     produces zero velocity rather than allowing dead reckoning.
     """
 
+    target = _require_fruit(target)
     vision = _fresh_observation(snapshot, "vision.fruits", at)
     proximity = _fresh_observation(snapshot, "lidar.proximity", at)
     if vision is None:
         return _stop(reason="vision.fruits is missing or stale")
-    apple = _best_apple(vision.payload)
-    if apple is None:
-        return _stop(reason="fresh YOLO observation does not contain an apple")
+    fruit = _best_fruit(vision.payload, target)
+    if fruit is None:
+        return _stop(reason=f"fresh YOLO observation does not contain {target}")
     if proximity is None:
         return _stop(reason="lidar.proximity is missing or stale; refusing blind advance")
     if proximity.frame_id != config.lidar_frame_id:
@@ -145,15 +193,18 @@ def approach_apple(
             )
         )
 
-    center_x = _bbox_center_x(apple)
+    center_x = _bbox_center_x(fruit)
     if center_x is None:
-        return _stop(reason="apple detection has no valid normalized bounding box")
+        return _stop(reason=f"{target} detection has no valid normalized bounding box")
     bearing = (0.5 - center_x) * config.camera_horizontal_fov_rad
     distance = _range_at_bearing(proximity.payload, bearing)
     if distance is None:
-        return _stop(reason="no finite LIDAR sector range covers the apple bearing")
-    if distance <= config.apple_stop_distance_m:
-        return _stop(completed=True, reason="apple is within 0.30 m")
+        return _stop(reason=f"no finite LIDAR sector range covers the {target} bearing")
+    if distance <= config.stop_distance_m:
+        return _stop(
+            completed=True,
+            reason=f"{target} is within {config.stop_distance_m:.2f} m",
+        )
 
     angular = _clamp(
         config.steering_gain * bearing,
@@ -161,7 +212,7 @@ def approach_apple(
         config.max_angular_rps,
     )
     # Slow near the target and when much of the command is devoted to turning.
-    range_speed = max(0.0, distance - config.apple_stop_distance_m)
+    range_speed = max(0.0, distance - config.stop_distance_m)
     alignment = max(0.0, math.cos(bearing))
     linear = min(config.max_linear_mps, range_speed) * alignment
     return MissionDecision(
@@ -171,9 +222,10 @@ def approach_apple(
             "angular_z_rps": angular,
             "target_bearing_rad": bearing,
             "target_range_m": distance,
+            "target": target,
         },
         ("vision.fruits", "lidar.proximity"),
-        reason="approaching apple with fresh camera/LIDAR fusion",
+        reason=f"approaching {target} with fresh camera/LIDAR fusion",
     )
 
 
@@ -252,17 +304,28 @@ def _fresh_observation(
     return observation
 
 
-def _best_apple(payload: Mapping[str, Any]) -> Mapping[str, Any] | None:
+def _require_fruit(target: str) -> str:
+    normalized = normalize_fruit(target)
+    if normalized is None:
+        raise ValueError(
+            f"unsupported fruit {target!r}; expected one of {', '.join(sorted(SUPPORTED_FRUITS))}"
+        )
+    return normalized
+
+
+def _best_fruit(
+    payload: Mapping[str, Any], target: str
+) -> Mapping[str, Any] | None:
     detections = payload.get("detections")
     if not isinstance(detections, Sequence) or isinstance(detections, (str, bytes)):
         return None
-    apples = [
+    matches = [
         item
         for item in detections
         if isinstance(item, Mapping)
-        and str(item.get("class_name", item.get("label", ""))).casefold() == "apple"
+        and str(item.get("class_name", item.get("label", ""))).casefold() == target
     ]
-    return max(apples, key=lambda item: _confidence(item), default=None)
+    return max(matches, key=lambda item: _confidence(item), default=None)
 
 
 def _confidence(item: Mapping[str, Any]) -> float:

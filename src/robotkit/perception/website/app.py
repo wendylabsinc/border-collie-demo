@@ -22,6 +22,7 @@ from robotkit.contracts import (
 )
 from robotkit.perception.website.diagnostics import build_debug_snapshot
 from robotkit.perception.website.producer import WebsiteCommandProducer
+from robotkit.fruits import SUPPORTED_FRUITS
 from robotkit.runtime import deployment_generation, instance_id, world_state_url
 
 
@@ -101,7 +102,9 @@ def create_app(
         events = reader.events(after=max(0, snapshot.revision - 100), limit=100)
         supported_targets = tuple(
             value.strip()
-            for value in os.getenv("ROBOTKIT_MISSION_TARGETS", "apple").split(",")
+            for value in os.getenv(
+                "ROBOTKIT_MISSION_TARGETS", ",".join(sorted(SUPPORTED_FRUITS))
+            ).split(",")
             if value.strip()
         )
         return build_debug_snapshot(

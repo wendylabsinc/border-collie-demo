@@ -25,7 +25,7 @@ B: replaceable interpreters ── immutable observations ──┐
 ## What is implemented
 
 - **A — `world-state`:** FastAPI plus SQLite in WAL mode with full synchronous writes. A Wendy named volume persists the database. Every observation, goal, effect, claim, rejection, and acknowledgement is revisioned in the event log. A transactional projection exposes the current interpretation for each `(producer_id, stream)`.
-- **B — `yolo-fruits`:** Ultralytics YOLO on the Go2 DDS video service or a standard ROS2 `sensor_msgs/Image`, filtered to the COCO apple, banana, and orange classes. It publishes normalized boxes on `vision.fruits`, including empty frames.
+- **B — `yolo-fruits`:** Ultralytics YOLOE-11m on the Go2 DDS video service or a standard ROS2 `sensor_msgs/Image`, open-vocabulary prompted for apple, banana, grapes, orange, and pear. It publishes normalized boxes on `vision.fruits`, including empty frames.
 - **B — `lidar-voxel`:** ROS2 `PointCloud2` plus odometry into a bounded sparse room map, planar voxel scan-matched `localization.pose`, and fixed angular `lidar.proximity` sectors for safe target ranging.
 - **B — `transcription`:** Local `faster-whisper` inference over ROS2 PCM audio, WAV/raw PCM, or microphone input. It publishes the transcript and an auditable command intent separately.
 - **B — `website-command`:** A stateless command page and JSON API. Typed instructions publish immutable `website.intent` observations, using the same deterministic intent parser as voice.
@@ -38,12 +38,10 @@ The shared wire models are in [`src/robotkit/contracts.py`](src/robotkit/contrac
 
 ## Run it
 
-Local Docker:
+Run tests locally:
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
-curl http://localhost:8080/v1/state
-curl 'http://localhost:8080/v1/events?after=0&limit=100'
+PYTHONPATH=src pytest
 ```
 
 On a configured Wendy device:
@@ -52,7 +50,8 @@ On a configured Wendy device:
 wendy run
 ```
 
-Open `http://<wendy-device>:8090` and submit `find apple` or `go to apple`.
+Open `http://<wendy-device>:8090` and submit commands such as `find pear` or
+`go to the orange`.
 The page sends `POST /v1/command`; the service parses the text and publishes it
 to A. This endpoint is intentionally unauthenticated, so restrict port `8090`
 to a trusted robot network before physical operation.
@@ -62,9 +61,9 @@ a shell. It refreshes from A once per second and shows command → perception �
 planner → controller → executor as one pipeline, with observation freshness,
 the current goal/effect, and a bounded black-box event timeline. YOLO also
 publishes `diagnostics.yolo`, including model name, inference latency, frame age,
-detection count, supported classes, and runtime failures. Unsupported commands
-such as `find pear` are rejected explicitly and stop an active apple search;
-the bundled COCO mission currently supports only `apple`.
+detection count, supported classes, and runtime failures. Fruit missions support
+apple, banana, grapes, orange, and pear. Commands for other targets are rejected
+explicitly and stop an active fruit search.
 
 The equivalent API call is:
 
@@ -82,14 +81,16 @@ intentional: changing website code invalidates only the website image instead
 of rebuilding and pushing every service that happens to live in the same source
 tree. Shared modules such as `contracts.py` still invalidate every consumer, as
 they should. This uses Wendy's Stagefile-family support because the services
-share one source context. If `wendy run --help` describes `--dockerfile` as
-accepting only Dockerfiles, update the CLI before deploying. Plain Docker
-Compose cannot compile Stagefiles, so `docker-compose.local.yml` selects the
-equivalent legacy Dockerfiles for local development.
+share one source context. Stagefiles are the only container build definitions
+in this repository.
 
 YOLO's CUDA stage resolves the target-specific PyTorch wheel index and runtime
 from the selected Wendy device; no Jetson URL is baked into this project. The
-Go2 does not expose its front camera as a standard ROS Image. The deployed YOLO
+ABI-critical CUDA runtime, cuBLAS, and cuDNN packages are pinned to the CUDA
+12.6 / cuDNN 9.3 versions used to build the JetPack 6 PyTorch wheel in the
+checked-in Stagefile lock, preventing an unpinned PyPI runtime refresh from
+mixing CUDA 12.9 libraries into the image.
+The Go2 does not expose its front camera as a standard ROS Image. The deployed YOLO
 producer obtains JPEG frames from Unitree's ROS 2-compatible DDS video service,
 so it does not compete for the robot's single WebRTC camera slot. It retains
 standard ROS Image, HTTP, direct WebRTC, and file modes for other hardware and
@@ -106,14 +107,33 @@ The deployed mission is:
 unsafe temperature or critical-low battery
   └─ go_home → lie_down
 
-"find apple" or "go to apple" from voice or website
-  └─ search_apple → approach_apple (≤ 0.30 m) → bark → go_home → lie_down
+"find <fruit>" or "go to <fruit>" from voice or website
+  └─ search_<fruit> → approach_<fruit> (≤ 0.30 m) → bark → go_home → lie_down
 
 otherwise
   └─ idle_at_home
 ```
 
-Search rotates until a fresh YOLO apple exists. Approach steers from the apple's normalized image bearing and uses the corresponding fresh LIDAR angular sector for range; it sends zero velocity rather than moving without a valid range. Home return recomputes a command from fresh `localization.pose` and the configured `HOME_X_M`, `HOME_Y_M`, and `HOME_YAW_RAD` on every cycle. The stateless controller renews effects on A-derived time buckets so Unitree's velocity dead-man remains fed without process-local control state.
+Search rotates until a fresh detection of the requested fruit exists. The deployed detector runs on
+CUDA device 0 with a `0.15` confidence threshold for the Go2's wide-angle
+camera. Approach steers from that fruit's normalized image bearing and uses the
+corresponding fresh LIDAR angular sector for range; it sends zero velocity
+rather than moving without a valid range. Home return recomputes a command from
+fresh `localization.pose` and the configured `HOME_X_M`, `HOME_Y_M`, and
+`HOME_YAW_RAD` on every cycle. The stateless controller renews effects at 10 Hz
+on A-derived time buckets and the executor polls at 20 Hz. Pending velocity
+renewals use latest-wins semantics, so device load cannot turn them into a FIFO
+backlog of expired commands; the executor keeps Unitree's 0.8-second velocity
+dead-man fed without process-local mission state. `MAX_STATE_DRIFT` defaults to
+32 revisions because the camera, LIDAR, pose, and diagnostic streams can
+legitimately advance A many times while an effect crosses the HTTP boundary;
+the one-second effect TTL and required-stream freshness checks provide the
+time-based safety bounds.
+An explicit `stop` command cancels an active fruit mission. A fresh failed YOLO
+diagnostic also cancels the mission, while the controller independently emits
+zero velocity so perception failure cannot leave search rotation running.
+`FRUIT_STOP_DISTANCE_M` configures the approach threshold for every fruit;
+`APPLE_STOP_DISTANCE_M` remains the backward-compatible fallback.
 
 Run without containers:
 

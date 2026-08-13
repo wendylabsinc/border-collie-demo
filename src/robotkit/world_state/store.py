@@ -367,6 +367,43 @@ class WorldStateStore:
                         old["effect_id"],
                         _dump(rejected),
                     )
+            if should_enqueue and effect.effect_type == "cmd_vel":
+                # Velocity effects are short-lived desired-state renewals, not
+                # an ordered work queue.  If the executor falls behind, replaying
+                # old commands makes the robot start and stop while the current
+                # command waits.  Keep the audit trail, but leave only the newest
+                # pending velocity command from this controller claimable.
+                pending = connection.execute(
+                    """SELECT * FROM effects
+                       WHERE controller_id = ? AND status = 'pending'""",
+                    (effect.controller_id,),
+                ).fetchall()
+                for old in pending:
+                    old_effect = EffectRecord.model_validate_json(old["record"])
+                    if old_effect.effect_type != "cmd_vel":
+                        continue
+                    reason = "superseded by newer velocity command"
+                    result = {"reason": reason}
+                    connection.execute(
+                        """UPDATE effects SET status = 'rejected', result = ?
+                           WHERE effect_id = ?""",
+                        (json.dumps(result), old["effect_id"]),
+                    )
+                    transition_revision = self._next_revision(connection)
+                    rejected = old_effect.model_copy(
+                        update={
+                            "revision": transition_revision,
+                            "status": EffectStatus.REJECTED,
+                            "result": result,
+                        }
+                    )
+                    self._event(
+                        connection,
+                        transition_revision,
+                        "effect.rejected",
+                        old["effect_id"],
+                        _dump(rejected),
+                    )
             revision = self._next_revision(connection)
             record = EffectRecord(
                 **effect.model_dump(),

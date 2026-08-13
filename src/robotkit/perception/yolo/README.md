@@ -1,9 +1,10 @@
-# YOLO COCO fruit producer
+# YOLOE fruit producer
 
-This replaceable B component runs an Ultralytics COCO checkpoint and publishes
-the latest apple, banana, and orange detections to `vision.fruits`. Every frame
-is an immutable world-state event; A retains the history and projects the latest
-event. Empty frames are published so stale fruit does not remain present.
+This replaceable B component runs `yoloe-11m-seg.pt`, prompts its open
+vocabulary once with apple, banana, grapes, orange, and pear, and publishes the
+latest detections to `vision.fruits`. Every frame is an immutable world-state
+event; A retains the history and projects the latest event. Empty frames are
+published so stale fruit does not remain present.
 
 Run against ROS2:
 
@@ -37,7 +38,7 @@ YOLO_IMAGE_PATH=/data/frame.jpg \
 python -m robotkit.perception.yolo
 ```
 
-Configuration variables include `YOLO_MODEL` (default `yolo11n.pt`),
+Configuration variables include `YOLO_MODEL` (default `yoloe-11m-seg.pt`),
 `YOLO_CONFIDENCE` (default `0.25`), `YOLO_DEVICE`, `YOLO_CLASSES`,
 `YOLO_TTL_SECONDS`, `YOLO_CAMERA_URL`, `YOLO_CAMERA_TIMEOUT_SECONDS`,
 `YOLO_INTERVAL_SECONDS`, `GO2_NETWORK_INTERFACE`, `GO2_VIDEO_TIMEOUT_SECONDS`,
@@ -45,9 +46,12 @@ Configuration variables include `YOLO_MODEL` (default `yolo11n.pt`),
 RobotKit instance/deployment variables. `GO2_RETRY_SECONDS` controls the delay
 between failed WebRTC connection attempts (default `5`). Model weights are resolved by
 Ultralytics and should be pre-cached in production.
+The Stagefile installs the pinned Ultralytics CLIP compatibility package and
+MobileCLIP prompt encoder needed by YOLOE; the Jetson Torch and TorchVision
+wheels are installed first and remain pinned.
 
-Build the dedicated ROS2 image from the repository root:
+Build and deploy the dedicated ROS2 Stagefile from the repository root:
 
 ```sh
-docker build -f src/robotkit/perception/yolo/Dockerfile -t robotkit-yolo .
+wendy run --service yolo-fruits
 ```

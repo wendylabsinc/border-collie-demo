@@ -1,5 +1,7 @@
 from datetime import timedelta
 
+import pytest
+
 from robotkit.contracts import Effect, EffectRecord, EffectStatus, Goal, GoalRecord
 from robotkit.planner.logic import plan
 from tests.conftest import NOW
@@ -108,24 +110,45 @@ def test_find_apple_website_starts_correlated_mission(
     assert decision.parameters["trigger_stream"] == "website.intent"
 
 
-def test_unsupported_pear_is_an_explicit_idle_rejection(
-    observation_factory, snapshot_factory
+@pytest.mark.parametrize("target", ["pear", "grapes", "banana", "orange"])
+def test_find_other_fruit_starts_a_correlated_mission(
+    target, observation_factory, snapshot_factory
 ):
     website = observation_factory(
         stream="website.intent",
-        payload={"intent": "find", "slots": {"target": "pear"}},
+        payload={"intent": "find", "slots": {"target": target}},
+        ttl_seconds=30,
+    )
+
+    decision = plan(snapshot_factory([website]), NOW)
+
+    assert decision.goal_type == f"search_{target}"
+    assert decision.parameters["mission_type"] == target
+    assert decision.parameters["target"] == target
+    assert decision.parameters["trigger_event_id"] == str(website.event_id)
+
+
+def test_unknown_target_is_explicitly_rejected(observation_factory, snapshot_factory):
+    website = observation_factory(
+        stream="website.intent",
+        payload={"intent": "find", "slots": {"target": "mango"}},
         ttl_seconds=30,
     )
 
     decision = plan(snapshot_factory([website]), NOW)
 
     assert decision.goal_type == "idle_at_home"
-    assert decision.parameters["rejected_target"] == "pear"
-    assert decision.parameters["trigger_event_id"] == str(website.event_id)
-    assert "unsupported target 'pear'" in decision.rationale
+    assert decision.parameters["rejected_target"] == "mango"
+    assert decision.parameters["supported_targets"] == [
+        "apple",
+        "banana",
+        "grapes",
+        "orange",
+        "pear",
+    ]
 
 
-def test_unsupported_command_stops_an_active_apple_search(
+def test_new_fruit_command_replaces_an_active_apple_search(
     observation_factory, snapshot_factory
 ):
     apple_command = _voice(observation_factory)
@@ -145,8 +168,93 @@ def test_unsupported_command_stops_an_active_apple_search(
         current_goal=active,
     )
 
+    assert decision.goal_type == "search_pear"
+    assert decision.parameters["mission_type"] == "pear"
+
+
+def test_stop_command_cancels_an_active_apple_search(
+    observation_factory, snapshot_factory
+):
+    apple_command = _voice(observation_factory)
+    active = _goal(plan(snapshot_factory([apple_command]), NOW))
+    stop = observation_factory(
+        stream="website.intent",
+        key="stop-command",
+        revision=2,
+        observed_at=NOW + timedelta(milliseconds=1),
+        payload={"intent": "stop", "slots": {"emergency": True}},
+        ttl_seconds=30,
+    )
+
+    decision = plan(
+        snapshot_factory([apple_command, stop]),
+        NOW + timedelta(seconds=1),
+        current_goal=active,
+    )
+
     assert decision.goal_type == "idle_at_home"
-    assert decision.parameters["rejected_target"] == "pear"
+    assert decision.priority == 100
+    assert decision.parameters["trigger_event_id"] == str(stop.event_id)
+    assert decision.parameters["stop_reason"] == "command"
+    assert decision.parameters["emergency"] is True
+
+
+def test_fresh_yolo_failure_stops_an_active_apple_search(
+    observation_factory, snapshot_factory
+):
+    apple_command = _voice(observation_factory)
+    active = _goal(plan(snapshot_factory([apple_command]), NOW))
+    failure = observation_factory(
+        stream="diagnostics.yolo",
+        key="yolo-failed",
+        revision=2,
+        payload={"status": "failed", "error": "CUDA failed"},
+        ttl_seconds=10,
+    )
+
+    decision = plan(
+        snapshot_factory([apple_command, failure]), NOW, current_goal=active
+    )
+
+    assert decision.goal_type == "idle_at_home"
+    assert decision.parameters["trigger_event_id"] == str(failure.event_id)
+    assert decision.parameters["stop_reason"] == "perception_failure"
+
+
+def test_fresh_yolo_failure_blocks_a_new_apple_mission(
+    observation_factory, snapshot_factory
+):
+    apple_command = _voice(observation_factory)
+    failure = observation_factory(
+        stream="diagnostics.yolo",
+        key="yolo-failed",
+        revision=2,
+        payload={"status": "failed", "error": "CUDA failed"},
+        ttl_seconds=10,
+    )
+
+    decision = plan(snapshot_factory([apple_command, failure]), NOW)
+
+    assert decision.goal_type == "idle_at_home"
+    assert decision.parameters["stop_reason"] == "perception_failure"
+
+
+def test_stale_yolo_failure_does_not_block_a_new_apple_mission(
+    observation_factory, snapshot_factory
+):
+    apple_command = _voice(observation_factory)
+    failure = observation_factory(
+        stream="diagnostics.yolo",
+        key="old-yolo-failure",
+        revision=2,
+        observed_at=NOW - timedelta(seconds=11),
+        payload={"status": "failed", "error": "old CUDA failure"},
+        ttl_seconds=10,
+    )
+
+    assert plan(snapshot_factory([apple_command, failure]), NOW).goal_type == (
+        "search_apple"
+    )
 
 
 def test_newest_command_channel_wins(observation_factory, snapshot_factory):

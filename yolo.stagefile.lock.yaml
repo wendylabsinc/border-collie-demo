@@ -1,24 +1,4 @@
 version: 1
-sourceHash: sha256:e7ee85ba9a694890880700c8657e639fb97efa86ca63a7a04feb82ff4c27514a
+sourceHash: sha256:89e9b6e4a73fd332474c5a98fd760529156479e825e800944cd1b4c80d34b880
 images:
     ros:humble-ros-base: sha256:7bea3d9aa2483d3ca34c8e30d921b79273b0913bd7dc64bebf51d082b5d107e4
-cuda:
-    sm_87:
-        board: NVIDIA Jetson Orin
-        cudaVersion: "12.6"
-        index: https://pypi.jetson-ai-lab.io/jp6/cu126/
-        runtime:
-            - nvidia-cuda-runtime-cu12
-            - nvidia-cuda-nvrtc-cu12
-            - nvidia-cuda-cupti-cu12
-            - nvidia-cublas-cu12
-            - nvidia-cudnn-cu12
-            - nvidia-cufft-cu12
-            - nvidia-curand-cu12
-            - nvidia-cusolver-cu12
-            - nvidia-cusparse-cu12
-            - nvidia-cusparselt-cu12
-            - nvidia-nccl-cu12
-            - nvidia-nvtx-cu12
-            - nvidia-nvjitlink-cu12
-        libDir: /opt/cuda12/lib

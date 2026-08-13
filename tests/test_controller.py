@@ -38,6 +38,26 @@ def test_search_rotates_until_an_apple_is_visible(snapshot_factory, goal_factory
     assert effect.parameters["stage_complete"] is False
 
 
+def test_search_stops_on_fresh_yolo_failure(
+    observation_factory, snapshot_factory, goal_factory
+):
+    failure = observation_factory(
+        stream="diagnostics.yolo",
+        payload={"status": "failed", "error": "CUDA failed"},
+        ttl_seconds=10,
+    )
+
+    effect = control(
+        snapshot_factory([failure]), _mission_goal(goal_factory, "search_apple")
+    )
+
+    assert effect.effect_type == "cmd_vel"
+    assert effect.parameters["linear_x_mps"] == 0.0
+    assert effect.parameters["angular_z_rps"] == 0.0
+    assert effect.parameters["stage_complete"] is False
+    assert "YOLO failed" in effect.parameters["decision_reason"]
+
+
 def test_control_renewal_tick_is_time_bucketed_and_replica_stable():
     assert control_tick(NOW, 0.25) == control_tick(NOW, 0.25)
     assert control_tick(NOW, 0.25) != control_tick(

@@ -23,9 +23,16 @@ services:
       GO2_VIDEO_TIMEOUT_SECONDS: "3"
       YOLO_INTERVAL_SECONDS: "0.2"
       YOLO_FRAME_ID: camera_link
-      YOLO_MODEL: yolo11n.pt
-      YOLO_CLASSES: apple,banana,orange
-      ROBOTKIT_PRODUCER_ID: yolo-coco-fruits
+      # Open-vocabulary YOLOE is prompted once with YOLO_CLASSES at startup.
+      YOLO_MODEL: yoloe-11m-seg.pt
+      # The Stagefile pins the JetPack-compatible CUDA stack. Keep inference
+      # off the CPU so perception cannot starve motion-command renewals.
+      YOLO_DEVICE: "0"
+      # The Go2 camera is wide-angle; approach still requires a corresponding
+      # fresh LIDAR range, so this recall-oriented threshold cannot drive blind.
+      YOLO_CONFIDENCE: "0.15"
+      YOLO_CLASSES: apple,banana,grapes,orange,pear
+      ROBOTKIT_PRODUCER_ID: yoloe-fruits
       ROBOTKIT_DEPLOYMENT_GENERATION: "1"
     network_mode: host
     volumes:
@@ -80,7 +87,7 @@ services:
       WEB_PORT: "8090"
       ROBOTKIT_PRODUCER_ID: go2-website-command
       ROBOTKIT_DEPLOYMENT_GENERATION: "1"
-      ROBOTKIT_MISSION_TARGETS: apple
+      ROBOTKIT_MISSION_TARGETS: apple,banana,grapes,orange,pear
     network_mode: host
     depends_on:
       - world-state
@@ -123,6 +130,12 @@ services:
     environment:
       WORLD_STATE_URL: http://127.0.0.1:8080
       ROBOTKIT_DEPLOYMENT_GENERATION: "1"
+      INTERVAL_SECONDS: "0.1"
+      CONTROL_RENEWAL_SECONDS: "0.1"
+      # Several perception streams update between controller publication and
+      # executor validation. Time/freshness safety is still bounded by the
+      # one-second effect TTL and each decision's required streams.
+      MAX_STATE_DRIFT: "32"
       HOME_X_M: "0"
       HOME_Y_M: "0"
       HOME_YAW_RAD: "0"
@@ -140,6 +153,7 @@ services:
     environment:
       WORLD_STATE_URL: http://127.0.0.1:8080
       ROBOTKIT_EXECUTOR_MODE: unitree_sport
+      INTERVAL_SECONDS: "0.05"
       GO2_NETWORK_INTERFACE: enP8p1s0
       UNITREE_MOTION_WATCHDOG_SECONDS: "0.8"
       BARK_WAV_PATH: /opt/robotkit/assets/bark.wav

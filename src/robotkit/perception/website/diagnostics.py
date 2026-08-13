@@ -13,6 +13,7 @@ from robotkit.contracts import (
     ObservationRecord,
     WorldSnapshot,
 )
+from robotkit.fruits import SUPPORTED_FRUITS
 
 
 _SEVERITY = {"ok": 0, "waiting": 1, "warning": 2, "stale": 3, "error": 4}
@@ -121,7 +122,7 @@ def build_debug_snapshot(
     latest_effect: EffectRecord | None,
     events: Sequence[EventRecord] = (),
     at: datetime | None = None,
-    supported_targets: Sequence[str] = ("apple",),
+    supported_targets: Sequence[str] = tuple(sorted(SUPPORTED_FRUITS)),
 ) -> dict[str, Any]:
     """Build a bounded debug projection without retaining local state."""
 

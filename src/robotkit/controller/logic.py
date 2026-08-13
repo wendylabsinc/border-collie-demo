@@ -5,8 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from robotkit.contracts import GoalRecord, WorldSnapshot
+from robotkit.contracts import GoalRecord, ObservationRecord, WorldSnapshot
 from robotkit.executor.mission import MissionConfig, decide_mission_action
+from robotkit.fruits import SUPPORTED_FRUITS
 
 
 @dataclass(frozen=True)
@@ -17,7 +18,8 @@ class EffectDecision:
 
 
 def _mission_metadata(goal: GoalRecord, *, stage_complete: bool, reason: str) -> dict[str, Any]:
-    return {
+    mission_type = str(goal.parameters.get("mission_type", "")).casefold()
+    metadata = {
         "mission_schema_version": str(
             goal.parameters.get("mission_schema_version", "1")
         ),
@@ -27,6 +29,24 @@ def _mission_metadata(goal: GoalRecord, *, stage_complete: bool, reason: str) ->
         "stage_complete": stage_complete,
         "decision_reason": reason,
     }
+    if mission_type in SUPPORTED_FRUITS:
+        metadata["target"] = goal.parameters.get("target", mission_type)
+    return metadata
+
+
+def _fresh_yolo_failure(snapshot: WorldSnapshot) -> ObservationRecord | None:
+    failures = [
+        observation
+        for observation in snapshot.observations
+        if observation.stream == "diagnostics.yolo"
+        and not observation.is_stale(snapshot.captured_at)
+        and str(observation.payload.get("status", "")).strip().casefold() == "failed"
+    ]
+    return max(
+        failures,
+        key=lambda item: (item.observed_at, item.revision, str(item.event_id)),
+        default=None,
+    )
 
 
 def control(
@@ -41,8 +61,37 @@ def control(
     if stage == "lie_down":
         return EffectDecision("unitree_lie_down")
 
+    # Defense in depth: do not wait for the planner cycle to cancel a fruit
+    # mission when the perception producer has explicitly reported failure.
+    # Search and approach both depend on YOLO; zero velocity is the only safe
+    # controller output while that dependency is unhealthy.
+    yolo_failure = _fresh_yolo_failure(snapshot)
+    mission_type = str(goal.parameters.get("mission_type", "")).casefold()
+    fruit_stage = mission_type in SUPPORTED_FRUITS and stage in {
+        f"search_{mission_type}",
+        f"approach_{mission_type}",
+    }
+    if fruit_stage and yolo_failure is not None:
+        error = str(yolo_failure.payload.get("error", "YOLO perception failed"))
+        return EffectDecision(
+            "cmd_vel",
+            {
+                "linear_x_mps": 0.0,
+                "angular_z_rps": 0.0,
+                **_mission_metadata(
+                    goal,
+                    stage_complete=False,
+                    reason=f"refusing motion because YOLO failed: {error}",
+                ),
+            },
+        )
+
     mission = decide_mission_action(
-        stage, snapshot, at=snapshot.captured_at, config=mission_config
+        stage,
+        snapshot,
+        at=snapshot.captured_at,
+        config=mission_config,
+        target=mission_type,
     )
     # Semantic hardware effects deliberately accept tiny parameter vocabularies
     # at the safety boundary. Bark progress is its APPLIED status itself.

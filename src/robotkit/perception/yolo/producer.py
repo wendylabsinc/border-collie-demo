@@ -10,7 +10,7 @@ from typing import Any, Protocol
 
 from robotkit.contracts import Observation, PublishResult
 from robotkit.perception.yolo.adapters import DetectionFrame
-from robotkit.perception.yolo.core import COCO_FRUIT_CLASSES, interpret_detections
+from robotkit.perception.yolo.core import FRUIT_CLASSES, interpret_detections
 
 
 class Detector(Protocol):
@@ -29,10 +29,10 @@ class YoloProducer:
         detector: Detector,
         publisher: ObservationPublisher,
         *,
-        producer_id: str = "yolo-coco-fruits",
+        producer_id: str = "yoloe-fruits",
         instance_id: str,
         deployment_generation: int = 0,
-        allowed_classes: frozenset[str] = COCO_FRUIT_CLASSES,
+        allowed_classes: frozenset[str] = FRUIT_CLASSES,
         min_confidence: float = 0.25,
         ttl_seconds: float = 2.0,
         model_name: str = "unknown",

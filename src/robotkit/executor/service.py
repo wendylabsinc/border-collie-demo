@@ -119,7 +119,7 @@ def main() -> None:
         )
 
     try:
-        run_loop(step, float(os.getenv("INTERVAL_SECONDS", "0.1")))
+        run_loop(step, float(os.getenv("INTERVAL_SECONDS", "0.05")))
     finally:
         adapter.close()
         client.close()
