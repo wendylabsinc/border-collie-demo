@@ -9,6 +9,7 @@
     "target": "woof-2.local"
   },
   "experiment": {
+    "name": "bearing-routing flag A/B",
     "target_fruit": "banana",
     "comparison": "same process and fruit; immutable per-run tuning differs only at search.bearing_routing_enabled",
     "baseline_flag": false,
