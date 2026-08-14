@@ -222,6 +222,9 @@ def test_audience_ui_exposes_cohort_configuration_and_observation() -> None:
     assert 'value="5"' in page
     assert 'id="cohort-randomized"' in page
     assert 'id="cohort-fixed-fruit"' in page
+    assert 'id="start-three-fruit"' in page
+    assert "runs: 3" in page
+    assert "Run Apple + Banana + Pear once" in page
     assert "Failures stop the cohort by default" in page
     assert "'/api/cohorts'" in page
     assert "'/api/cohorts/active'" in page

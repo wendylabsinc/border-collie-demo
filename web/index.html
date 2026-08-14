@@ -171,6 +171,7 @@
             <label><input type="checkbox" data-tolerated-phase value="turn_toward_home"> Turn toward Home</label>
           </fieldset>
           <button id="start-cohort" type="button">Start cohort</button>
+          <button id="start-three-fruit" type="button">Run Apple + Banana + Pear once</button>
           <button id="stop-cohort" type="button" disabled>Stop cohort and Woof</button>
         </div>
         <p id="cohort-output" role="status">No cohort started.</p>
@@ -210,6 +211,7 @@
       const cohortFixedFruit = document.querySelector('#cohort-fixed-fruit');
       const cohortSeed = document.querySelector('#cohort-seed');
       const startCohort = document.querySelector('#start-cohort');
+      const startThreeFruit = document.querySelector('#start-three-fruit');
       const stopCohort = document.querySelector('#stop-cohort');
       const cohortOutput = document.querySelector('#cohort-output');
       const cameraFrameUrl = '/api/camera/frame.jpg';
@@ -415,6 +417,7 @@
       function showCohort(cohort) {
         cohortRunning = cohort?.status === 'RUNNING';
         startCohort.disabled = cohortRunning;
+        startThreeFruit.disabled = cohortRunning;
         stopCohort.disabled = !cohortRunning;
         cohortRuns.disabled = cohortRunning;
         cohortRandomized.disabled = cohortRunning;
@@ -472,31 +475,57 @@
         cohortFixedFruit.disabled = cohortRandomized.checked;
       });
 
-      startCohort.addEventListener('click', async () => {
+      async function createCohort(payload) {
         startCohort.disabled = true;
-        const toleratedFailures = [
-          ...Array.from(document.querySelectorAll('[data-tolerated-reason]:checked'))
-            .map((control) => ({reason: control.value})),
-          ...Array.from(document.querySelectorAll('[data-tolerated-phase]:checked'))
-            .map((control) => ({failed_phase: control.value})),
-        ];
+        startThreeFruit.disabled = true;
         try {
           const body = await readJson(await fetch('/api/cohorts', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-              runs: Number(cohortRuns.value),
-              randomized: cohortRandomized.checked,
-              target_fruit: cohortRandomized.checked ? null : cohortFixedFruit.value,
-              seed: Number(cohortSeed.value),
-              tolerated_failures: toleratedFailures,
-            }),
+            body: JSON.stringify(payload),
           }));
           showCohort(body.cohort);
         } catch (error) {
           cohortOutput.textContent = error.message;
           await refreshCohort();
         }
+      }
+
+      startCohort.addEventListener('click', async () => {
+        const toleratedFailures = [
+          ...Array.from(document.querySelectorAll('[data-tolerated-reason]:checked'))
+            .map((control) => ({reason: control.value})),
+          ...Array.from(document.querySelectorAll('[data-tolerated-phase]:checked'))
+            .map((control) => ({failed_phase: control.value})),
+        ];
+        await createCohort({
+          runs: Number(cohortRuns.value),
+          randomized: cohortRandomized.checked,
+          target_fruit: cohortRandomized.checked ? null : cohortFixedFruit.value,
+          seed: Number(cohortSeed.value),
+          tolerated_failures: toleratedFailures,
+        });
+      });
+
+      startThreeFruit.addEventListener('click', async () => {
+        await createCohort({
+          runs: 3,
+          randomized: true,
+          target_fruit: null,
+          seed: Number(cohortSeed.value),
+          tolerated_failures: [
+            {reason: 'TARGET_RECOGNITION_FAILURE'},
+            {reason: 'TARGET_LOST'},
+            {reason: 'ARRIVAL_FAILURE'},
+            {reason: 'ACTION_FAILURE'},
+            {failed_phase: 'turn_to_fruit'},
+            {failed_phase: 'find_fruit'},
+            {failed_phase: 'approach_fruit'},
+            {failed_phase: 'arrived'},
+            {failed_phase: 'sit_and_bark'},
+            {failed_phase: 'stand'},
+          ],
+        });
       });
 
       stopCohort.addEventListener('click', async () => {
