@@ -52,9 +52,15 @@ The executable, hardware-free design probe lives in
    starts, command exact zero, disarm, and fail. Do not re-enter an in-place
    turn from `RETURN_HOME`.
 7. Request stop, release the motion owner, and confirm disarm.
-8. Report success only when fresh pose confirms the position gate and the final
-   safety state is `DISARMED_CONFIRMED`. Captured heading remains evidence, not
-   a completion gate.
+8. After exact-zero stop/disarm, wait the configured settling interval and
+   collect four advancing fresh samples by default. Report success only when
+   every sample remains inside the 0.10 m position gate, the window's maximum
+   pairwise position spread stays within 0.03 m, the odometry epoch is
+   unchanged, and the final safety state is `DISARMED_CONFIRMED`.
+9. If that window fails, at most one bounded position-only correction may run
+   under the same return gates, followed by a new settle and verification
+   window. Captured heading remains evidence; the legacy `restore_heading`
+   stage never authorizes motion.
 
 The initial acceptance target is **0.10 meters** Home Distance. The
 `TURN_TOWARD_HOME` course-entry gate is **5 degrees**. They are proposed gates,

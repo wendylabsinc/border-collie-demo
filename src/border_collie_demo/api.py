@@ -6,7 +6,7 @@ from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse
@@ -91,12 +91,20 @@ def create_app(
     runtime_mode: Literal["production", "simulation"] = "production",
     stage_home_margin_m: float | None = None,
     cohorts_root: Path | None = None,
+    recording_status: Callable[[], dict[str, object]] | None = None,
+    home_recordings_root: Path | None = None,
 ) -> FastAPI:
     machine = mission or MissionMachine()
     robot = hardware or HardwareManager()
     root = web_root or Path(os.environ.get("BORDER_COLLIE_WEB_ROOT", "web")).resolve()
     run_storage_root = runs_root or Path(
         os.environ.get("BORDER_COLLIE_RUNS_DIR", "artifacts/runs")
+    )
+    home_recording_storage_root = home_recordings_root or Path(
+        os.environ.get(
+            "BORDER_COLLIE_HOME_RECORDINGS_DIR",
+            "/state/home-recorder/runs",
+        )
     )
     results = RunResultStore(run_storage_root, black_box=black_box)
     read_camera_perception = camera_perception_status or (
@@ -233,6 +241,15 @@ def create_app(
             "fruit_bearing_map": (
                 read_bearing_map() if callable(read_bearing_map) else None
             ),
+            "home_recording": (
+                recording_status()
+                if recording_status is not None
+                else {
+                    "schema_version": 1,
+                    "shared_available": False,
+                    "detail": "passive Home recorder is not configured",
+                }
+            ),
         }
 
     @app.post("/api/cohorts", status_code=201)
@@ -321,6 +338,25 @@ def create_app(
             path,
             media_type="application/x-ndjson",
             filename=f"{run_id}-black-box.ndjson",
+        )
+
+    @app.get("/api/results/{run_id}/home-deep.ndjson")
+    async def get_deep_home_recording(run_id: str) -> FileResponse:
+        try:
+            safe_run_id = str(UUID(run_id))
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=404, detail="Deep Home recording not found"
+            ) from exc
+        path = home_recording_storage_root / safe_run_id / "home-deep.ndjson"
+        if not path.is_file():
+            raise HTTPException(
+                status_code=404, detail="Deep Home recording not found"
+            )
+        return FileResponse(
+            path,
+            media_type="application/x-ndjson",
+            filename=f"{safe_run_id}-home-deep.ndjson",
         )
 
     @app.get("/api/results/{run_id}/artifacts/{filename}")

@@ -71,7 +71,12 @@ class FakeProductionHardware:
         self, home: dict[str, object], **options: float
     ) -> dict[str, object]:
         self.calls.append(("return_home_position", home, options))
-        return {"home_distance_m": 0.08, "motion_commands_sent": True}
+        return {
+            "home_distance_m": 0.08,
+            "motion_commands_sent": True,
+            "settled_home_verified": True,
+            "settled_sample_count": 4,
+        }
 
     def measure_home_position(self, home: dict[str, object]) -> dict[str, object]:
         self.calls.append(("measure_home_position", home, {}))
@@ -785,7 +790,6 @@ def test_return_stages_use_captured_home_and_locked_arrival_rules() -> None:
         assert [call[0] for call in hardware.calls] == [
             "turn_toward_home",
             "return_home_position",
-            "measure_home_position",
         ]
         assert all(call[1] == context().home for call in hardware.calls)
         assert hardware.calls[0][2] == {
@@ -806,11 +810,20 @@ def test_return_stages_use_captured_home_and_locked_arrival_rules() -> None:
             "minimum_progress_m": 0.03,
             "stall_timeout_s": 2.0,
             "timeout_s": 30.0,
+            "settle_interval_s": 0.30,
+            "settled_sample_count": 4,
+            "settled_maximum_spread_m": 0.03,
+            "settled_sample_timeout_s": 1.0,
+            "settled_retry_count": 1,
         }
         assert turn["home_bearing_error_rad"] == 0.02
         assert returned["home_distance_m"] == 0.08
         assert restored["heading_restoration_skipped"] is True
         assert restored["motion_commands_sent"] is False
+        assert restored["settled_home_verified"] is True
+        assert restored["legacy_restore_heading_semantics"] == (
+            "settled_position_verification_already_complete"
+        )
 
     asyncio.run(scenario())
 

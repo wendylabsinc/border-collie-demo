@@ -143,13 +143,37 @@ class ReturningPose(FakePose):
 
     def status(self) -> PoseStatus:
         if self.started:
-            self._last = next(self._poses, self._last)
+            next_pose = next(self._poses, None)
+            if next_pose is None:
+                self._last = Pose(
+                    self._last.x_m,
+                    self._last.y_m,
+                    self._last.yaw_rad,
+                    self._last.captured_monotonic_s + 0.05,
+                )
+            else:
+                self._last = next_pose
         return PoseStatus(
             self._last,
             0.0,
             self.started,
             None if self.started else "pose unavailable",
         )
+
+
+class HomeSettlingReplayPose(FakePose):
+    def __init__(self, distances: tuple[float, ...], *, yaw_rad: float = 0.0) -> None:
+        super().__init__()
+        self._poses = iter(
+            Pose(distance, 0.0, yaw_rad, 10.0 + index * 0.05)
+            for index, distance in enumerate(distances)
+        )
+        self._last = Pose(distances[-1], 0.0, yaw_rad, 20.0)
+
+    def status(self) -> PoseStatus:
+        if self.started:
+            self._last = next(self._poses, self._last)
+        return PoseStatus(self._last, 0.0, self.started, None)
 
 
 class HeadingEscapePose(FakePose):
@@ -167,7 +191,16 @@ class HeadingEscapePose(FakePose):
 
     def status(self) -> PoseStatus:
         if self.started:
-            self._last = next(self._poses, self._last)
+            next_pose = next(self._poses, None)
+            if next_pose is None:
+                self._last = Pose(
+                    self._last.x_m,
+                    self._last.y_m,
+                    self._last.yaw_rad,
+                    self._last.captured_monotonic_s + 0.05,
+                )
+            else:
+                self._last = next_pose
         return PoseStatus(self._last, 0.0, self.started, None)
 
 
@@ -191,7 +224,16 @@ class NearHomeHeadingEscapePose(FakePose):
 
     def status(self) -> PoseStatus:
         if self.started:
-            self._last = next(self._poses, self._last)
+            next_pose = next(self._poses, None)
+            if next_pose is None:
+                self._last = Pose(
+                    self._last.x_m,
+                    self._last.y_m,
+                    self._last.yaw_rad,
+                    self._last.captured_monotonic_s + 0.05,
+                )
+            else:
+                self._last = next_pose
             self.samples += 1
             if self.samples >= 5:
                 assert self._motion.armed is False
@@ -1891,6 +1933,219 @@ def test_position_only_return_uses_fresh_pose_until_home_then_disarms() -> None:
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize(
+    "distances",
+    [
+        (0.0, 0.0, 0.0577, 0.1130, 0.1120, 0.1140, 0.1130),
+        (0.0, 0.0, 0.0255, 0.1240, 0.1220, 0.1230, 0.1210),
+    ],
+)
+def test_position_return_does_not_accept_inside_then_outside_physical_replays(
+    distances: tuple[float, ...],
+) -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: HomeSettlingReplayPose(distances),
+        )
+        await manager.start()
+        home = {
+            "x_m": 0.0,
+            "y_m": 0.0,
+            "yaw_rad": 0.0,
+            "odometry_epoch": manager.capture_home()["odometry_epoch"],
+        }
+
+        with pytest.raises(HardwareUnavailable, match="settled Home"):
+            await manager.return_home_position(
+                home,
+                forward_mps=1.0,
+                arrival_tolerance_m=0.10,
+                heading_gate_rad=math.radians(20.0),
+                maximum_yaw_rps=0.50,
+                minimum_progress_m=0.03,
+                stall_timeout_s=0.10,
+                timeout_s=0.50,
+                settle_interval_s=0.0,
+                settled_sample_count=4,
+                settled_maximum_spread_m=0.03,
+                settled_sample_timeout_s=0.25,
+                settled_retry_count=0,
+            )
+
+        assert motion.commands == []
+        assert motion.armed is False
+        assert motion.stop_calls >= 1
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_position_return_requires_four_advancing_post_disarm_samples() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        pose = HomeSettlingReplayPose(
+            (0.0, 0.0, 0.061, 0.062, 0.064, 0.060, 0.063)
+        )
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: pose,
+        )
+        await manager.start()
+        home = {
+            "x_m": 0.0,
+            "y_m": 0.0,
+            "yaw_rad": 0.0,
+            "odometry_epoch": manager.capture_home()["odometry_epoch"],
+        }
+
+        result = await manager.return_home_position(
+            home,
+            forward_mps=1.0,
+            arrival_tolerance_m=0.10,
+            heading_gate_rad=math.radians(20.0),
+            maximum_yaw_rps=0.50,
+            minimum_progress_m=0.03,
+            stall_timeout_s=0.10,
+            timeout_s=0.50,
+            settle_interval_s=0.0,
+            settled_sample_count=4,
+            settled_maximum_spread_m=0.03,
+            settled_sample_timeout_s=0.25,
+            settled_retry_count=0,
+        )
+
+        assert result["home_distance_m"] == pytest.approx(0.063)
+        assert result["settled_home_verified"] is True
+        assert result["settled_sample_count"] == 4
+        assert result["settled_position_spread_m"] == pytest.approx(0.004)
+        assert result["position_retry_count"] == 0
+        assert motion.commands == []
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_home_recorder_failure_never_masks_the_settled_safety_failure() -> None:
+    class BrokenRecorder:
+        def record(self, *_args, **_kwargs):
+            raise OSError("recorder disk unavailable")
+
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: HomeSettlingReplayPose(
+                (0.0, 0.0, 0.0577, 0.1130, 0.1120, 0.1140)
+            ),
+            black_box=BrokenRecorder(),
+        )
+        await manager.start()
+        manager.start_motion_trace(
+            "return_home",
+            run_id="3465b41f-c05c-45bd-a6e6-55526e39b9dc",
+        )
+        home = {
+            "x_m": 0.0,
+            "y_m": 0.0,
+            "yaw_rad": 0.0,
+            "odometry_epoch": manager.capture_home()["odometry_epoch"],
+        }
+
+        with pytest.raises(HardwareUnavailable, match="settled Home") as error:
+            await manager.return_home_position(
+                home,
+                forward_mps=1.0,
+                arrival_tolerance_m=0.10,
+                heading_gate_rad=math.radians(20.0),
+                maximum_yaw_rps=0.50,
+                minimum_progress_m=0.03,
+                stall_timeout_s=0.10,
+                timeout_s=0.50,
+                settle_interval_s=0.0,
+                settled_sample_timeout_s=0.25,
+                settled_retry_count=0,
+            )
+
+        assert "recorder disk unavailable" not in str(error.value)
+        assert motion.commands == []
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_unstable_window_allows_exactly_one_bounded_position_only_retry() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        pose = HomeSettlingReplayPose(
+            (
+                0.0,
+                0.0,
+                0.080,
+                0.120,
+                0.121,
+                0.119,
+                0.120,
+                0.120,
+                0.110,
+                0.080,
+                0.070,
+                0.071,
+                0.069,
+                0.070,
+            ),
+            yaw_rad=math.pi,
+        )
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: pose,
+        )
+        await manager.start()
+        home = {
+            "x_m": 0.0,
+            "y_m": 0.0,
+            "yaw_rad": 0.0,
+            "odometry_epoch": manager.capture_home()["odometry_epoch"],
+        }
+
+        result = await manager.return_home_position(
+            home,
+            forward_mps=1.0,
+            arrival_tolerance_m=0.10,
+            heading_gate_rad=math.radians(20.0),
+            maximum_yaw_rps=0.50,
+            minimum_progress_m=0.01,
+            stall_timeout_s=0.20,
+            timeout_s=0.75,
+            settle_interval_s=0.0,
+            settled_sample_count=4,
+            settled_maximum_spread_m=0.03,
+            settled_sample_timeout_s=0.25,
+            settled_retry_count=1,
+        )
+
+        assert result["settled_home_verified"] is True
+        assert result["position_retry_count"] == 1
+        assert result["home_distance_m"] == pytest.approx(0.070)
+        assert len(motion.commands) == 1
+        assert motion.commands[0].forward_mps == 1.0
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
 def test_position_only_return_does_not_arm_when_already_home() -> None:
     async def scenario() -> None:
         motion = FakeMotion()
@@ -1898,7 +2153,9 @@ def test_position_only_return_does_not_arm_when_already_home() -> None:
             live_config(),
             dds_initializer=lambda _interface: None,
             motion_factory=lambda _config: motion,
-            pose_factory=lambda _age: FakePose(),
+            pose_factory=lambda _age: HomeSettlingReplayPose(
+                (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+            ),
         )
         await manager.start()
 

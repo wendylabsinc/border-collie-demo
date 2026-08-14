@@ -51,6 +51,8 @@ class ProductionStageExecutor:
         self._run_tuning: RunTuning | None = None
         self._bearing_map = FruitBearingMap()
         self._last_bearing_route: dict[str, object] | None = None
+        self._settled_home_run_id: str | None = None
+        self._settled_home_evidence: dict[str, object] | None = None
 
     def bearing_map_status(self) -> dict[str, object]:
         """Expose the advisory process-local map without motion authority."""
@@ -387,7 +389,7 @@ class ProductionStageExecutor:
             return evidence
         if phase is MissionPhase.RETURN_HOME:
             tuning = RunTuning.from_payload(context.target_fruit, context.run_tuning)
-            return await self._hardware.return_home_position(
+            evidence = await self._hardware.return_home_position(
                 context.home,
                 forward_mps=tuning.home.return_forward_mps,
                 arrival_tolerance_m=tuning.home.arrival_tolerance_m,
@@ -398,19 +400,33 @@ class ProductionStageExecutor:
                 minimum_progress_m=tuning.home.minimum_progress_m,
                 stall_timeout_s=tuning.home.stall_timeout_s,
                 timeout_s=tuning.home.return_timeout_s,
+                settle_interval_s=tuning.home.settle_interval_s,
+                settled_sample_count=tuning.home.settled_sample_count,
+                settled_maximum_spread_m=(
+                    tuning.home.settled_maximum_spread_m
+                ),
+                settled_sample_timeout_s=tuning.home.settled_sample_timeout_s,
+                settled_retry_count=tuning.home.settled_retry_count,
             )
+            if evidence.get("settled_home_verified") is True:
+                self._settled_home_run_id = context.run_id
+                self._settled_home_evidence = dict(evidence)
+            return evidence
         if phase is MissionPhase.RESTORE_HEADING:
-            tuning = RunTuning.from_payload(context.target_fruit, context.run_tuning)
-            measurement = self._hardware.measure_home_position(context.home)
-            if float(measurement["home_distance_m"]) > tuning.home.arrival_tolerance_m:
+            if (
+                self._settled_home_run_id != context.run_id
+                or self._settled_home_evidence is None
+                or self._settled_home_evidence.get("settled_home_verified") is not True
+            ):
                 raise HardwareUnavailable(
-                    "fresh Home position was outside the completion gate: "
-                    f"{float(measurement['home_distance_m']):.3f} m"
+                    "legacy restore_heading phase has no settled Home verification"
                 )
             return {
-                **measurement,
-                "position_tolerance_m": tuning.home.arrival_tolerance_m,
+                **self._settled_home_evidence,
                 "heading_restoration_skipped": True,
+                "legacy_restore_heading_semantics": (
+                    "settled_position_verification_already_complete"
+                ),
                 "motion_commands_sent": False,
             }
         raise StageFailure(

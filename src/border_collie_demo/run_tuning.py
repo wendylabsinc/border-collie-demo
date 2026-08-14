@@ -10,6 +10,7 @@ absolute hardware envelopes deliberately remain outside this module.
 from __future__ import annotations
 
 import math
+import os
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from typing import ClassVar
@@ -143,6 +144,48 @@ class HomeTuning:
     minimum_progress_m: float = 0.03
     stall_timeout_s: float = 2.0
     return_timeout_s: float = 30.0
+    settle_interval_s: float = 0.30
+    settled_sample_count: int = 4
+    settled_maximum_spread_m: float = 0.03
+    settled_sample_timeout_s: float = 1.0
+    settled_retry_count: int = 1
+
+    @classmethod
+    def from_env(cls) -> HomeTuning:
+        values: dict[str, object] = {
+            "settle_interval_s": os.environ.get(
+                "BORDER_COLLIE_HOME_SETTLE_INTERVAL_S", "0.30"
+            ),
+            "settled_sample_count": int(
+                os.environ.get("BORDER_COLLIE_HOME_SETTLED_SAMPLE_COUNT", "4")
+            ),
+            "settled_maximum_spread_m": os.environ.get(
+                "BORDER_COLLIE_HOME_SETTLED_MAX_SPREAD_M", "0.03"
+            ),
+            "settled_sample_timeout_s": os.environ.get(
+                "BORDER_COLLIE_HOME_SETTLED_SAMPLE_TIMEOUT_S", "1.0"
+            ),
+            "settled_retry_count": int(
+                os.environ.get("BORDER_COLLIE_HOME_SETTLED_RETRY_COUNT", "1")
+            ),
+        }
+        return cls(
+            settle_interval_s=_number(
+                values, "settle_interval_s", 0.30, 0.0, 2.0
+            ),
+            settled_sample_count=_integer(
+                values, "settled_sample_count", 4, 3, 5
+            ),
+            settled_maximum_spread_m=_number(
+                values, "settled_maximum_spread_m", 0.03, 0.005, 0.05
+            ),
+            settled_sample_timeout_s=_number(
+                values, "settled_sample_timeout_s", 1.0, 0.25, 3.0
+            ),
+            settled_retry_count=_integer(
+                values, "settled_retry_count", 1, 0, 1
+            ),
+        )
 
 
 _FRUIT_CONFIDENCE_RANGES: dict[str, dict[str, tuple[float, float]]] = {
@@ -222,7 +265,7 @@ class RunTuning:
                 final_push_mps=guidance.final_push_mps,
                 final_push_duration_s=guidance.final_push_duration_s,
             ),
-            home=HomeTuning(),
+            home=HomeTuning.from_env(),
         )
 
     @classmethod
@@ -348,6 +391,11 @@ class RunTuning:
                 "minimum_progress_m",
                 "stall_timeout_s",
                 "return_timeout_s",
+                "settle_interval_s",
+                "settled_sample_count",
+                "settled_maximum_spread_m",
+                "settled_sample_timeout_s",
+                "settled_retry_count",
             },
         )
 
@@ -593,6 +641,41 @@ class RunTuning:
                 ),
                 return_timeout_s=_number(
                     home, "return_timeout_s", defaults.home.return_timeout_s, 10.0, 60.0
+                ),
+                settle_interval_s=_number(
+                    home,
+                    "settle_interval_s",
+                    defaults.home.settle_interval_s,
+                    0.0,
+                    2.0,
+                ),
+                settled_sample_count=_integer(
+                    home,
+                    "settled_sample_count",
+                    defaults.home.settled_sample_count,
+                    3,
+                    5,
+                ),
+                settled_maximum_spread_m=_number(
+                    home,
+                    "settled_maximum_spread_m",
+                    defaults.home.settled_maximum_spread_m,
+                    0.005,
+                    0.05,
+                ),
+                settled_sample_timeout_s=_number(
+                    home,
+                    "settled_sample_timeout_s",
+                    defaults.home.settled_sample_timeout_s,
+                    0.25,
+                    3.0,
+                ),
+                settled_retry_count=_integer(
+                    home,
+                    "settled_retry_count",
+                    defaults.home.settled_retry_count,
+                    0,
+                    1,
                 ),
             ),
         )
@@ -894,6 +977,51 @@ class RunTuning:
                 ),
                 _field("stall_timeout_s", "Home stall timeout", "s", 0.5, 5.0, 0.1),
                 _field("return_timeout_s", "Home return timeout", "s", 10, 60, 1),
+                _field(
+                    "settle_interval_s",
+                    "Post-stop settling interval",
+                    "s",
+                    0.0,
+                    2.0,
+                    0.05,
+                    safety="Motion is exact-zero and disarmed throughout this interval.",
+                ),
+                _field(
+                    "settled_sample_count",
+                    "Settled Home samples",
+                    "samples",
+                    3,
+                    5,
+                    1,
+                    safety="Every sample must be fresh, advancing, and inside Home.",
+                ),
+                _field(
+                    "settled_maximum_spread_m",
+                    "Settled Home maximum spread",
+                    "m",
+                    0.005,
+                    0.05,
+                    0.005,
+                    safety="Does not widen the 0.10 m Home position gate.",
+                ),
+                _field(
+                    "settled_sample_timeout_s",
+                    "Settled Home sample timeout",
+                    "s",
+                    0.25,
+                    3.0,
+                    0.05,
+                    safety="Timeout or non-advancing evidence fails closed.",
+                ),
+                _field(
+                    "settled_retry_count",
+                    "Position-only Home retries",
+                    "retries",
+                    0,
+                    1,
+                    1,
+                    safety="At most one correction; heading restoration stays disabled.",
+                ),
             ],
         }
         return {

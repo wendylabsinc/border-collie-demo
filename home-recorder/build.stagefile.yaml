@@ -1,0 +1,50 @@
+version: 1
+stages:
+  - name: native
+    from: python:3.11-slim-bookworm
+    env:
+      CYCLONEDDS_HOME: /usr/local
+    install:
+      apt:
+        packages: [build-essential, ca-certificates, cmake, git]
+      cmake:
+        - repository: https://github.com/eclipse-cyclonedds/cyclonedds.git
+          commit: 2cdd114cbd18340c606573b4cc8dc20cc161ec5a
+          prefix: /usr/local
+          buildType: Release
+          defines:
+            BUILD_DDSPERF: "OFF"
+            BUILD_EXAMPLES: "OFF"
+            BUILD_TESTING: "OFF"
+          jobs: 2
+  - name: builder
+    from: native
+    env:
+      CYCLONEDDS_HOME: /usr/local
+    install:
+      pip:
+        - packages:
+            - cyclonedds==0.10.2
+            - git+https://github.com/unitreerobotics/unitree_sdk2_python.git@e4cd91f051aaa77a70600e3d2bf7f50889db1980
+  - name: recorder
+    from: python:3.11-slim-bookworm
+    workdir: /app
+    env:
+      CYCLONEDDS_HOME: /usr/local
+      PYTHONUNBUFFERED: "1"
+      HOME_RECORDER_PORT: "8112"
+      HOME_RECORDER_STATE_DIR: /state/home-recorder
+      HOME_RECORDER_EVENTS_DIR: /state/home-recorder/events
+      HOME_RECORDER_MAX_EVENTS_PER_RUN: "10000"
+      GO2_NETWORK_INTERFACE: enP8p1s0
+    install:
+      apt:
+        packages: [libstdc++6]
+    copy:
+      - from: builder
+        paths: [/usr/local]
+      - from: local
+        paths: [home_recorder.py]
+        dest: /app/
+    user: root
+    cmd: [python, home_recorder.py]

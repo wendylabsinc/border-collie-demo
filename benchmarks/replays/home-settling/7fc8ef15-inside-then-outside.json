@@ -1,0 +1,12 @@
+{
+  "run_id": "7fc8ef15-prior-inside-then-outside",
+  "description": "Prior failure accepted 0.0255 m, then the next verification was 0.124 m.",
+  "expected_stable": false,
+  "odometry_epoch": "physical-7fc8ef15",
+  "samples": [
+    {"captured_monotonic_s": 0.000, "age_s": 0.010, "distance_m": 0.0255},
+    {"captured_monotonic_s": 0.050, "age_s": 0.010, "distance_m": 0.1240},
+    {"captured_monotonic_s": 0.100, "age_s": 0.009, "distance_m": 0.1220},
+    {"captured_monotonic_s": 0.150, "age_s": 0.010, "distance_m": 0.1230}
+  ]
+}
