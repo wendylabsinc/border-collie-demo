@@ -103,6 +103,8 @@
       .failure-options { grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); }
       .failure-options label { display: flex; gap: 0.4rem; align-items: center; }
       #cohort-output { white-space: pre-wrap; overflow-wrap: anywhere; }
+      .experiment-note { text-align: left; }
+      .experiment-status { font-weight: 700; }
     </style>
   </head>
   <body>
@@ -183,9 +185,15 @@
       </details>
       <section aria-labelledby="experiment-title">
         <h2 id="experiment-title">Search experiment results</h2>
-        <p>Lock and end-to-end success rates are grouped by fruit and requested yaw.</p>
+        <p class="experiment-note">Checked-in experiment ledger. Completed rows are backed by physical result artifacts. The controlled Target Fruit is shown separately from the feature under test; planned experiments with no result artifact are explicitly marked Not run.</p>
         <table>
-          <thead><tr><th>Fruit</th><th>Yaw</th><th>Runs</th><th>Lock</th><th>Success</th></tr></thead>
+          <thead><tr><th>Experiment</th><th>Feature under test</th><th>Target scope</th><th>Status</th><th>Runs</th><th>Success</th><th>Observed result</th></tr></thead>
+          <tbody id="experiment-evidence"></tbody>
+        </table>
+        <h3>Current device run database</h3>
+        <p class="experiment-note" id="experiment-live-note">Only terminal runs are counted. These rows are grouped by Target Fruit, requested yaw, and the frozen bearing-routing flag.</p>
+        <table>
+          <thead><tr><th>Target Fruit</th><th>Routing</th><th>Yaw</th><th>Terminal runs</th><th>Lock</th><th>Success</th></tr></thead>
           <tbody id="experiment-results"></tbody>
         </table>
       </section>
@@ -204,6 +212,8 @@
       const tuningFields = document.querySelector('#run-tuning-fields');
       const effectiveTuning = document.querySelector('#effective-tuning');
       const experimentResults = document.querySelector('#experiment-results');
+      const experimentEvidence = document.querySelector('#experiment-evidence');
+      const experimentLiveNote = document.querySelector('#experiment-live-note');
       const searchTrace = document.querySelector('#search-trace');
       const cohortRuns = document.querySelector('#cohort-runs');
       const cohortRandomized = document.querySelector('#cohort-randomized');
@@ -401,10 +411,39 @@
       async function refreshExperiments() {
         try {
           const body = await readJson(await fetch('/api/experiments/search'));
+          experimentEvidence.replaceChildren(...body.experiments.map((experiment) => {
+            const row = document.createElement('tr');
+            const status = experiment.status === 'NOT_RUN'
+              ? 'Not run'
+              : experiment.status === 'COMPLETED_AFTER_SAFE_RESUME'
+              ? 'Completed after safe resume'
+              : 'Completed';
+            const success = experiment.attempted_runs
+              ? `${experiment.successful_runs}/${experiment.attempted_runs}`
+              : '—';
+            for (const value of [
+              experiment.name,
+              experiment.feature_under_test,
+              experiment.target_scope,
+              status,
+              `${experiment.attempted_runs}/${experiment.planned_runs}`,
+              success,
+              experiment.result,
+            ]) {
+              const cell = document.createElement('td');
+              cell.textContent = value;
+              if (value === status) cell.className = 'experiment-status';
+              row.appendChild(cell);
+            }
+            return row;
+          }));
           experimentResults.replaceChildren(...body.cohorts.map((cohort) => {
             const row = document.createElement('tr');
             for (const value of [
               cohort.target_fruit,
+              cohort.bearing_routing === 'NOT_RECORDED'
+                ? 'Not recorded'
+                : cohort.bearing_routing,
               `${cohort.search_yaw_rps.toFixed(2)} rad/s`,
               cohort.runs,
               `${cohort.lock_rate_percent.toFixed(1)}%`,
@@ -416,6 +455,9 @@
             }
             return row;
           }));
+          experimentLiveNote.textContent = body.non_terminal_runs_excluded
+            ? `${body.note} ${body.non_terminal_runs_excluded} non-terminal run(s) excluded.`
+            : body.note;
         } catch (_error) {
           // Readiness remains authoritative; scorecard failure cannot arm motion.
         }

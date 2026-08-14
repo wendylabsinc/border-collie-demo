@@ -1121,10 +1121,43 @@ def test_stage_ui_renders_server_owned_run_tuning_and_posts_snapshot(
     assert "confidence" in response.text
     assert "tuning: tuningPayload()" in response.text
     assert "fetch('/api/experiments/search')" in response.text
+    assert 'id="experiment-evidence"' in response.text
+    assert "Feature under test" in response.text
+    assert "bearing_routing" in response.text
     # woof.local is served over plain HTTP, where Web Crypto UUID generation is
     # unavailable. The API already creates the durable activation ID.
     assert "crypto.randomUUID" not in response.text
     assert "activation_id:" not in response.text
+
+
+def test_search_experiment_api_distinguishes_completed_and_unrun_evidence(
+    tmp_path,
+) -> None:
+    with TestClient(create_app(runs_root=tmp_path)) as client:
+        response = client.get("/api/experiments/search")
+
+    assert response.status_code == 200
+    body = response.json()
+    experiments = {item["experiment_id"]: item for item in body["experiments"]}
+    routing_ab = experiments["bearing-routing-flag-ab"]
+    assert routing_ab["feature_under_test"] == "Mapped bearing routing OFF versus ON"
+    assert routing_ab["target_scope"] == "Banana (controlled target)"
+    assert routing_ab["status"] == "COMPLETED"
+    assert routing_ab["successful_runs"] == 2
+    assert experiments["bearing-routing-on-random-ten"] == {
+        "experiment_id": "bearing-routing-on-random-ten",
+        "name": "Bearing-routing ON randomized cohort",
+        "feature_under_test": (
+            "Mapped bearing routing enabled for a ten-run three-fruit cohort"
+        ),
+        "target_scope": "Apple, Banana, and Pear (randomized)",
+        "status": "NOT_RUN",
+        "planned_runs": 10,
+        "attempted_runs": 0,
+        "successful_runs": 0,
+        "result": "Planned; no checked-in run-result artifact exists yet.",
+        "evidence_paths": [],
+    }
 
 
 def test_status_exposes_selected_fruit_confidence_defaults_and_ranges(tmp_path) -> None:

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import math
 import os
 from collections.abc import Mapping
+from copy import deepcopy
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from .fruits import fruit_policy
@@ -24,6 +27,14 @@ _CONFIDENCE_RANGES: dict[str, dict[str, tuple[float, float]]] = {
         "lock_confidence": (0.65, 0.85),
     },
 }
+
+_EVIDENCE_PATH = Path(__file__).with_name("search_experiment_evidence.json")
+
+
+def search_experiment_evidence() -> dict[str, object]:
+    """Return the checked-in physical experiment index shown in the UI."""
+
+    return deepcopy(json.loads(_EVIDENCE_PATH.read_text(encoding="utf-8")))
 
 
 def search_experiment_contract() -> dict[str, object]:
@@ -225,7 +236,8 @@ def confidence_summary(
 
 
 def search_experiment_scorecard(runs: list[dict[str, Any]]) -> dict[str, object]:
-    cohorts: dict[tuple[str, float], dict[str, object]] = {}
+    cohorts: dict[tuple[str, float, str], dict[str, object]] = {}
+    non_terminal_runs = 0
     for run in runs:
         tuning = run.get("search_experiment")
         if not isinstance(tuning, dict):
@@ -239,12 +251,33 @@ def search_experiment_scorecard(runs: list[dict[str, Any]]) -> dict[str, object]
             or (tuning_fruit is not None and tuning_fruit != fruit)
         ):
             continue
-        key = (fruit, float(yaw))
+        outcome = run.get("outcome")
+        if outcome is None:
+            non_terminal_runs += 1
+            continue
+        run_tuning = run.get("run_tuning")
+        search_tuning = (
+            run_tuning.get("search") if isinstance(run_tuning, dict) else None
+        )
+        routing_value = (
+            search_tuning.get("bearing_routing_enabled")
+            if isinstance(search_tuning, dict)
+            else None
+        )
+        routing = (
+            "ON"
+            if routing_value is True
+            else "OFF"
+            if routing_value is False
+            else "NOT_RECORDED"
+        )
+        key = (fruit, float(yaw), routing)
         cohort = cohorts.setdefault(
             key,
             {
                 "target_fruit": fruit,
                 "search_yaw_rps": float(yaw),
+                "bearing_routing": routing,
                 "runs": 0,
                 "locks": 0,
                 "successes": 0,
@@ -268,9 +301,21 @@ def search_experiment_scorecard(runs: list[dict[str, Any]]) -> dict[str, object]
             1,
         )
         values.append(cohort)
+    evidence = search_experiment_evidence()
     return {
+        "schema_version": 2,
+        "note": (
+            "Only terminal runs are counted. Routing is NOT_RECORDED for runs "
+            "created before the per-run routing flag was persisted."
+        ),
+        "non_terminal_runs_excluded": non_terminal_runs,
         "cohorts": sorted(
             values,
-            key=lambda item: (str(item["target_fruit"]), item["search_yaw_rps"]),
-        )
+            key=lambda item: (
+                str(item["target_fruit"]),
+                item["search_yaw_rps"],
+                str(item["bearing_routing"]),
+            ),
+        ),
+        "experiments": evidence["experiments"],
     }

@@ -29,6 +29,9 @@ border-collie-demo = "border_collie_demo.main:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+border_collie_demo = ["*.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"

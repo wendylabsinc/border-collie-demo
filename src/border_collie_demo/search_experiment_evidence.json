@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "experiments": [
+    {
+      "experiment_id": "bearing-routing-flag-ab",
+      "name": "Bearing-routing flag A/B",
+      "feature_under_test": "Mapped bearing routing OFF versus ON",
+      "target_scope": "Banana (controlled target)",
+      "status": "COMPLETED",
+      "planned_runs": 2,
+      "attempted_runs": 2,
+      "successful_runs": 2,
+      "result": "Routing ON reduced post-route search samples by 58.7% and search rotation by 84.6%, but the complete run was 7.63 s slower.",
+      "evidence_paths": [
+        "benchmarks/results/2026-08-13-bearing-routing-flag-ab.json"
+      ]
+    },
+    {
+      "experiment_id": "stationary-jump-random-five",
+      "name": "Stationary-jump randomized cohort",
+      "feature_under_test": "Stationary lower-edge jump rejection",
+      "target_scope": "Apple, Banana, and Pear (randomized)",
+      "status": "COMPLETED",
+      "planned_runs": 5,
+      "attempted_runs": 5,
+      "successful_runs": 5,
+      "result": "5/5 end-to-end successes.",
+      "evidence_paths": [
+        "benchmarks/results/2026-08-13-random-five-stationary-jump.json"
+      ]
+    },
+    {
+      "experiment_id": "final-demo-random-ten",
+      "name": "Canonical demo/final randomized cohort",
+      "feature_under_test": "End-to-end three-fruit repeatability",
+      "target_scope": "Apple, Banana, and Pear (randomized)",
+      "status": "COMPLETED",
+      "planned_runs": 10,
+      "attempted_runs": 10,
+      "successful_runs": 8,
+      "result": "8/10 end-to-end successes; Apple and Pear each had one target-recognition failure.",
+      "evidence_paths": [
+        "benchmarks/results/2026-08-13-random-ten-final-demo.json"
+      ]
+    },
+    {
+      "experiment_id": "final-demo-second-random-ten",
+      "name": "Second demo/final randomized cohort",
+      "feature_under_test": "End-to-end three-fruit repeatability",
+      "target_scope": "Apple, Banana, and Pear (randomized)",
+      "status": "COMPLETED_AFTER_SAFE_RESUME",
+      "planned_runs": 10,
+      "attempted_runs": 10,
+      "successful_runs": 7,
+      "result": "7/10 end-to-end successes across three safely resumed segments; failures were camera, target recognition, and Return Home.",
+      "evidence_paths": [
+        "benchmarks/results/2026-08-13-random-ten-final-demo-2.json",
+        "benchmarks/results/2026-08-13-random-ten-final-demo-2-continuation.json",
+        "benchmarks/results/2026-08-13-random-ten-final-demo-2-continuation-2.json"
+      ]
+    },
+    {
+      "experiment_id": "bearing-routing-on-random-ten",
+      "name": "Bearing-routing ON randomized cohort",
+      "feature_under_test": "Mapped bearing routing enabled for a ten-run three-fruit cohort",
+      "target_scope": "Apple, Banana, and Pear (randomized)",
+      "status": "NOT_RUN",
+      "planned_runs": 10,
+      "attempted_runs": 0,
+      "successful_runs": 0,
+      "result": "Planned; no checked-in run-result artifact exists yet.",
+      "evidence_paths": []
+    }
+  ]
+}
