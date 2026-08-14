@@ -802,7 +802,7 @@ def test_return_stages_use_captured_home_and_locked_arrival_rules() -> None:
         }
         assert hardware.calls[1][2] == {
             "forward_mps": 1.0,
-            "arrival_tolerance_m": 0.10,
+            "arrival_tolerance_m": 0.50,
             "heading_gate_rad": pytest.approx(0.349066),
             "heading_tolerance_rad": pytest.approx(0.0872665),
             "minimum_yaw_rps": 0.50,

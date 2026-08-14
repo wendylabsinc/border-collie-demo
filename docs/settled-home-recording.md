@@ -45,6 +45,14 @@ during fruit search cannot exhaust the bounded Home window. The app exposes
 that file read-only at `GET /api/results/<run-id>/home-deep.ndjson`, and the
 recorder exposes health only at port 8112 `GET /status`.
 
+A non-finite DDS pose is rejected and increments `rejected_pose_samples`; it
+does not advance the pose sequence or get written into a run trace. Readiness
+fails closed until three finite samples with advancing local capture times have
+arrived. Those samples clear only the transient pose fault—journal, storage,
+and subscriber errors remain independently sticky. `GET /status` reports the
+recovery count and required confirmations so an operator can distinguish a
+recovering sensor stream from a permanently failed recorder.
+
 The first deployment changes the shared descriptor and must therefore use a
 whole-project `wendy run --detach`. After that, the recorder owns a separate
 Stagefile, lock, and build context, so an app source iteration with

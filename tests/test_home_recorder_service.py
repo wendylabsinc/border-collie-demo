@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
+import types
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,6 +31,111 @@ def app_event(run_id: str, sequence: int, kind: str, phase: str, payload: dict):
         "phase": phase,
         "payload": payload,
     }
+
+
+def test_passive_dds_reader_recovers_after_one_nonfinite_pose_sample(
+    tmp_path, monkeypatch
+) -> None:
+    module = load_module()
+    callbacks = []
+
+    class FakeSubscriber:
+        def __init__(self, topic, message_type) -> None:
+            assert topic == "rt/sportmodestate"
+            assert message_type is FakeSportModeState
+
+        def Init(self, callback, queue_depth) -> None:
+            assert queue_depth == 1
+            callbacks.append(callback)
+
+    class FakeSportModeState:
+        pass
+
+    channel = types.ModuleType("unitree_sdk2py.core.channel")
+    channel.ChannelFactoryInitialize = lambda domain, interface: (domain, interface)
+    channel.ChannelSubscriber = FakeSubscriber
+    sport_state = types.ModuleType("unitree_sdk2py.idl.unitree_go.msg.dds_")
+    sport_state.SportModeState_ = FakeSportModeState
+    monkeypatch.setitem(sys.modules, "unitree_sdk2py", types.ModuleType("unitree_sdk2py"))
+    monkeypatch.setitem(
+        sys.modules, "unitree_sdk2py.core", types.ModuleType("unitree_sdk2py.core")
+    )
+    monkeypatch.setitem(sys.modules, "unitree_sdk2py.core.channel", channel)
+    monkeypatch.setitem(
+        sys.modules, "unitree_sdk2py.idl", types.ModuleType("unitree_sdk2py.idl")
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "unitree_sdk2py.idl.unitree_go",
+        types.ModuleType("unitree_sdk2py.idl.unitree_go"),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "unitree_sdk2py.idl.unitree_go.msg",
+        types.ModuleType("unitree_sdk2py.idl.unitree_go.msg"),
+    )
+    monkeypatch.setitem(sys.modules, "unitree_sdk2py.idl.unitree_go.msg.dds_", sport_state)
+    captured_times = iter((1.0, 2.0, 3.0, 3.0, 4.0, 5.0))
+    monkeypatch.setattr(module.time, "monotonic", lambda: next(captured_times))
+
+    recorder = module.HomeTimelineRecorder(tmp_path)
+    module.start_pose_subscriber(recorder, "enP8p1s0")
+    assert len(callbacks) == 1
+
+    def publish(x_m: float) -> None:
+        callbacks[0](
+            SimpleNamespace(
+                position=[x_m, 2.0],
+                imu_state=SimpleNamespace(rpy=[0.0, 0.0, 0.25]),
+            )
+        )
+
+    publish(1.0)
+    assert recorder.status()["ready"] is True
+
+    publish(float("nan"))
+    fault = recorder.status()
+    assert fault["ready"] is False
+    assert fault["last_error"] == "non-finite pose sample"
+    assert fault["pose_sequence"] == 1
+    assert fault["rejected_pose_samples"] == 1
+
+    publish(1.1)
+    # A duplicate timestamp is finite but not fresh and cannot qualify
+    # recovery by itself.
+    publish(1.15)
+    publish(1.2)
+    assert recorder.status()["ready"] is False
+
+    publish(1.3)
+    recovered = recorder.status()
+    assert recovered["ready"] is True
+    assert recovered["last_error"] is None
+    assert recovered["pose_sequence"] == 5
+    assert recovered["rejected_pose_samples"] == 1
+    assert recovered["consecutive_finite_pose_samples"] == 3
+
+
+def test_finite_pose_recovery_does_not_clear_independent_recorder_errors(
+    tmp_path,
+) -> None:
+    module = load_module()
+    recorder = module.HomeTimelineRecorder(tmp_path)
+    recorder.set_error("event journal unavailable")
+
+    recorder.record_pose(float("nan"), 0.0, 0.0, captured_monotonic_s=1.0)
+    for sequence in range(2, 5):
+        recorder.record_pose(
+            float(sequence),
+            0.0,
+            0.0,
+            captured_monotonic_s=float(sequence),
+        )
+
+    status = recorder.status()
+    assert status["ready"] is False
+    assert status["last_error"] == "event journal unavailable"
+    assert status["rejected_pose_samples"] == 1
 
 
 def test_passive_service_correlates_high_rate_pose_with_home_and_commands(tmp_path) -> None:

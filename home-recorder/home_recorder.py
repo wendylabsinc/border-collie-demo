@@ -18,6 +18,7 @@ from typing import Any
 from uuid import UUID
 
 SCHEMA_VERSION = 1
+POSE_RECOVERY_CONFIRMATIONS = 3
 RECORDED_HOME_PHASES = frozenset(
     {
         "turn_toward_home",
@@ -40,6 +41,10 @@ class HomeTimelineRecorder:
         self._runs: dict[str, dict[str, Any]] = {}
         self._counts: dict[str, int] = {}
         self._pose_sequence = 0
+        self._rejected_pose_samples = 0
+        self._consecutive_finite_pose_samples = 0
+        self._last_finite_pose_monotonic_s: float | None = None
+        self._pose_error: str | None = None
         self._dropped_events = 0
         self._last_error: str | None = None
 
@@ -136,9 +141,27 @@ class HomeTimelineRecorder:
     ) -> None:
         values = (x_m, y_m, yaw_rad, captured_monotonic_s)
         if not all(math.isfinite(value) for value in values):
-            self._last_error = "non-finite pose sample"
+            with self._lock:
+                self._rejected_pose_samples += 1
+                self._consecutive_finite_pose_samples = 0
+                self._pose_error = "non-finite pose sample"
             return
         with self._lock:
+            if (
+                self._last_finite_pose_monotonic_s is None
+                or captured_monotonic_s > self._last_finite_pose_monotonic_s
+            ):
+                self._last_finite_pose_monotonic_s = captured_monotonic_s
+                self._consecutive_finite_pose_samples = min(
+                    POSE_RECOVERY_CONFIRMATIONS,
+                    self._consecutive_finite_pose_samples + 1,
+                )
+                if (
+                    self._pose_error is not None
+                    and self._consecutive_finite_pose_samples
+                    >= POSE_RECOVERY_CONFIRMATIONS
+                ):
+                    self._pose_error = None
             self._pose_sequence += 1
             for run_id, context in tuple(self._runs.items()):
                 if not context["recording"]:
@@ -178,17 +201,23 @@ class HomeTimelineRecorder:
 
     def status(self) -> dict[str, object]:
         with self._lock:
+            last_error = self._last_error or self._pose_error
             return {
                 "schema_version": SCHEMA_VERSION,
-                "ready": self._last_error is None and self._pose_sequence > 0,
+                "ready": last_error is None and self._pose_sequence > 0,
                 "strictly_passive": True,
                 "source": "rt/sportmodestate",
                 "source_available": self._pose_sequence > 0,
                 "active_run_ids": sorted(self._runs),
                 "pose_sequence": self._pose_sequence,
+                "rejected_pose_samples": self._rejected_pose_samples,
+                "consecutive_finite_pose_samples": (
+                    self._consecutive_finite_pose_samples
+                ),
+                "pose_recovery_confirmations_required": POSE_RECOVERY_CONFIRMATIONS,
                 "dropped_events": self._dropped_events,
                 "maximum_events_per_run": self.maximum_events_per_run,
-                "last_error": self._last_error,
+                "last_error": last_error,
             }
 
     def set_error(self, error: str | None) -> None:
