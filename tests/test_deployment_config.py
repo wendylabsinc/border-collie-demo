@@ -14,6 +14,7 @@ def test_motion_defaults_are_owned_only_by_the_app_service() -> None:
     assert app_env["BORDER_COLLIE_APPLE_FOCUS_CONFIDENCE"] == "0.40"
     assert app_env["BORDER_COLLIE_APPLE_ACQUISITION_CONFIDENCE"] == "0.40"
     assert app_env["BORDER_COLLIE_STAGE_HOME_MARGIN_M"] == "0.50"
+    assert app_env["BORDER_COLLIE_HOME_ALIGN_YAW_RPS"] == "0.80"
     assert app_env["BORDER_COLLIE_GUIDANCE_FOCUS_YAW_RPS"] == "0.40"
     assert app_env["BORDER_COLLIE_GUIDANCE_FINAL_PUSH_MPS"] == "0.60"
     assert app_env["BORDER_COLLIE_GUIDANCE_FINAL_PUSH_DURATION_S"] == "1.0"

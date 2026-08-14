@@ -8,7 +8,7 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
-from .fruit_bearing_map import HOME_POSITION_TOLERANCE_M, FruitBearingMap
+from .fruit_bearing_map import FruitBearingMap
 from .fruits import fruit_policy
 from .guidance import FruitGuidance, GuidanceConfig, GuidancePhase
 from .hardware import CameraFailure, HardwareUnavailable, TargetLost
@@ -29,6 +29,7 @@ class BarkPort(Protocol):
 DOWN_HOLD_S = 5.0
 ARRIVAL_STOP_SETTLE_S = 1.0
 STAND_UP_SETTLE_S = 1.0
+BEARING_ROUTE_YAW_RPS = 0.50
 
 
 class ProductionStageExecutor:
@@ -448,48 +449,6 @@ class ProductionStageExecutor:
         camera_status = self._perception_status()
         generation = camera_status.get("generation")
         current_home["generation"] = generation
-        anchor = map_status.get("anchor")
-        if isinstance(anchor, dict):
-            position_error = math.hypot(
-                float(current_home["x_m"]) - float(anchor["x_m"]),
-                float(current_home["y_m"]) - float(anchor["y_m"]),
-            )
-            yaw_error = math.atan2(
-                math.sin(float(anchor["yaw_rad"]) - float(current_home["yaw_rad"])),
-                math.cos(float(anchor["yaw_rad"]) - float(current_home["yaw_rad"])),
-            )
-            if (
-                position_error <= HOME_POSITION_TOLERANCE_M
-                and abs(yaw_error) > math.radians(5.0)
-            ):
-                capture_home = getattr(self._hardware, "capture_home", None)
-                if not callable(capture_home):
-                    self._bearing_map.invalidate("home_yaw_alignment_unavailable")
-                    return current_home, {
-                        "available": False,
-                        "reason": "home_yaw_alignment_unavailable",
-                        "authority": "yaw_route_only",
-                    }
-                try:
-                    await self._hardware.turn_relative(
-                        yaw_error,
-                        yaw_rps=self._run_tuning.home.align_yaw_rps,
-                        tolerance_rad=math.radians(
-                            self._run_tuning.home.align_tolerance_deg
-                        ),
-                        timeout_s=self._run_tuning.home.align_timeout_s,
-                        motion_path="sport_yaw",
-                    )
-                    current_home = dict(capture_home())
-                    current_home["generation"] = generation
-                except HardwareUnavailable:
-                    self._bearing_map.invalidate("home_yaw_alignment_failed")
-                    return current_home, {
-                        "available": False,
-                        "reason": "home_yaw_alignment_failed",
-                        "authority": "yaw_route_only",
-                    }
-
         route = self._bearing_map.route_to(context.target_fruit, current_home)
         route_evidence = {**route.to_dict(), "authority": "yaw_route_only"}
         if (
@@ -500,7 +459,7 @@ class ProductionStageExecutor:
         ):
             route_evidence["turn"] = await self._hardware.turn_relative(
                 route.angular_delta_rad,
-                yaw_rps=self._run_tuning.home.align_yaw_rps,
+                yaw_rps=BEARING_ROUTE_YAW_RPS,
                 tolerance_rad=math.radians(
                     self._run_tuning.home.align_tolerance_deg
                 ),

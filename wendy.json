@@ -1,12 +1,12 @@
 {
   "appId": "border-collie-demo",
-  "version": "1.1.6-stage-default",
+  "version": "1.1.7-stage-default",
   "services": {
     "app": {
       "context": ".",
       "env": {
         "BORDER_COLLIE_PORT": "8110",
-        "BORDER_COLLIE_BUILD_LABEL": "stage-default-v7-thermal-audio-lease",
+        "BORDER_COLLIE_BUILD_LABEL": "stage-default-v8-bearing-heading-home-turn",
         "BORDER_COLLIE_RUNTIME_MODE": "production",
         "BORDER_COLLIE_HARDWARE_ENABLED": "1",
         "BORDER_COLLIE_AUTONOMY_ENABLED": "1",
@@ -31,6 +31,7 @@
         "BORDER_COLLIE_HOME_RECORDING_EVENTS_DIR": "/state/home-recorder/events",
         "BORDER_COLLIE_HOME_RECORDINGS_DIR": "/state/home-recorder/runs",
         "BORDER_COLLIE_HOME_RECORDER_STATUS_URL": "http://127.0.0.1:8112/status",
+        "BORDER_COLLIE_HOME_ALIGN_YAW_RPS": "0.80",
         "BORDER_COLLIE_HOME_ARRIVAL_TOLERANCE_M": "0.50",
         "BORDER_COLLIE_HOME_SETTLE_INTERVAL_S": "0.30",
         "BORDER_COLLIE_HOME_SETTLED_SAMPLE_COUNT": "4",
@@ -122,7 +123,7 @@
         "PORT": "8092",
         "ACTION_MODE": "border_collie",
         "BORDER_COLLIE_URL": "http://127.0.0.1:8110",
-        "BORDER_COLLIE_EXPECTED_BUILD_LABEL": "stage-default-v7-thermal-audio-lease",
+        "BORDER_COLLIE_EXPECTED_BUILD_LABEL": "stage-default-v8-bearing-heading-home-turn",
         "CONTINUOUS_TRANSCRIPTION": "0",
         "AUTO_ARM_ACTIONS": "1",
         "AUDIO_DEVICE": "DJI MIC MINI",

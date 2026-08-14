@@ -90,11 +90,11 @@ def test_off_axis_observation_is_diagnostic_only_and_cannot_create_route() -> No
     assert route.reason == "map_unanchored"
 
 
-def test_home_position_mismatch_invalidates_map() -> None:
+def test_route_uses_current_home_heading_even_when_home_position_changed() -> None:
     bearing_map = FruitBearingMap(clock=lambda: 10.0)
     bearing_map.observe(
         home_pose=HOME,
-        robot_pose=HOME,
+        robot_pose={**HOME, "yaw_rad": math.radians(120.0)},
         frame_identity=FRAME,
         observations={"pear": observation("pear", 0.8, 0.5)},
     )
@@ -103,18 +103,24 @@ def test_home_position_mismatch_invalidates_map() -> None:
         "pear",
         {
             **HOME,
-            "x_m": 1.1001,
+            "x_m": 1.50,
+            "y_m": -1.50,
+            "yaw_rad": math.radians(-170.0),
             "generation": "camera-a",
             "odometry_epoch": "odom-a",
         },
     )
 
-    assert route.available is False
-    assert route.reason == "home_position_mismatch"
-    assert bearing_map.status()["invalidation_reason"] == "home_position_mismatch"
+    assert route.available is True
+    assert route.angular_delta_rad == pytest.approx(math.radians(-70.0))
+    assert route.direction == "right"
+    assert bearing_map.status()["valid"] is True
+    assert bearing_map.status()["current_home_position_error_m"] == pytest.approx(
+        math.hypot(0.5, 0.5)
+    )
 
 
-def test_home_yaw_mismatch_invalidates_map() -> None:
+def test_home_yaw_difference_is_route_input_not_map_invalidation() -> None:
     bearing_map = FruitBearingMap(clock=lambda: 10.0)
     bearing_map.observe(
         home_pose=HOME,
@@ -133,8 +139,9 @@ def test_home_yaw_mismatch_invalidates_map() -> None:
         },
     )
 
-    assert route.available is False
-    assert route.reason == "home_yaw_mismatch"
+    assert route.available is True
+    assert route.angular_delta_rad == pytest.approx(math.radians(-5.01))
+    assert route.direction == "right"
     assert bearing_map.status()["current_home_yaw_error_deg"] == pytest.approx(5.01)
 
 

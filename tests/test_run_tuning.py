@@ -40,6 +40,7 @@ def test_defaults_keep_target_confidence_and_share_the_search_contract() -> None
     assert pear.arrival.disappearance_bottom_ratio == 0.80
     assert pear.arrival.final_push_mps == 0.60
     assert pear.arrival.final_push_duration_s == 1.0
+    assert pear.home.align_yaw_rps == 0.80
     assert pear.home.arrival_tolerance_m == 0.50
     assert pear.home.settle_interval_s == 0.30
     assert pear.home.settled_sample_count == 4
@@ -87,6 +88,18 @@ def test_bearing_routing_default_is_env_backed_and_frozen_per_run(
     assert from_env.search.bearing_routing_enabled is True
     assert overridden.search.bearing_routing_enabled is False
     assert overridden.to_dict()["search"]["bearing_routing_enabled"] is False
+
+
+def test_home_turn_yaw_default_is_env_backed_without_changing_search(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("BORDER_COLLIE_HOME_ALIGN_YAW_RPS", "0.75")
+
+    tuning = RunTuning.defaults("pear")
+
+    assert tuning.home.align_yaw_rps == 0.75
+    assert tuning.search.yaw_rps == 0.40
+    assert tuning.search.focus_yaw_rps == 0.40
 
 
 @pytest.mark.parametrize(

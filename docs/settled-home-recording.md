@@ -7,8 +7,8 @@ bounded spread. One bounded position-only retry is allowed; no Home-heading
 restoration movement is issued.
 
 The deployable identity for this contract is application version
-`1.1.6-stage-default`, build label
-`stage-default-v7-thermal-audio-lease`.
+`1.1.7-stage-default`, build label
+`stage-default-v8-bearing-heading-home-turn`.
 
 ## Thermal alarm audio lease
 
@@ -30,6 +30,7 @@ All settings are read when the app service starts and are also reported in the
 
 | Environment variable | Units | Default | Valid range | Safety meaning |
 | --- | --- | ---: | ---: | --- |
+| `BORDER_COLLIE_HOME_ALIGN_YAW_RPS` | rad/s | `0.80` | `0.50..0.80` | Applies only to yaw-only `TURN_TOWARD_HOME`; search and fruit-route yaw retain independent rates. |
 | `BORDER_COLLIE_HOME_ARRIVAL_TOLERANCE_M` | meters | `0.50` | `0.05..0.50` | Every settled sample must remain inside this position gate. |
 | `BORDER_COLLIE_HOME_SETTLE_INTERVAL_S` | seconds | `0.30` | `0..2` | Exact-zero quiet time before verification. |
 | `BORDER_COLLIE_HOME_SETTLED_SAMPLE_COUNT` | samples | `4` | `3..5` | Consecutive advancing fresh poses required. |

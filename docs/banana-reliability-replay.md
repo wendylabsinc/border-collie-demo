@@ -19,11 +19,13 @@ The command exits nonzero if any contract regresses. It replays:
   observations while selected-target guidance remains isolated;
 - centered observations map confidence-weighted robot-local bearings, route by
   the shortest signed turn, and reject stale or contradictory evidence; and
-- reuse requires the same camera generation and odometry epoch plus Home within
-  0.10 m and 5 degrees, including post-yaw exact-stop remeasurement.
+- reuse requires the same camera generation and odometry epoch; the shortest
+  turn is calculated from the new run's fresh captured Home heading. Home
+  position offset is recorded but does not invalidate yaw-only routing.
 
-Routing is an A/B control, not a deployment-time fork. The deployment default
-is `BORDER_COLLIE_BEARING_ROUTING_ENABLED=0`; each immutable Demo Run exposes
+Routing is an A/B control, not a deployment-time fork. The library default is
+`BORDER_COLLIE_BEARING_ROUTING_ENABLED=0`; the current stage descriptor sets it
+to `1`. Each immutable Demo Run exposes
 the matching UI field `search.bearing_routing_enabled`. Recording remains on in
 both variants. A baseline run with `false` performs the established broad scan
 and can populate the process-local map without a map-induced turn. A subsequent

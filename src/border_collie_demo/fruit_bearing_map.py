@@ -1,9 +1,12 @@
-"""Process-local, camera-observed fruit bearings anchored to qualified Home.
+"""Process-local, camera-observed fruit bearings in one odometry epoch.
 
 The map is intentionally advisory: it can choose a bounded yaw direction, but
 it never authorizes translation, target identity, or Arrival.  No camera FOV is
 assumed, so only centered full-frame observations contribute a body-yaw
-bearing.  Ordinary selected-target guidance must reacquire after any map turn.
+bearing.  A new run computes the shortest turn from its freshly captured Home
+heading.  Home translation is diagnostic rather than an invalidator because
+the map never authorizes translation or Arrival; ordinary selected-target
+guidance must reacquire after any map turn.
 """
 
 from __future__ import annotations
@@ -16,8 +19,6 @@ from dataclasses import dataclass
 from .fruits import SUPPORTED_FRUITS
 from .return_home import normalize_angle
 
-HOME_POSITION_TOLERANCE_M = 0.10
-HOME_YAW_TOLERANCE_RAD = math.radians(5.0)
 POSE_MAXIMUM_AGE_S = 0.50
 CENTER_TOLERANCE_RATIO = 0.12
 MINIMUM_OBSERVATION_CONFIDENCE = 0.01
@@ -259,8 +260,10 @@ class FruitBearingMap:
             },
             "thresholds": {
                 "center_tolerance_ratio": self._center_tolerance_ratio,
-                "home_position_tolerance_m": HOME_POSITION_TOLERANCE_M,
-                "home_yaw_tolerance_deg": math.degrees(HOME_YAW_TOLERANCE_RAD),
+                "home_position_tolerance_m": None,
+                "home_yaw_tolerance_deg": None,
+                "home_position_enforced": False,
+                "home_yaw_enforced": False,
                 "pose_maximum_age_s": POSE_MAXIMUM_AGE_S,
                 "maximum_bearing_age_s": self._maximum_bearing_age_s,
                 "contradiction_tolerance_deg": math.degrees(
@@ -268,6 +271,7 @@ class FruitBearingMap:
                 ),
             },
             "authority": "yaw_route_only",
+            "reference": "odometry_epoch_and_current_heading",
             "persistence": "process_local",
         }
 
@@ -293,10 +297,6 @@ class FruitBearingMap:
         self._current_yaw_error_rad = abs(
             normalize_angle(pose[2] - float(self._anchor["yaw_rad"]))
         )
-        if self._current_position_error_m > HOME_POSITION_TOLERANCE_M:
-            return "home_position_mismatch"
-        if self._current_yaw_error_rad > HOME_YAW_TOLERANCE_RAD:
-            return "home_yaw_mismatch"
         return None
 
 

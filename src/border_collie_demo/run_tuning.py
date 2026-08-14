@@ -132,7 +132,7 @@ class ArrivalTuning:
 
 @dataclass(frozen=True)
 class HomeTuning:
-    align_yaw_rps: float = 0.50
+    align_yaw_rps: float = 0.80
     align_tolerance_deg: float = 5.0
     align_timeout_s: float = 30.0
     return_forward_mps: float = 1.0
@@ -153,6 +153,9 @@ class HomeTuning:
     @classmethod
     def from_env(cls) -> HomeTuning:
         values: dict[str, object] = {
+            "align_yaw_rps": os.environ.get(
+                "BORDER_COLLIE_HOME_ALIGN_YAW_RPS", "0.80"
+            ),
             "arrival_tolerance_m": os.environ.get(
                 "BORDER_COLLIE_HOME_ARRIVAL_TOLERANCE_M", "0.50"
             ),
@@ -173,6 +176,7 @@ class HomeTuning:
             ),
         }
         return cls(
+            align_yaw_rps=_number(values, "align_yaw_rps", 0.80, 0.50, 0.80),
             arrival_tolerance_m=_number(
                 values, "arrival_tolerance_m", 0.50, 0.05, 0.50
             ),

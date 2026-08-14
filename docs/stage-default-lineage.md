@@ -51,10 +51,11 @@ observations inside the existing fine-focus corridor (within 12% of image
 center) against the exact processed camera frame and measured body yaw; it may
 select a shortest Sports yaw-only turn, but normal selected-target guidance
 must still reacquire and alone can authorize translation or Arrival. Map reuse
-requires unchanged camera generation and odometry epoch plus a newly measured
-Home pose within 0.10 m and 5 degrees. This changes the shared media/app status
-contract, so it requires a whole-project deployment; the voice command path is
-otherwise unchanged.
+requires unchanged camera generation and odometry epoch. Later iterations use
+the new run's freshly captured Home heading to calculate the shortest signed
+turn and retain Home position offset as diagnostic evidence rather than a map
+invalidation. This changes the shared media/app status contract, so it requires
+a whole-project deployment; the voice command path is otherwise unchanged.
 
 The runtime/UI A/B switch is `BORDER_COLLIE_BEARING_ROUTING_ENABLED` and the
 frozen per-run `search.bearing_routing_enabled`, both defaulting to false.

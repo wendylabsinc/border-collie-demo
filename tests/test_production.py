@@ -500,7 +500,7 @@ def test_subsequent_run_uses_mapped_shortest_turn_then_normal_camera_guidance() 
     asyncio.run(scenario())
 
 
-def test_map_reuse_aligns_canonical_home_yaw_then_remeasures_before_routing() -> None:
+def test_map_reuse_routes_from_new_home_heading_without_position_or_yaw_realignment() -> None:
     class AligningHardware(FakeProductionHardware):
         def capture_home(self) -> dict[str, object]:
             self.calls.append(("capture_home",))
@@ -569,7 +569,7 @@ def test_map_reuse_aligns_canonical_home_yaw_then_remeasures_before_routing() ->
             StageContext(
                 run_id="second",
                 target_fruit="apple",
-                home={**common_home, "yaw_rad": 0.20},
+                home={**common_home, "x_m": 0.40, "yaw_rad": 0.20},
                 run_tuning=RunTuning.from_payload(
                     "apple", {"search": {"bearing_routing_enabled": True}}
                 ).to_dict(),
@@ -588,13 +588,14 @@ def test_map_reuse_aligns_canonical_home_yaw_then_remeasures_before_routing() ->
                     "motion_path": "sport_yaw",
                 },
             ),
-            ("capture_home",),
             ("guide_target", "apple"),
         ]
         assert evidence["fruit_bearing_route"]["available"] is True
-        assert evidence["fruit_bearing_route"]["direction"] == "aligned"
-        assert stages.bearing_map_status()["current_home_position_error_m"] == 0.0
-        assert stages.bearing_map_status()["current_home_yaw_error_deg"] == 0.0
+        assert evidence["fruit_bearing_route"]["direction"] == "right"
+        assert stages.bearing_map_status()["current_home_position_error_m"] == 0.4
+        assert stages.bearing_map_status()["current_home_yaw_error_deg"] == pytest.approx(
+            math.degrees(0.20)
+        )
 
     asyncio.run(scenario())
 
@@ -793,7 +794,7 @@ def test_return_stages_use_captured_home_and_locked_arrival_rules() -> None:
         ]
         assert all(call[1] == context().home for call in hardware.calls)
         assert hardware.calls[0][2] == {
-            "yaw_rps": 0.50,
+            "yaw_rps": 0.80,
             "tolerance_rad": pytest.approx(0.0872665),
             "response_timeout_s": 0.75,
             "response_min_progress_rad": pytest.approx(0.0349066),
@@ -821,6 +822,8 @@ def test_return_stages_use_captured_home_and_locked_arrival_rules() -> None:
         assert restored["heading_restoration_skipped"] is True
         assert restored["motion_commands_sent"] is False
         assert restored["settled_home_verified"] is True
+        assert RunTuning.defaults("pear").search.yaw_rps == 0.40
+        assert RunTuning.defaults("pear").search.focus_yaw_rps == 0.40
         assert restored["legacy_restore_heading_semantics"] == (
             "settled_position_verification_already_complete"
         )

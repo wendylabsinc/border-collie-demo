@@ -36,7 +36,9 @@ The executable, hardware-free design probe lives in
 2. Read a fresh pose and recompute bearing and distance to Home.
 3. In `TURN_TOWARD_HOME`, turn in place through regular SportClient until a new
    fresh pose proves the measured Home bearing is inside the qualified course
-   gate. This is the only Home phase that may issue yaw-only commands.
+   gate. This is the only Home phase that may issue yaw-only commands. The
+   current stage default is `0.80 rad/s`; search, fruit-bearing routing, and
+   moving Home steering retain independent yaw rates.
 4. In `RETURN_HOME`, arm factory obstacle avoidance and replay the recorded
    outbound forward-heartbeat count through a
    collision-aware motion owner while continuously measuring Home Distance,
