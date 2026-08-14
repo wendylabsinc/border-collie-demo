@@ -40,7 +40,9 @@ def _criterion(passed: bool | None, **details) -> dict:
     return {"passed": passed, **details}
 
 
-def _score_completion(runs: list[dict], target_runs: int) -> dict:
+def _score_completion(
+    runs: list[dict], target_runs: int, *, excluded: int = 0
+) -> dict:
     completed = [r for r in runs if r.get("outcome") == "COMPLETED"]
     takeovers = [r for r in runs if r.get("outcome") == "REMOTE_TAKEOVER"]
     harness_stops = [r for r in runs if r.get("harness_note")]
@@ -54,6 +56,7 @@ def _score_completion(runs: list[dict], target_runs: int) -> dict:
         completed=len(completed),
         attempted=len(runs),
         target_runs=target_runs,
+        excluded=excluded,
         remote_takeovers=len(takeovers),
         harness_stops=len(harness_stops),
     )
@@ -229,21 +232,52 @@ def _observations(runs: list[dict]) -> dict:
 
 def score_session(session: dict) -> dict:
     runs = session.get("runs") or []
+    eligible_runs = [
+        run for run in runs if run.get("reliability_eligible", True) is not False
+    ]
+    excluded_runs = [
+        run for run in runs if run.get("reliability_eligible", True) is False
+    ]
+    eligible_target_runs = max(
+        0, int(session.get("target_runs", 0)) - len(excluded_runs)
+    )
     return {
         "recorded_only": True,
         "note": "criteria are recorded, never enforced; the session continues regardless",
+        "operator_exclusions": {
+            "count": len(excluded_runs),
+            "runs": [
+                {
+                    "number": run.get("number"),
+                    "run_id": run.get("run_id"),
+                    "classification": (
+                        (run.get("operator_review") or {}).get("classification")
+                        or "excluded"
+                    ),
+                    "reason": (
+                        (run.get("operator_review") or {}).get("reason")
+                        or "operator excluded this attempt"
+                    ),
+                }
+                for run in excluded_runs
+            ],
+        },
         "criteria": {
-            "completion": _score_completion(runs, session.get("target_runs", 0)),
+            "completion": _score_completion(
+                eligible_runs,
+                eligible_target_runs,
+                excluded=len(excluded_runs),
+            ),
             "home_gate": _score_home_gate(runs),
             "fruit_coverage": _score_fruit_coverage(
-                runs, session.get("qualified_fruits")
+                eligible_runs, session.get("qualified_fruits")
             ),
-            "approach_confidence_floor": _score_confidence_floor(runs),
-            "network_stability": _score_network(runs),
-            "thermal_trend": _score_thermal(runs),
-            "dongle_visible": _score_dongle(runs),
+            "approach_confidence_floor": _score_confidence_floor(eligible_runs),
+            "network_stability": _score_network(eligible_runs),
+            "thermal_trend": _score_thermal(eligible_runs),
+            "dongle_visible": _score_dongle(eligible_runs),
         },
-        "observations": _observations(runs),
+        "observations": _observations(eligible_runs),
     }
 
 

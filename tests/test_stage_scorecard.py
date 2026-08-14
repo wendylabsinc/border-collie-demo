@@ -146,3 +146,43 @@ def test_observations_capture_lighting_signals():
     assert obs["approach_min_confidence_by_fruit"]["pear"]["runs"] == 1
     assert obs["acquisition_seconds_by_fruit"] == {"pear": [4.2], "apple": [9.8]}
     assert obs["lighting_frames"] == ["f/run-01.jpg"]
+
+
+def test_operator_intervention_is_excluded_from_reliability_but_keeps_home_evidence():
+    excluded = make_run(1, "pear", outcome="FAILED", home=0.06, errors=2)
+    excluded.update(
+        {
+            "reliability_eligible": False,
+            "operator_review": {
+                "classification": "operator_intervention",
+                "reason": "physical intervention invalidated the attempt",
+            },
+        }
+    )
+
+    card = score_session(
+        {
+            "target_runs": 1,
+            "qualified_fruits": ["apple", "banana", "pear"],
+            "runs": [excluded],
+        }
+    )
+
+    assert card["operator_exclusions"] == {
+        "count": 1,
+        "runs": [
+            {
+                "number": 1,
+                "run_id": None,
+                "classification": "operator_intervention",
+                "reason": "physical intervention invalidated the attempt",
+            }
+        ],
+    }
+    assert card["criteria"]["completion"]["passed"] is None
+    assert card["criteria"]["completion"]["attempted"] == 0
+    assert card["criteria"]["completion"]["excluded"] == 1
+    assert card["criteria"]["fruit_coverage"]["passed"] is None
+    assert card["criteria"]["network_stability"]["passed"] is None
+    assert card["criteria"]["home_gate"]["passed"] is True
+    assert card["criteria"]["home_gate"]["per_run"] == [0.06]

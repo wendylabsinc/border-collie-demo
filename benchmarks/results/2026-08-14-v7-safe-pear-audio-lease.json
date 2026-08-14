@@ -2,7 +2,7 @@
   "schema_version": 4,
   "session": "fruit-soak-2026-08-14T232633Z",
   "build_label": "stage-default-v7-thermal-audio-lease",
-  "note": "One supervised Pear run after thermal audio lease; no manual beep test",
+  "note": "One supervised Pear run after thermal audio lease; no manual beep test; operator-intervened attempt excluded from reliability scoring",
   "qualified_fruits": [
     "apple",
     "banana",
@@ -18205,6 +18205,13 @@
         "code": "FAILURE_POLICY_STOP",
         "detail": "TARGET_RECOGNITION_FAILURE in turn_to_fruit is configured to stop the cohort",
         "matched_selector": null
+      },
+      "reliability_eligible": false,
+      "operator_review": {
+        "classification": "operator_intervention",
+        "reason": "operator confirmed physical intervention invalidated the attempt",
+        "counts_as_demo_failure": false,
+        "reviewed_at_utc": "2026-08-14"
       }
     }
   ],
@@ -18212,12 +18219,24 @@
   "scorecard": {
     "recorded_only": true,
     "note": "criteria are recorded, never enforced; the session continues regardless",
+    "operator_exclusions": {
+      "count": 1,
+      "runs": [
+        {
+          "number": 1,
+          "run_id": "ff898adb-c864-4212-b6b4-d51649ed9a24",
+          "classification": "operator_intervention",
+          "reason": "operator confirmed physical intervention invalidated the attempt"
+        }
+      ]
+    },
     "criteria": {
       "completion": {
-        "passed": false,
+        "passed": null,
         "completed": 0,
-        "attempted": 1,
-        "target_runs": 1,
+        "attempted": 0,
+        "target_runs": 0,
+        "excluded": 1,
         "remote_takeovers": 0,
         "harness_stops": 0
       },
@@ -18231,7 +18250,8 @@
         "missing_measurements": 0
       },
       "fruit_coverage": {
-        "passed": false,
+        "passed": null,
+        "detail": "no runs yet",
         "minimum_successes": 2,
         "required_fruits": [
           "apple",
@@ -18248,27 +18268,18 @@
             "successes": 0
           },
           "pear": {
-            "attempts": 1,
+            "attempts": 0,
             "successes": 0
           }
         }
       },
       "approach_confidence_floor": {
         "passed": null,
-        "per_run": [
-          {
-            "number": 1,
-            "fruit": "pear",
-            "floor": 0.65,
-            "min_confidence": null
-          }
-        ]
+        "per_run": []
       },
       "network_stability": {
-        "passed": false,
-        "cutouts": 0,
-        "worst_p95_ms": 306.0,
-        "p95_limit_ms": 250.0
+        "passed": null,
+        "detail": "no network samples yet"
       },
       "thermal_trend": {
         "passed": null,
@@ -18281,14 +18292,8 @@
     },
     "observations": {
       "approach_min_confidence_by_fruit": {},
-      "acquisition_seconds_by_fruit": {
-        "pear": [
-          30.13
-        ]
-      },
-      "lighting_frames": [
-        "benchmarks/results/2026-08-14-v7-safe-pear-audio-lease-frames/run-01-start.jpg"
-      ]
+      "acquisition_seconds_by_fruit": {},
+      "lighting_frames": []
     }
   }
 }
