@@ -379,6 +379,221 @@ def test_production_reuses_one_guidance_identity_across_all_fruit_stages() -> No
     asyncio.run(scenario())
 
 
+def test_subsequent_run_uses_mapped_shortest_turn_then_normal_camera_guidance() -> None:
+    class MappedHardware(FakeProductionHardware):
+        async def guide_target(
+            self,
+            _status_reader,
+            guidance,
+            *,
+            allow_forward: bool,
+            timeout_s: float,
+            bearing_map,
+            home_pose,
+        ) -> dict[str, object]:
+            self.calls.append(("guide_target", guidance.target_fruit))
+            if not bearing_map.status()["valid"]:
+                frame = {
+                    "generation": "camera-a",
+                    "source_pts": 10,
+                    "source_time_base": "1/90000",
+                    "odometry_epoch": "odom-a",
+                }
+                bearing_map.observe(
+                    home_pose,
+                    {**home_pose, "yaw_rad": 1.0},
+                    frame,
+                    {
+                        "apple": {
+                            "label": "apple",
+                            "confidence": 0.8,
+                            "center_x_ratio": 0.5,
+                            "source_pts": 10,
+                            "source_time_base": "1/90000",
+                            "generation": "camera-a",
+                        }
+                    },
+                )
+            guidance.acquisition_epoch = 1
+            guidance.phase = GuidancePhase.LOCKED
+            return {
+                "label": guidance.target_fruit,
+                "acquisition_epoch": 1,
+                "motion_commands_sent": True,
+            }
+
+    async def scenario() -> None:
+        hardware = MappedHardware()
+        stages = ProductionStageExecutor(
+            hardware,
+            lambda: {"generation": "camera-a"},
+            FakeBark(),
+        )
+        pear = StageContext(
+            run_id="pear-first",
+            target_fruit="pear",
+            home={
+                "x_m": 0.0,
+                "y_m": 0.0,
+                "yaw_rad": 0.0,
+                "age_s": 0.01,
+                "odometry_epoch": "odom-a",
+            },
+        )
+        apple_baseline = StageContext(
+            run_id="apple-baseline",
+            target_fruit="apple",
+            home={
+                "x_m": 0.0,
+                "y_m": 0.0,
+                "yaw_rad": 0.0,
+                "age_s": 0.01,
+                "odometry_epoch": "odom-a",
+            },
+        )
+        apple_treatment = StageContext(
+            run_id="apple-treatment",
+            target_fruit="apple",
+            home=dict(apple_baseline.home),
+            run_tuning=RunTuning.from_payload(
+                "apple", {"search": {"bearing_routing_enabled": True}}
+            ).to_dict(),
+        )
+
+        await stages.execute(MissionPhase.TURN_TO_FRUIT, pear)
+        baseline = await stages.execute(
+            MissionPhase.TURN_TO_FRUIT, apple_baseline
+        )
+        evidence = await stages.execute(
+            MissionPhase.TURN_TO_FRUIT, apple_treatment
+        )
+
+        assert hardware.calls == [
+            ("guide_target", "pear"),
+            ("guide_target", "apple"),
+            (
+                "turn_relative",
+                pytest.approx(1.0),
+                {
+                    "yaw_rps": 0.5,
+                    "tolerance_rad": pytest.approx(math.radians(5.0)),
+                    "timeout_s": 30.0,
+                    "motion_path": "sport_yaw",
+                },
+            ),
+            ("guide_target", "apple"),
+        ]
+        assert baseline["bearing_routing_enabled"] is False
+        assert baseline["bearing_route_used"] is False
+        assert baseline["bearing_route_fallback_reason"] == "routing_disabled"
+        assert evidence["fruit_bearing_route"]["direction"] == "left"
+        assert evidence["fruit_bearing_route"]["authority"] == "yaw_route_only"
+        assert evidence["bearing_routing_enabled"] is True
+        assert evidence["bearing_route_used"] is True
+        assert evidence["bearing_route_planning_ms"] >= 0.0
+
+    asyncio.run(scenario())
+
+
+def test_map_reuse_aligns_canonical_home_yaw_then_remeasures_before_routing() -> None:
+    class AligningHardware(FakeProductionHardware):
+        def capture_home(self) -> dict[str, object]:
+            self.calls.append(("capture_home",))
+            return {
+                "x_m": 0.0,
+                "y_m": 0.0,
+                "yaw_rad": 0.0,
+                "age_s": 0.01,
+                "odometry_epoch": "odom-a",
+            }
+
+        async def guide_target(
+            self,
+            _status_reader,
+            guidance,
+            *,
+            allow_forward: bool,
+            timeout_s: float,
+            bearing_map,
+            home_pose,
+        ) -> dict[str, object]:
+            self.calls.append(("guide_target", guidance.target_fruit))
+            if not bearing_map.status()["valid"]:
+                bearing_map.observe(
+                    home_pose,
+                    {**home_pose, "yaw_rad": 0.0},
+                    {
+                        "generation": "camera-a",
+                        "source_pts": 10,
+                        "source_time_base": "1/90000",
+                        "odometry_epoch": "odom-a",
+                    },
+                    {
+                        "apple": {
+                            "label": "apple",
+                            "confidence": 0.8,
+                            "center_x_ratio": 0.5,
+                            "source_pts": 10,
+                            "source_time_base": "1/90000",
+                            "generation": "camera-a",
+                        }
+                    },
+                )
+            guidance.acquisition_epoch = 1
+            guidance.phase = GuidancePhase.LOCKED
+            return {"label": guidance.target_fruit, "acquisition_epoch": 1}
+
+    async def scenario() -> None:
+        hardware = AligningHardware()
+        stages = ProductionStageExecutor(
+            hardware, lambda: {"generation": "camera-a"}, FakeBark()
+        )
+        common_home = {
+            "x_m": 0.0,
+            "y_m": 0.0,
+            "yaw_rad": 0.0,
+            "age_s": 0.01,
+            "odometry_epoch": "odom-a",
+        }
+        await stages.execute(
+            MissionPhase.TURN_TO_FRUIT,
+            StageContext(run_id="first", target_fruit="pear", home=common_home),
+        )
+        evidence = await stages.execute(
+            MissionPhase.TURN_TO_FRUIT,
+            StageContext(
+                run_id="second",
+                target_fruit="apple",
+                home={**common_home, "yaw_rad": 0.20},
+                run_tuning=RunTuning.from_payload(
+                    "apple", {"search": {"bearing_routing_enabled": True}}
+                ).to_dict(),
+            ),
+        )
+
+        assert hardware.calls == [
+            ("guide_target", "pear"),
+            (
+                "turn_relative",
+                pytest.approx(-0.20),
+                {
+                    "yaw_rps": 0.5,
+                    "tolerance_rad": pytest.approx(math.radians(5.0)),
+                    "timeout_s": 30.0,
+                    "motion_path": "sport_yaw",
+                },
+            ),
+            ("capture_home",),
+            ("guide_target", "apple"),
+        ]
+        assert evidence["fruit_bearing_route"]["available"] is True
+        assert evidence["fruit_bearing_route"]["direction"] == "aligned"
+        assert stages.bearing_map_status()["current_home_position_error_m"] == 0.0
+        assert stages.bearing_map_status()["current_home_yaw_error_deg"] == 0.0
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize(
     ("fruit", "focus", "lock"),
     [
@@ -656,7 +871,8 @@ def test_hardware_motion_failure_is_structured_as_a_non_tolerable_blocker() -> N
             await stages.execute(MissionPhase.APPROACH_FRUIT, context())
 
         assert failure.value.reason == "ARRIVAL_FAILURE"
-        assert failure.value.details == {"safety_class": "motion"}
+        assert failure.value.details["safety_class"] == "motion"
+        assert failure.value.details["fruit_bearing_map"]["valid"] is False
 
     asyncio.run(scenario())
 
@@ -684,13 +900,12 @@ def test_search_target_loss_is_classified_with_recognition_evidence() -> None:
         assert failure.value.message == (
             "pear was not found in the bounded search sweep"
         )
-        assert failure.value.details == {
-            "recognition": {
-                "samples": 42,
-                "pear_candidate_samples": 27,
-                "maximum_confidence": 0.019,
-                "maximum_bbox_area_ratio": 0.001,
-            }
+        assert failure.value.details["recognition"] == {
+            "samples": 42,
+            "pear_candidate_samples": 27,
+            "maximum_confidence": 0.019,
+            "maximum_bbox_area_ratio": 0.001,
         }
+        assert failure.value.details["fruit_bearing_map"]["valid"] is False
 
     asyncio.run(scenario())

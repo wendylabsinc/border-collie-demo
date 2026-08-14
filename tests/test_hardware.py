@@ -7,6 +7,7 @@ import pytest
 
 from border_collie_demo.black_box import RunBlackBox
 from border_collie_demo.config import HardwareConfig
+from border_collie_demo.fruit_bearing_map import FruitBearingMap
 from border_collie_demo.go2_motion import MotionConfig
 from border_collie_demo.go2_pose import PoseStatus
 from border_collie_demo.guidance import FruitGuidance, GuidanceConfig, GuidancePhase
@@ -598,6 +599,78 @@ def test_mission_lifetime_pear_guidance_arrives_stopped_after_disappearance() ->
         assert motion.commands[-1].forward_mps == 0.0
         assert motion.commands[-1].yaw_rps == 0.0
         assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_search_records_all_fruits_in_bearing_map_but_selected_target_drives_lock() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+        home = manager.capture_home()
+        guidance = FruitGuidance("pear")
+        bearing_map = FruitBearingMap()
+        pts = 0
+
+        def status() -> dict[str, object]:
+            nonlocal pts
+            pts += 1
+            shared = {
+                "generation": "camera-map",
+                "source_pts": pts,
+                "source_time_base": "1/90000",
+            }
+            return {
+                "camera_healthy": True,
+                "generation": "camera-map",
+                "source": {"pts": pts, "time_base": "1/90000", "age_s": 0.01},
+                "detection": {
+                    **shared,
+                    "label": "pear",
+                    "confidence": 0.80,
+                    "age_s": 0.01,
+                    "center_x_ratio": 0.50,
+                    "center_y_ratio": 0.55,
+                    "bottom_ratio": 0.65,
+                },
+                "observations": {
+                    fruit: {
+                        **shared,
+                        "label": fruit,
+                        "confidence": confidence,
+                        "center_x_ratio": 0.50,
+                    }
+                    for fruit, confidence in {
+                        "apple": 0.90,
+                        "banana": 0.85,
+                        "pear": 0.80,
+                    }.items()
+                },
+            }
+
+        result = await manager.guide_target(
+            status,
+            guidance,
+            allow_forward=False,
+            timeout_s=0.2,
+            bearing_map=bearing_map,
+            home_pose=home,
+        )
+
+        assert result["label"] == "pear"
+        assert set(result["fruit_bearing_map"]["fruits"]) == {
+            "apple",
+            "banana",
+            "pear",
+        }
+        assert result["fruit_bearing_map"]["fruits"]["apple"]["sample_count"] == 3
         await manager.close()
 
     asyncio.run(scenario())
@@ -2126,7 +2199,9 @@ def test_home_capture_returns_one_fresh_disarmed_pose() -> None:
             "captured_monotonic_s": 1.0,
             "age_s": 0.0,
             "source": "rt/sportmodestate",
+            "odometry_epoch": home["odometry_epoch"],
         }
+        assert isinstance(home["odometry_epoch"], str) and home["odometry_epoch"]
         assert motion.armed is False
         assert motion.commands == []
         await manager.close()

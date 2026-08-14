@@ -99,6 +99,16 @@ def test_api_runs_exact_fixed_fruit_cohort_and_persists_decisions(tmp_path) -> N
     ]
     assert len({item["activation_id"] for item in cohort["runs"]}) == 3
     assert all(item["cohort_decision"] for item in cohort["runs"])
+    assert all(
+        item["bearing_routing"]
+        == {
+            "enabled": False,
+            "used": None,
+            "fallback_reason": None,
+            "planning_ms": None,
+        }
+        for item in cohort["runs"]
+    )
     assert fetched.status_code == 200
     assert fetched.json()["cohort"] == cohort
 

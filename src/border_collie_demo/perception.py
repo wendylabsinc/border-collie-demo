@@ -290,6 +290,50 @@ def evaluate_perception_evidence(
         bbox_width_ratio = (x2 - x1) / source_width
         bbox_height_ratio = (y2 - y1) / source_height
         bbox_area_ratio = bbox_width_ratio * bbox_height_ratio
+    observations: dict[str, dict[str, object]] = {}
+    raw_observations = payload.get("observations")
+    if isinstance(raw_observations, dict) and source_width and source_height:
+        for supported_fruit in SUPPORTED_FRUITS:
+            raw_observation = raw_observations.get(supported_fruit)
+            if not isinstance(raw_observation, dict):
+                continue
+            observation_bbox = _bounding_box(
+                raw_observation.get("bbox_xyxy"), source_width, source_height
+            )
+            observation_confidence = _finite_number(
+                raw_observation.get("confidence")
+            )
+            observation_pts = _whole_number(raw_observation.get("source_pts"))
+            observation_route = raw_observation.get("model_route")
+            if (
+                raw_observation.get("label") != supported_fruit
+                or observation_bbox is None
+                or observation_confidence is None
+                or observation_pts != pts
+                or raw_observation.get("source_time_base") != time_base
+                or raw_observation.get("generation") != generation
+            ):
+                continue
+            ox1, oy1, ox2, oy2 = observation_bbox
+            observations[supported_fruit] = {
+                "label": supported_fruit,
+                "confidence": observation_confidence,
+                "bbox_xyxy": list(observation_bbox),
+                "center_x_ratio": ((ox1 + ox2) / 2.0) / source_width,
+                "center_y_ratio": ((oy1 + oy2) / 2.0) / source_height,
+                "bottom_ratio": oy2 / source_height,
+                "source_pts": observation_pts,
+                "source_time_base": time_base,
+                "generation": generation,
+                "model_route": (
+                    dict(observation_route)
+                    if isinstance(observation_route, dict)
+                    else None
+                ),
+                "inference_total_ms": _finite_number(
+                    raw_observation.get("inference_total_ms")
+                ),
+            }
     return {
         "ready": ready,
         "camera_healthy": camera_healthy,
@@ -332,6 +376,7 @@ def evaluate_perception_evidence(
             "bbox_height_ratio": bbox_height_ratio,
             "bbox_area_ratio": bbox_area_ratio,
         },
+        "observations": observations,
         "inference": inference,
         "thresholds": {
             "source_maximum_age_s": SOURCE_MAXIMUM_AGE_S,

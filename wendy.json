@@ -1,12 +1,12 @@
 {
   "appId": "border-collie-demo",
-  "version": "1.1.3-stage-default",
+  "version": "1.1.4-stage-default",
   "services": {
     "app": {
       "context": ".",
       "env": {
         "BORDER_COLLIE_PORT": "8110",
-        "BORDER_COLLIE_BUILD_LABEL": "stage-default-v4-banana-reliability-replay",
+        "BORDER_COLLIE_BUILD_LABEL": "stage-default-v5-fruit-bearing-map",
         "BORDER_COLLIE_RUNTIME_MODE": "production",
         "BORDER_COLLIE_HARDWARE_ENABLED": "1",
         "BORDER_COLLIE_AUTONOMY_ENABLED": "1",
@@ -28,6 +28,7 @@
         "BORDER_COLLIE_GUIDANCE_SEARCH_YAW_RPS": "0.40",
         "BORDER_COLLIE_GUIDANCE_FOCUS_YAW_RPS": "0.20",
         "BORDER_COLLIE_GUIDANCE_FOCUS_MISSING_GRACE_S": "0.50",
+        "BORDER_COLLIE_BEARING_ROUTING_ENABLED": "0",
         "BORDER_COLLIE_APPLE_FOCUS_CONFIDENCE": "0.40",
         "BORDER_COLLIE_APPLE_ACQUISITION_CONFIDENCE": "0.40",
         "BORDER_COLLIE_GUIDANCE_SEARCH_SWEEP_RAD": "6.283185307179586",
@@ -80,7 +81,7 @@
         "PORT": "8092",
         "ACTION_MODE": "border_collie",
         "BORDER_COLLIE_URL": "http://127.0.0.1:8110",
-        "BORDER_COLLIE_EXPECTED_BUILD_LABEL": "stage-default-v4-banana-reliability-replay",
+        "BORDER_COLLIE_EXPECTED_BUILD_LABEL": "stage-default-v5-fruit-bearing-map",
         "CONTINUOUS_TRANSCRIPTION": "0",
         "AUTO_ARM_ACTIONS": "1",
         "AUDIO_DEVICE": "DJI MIC MINI",

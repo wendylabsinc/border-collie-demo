@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -18,6 +18,7 @@ class RoutedPrediction:
     candidate: FruitCandidate | None
     inference_passes: int
     route: dict[str, object]
+    observations: dict[str, FruitCandidate] = field(default_factory=dict)
 
 
 def _best_candidate(
@@ -45,6 +46,45 @@ def _best_candidate(
             y2 + y_offset,
         ),
     )
+
+
+def _best_candidates_by_class(
+    results: object,
+    *,
+    class_names: dict[int, str],
+    x_offset: int = 0,
+    y_offset: int = 0,
+) -> dict[str, FruitCandidate]:
+    if not isinstance(results, (list, tuple)) or not results:
+        return {}
+    boxes = getattr(results[0], "boxes", None)
+    if boxes is None or len(boxes) == 0:
+        return {}
+    confidences = boxes.conf.detach().cpu().tolist()
+    classes = boxes.cls.detach().cpu().tolist()
+    best: dict[str, FruitCandidate] = {}
+    for index, (raw_confidence, raw_class) in enumerate(
+        zip(confidences, classes, strict=True)
+    ):
+        label = class_names.get(int(raw_class))
+        if label is None:
+            continue
+        confidence = float(raw_confidence)
+        existing = best.get(label)
+        if existing is not None and existing.confidence >= confidence:
+            continue
+        coordinates = boxes.xyxy[index].detach().cpu().tolist()
+        x1, y1, x2, y2 = (round(float(value)) for value in coordinates)
+        best[label] = FruitCandidate(
+            confidence=confidence,
+            bbox_xyxy=(
+                x1 + x_offset,
+                y1 + y_offset,
+                x2 + x_offset,
+                y2 + y_offset,
+            ),
+        )
+    return best
 
 
 def _bbox_iou(
@@ -119,22 +159,21 @@ class FruitModelRouter:
         y_offset: int = 0,
     ) -> RoutedPrediction:
         normalized_target = target_fruit.casefold().strip()
-        try:
-            general_class_id = self._general_class_ids[normalized_target]
-        except KeyError as exc:
-            raise ValueError(f"general model does not support {target_fruit}") from exc
+        if normalized_target not in self._general_class_ids:
+            raise ValueError(f"general model does not support {target_fruit}")
         general_results = self._general_model.predict(
             source=source,
             conf=confidence_floor,
-            classes=[general_class_id],
             device=device,
             verbose=False,
         )
-        general = _best_candidate(
+        observations = _best_candidates_by_class(
             general_results,
+            class_names={value: key for key, value in self._general_class_ids.items()},
             x_offset=x_offset,
             y_offset=y_offset,
         )
+        general = observations.get(normalized_target)
         if normalized_target != "banana" or not self.banana_specialist_enabled:
             return RoutedPrediction(
                 candidate=general,
@@ -144,6 +183,7 @@ class FruitModelRouter:
                     "triggered": False,
                     "confirmed": general is not None,
                 },
+                observations=observations,
             )
 
         empty_route = {
@@ -159,6 +199,7 @@ class FruitModelRouter:
                 candidate=None,
                 inference_passes=1,
                 route=empty_route,
+                observations=observations,
             )
 
         assert self._banana_specialist_model is not None
@@ -199,4 +240,5 @@ class FruitModelRouter:
                 ),
                 "agreement_iou": agreement_iou,
             },
+            observations=observations,
         )

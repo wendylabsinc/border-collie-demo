@@ -159,6 +159,16 @@ class CohortController:
                     return
 
                 decision = decide_terminal_run(run, policy)
+                run_tuning = run.get("run_tuning")
+                search_tuning = (
+                    run_tuning.get("search") if isinstance(run_tuning, dict) else None
+                )
+                stage_results = run.get("stage_results")
+                turn_evidence = (
+                    stage_results.get("turn_to_fruit")
+                    if isinstance(stage_results, dict)
+                    else None
+                )
                 record = {
                     "number": number,
                     "target_fruit": fruit,
@@ -169,6 +179,28 @@ class CohortController:
                     "failed_phase": run.get("failed_phase"),
                     "final_safety_state": run.get("final_safety_state"),
                     "cohort_decision": decision,
+                    "bearing_routing": {
+                        "enabled": (
+                            search_tuning.get("bearing_routing_enabled")
+                            if isinstance(search_tuning, dict)
+                            else None
+                        ),
+                        "used": (
+                            turn_evidence.get("bearing_route_used")
+                            if isinstance(turn_evidence, dict)
+                            else None
+                        ),
+                        "fallback_reason": (
+                            turn_evidence.get("bearing_route_fallback_reason")
+                            if isinstance(turn_evidence, dict)
+                            else None
+                        ),
+                        "planning_ms": (
+                            turn_evidence.get("bearing_route_planning_ms")
+                            if isinstance(turn_evidence, dict)
+                            else None
+                        ),
+                    },
                 }
                 cohort["runs"].append(record)
                 cohort["current_run_id"] = None

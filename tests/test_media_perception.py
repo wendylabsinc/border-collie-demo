@@ -29,9 +29,10 @@ class FakeTensor:
 
 
 class FakeBoxes:
-    def __init__(self, confidences, boxes):
+    def __init__(self, confidences, boxes, classes=None):
         self.conf = FakeTensor(confidences)
         self.xyxy = [FakeTensor(box) for box in boxes]
+        self.cls = FakeTensor(classes or [0] * len(confidences))
 
     def __len__(self):
         return len(self.conf.value)
@@ -90,6 +91,54 @@ def test_inference_summary_counts_processed_timed_and_overrun_frames_exactly() -
         "average_ms": pytest.approx(165.0),
         "overrun_threshold_ms": 200.0,
     }
+
+
+def test_sidecar_publishes_all_fruit_observations_but_keeps_selected_detection() -> None:
+    full_frame = FakeImage(720, 1280)
+
+    class Model:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def predict(self, **options):
+            self.calls.append(options)
+            return [
+                SimpleNamespace(
+                    boxes=FakeBoxes(
+                        [0.72, 0.61, 0.83],
+                        [[10, 20, 110, 220], [210, 20, 310, 220], [410, 20, 510, 220]],
+                        [1, 2, 3],
+                    )
+                )
+            ]
+
+    runtime = perception_sidecar.PerceptionRuntime()
+    model = Model()
+    runtime._model = model
+    runtime._fruit_class_ids = {"apple": 1, "banana": 2, "pear": 3}
+    runtime._publish_preview = lambda *_args, **_options: None
+
+    runtime._process_frame(ArrayFrame(full_frame), time.monotonic(), 100, "1/90000")
+
+    status = runtime.status()
+    assert "classes" not in model.calls[0]
+    assert status["detection"]["label"] == "pear"
+    assert status["detection"]["confidence"] == 0.83
+    assert set(status["observations"]) == {"apple", "banana", "pear"}
+    assert status["observations"]["apple"] == {
+        "label": "apple",
+        "confidence": 0.72,
+        "bbox_xyxy": [10, 20, 110, 220],
+        "source_pts": 100,
+        "source_time_base": "1/90000",
+        "generation": status["generation"],
+            "model_route": {"mode": "general_full_frame"},
+            "inference_total_ms": status["inference"]["latest"]["inference_total_ms"],
+            "center_x_ratio": 60 / 1280,
+            "center_y_ratio": 120 / 720,
+            "bottom_ratio": 220 / 720,
+    }
+    runtime._inference_executor.shutdown(wait=True, cancel_futures=True)
 
 
 def test_preview_encoding_cannot_starve_the_sidecar_status_event_loop() -> None:
@@ -371,7 +420,7 @@ def test_banana_specialist_confirmation_reaches_existing_evidence_pipeline() -> 
             self.calls += 1
             return [
                 SimpleNamespace(
-                    boxes=FakeBoxes([self.confidence], [self.bbox])
+                    boxes=FakeBoxes([self.confidence], [self.bbox], [2])
                 )
             ]
 
@@ -419,7 +468,7 @@ def test_rejected_banana_specialist_proposal_continues_search_without_more_passe
 
         def predict(self, **_options):
             self.calls += 1
-            return [SimpleNamespace(boxes=FakeBoxes([0.90], [self.bbox]))]
+            return [SimpleNamespace(boxes=FakeBoxes([0.90], [self.bbox], [2]))]
 
     runtime = perception_sidecar.PerceptionRuntime()
     general = Model([100, 200, 180, 300])
@@ -568,10 +617,14 @@ def test_in_flight_old_target_result_cannot_kill_the_preview_worker() -> None:
             self.calls = 0
 
         def predict(self, **_options):
-            self.calls += 1
-            if self.calls == 1:
-                self.runtime.select_target("apple")
-            return [SimpleNamespace(boxes=FakeBoxes([0.82], [[400, 300, 800, 700]]))]
+                self.calls += 1
+                if self.calls == 1:
+                    self.runtime.select_target("apple")
+                return [
+                    SimpleNamespace(
+                        boxes=FakeBoxes([0.82], [[400, 300, 800, 700]], [1])
+                    )
+                ]
 
     runtime = perception_sidecar.PerceptionRuntime()
     runtime._fruit_class_ids = {"apple": 1, "pear": 0}

@@ -318,6 +318,7 @@ class PerceptionEvidence:
         self._target_fruit = target_fruit
         self._source: dict[str, object] = {}
         self._detection: dict[str, object] = {}
+        self._observations: dict[str, dict[str, object]] = {}
         self._source_count = 0
         self._detection_count = 0
         self._last_source_pts: int | None = None
@@ -353,6 +354,7 @@ class PerceptionEvidence:
             if not advances:
                 self._detection_count = 0
                 self._detection = {}
+                self._observations = {}
             self._last_source_pts = pts
             self._last_source_received_s = received_monotonic_s
             self._time_base = time_base
@@ -405,6 +407,41 @@ class PerceptionEvidence:
                 return
             self._detection_count = 0
             self._detection = {}
+
+    def note_full_frame_observations(
+        self,
+        *,
+        pts: int,
+        time_base: str,
+        observations: dict[str, FruitCandidate],
+        inference_total_ms: float,
+        frame_width: int,
+        frame_height: int,
+    ) -> None:
+        """Publish raw best-per-fruit general-model observations for mapping."""
+        with self._lock:
+            self._observations = {
+                label: {
+                    "label": label,
+                    "confidence": candidate.confidence,
+                    "bbox_xyxy": list(candidate.bbox_xyxy),
+                    "source_pts": pts,
+                    "source_time_base": time_base,
+                    "generation": self.generation,
+                    "model_route": {"mode": "general_full_frame"},
+                    "inference_total_ms": inference_total_ms,
+                    "center_x_ratio": (
+                        (candidate.bbox_xyxy[0] + candidate.bbox_xyxy[2])
+                        / (2.0 * frame_width)
+                    ),
+                    "center_y_ratio": (
+                        (candidate.bbox_xyxy[1] + candidate.bbox_xyxy[3])
+                        / (2.0 * frame_height)
+                    ),
+                    "bottom_ratio": candidate.bbox_xyxy[3] / frame_height,
+                }
+                for label, candidate in sorted(observations.items())
+            }
 
     def note_inference(
         self,
@@ -502,6 +539,10 @@ class PerceptionEvidence:
                 "supported_fruits": list(SUPPORTED_FRUITS),
                 "source": dict(self._source),
                 "detection": dict(self._detection),
+                "observations": {
+                    label: dict(observation)
+                    for label, observation in self._observations.items()
+                },
                 "error": self._error,
                 "inference": {
                     "latest": dict(self._inference_latest),
@@ -782,12 +823,14 @@ class PerceptionRuntime:
             "search_crop": None,
             "crop_confirmation": None,
         }
+        full_frame_observations: dict[str, FruitCandidate] = {}
         try:
             full_frame_prediction = self._predict_candidate(
                 source=bgr,
                 target_fruit=target_fruit,
             )
             candidate = full_frame_prediction.candidate
+            full_frame_observations = dict(full_frame_prediction.observations)
             inference_passes = full_frame_prediction.inference_passes
             model_route["full_frame"] = full_frame_prediction.route
             crop_confirmation: dict[str, object] = {
@@ -914,6 +957,17 @@ class PerceptionRuntime:
             completed_monotonic_s=completed,
             model_route=model_route,
         )
+        self.evidence.note_full_frame_observations(
+            pts=pts,
+            time_base=time_base,
+            observations=full_frame_observations,
+            inference_total_ms=(completed - started) * 1000.0,
+            frame_width=int(bgr.shape[1]),
+            frame_height=int(bgr.shape[0]),
+        )
+        with self._target_lock:
+            if target_fruit != self._target_fruit:
+                return
         if candidate is None:
             self.evidence.note_miss(target_fruit)
             self._publish_preview(

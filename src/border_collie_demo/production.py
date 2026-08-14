@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import math
+import time
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
+from .fruit_bearing_map import HOME_POSITION_TOLERANCE_M, FruitBearingMap
 from .fruits import fruit_policy
 from .guidance import FruitGuidance, GuidanceConfig, GuidancePhase
 from .hardware import CameraFailure, HardwareUnavailable, TargetLost
@@ -47,6 +49,19 @@ class ProductionStageExecutor:
         self._guidance_run_id: str | None = None
         self._guidance: FruitGuidance | None = None
         self._run_tuning: RunTuning | None = None
+        self._bearing_map = FruitBearingMap()
+        self._last_bearing_route: dict[str, object] | None = None
+
+    def bearing_map_status(self) -> dict[str, object]:
+        """Expose the advisory process-local map without motion authority."""
+        return {
+            **self._bearing_map.status(),
+            "routing": (
+                None
+                if self._last_bearing_route is None
+                else dict(self._last_bearing_route)
+            ),
+        }
 
     async def execute(
         self,
@@ -110,6 +125,7 @@ class ProductionStageExecutor:
         details: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         combined = dict(details or {})
+        combined["fruit_bearing_map"] = self._bearing_map.status()
         trace = self._read_motion_trace()
         if trace is not None:
             combined["motion_commands"] = trace
@@ -197,7 +213,56 @@ class ProductionStageExecutor:
                     "skip_reason": "mission_lifetime_identity_already_locked",
                     "motion_commands_sent": False,
                 }
-            return await guide_target(
+            map_enabled = bool(
+                isinstance(context.home.get("odometry_epoch"), str)
+                and isinstance(context.home.get("age_s"), (int, float))
+            )
+            map_home = context.home
+            route_evidence: dict[str, object] | None = None
+            if map_enabled and phase is MissionPhase.TURN_TO_FRUIT:
+                route_started = time.monotonic()
+                if self._run_tuning.search.bearing_routing_enabled:
+                    map_home, route_evidence = await self._prepare_bearing_route(context)
+                else:
+                    route_evidence = {
+                        "available": False,
+                        "reason": "routing_disabled",
+                        "authority": "yaw_route_only",
+                    }
+                route_used = "turn" in route_evidence
+                fallback_reason = (
+                    None
+                    if route_used
+                    else (
+                        "already_aligned"
+                        if route_evidence.get("available") is True
+                        else route_evidence.get("reason")
+                    )
+                )
+                self._last_bearing_route = {
+                    "run_id": context.run_id,
+                    "target_fruit": context.target_fruit,
+                    "bearing_routing_enabled": (
+                        self._run_tuning.search.bearing_routing_enabled
+                    ),
+                    "bearing_route_used": route_used,
+                    "bearing_route_fallback_reason": fallback_reason,
+                    "bearing_route_planning_ms": (
+                        time.monotonic() - route_started
+                    )
+                    * 1000.0,
+                    "route": dict(route_evidence),
+                }
+                record_route = getattr(self._hardware, "record_bearing_route", None)
+                if callable(record_route):
+                    record_route(self._last_bearing_route)
+            guide_options: dict[str, object] = {}
+            if map_enabled:
+                guide_options = {
+                    "bearing_map": self._bearing_map,
+                    "home_pose": map_home,
+                }
+            result = await guide_target(
                 self._perception_status,
                 self._guidance,
                 allow_forward=phase is MissionPhase.APPROACH_FRUIT,
@@ -206,7 +271,27 @@ class ProductionStageExecutor:
                     if phase is MissionPhase.APPROACH_FRUIT
                     else self._run_tuning.search.timeout_s
                 ),
+                **guide_options,
             )
+            if route_evidence is not None:
+                assert self._last_bearing_route is not None
+                result = {
+                    **result,
+                    "fruit_bearing_route": route_evidence,
+                    "bearing_routing_enabled": self._last_bearing_route[
+                        "bearing_routing_enabled"
+                    ],
+                    "bearing_route_used": self._last_bearing_route[
+                        "bearing_route_used"
+                    ],
+                    "bearing_route_fallback_reason": self._last_bearing_route[
+                        "bearing_route_fallback_reason"
+                    ],
+                    "bearing_route_planning_ms": self._last_bearing_route[
+                        "bearing_route_planning_ms"
+                    ],
+                }
+            return result
         if phase is MissionPhase.TURN_TO_FRUIT:
             if visible := self._visible_target_evidence(context.target_fruit):
                 return visible
@@ -331,6 +416,82 @@ class ProductionStageExecutor:
         raise StageFailure(
             "INTERNAL_ERROR", f"production stage is not implemented: {phase.value}"
         )
+
+    async def _prepare_bearing_route(
+        self, context: StageContext
+    ) -> tuple[dict[str, object], dict[str, object]]:
+        """Qualify canonical Home, then optionally perform one advisory map turn."""
+        current_home = dict(context.home)
+        map_status = self._bearing_map.status()
+        if not map_status["valid"]:
+            return current_home, {
+                "available": False,
+                "reason": "map_unanchored",
+                "authority": "yaw_route_only",
+            }
+        camera_status = self._perception_status()
+        generation = camera_status.get("generation")
+        current_home["generation"] = generation
+        anchor = map_status.get("anchor")
+        if isinstance(anchor, dict):
+            position_error = math.hypot(
+                float(current_home["x_m"]) - float(anchor["x_m"]),
+                float(current_home["y_m"]) - float(anchor["y_m"]),
+            )
+            yaw_error = math.atan2(
+                math.sin(float(anchor["yaw_rad"]) - float(current_home["yaw_rad"])),
+                math.cos(float(anchor["yaw_rad"]) - float(current_home["yaw_rad"])),
+            )
+            if (
+                position_error <= HOME_POSITION_TOLERANCE_M
+                and abs(yaw_error) > math.radians(5.0)
+            ):
+                capture_home = getattr(self._hardware, "capture_home", None)
+                if not callable(capture_home):
+                    self._bearing_map.invalidate("home_yaw_alignment_unavailable")
+                    return current_home, {
+                        "available": False,
+                        "reason": "home_yaw_alignment_unavailable",
+                        "authority": "yaw_route_only",
+                    }
+                try:
+                    await self._hardware.turn_relative(
+                        yaw_error,
+                        yaw_rps=self._run_tuning.home.align_yaw_rps,
+                        tolerance_rad=math.radians(
+                            self._run_tuning.home.align_tolerance_deg
+                        ),
+                        timeout_s=self._run_tuning.home.align_timeout_s,
+                        motion_path="sport_yaw",
+                    )
+                    current_home = dict(capture_home())
+                    current_home["generation"] = generation
+                except HardwareUnavailable:
+                    self._bearing_map.invalidate("home_yaw_alignment_failed")
+                    return current_home, {
+                        "available": False,
+                        "reason": "home_yaw_alignment_failed",
+                        "authority": "yaw_route_only",
+                    }
+
+        route = self._bearing_map.route_to(context.target_fruit, current_home)
+        route_evidence = {**route.to_dict(), "authority": "yaw_route_only"}
+        if (
+            route.available
+            and route.angular_delta_rad is not None
+            and abs(route.angular_delta_rad)
+            > math.radians(self._run_tuning.home.align_tolerance_deg)
+        ):
+            route_evidence["turn"] = await self._hardware.turn_relative(
+                route.angular_delta_rad,
+                yaw_rps=self._run_tuning.home.align_yaw_rps,
+                tolerance_rad=math.radians(
+                    self._run_tuning.home.align_tolerance_deg
+                ),
+                timeout_s=self._run_tuning.home.align_timeout_s,
+                motion_path="sport_yaw",
+            )
+        return current_home, route_evidence
 
     def _visible_target_evidence(self, target_fruit: str) -> dict[str, Any] | None:
         """Skip broad search only for current, fully qualified target evidence."""

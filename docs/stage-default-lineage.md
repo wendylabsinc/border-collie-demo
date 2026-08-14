@@ -42,3 +42,21 @@ fine pre-lock focus, exact inference timing evidence, and post-disarm
 position-only reconciliation of a near-Home heading-gate escape. Its three
 minimized physical traces are deterministic software replays; this candidate
 is not physically qualified or deployed by that replay result.
+
+The next software-only candidate is `stage-default-v5-fruit-bearing-map`, Wendy
+application version `1.1.4-stage-default`. The media general-model pass now
+reports raw best-per-fruit observations while preserving selected `detection`
+as the only motion-consumed interface. A process-local app map records only
+centered observations against the exact camera frame and measured body yaw; it
+may select a shortest Sports yaw-only turn, but normal selected-target guidance
+must still reacquire and alone can authorize translation or Arrival. Map reuse
+requires unchanged camera generation and odometry epoch plus a newly measured
+Home pose within 0.10 m and 5 degrees. This changes the shared media/app status
+contract, so it requires a whole-project deployment; the voice command path is
+otherwise unchanged.
+
+The runtime/UI A/B switch is `BORDER_COLLIE_BEARING_ROUTING_ENABLED` and the
+frozen per-run `search.bearing_routing_enabled`, both defaulting to false.
+All-fruit mapping remains active when false; only the initial mapped turn is
+disabled. This permits a baseline broad scan followed by a treatment run in the
+same app process without rebuilding or restarting services.

@@ -78,6 +78,35 @@ def test_search_identity_is_kept_when_approach_is_enabled() -> None:
     assert guidance.acquisition_epoch == 1
 
 
+def test_unselected_all_fruit_observations_cannot_lock_or_authorize_motion() -> None:
+    guidance = FruitGuidance("pear")
+    status = observation(pts=1, now_s=0.0, label=None)
+    status["observations"] = {
+        "apple": {
+            "label": "apple",
+            "confidence": 0.99,
+            "center_x_ratio": 0.5,
+            "source_pts": 1,
+            "source_time_base": "1/90000",
+            "generation": "camera-1",
+        },
+        "banana": {
+            "label": "banana",
+            "confidence": 0.99,
+            "center_x_ratio": 0.5,
+            "source_pts": 1,
+            "source_time_base": "1/90000",
+            "generation": "camera-1",
+        },
+    }
+
+    decision = guidance.observe(status, now_s=0.0, allow_forward=True)
+
+    assert decision.phase is GuidancePhase.SEARCHING
+    assert decision.action is GuidanceAction.SEARCH
+    assert decision.command.forward_mps == 0.0
+    assert decision.centered_fresh_samples == 0
+
 @pytest.mark.parametrize("source_fps", [4, 5, 8])
 def test_duplicate_frames_hold_authorized_motion_without_advancing_counters(
     source_fps: int,

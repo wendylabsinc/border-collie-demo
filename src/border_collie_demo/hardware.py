@@ -3,12 +3,14 @@ from __future__ import annotations
 import asyncio
 import math
 import time
+import uuid
 from collections import Counter, deque
 from collections.abc import Callable
 from typing import Protocol
 
 from .black_box import RunBlackBox
 from .config import HardwareConfig
+from .fruit_bearing_map import FruitBearingMap
 from .fruits import fruit_policy
 from .go2_motion import (
     MotionConfig,
@@ -339,6 +341,9 @@ class HardwareManager:
         self._posture = "unknown"
         self._black_box = black_box
         self._motion_trace_run_id: str | None = None
+        # Process-local epoch: app restart or provider recreation must invalidate
+        # advisory fruit bearings rather than reusing a shifted odometry origin.
+        self._odometry_epoch = uuid.uuid4().hex
 
     async def start(self) -> None:
         if not self.config.enabled or self._connected:
@@ -1204,6 +1209,8 @@ class HardwareManager:
         *,
         allow_forward: bool,
         timeout_s: float,
+        bearing_map: FruitBearingMap | None = None,
+        home_pose: dict[str, object] | None = None,
     ) -> dict[str, object]:
         """Execute one mission-lifetime guidance module until lock or Arrival."""
         if not math.isfinite(timeout_s) or timeout_s <= 0.0:
@@ -1285,6 +1292,35 @@ class HardwareManager:
                                 },
                             )
                     status = status_reader()
+                    bearing_map_status: dict[str, object] | None = None
+                    if (
+                        not allow_forward
+                        and bearing_map is not None
+                        and home_pose is not None
+                        and measured_yaw_rad is not None
+                    ):
+                        source = status.get("source")
+                        observations = status.get("observations")
+                        if isinstance(source, dict) and isinstance(observations, dict):
+                            bearing_map_status = bearing_map.observe(
+                                home_pose,
+                                {
+                                    "x_m": pose.pose.x_m,
+                                    "y_m": pose.pose.y_m,
+                                    "yaw_rad": pose.pose.yaw_rad,
+                                    "age_s": pose.age_s,
+                                },
+                                {
+                                    "generation": status.get("generation"),
+                                    "source_pts": source.get("pts"),
+                                    "source_time_base": source.get("time_base"),
+                                    "odometry_epoch": self._odometry_epoch,
+                                },
+                                observations,
+                            )
+                            self._record_black_box(
+                                "fruit_bearing_map", bearing_map_status
+                            )
                     raw_inference = status.get("inference")
                     if isinstance(raw_inference, dict) and isinstance(
                         raw_inference.get("summary"), dict
@@ -1372,6 +1408,7 @@ class HardwareManager:
                                 decision.focus_grace_remaining_s
                             ),
                             "locked": decision.phase is GuidancePhase.LOCKED,
+                            "fruit_bearing_map": bearing_map_status,
                         }
                         search_trace.append(search_event)
                         self._record_black_box("guidance_decision", search_event)
@@ -1439,6 +1476,11 @@ class HardwareManager:
                             "search_progress_rad": search_progress_rad,
                             "search_trace": search_trace,
                             "confidence_summary": confidence_summary(search_trace),
+                            "fruit_bearing_map": (
+                                bearing_map.status()
+                                if bearing_map is not None
+                                else None
+                            ),
                             **inference_evidence,
                             "motion_commands_sent": commands_sent,
                             **(
@@ -1984,7 +2026,12 @@ class HardwareManager:
             "captured_monotonic_s": status.pose.captured_monotonic_s,
             "age_s": status.age_s,
             "source": "rt/sportmodestate",
+            "odometry_epoch": self._odometry_epoch,
         }
+
+    def record_bearing_route(self, evidence: dict[str, object]) -> None:
+        """Persist one non-image advisory routing decision in the run black box."""
+        self._record_black_box("fruit_bearing_route", dict(evidence))
 
     async def close(self) -> list[str]:
         errors: list[str] = []

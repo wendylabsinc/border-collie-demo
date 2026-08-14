@@ -238,12 +238,17 @@
             label.title = field.safety;
             const input = document.createElement('input');
             input.id = id;
-            input.type = 'number';
-            input.min = field.minimum;
-            input.max = field.maximum;
-            input.step = field.step;
-            input.value = profile.defaults[group][field.name] ?? '';
-            if (field.target_specific) {
+            if (field.type === 'boolean') {
+              input.type = 'checkbox';
+              input.checked = Boolean(profile.defaults[group][field.name]);
+            } else {
+              input.type = 'number';
+              input.min = field.minimum;
+              input.max = field.maximum;
+              input.step = field.step;
+              input.value = profile.defaults[group][field.name] ?? '';
+            }
+            if (field.target_specific && field.type !== 'boolean') {
               const ranges = profile.confidence_ranges[field.name.replace('_confidence', '')];
               input.min = ranges[0];
               input.max = ranges[1];
@@ -261,6 +266,10 @@
         for (const [path, input] of tuningInputs) {
           const [group, name] = path.split('.');
           payload[group] ||= {};
+          if (input.type === 'checkbox') {
+            payload[group][name] = input.checked;
+            continue;
+          }
           if (input.value === '') continue;
           payload[group][name] = name.endsWith('frames') || name.endsWith('confirmations')
             ? Number.parseInt(input.value, 10)

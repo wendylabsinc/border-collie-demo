@@ -32,6 +32,7 @@ def test_defaults_preserve_kinda_good_behavior_for_every_fruit() -> None:
     assert pear.search.yaw_rps == 0.40
     assert pear.search.focus_yaw_rps == 0.20
     assert pear.search.focus_missing_grace_s == 0.50
+    assert pear.search.bearing_routing_enabled is False
     assert pear.centering.lock_tolerance_ratio == 0.08
     assert pear.approach.forward_mps == 1.0
     assert pear.approach.slow_inference_grace_s == 0.50
@@ -51,6 +52,21 @@ def test_apple_40_percent_defaults_round_trip_through_activation_validation() ->
     assert effective.recognition.lock_confidence == 0.40
 
 
+def test_bearing_routing_default_is_env_backed_and_frozen_per_run(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("BORDER_COLLIE_BEARING_ROUTING_ENABLED", "1")
+
+    from_env = RunTuning.defaults("pear")
+    overridden = RunTuning.from_payload(
+        "pear", {"search": {"bearing_routing_enabled": False}}
+    )
+
+    assert from_env.search.bearing_routing_enabled is True
+    assert overridden.search.bearing_routing_enabled is False
+    assert overridden.to_dict()["search"]["bearing_routing_enabled"] is False
+
+
 @pytest.mark.parametrize(
     ("payload", "message"),
     [
@@ -59,6 +75,7 @@ def test_apple_40_percent_defaults_round_trip_through_activation_validation() ->
         ({"search": {"yaw_rps": float("nan")}}, "finite"),
         ({"search": {"yaw_rps": 0.20}}, "within"),
         ({"recognition": {"required_frames": 3.0}}, "integer"),
+        ({"search": {"bearing_routing_enabled": 1}}, "boolean"),
         (
             {"centering": {"lock_tolerance_ratio": 0.20, "outer_corridor_ratio": 0.20}},
             "smaller",
@@ -113,16 +130,25 @@ def test_server_contract_documents_every_control() -> None:
     assert set(contract["groups"]) == set(RunTuning.GROUPS)
     for fields in contract["groups"].values():
         for field in fields:
-            assert {
-                "name",
-                "label",
-                "unit",
-                "minimum",
-                "maximum",
-                "step",
-                "safety",
-            } <= set(field)
+            assert {"name", "label", "unit", "safety"} <= set(field)
+            if field.get("type") == "boolean":
+                assert isinstance(field["default"], bool)
+            else:
+                assert {"minimum", "maximum", "step"} <= set(field)
     assert "exact-zero disarm" in contract["hard_invariants"]
+    search_fields = {field["name"]: field for field in contract["groups"]["search"]}
+    assert search_fields["bearing_routing_enabled"] == {
+        "name": "bearing_routing_enabled",
+        "label": "Use mapped fruit bearing",
+        "unit": "boolean",
+        "type": "boolean",
+        "default": False,
+        "target_specific": False,
+        "safety": (
+            "Controls yaw routing only; mapping stays active and selected-target "
+            "guidance still owns translation and Arrival."
+        ),
+    }
 
 
 def test_home_return_minimum_yaw_is_a_validated_runtime_control() -> None:
@@ -258,9 +284,21 @@ def test_idempotency_includes_the_complete_tuning_snapshot(tmp_path) -> None:
                 "tuning": {"arrival": {"final_push_mps": 0.65}},
             },
         )
+        routing_conflict = client.post(
+            "/api/run",
+            json={
+                "target_fruit": "pear",
+                "activation_id": "same",
+                "tuning": {
+                    "arrival": {"final_push_mps": 0.60},
+                    "search": {"bearing_routing_enabled": True},
+                },
+            },
+        )
         assert first.status_code == 201
         assert replay.json()["idempotent_replay"] is True
         assert conflict.status_code == 409
+        assert routing_conflict.status_code == 409
 
 
 def test_ui_builds_controls_from_server_schema_and_shows_effective_values() -> None:
@@ -270,6 +308,7 @@ def test_ui_builds_controls_from_server_schema_and_shows_effective_values() -> N
     assert 'id="effective-tuning"' in response.text
     assert "current.run_tuning" in response.text
     assert "tuning: tuningPayload()" in response.text
+    assert "field.type === 'boolean'" in response.text
 
 
 def test_production_consumes_guidance_and_home_values_from_the_snapshot() -> None:

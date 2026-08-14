@@ -222,6 +222,7 @@ def create_app(
     @app.get("/api/status")
     async def status() -> dict[str, object]:
         current = demo.status()
+        read_bearing_map = getattr(stage_executor, "bearing_map_status", None)
         return {
             "build_label": build_label(),
             "runtime_mode": runtime_mode,
@@ -229,6 +230,9 @@ def create_app(
             "run_tuning": RunTuning.contract(),
             "cohort": cohorts.current(),
             "search_experiment": search_experiment_contract(),
+            "fruit_bearing_map": (
+                read_bearing_map() if callable(read_bearing_map) else None
+            ),
         }
 
     @app.post("/api/cohorts", status_code=201)

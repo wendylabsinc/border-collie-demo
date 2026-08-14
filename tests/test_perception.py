@@ -133,6 +133,48 @@ def test_status_preserves_validated_geometry_for_approach_and_arrival() -> None:
     assert status["inference"] == valid_payload()["inference"]
 
 
+def test_status_preserves_raw_all_fruit_observations_without_changing_target() -> None:
+    payload = valid_payload()
+    payload["observations"] = {
+        "apple": {
+            "label": "apple",
+            "confidence": 0.42,
+            "bbox_xyxy": [10, 20, 110, 220],
+            "center_x_ratio": 60 / 1280,
+            "center_y_ratio": 120 / 720,
+            "bottom_ratio": 220 / 720,
+            "source_pts": 12345,
+            "source_time_base": "1/90000",
+            "generation": "generation-1",
+            "model_route": {"mode": "general_full_frame"},
+            "inference_total_ms": 80.0,
+        },
+        "banana": {
+            "label": "banana",
+            "confidence": 0.31,
+            "bbox_xyxy": [500, 200, 620, 500],
+            "center_x_ratio": 0.4375,
+            "center_y_ratio": 0.486111,
+            "bottom_ratio": 0.694444,
+            "source_pts": 12345,
+            "source_time_base": "1/90000",
+            "generation": "generation-1",
+            "model_route": {"mode": "general_full_frame"},
+            "inference_total_ms": 80.0,
+        },
+    }
+
+    status = client_for(payload).status()
+
+    assert status["target_fruit"] == "pear"
+    assert status["detection"]["label"] == "pear"
+    assert set(status["observations"]) == {"apple", "banana"}
+    assert status["observations"]["apple"]["confidence"] == 0.42
+    assert status["observations"]["apple"]["model_route"] == {
+        "mode": "general_full_frame"
+    }
+
+
 def test_detection_must_be_bound_to_the_current_camera_generation() -> None:
     payload = valid_payload()
     payload["detection"]["generation"] = "old-generation"

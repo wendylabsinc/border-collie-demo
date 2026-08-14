@@ -14,6 +14,7 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from typing import ClassVar
 
+from .config import env_bool
 from .fruits import fruit_policy
 
 
@@ -42,6 +43,15 @@ def _integer(
         raise ValueError(f"{name} must be an integer")  # noqa: TRY004 - public validation
     if not low <= raw <= high:
         raise ValueError(f"{name} must stay within {low}..{high}")
+    return raw
+
+
+def _boolean(values: Mapping[str, object], name: str, default: bool) -> bool:
+    raw = values.get(name, default)
+    if not isinstance(raw, bool):
+        # Public activation validation consistently reports ValueError as HTTP
+        # conflict; a TypeError would bypass that one validation seam.
+        raise ValueError(f"{name} must be a boolean")  # noqa: TRY004
     return raw
 
 
@@ -78,6 +88,7 @@ class SearchTuning:
     timeout_s: float = 30.0
     focus_yaw_rps: float = 0.20
     focus_missing_grace_s: float = 0.50
+    bearing_routing_enabled: bool = False
 
 
 @dataclass(frozen=True)
@@ -178,6 +189,9 @@ class RunTuning:
                 sweep_rad=guidance.search_sweep_rad,
                 focus_yaw_rps=guidance.focus_yaw_rps,
                 focus_missing_grace_s=guidance.focus_missing_grace_s,
+                bearing_routing_enabled=env_bool(
+                    "BORDER_COLLIE_BEARING_ROUTING_ENABLED", False
+                ),
             ),
             recognition=RecognitionTuning(
                 focus_confidence=policy.focus_confidence,
@@ -269,6 +283,7 @@ class RunTuning:
                 "timeout_s",
                 "focus_yaw_rps",
                 "focus_missing_grace_s",
+                "bearing_routing_enabled",
             },
         )
         recognition = _group(
@@ -364,6 +379,11 @@ class RunTuning:
                     defaults.search.focus_missing_grace_s,
                     0.10,
                     1.0,
+                ),
+                bearing_routing_enabled=_boolean(
+                    search,
+                    "bearing_routing_enabled",
+                    defaults.search.bearing_routing_enabled,
                 ),
             ),
             recognition=RecognitionTuning(
@@ -658,6 +678,15 @@ class RunTuning:
                     0.05,
                     safety="Retains only yaw direction; lock counters do not advance.",
                 ),
+                _boolean_field(
+                    "bearing_routing_enabled",
+                    "Use mapped fruit bearing",
+                    False,
+                    safety=(
+                        "Controls yaw routing only; mapping stays active and "
+                        "selected-target guidance still owns translation and Arrival."
+                    ),
+                ),
             ],
             "recognition": [
                 _field(
@@ -908,5 +937,23 @@ def _field(
         "maximum": maximum,
         "step": step,
         "target_specific": target_specific,
+        "safety": safety,
+    }
+
+
+def _boolean_field(
+    name: str,
+    label: str,
+    default: bool,
+    *,
+    safety: str,
+) -> dict[str, object]:
+    return {
+        "name": name,
+        "label": label,
+        "unit": "boolean",
+        "type": "boolean",
+        "default": default,
+        "target_specific": False,
         "safety": safety,
     }
