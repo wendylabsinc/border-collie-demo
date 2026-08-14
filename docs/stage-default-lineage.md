@@ -47,8 +47,9 @@ The next software-only candidate is `stage-default-v5-fruit-bearing-map`, Wendy
 application version `1.1.4-stage-default`. The media general-model pass now
 reports raw best-per-fruit observations while preserving selected `detection`
 as the only motion-consumed interface. A process-local app map records only
-centered observations against the exact camera frame and measured body yaw; it
-may select a shortest Sports yaw-only turn, but normal selected-target guidance
+observations inside the existing fine-focus corridor (within 12% of image
+center) against the exact processed camera frame and measured body yaw; it may
+select a shortest Sports yaw-only turn, but normal selected-target guidance
 must still reacquire and alone can authorize translation or Arrival. Map reuse
 requires unchanged camera generation and odometry epoch plus a newly measured
 Home pose within 0.10 m and 5 degrees. This changes the shared media/app status

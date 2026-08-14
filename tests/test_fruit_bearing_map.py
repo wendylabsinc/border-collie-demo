@@ -55,6 +55,21 @@ def test_one_scan_maps_every_centered_supported_fruit_and_routes_shortest_turn()
     assert route.evidence["sample_count"] == 1
 
 
+def test_advisory_map_accepts_real_search_sample_inside_fine_focus_corridor() -> None:
+    bearing_map = FruitBearingMap(clock=lambda: 10.0)
+
+    status = bearing_map.observe(
+        home_pose=HOME,
+        robot_pose={**HOME, "yaw_rad": -1.15},
+        frame_identity=FRAME,
+        observations={"pear": observation("pear", 0.809, 0.39)},
+    )
+
+    assert status["valid"] is True
+    assert status["fruits"]["pear"]["sample_count"] == 1
+    assert status["thresholds"]["center_tolerance_ratio"] == 0.12
+
+
 def test_off_axis_observation_is_diagnostic_only_and_cannot_create_route() -> None:
     bearing_map = FruitBearingMap(clock=lambda: 10.0)
 
