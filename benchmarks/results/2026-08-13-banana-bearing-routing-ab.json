@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "recorded_at_utc": "2026-08-14T00:49:55Z",
+  "release": {
+    "commit": "92fe920161cb89f455bb12063b682c6f4849f1a2",
+    "branch": "codex/banana-reliability-replay",
+    "build_label": "stage-default-v5-fruit-bearing-map",
+    "app_version": "1.1.4-stage-default",
+    "target": "woof-2.local"
+  },
+  "experiment": {
+    "target_fruit": "banana",
+    "comparison": "same process and fruit; immutable per-run tuning differs only at search.bearing_routing_enabled",
+    "baseline_flag": false,
+    "treatment_flag": true,
+    "map_persistence": "process_local",
+    "map_authority": "yaw_route_only"
+  },
+  "baseline": {
+    "run_id": "5eb882fa-70b2-4fdf-96aa-1c1bead5a715",
+    "activation_id": "bearing-ab-banana-off",
+    "started_at_utc": "2026-08-14T00:47:27.221210Z",
+    "outcome": "COMPLETED",
+    "reason": "SUCCESS",
+    "total_duration_s": 27.7692651010002,
+    "turn_to_fruit_duration_s": 5.409928184999444,
+    "search_samples": 46,
+    "search_progress_rad": 1.4321259260177612,
+    "search_inference_ms": {
+      "count": 46,
+      "minimum": 107.58603599970229,
+      "maximum": 695.9405409997999,
+      "average": 143.44246339125834,
+      "over_200_ms": 1
+    },
+    "bearing_route_used": false,
+    "bearing_route_fallback_reason": "routing_disabled",
+    "map_after_run": {
+      "banana_bearing_rad": -1.5502862633852308,
+      "banana_average_confidence": 0.3855479136109352,
+      "banana_sample_count": 4
+    },
+    "terminal_home_distance_m": 0.06380186752933562,
+    "final_safety_state": "DISARMED_CONFIRMED"
+  },
+  "treatment": {
+    "run_id": "e16cdd13-6045-4b42-b22c-8a912989c544",
+    "activation_id": "bearing-ab-banana-on",
+    "started_at_utc": "2026-08-14T00:48:04.756066Z",
+    "outcome": "COMPLETED",
+    "reason": "SUCCESS",
+    "total_duration_s": 35.39503761200103,
+    "turn_to_fruit_duration_s": 11.613216590001684,
+    "search_samples": 19,
+    "search_progress_rad": 0.2204587459564209,
+    "search_inference_ms": {
+      "count": 19,
+      "minimum": 109.82764899927133,
+      "maximum": 129.14915699911944,
+      "average": 119.19295699992385,
+      "over_200_ms": 0
+    },
+    "bearing_route_used": true,
+    "bearing_route_planning_ms": 9121.15493300007,
+    "route": {
+      "direction": "left",
+      "requested_angle_rad": 1.4898386298032458,
+      "measured_yaw_change_rad": 1.4168721437454224,
+      "yaw_rps": 0.5,
+      "turn_elapsed_s": 3.993,
+      "motion_path": "sport_yaw",
+      "stopped": true
+    },
+    "terminal_home_distance_m": 0.030046807651391526,
+    "final_safety_state": "DISARMED_CONFIRMED"
+  },
+  "comparison": {
+    "both_completed": true,
+    "search_sample_reduction_percent": 58.69565217391304,
+    "search_progress_reduction_percent": 84.6061898642224,
+    "turn_to_fruit_delta_s": 6.20328840500224,
+    "total_duration_delta_s": 7.625772511000832,
+    "total_duration_delta_percent": 27.461196698093993,
+    "result": "routing reduced the post-route search work but made the complete run slower",
+    "diagnosis": "the treatment first normalized yaw to the prior map Home and then executed the mapped turn; that extra normalization plus routing cost exceeded the baseline broad-search time",
+    "next_experiment": "restore the original Home yaw at the end of each run, then repeat OFF/ON so the mapped route does not pay a second heading-normalization turn"
+  },
+  "excluded_setup_attempts": [
+    {
+      "run_id": "6d3096ea-b518-4ce7-b4d5-7f07041e1270",
+      "target_fruit": "pear",
+      "reason": "Pear never produced a centered mapping sample; the scan mapped Apple and Banana instead"
+    }
+  ]
+}
