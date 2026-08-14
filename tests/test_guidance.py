@@ -875,7 +875,7 @@ def test_locked_track_safety_replays_stop_immediately(mutate, reason: str) -> No
     assert decision.reason == reason
 
 
-def test_guidance_env_defaults_match_the_physically_proven_base_contract(
+def test_guidance_env_defaults_match_the_canonical_deployment_contract(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     for name in tuple(__import__("os").environ):
@@ -885,7 +885,7 @@ def test_guidance_env_defaults_match_the_physically_proven_base_contract(
     config = GuidanceConfig.from_env()
 
     assert config.search_yaw_rps == 0.4
-    assert config.focus_yaw_rps == 0.2
+    assert config.focus_yaw_rps == 0.4
     assert config.focus_missing_grace_s == 0.5
     assert config.center_tolerance_ratio == 0.08
     assert config.center_confirmations == 3

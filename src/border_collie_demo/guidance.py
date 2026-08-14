@@ -42,7 +42,7 @@ class GuidanceConfig:
 
     search_yaw_rps: float = 0.40
     search_sweep_rad: float = 2.0 * math.pi
-    focus_yaw_rps: float = 0.20
+    focus_yaw_rps: float = 0.40
     focus_missing_grace_s: float = 0.50
     center_tolerance_ratio: float = 0.08
     center_confirmations: int = 3
@@ -151,7 +151,7 @@ class GuidanceConfig:
                 os.environ.get(prefix + "SEARCH_SWEEP_RAD", str(2.0 * math.pi))
             ),
             focus_yaw_rps=float(
-                os.environ.get(prefix + "FOCUS_YAW_RPS", "0.20")
+                os.environ.get(prefix + "FOCUS_YAW_RPS", "0.40")
             ),
             focus_missing_grace_s=float(
                 os.environ.get(prefix + "FOCUS_MISSING_GRACE_S", "0.50")

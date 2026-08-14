@@ -86,7 +86,7 @@ class SearchTuning:
     yaw_rps: float = 0.40
     sweep_rad: float = 2.0 * math.pi
     timeout_s: float = 30.0
-    focus_yaw_rps: float = 0.20
+    focus_yaw_rps: float = 0.40
     focus_missing_grace_s: float = 0.50
     bearing_routing_enabled: bool = False
 

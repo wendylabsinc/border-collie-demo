@@ -16,7 +16,7 @@ from border_collie_demo.production import ProductionStageExecutor
 from border_collie_demo.run_tuning import RunTuning
 
 
-def test_defaults_preserve_kinda_good_behavior_for_every_fruit() -> None:
+def test_defaults_keep_target_confidence_and_share_the_search_contract() -> None:
     apple = RunTuning.defaults("apple")
     pear = RunTuning.defaults("pear")
     banana = RunTuning.defaults("banana")
@@ -30,7 +30,7 @@ def test_defaults_preserve_kinda_good_behavior_for_every_fruit() -> None:
     assert banana.recognition.focus_confidence is None
     assert banana.recognition.lock_confidence == 0.20
     assert pear.search.yaw_rps == 0.40
-    assert pear.search.focus_yaw_rps == 0.20
+    assert {fruit.search.focus_yaw_rps for fruit in (apple, pear, banana)} == {0.40}
     assert pear.search.focus_missing_grace_s == 0.50
     assert pear.search.bearing_routing_enabled is False
     assert pear.centering.lock_tolerance_ratio == 0.08
@@ -50,6 +50,23 @@ def test_apple_40_percent_defaults_round_trip_through_activation_validation() ->
 
     assert effective.recognition.focus_confidence == 0.40
     assert effective.recognition.lock_confidence == 0.40
+
+
+def test_focus_yaw_default_allows_a_bounded_per_run_override() -> None:
+    contract = RunTuning.contract()
+
+    assert {
+        fruit["defaults"]["search"]["focus_yaw_rps"]
+        for fruit in contract["fruits"].values()
+    } == {0.40}
+    assert (
+        RunTuning.from_payload(
+            "banana", {"search": {"focus_yaw_rps": 0.20}}
+        ).search.focus_yaw_rps
+        == 0.20
+    )
+    with pytest.raises(ValueError, match="within"):
+        RunTuning.from_payload("banana", {"search": {"focus_yaw_rps": 0.41}})
 
 
 def test_bearing_routing_default_is_env_backed_and_frozen_per_run(

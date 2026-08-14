@@ -50,10 +50,11 @@ is treated as qualified.
   0.065 m from Home. Practical consequence: stop/disarm before measuring, then
   accept positional Home only inside the frozen 0.10 m gate; do not issue
   another turn.
-- **Implemented, software-only:** `stage-default-v4-banana-reliability-replay`
-  encodes those three contracts and a deterministic non-motion replay. The
-  `0.20 rad/s` focused Sports yaw and physical end-to-end behavior remain
-  unqualified until a supervised comparison run.
+- **Superseded implementation note:** `stage-default-v4-banana-reliability-replay`
+  encoded those three contracts and a deterministic non-motion replay with a
+  `0.20 rad/s` focused Sports yaw. The canonical deployment default is now
+  `0.40 rad/s`; per-run overrides remain bounded to `0.10..0.40 rad/s`, and
+  changing this default does not itself constitute physical qualification.
 
 ## First reuse decision
 
