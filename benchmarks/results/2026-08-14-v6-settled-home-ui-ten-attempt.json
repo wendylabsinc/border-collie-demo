@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "date_utc": "2026-08-14",
+  "build_label": "stage-default-v6-settled-home-recorder",
+  "source_commit": "d4ced78",
+  "cohort": {
+    "cohort_id": "bcc85fa8-121a-4b8b-9068-89f9d14e75b9",
+    "request": {
+      "runs": 10,
+      "randomized": true,
+      "target_fruit": null,
+      "seed": 20260813,
+      "tolerated_failures": []
+    },
+    "fruit_sequence": [
+      "apple",
+      "apple",
+      "pear",
+      "apple",
+      "pear",
+      "banana",
+      "apple",
+      "banana",
+      "pear",
+      "banana"
+    ],
+    "status": "ABORTED",
+    "attempted_runs": 1,
+    "planned_runs": 10,
+    "abort_reason": "RETURN_HOME_FAILURE in return_home is a non-tolerable safety boundary"
+  },
+  "run": {
+    "run_id": "6aecaeed-6244-419e-9135-f762a308c483",
+    "target_fruit": "apple",
+    "outcome": "FAILED",
+    "reason": "RETURN_HOME_FAILURE",
+    "failed_phase": "return_home",
+    "message": "return Home heading escaped the forward steering gate; settled Home verification failed: outside_home_gate",
+    "duration_s": 41.48174437900025,
+    "final_safety_state": "DISARMED_CONFIRMED",
+    "fruit_action": {
+      "arrival_confirmed": true,
+      "forward_pulse_count": 26,
+      "posture": "stand_down",
+      "bark_played": true
+    }
+  },
+  "settled_home": {
+    "arrival_tolerance_m": 0.1,
+    "settle_interval_s": 0.3,
+    "required_samples": 4,
+    "maximum_spread_m": 0.03,
+    "retry_count": 1,
+    "first_inside_distance_m": 0.08006637080472587,
+    "first_window_distances_m": [
+      0.1804564664102382,
+      0.21628544063167857,
+      0.2552956989656839,
+      0.29451072277072493
+    ],
+    "first_window_spread_m": 0.1149256755766748,
+    "retry_gate_distance_m": 0.46772105487885446,
+    "retry_window_distances_m": [
+      0.4617353431539919,
+      0.4622572846961835,
+      0.46266050959065563,
+      0.462790479540094
+    ],
+    "retry_window_spread_m": 0.0011063050630968564,
+    "diagnosis": "Woof crossed the 0.10 m gate while still commanded at 1.0 m/s with -0.5 rad/s steering, then continued away after exact-zero release. The settled gate correctly rejected the post-stop window. The one position-only retry was not authorized to translate because the fresh Home bearing was outside the 20 degree forward-steering gate."
+  },
+  "recorder": {
+    "strictly_passive": true,
+    "source": "rt/sportmodestate",
+    "deep_rows": 4403,
+    "return_pose_rows": 1278,
+    "minimum_return_home_distance_m": 0.008672,
+    "dropped_events": 0,
+    "last_error": null,
+    "durable_endpoint": "/api/results/6aecaeed-6244-419e-9135-f762a308c483/home-deep.ndjson"
+  },
+  "terminal_live_state": {
+    "active_run_id": null,
+    "active_recovery": null,
+    "motion_armed": false,
+    "last_forward_mps": 0.0,
+    "last_yaw_rps": 0.0,
+    "current_home_distance_m": 0.24375433719067294,
+    "operator_stage_margin_m": 0.5
+  }
+}
