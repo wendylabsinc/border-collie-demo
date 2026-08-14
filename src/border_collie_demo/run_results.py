@@ -194,6 +194,12 @@ class RunResultStore:
             ),
         )
         result["home"] = deepcopy(home)
+        self.black_box.record(
+            run_id,
+            "home_captured",
+            phase="capture_home",
+            payload={**deepcopy(home), "reused": reused},
+        )
         result["message"] = result["events"][-1]["message"]
         self._write_result(result)
         return deepcopy(result)

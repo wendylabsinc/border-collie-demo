@@ -41,6 +41,11 @@ def test_defaults_keep_target_confidence_and_share_the_search_contract() -> None
     assert pear.arrival.final_push_mps == 0.60
     assert pear.arrival.final_push_duration_s == 1.0
     assert pear.home.arrival_tolerance_m == 0.10
+    assert pear.home.settle_interval_s == 0.30
+    assert pear.home.settled_sample_count == 4
+    assert pear.home.settled_maximum_spread_m == 0.03
+    assert pear.home.settled_sample_timeout_s == 1.0
+    assert pear.home.settled_retry_count == 1
 
 
 def test_apple_40_percent_defaults_round_trip_through_activation_validation() -> None:
@@ -204,6 +209,35 @@ def test_home_return_yaw_deadband_is_a_validated_runtime_control() -> None:
     assert fields["return_yaw_deadband_deg"]["unit"] == "deg"
     assert fields["return_yaw_deadband_deg"]["minimum"] == 3
     assert fields["return_yaw_deadband_deg"]["maximum"] == 15
+
+
+def test_settled_home_contract_is_env_backed_bounded_and_visible_to_the_ui(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("BORDER_COLLIE_HOME_SETTLE_INTERVAL_S", "0.45")
+    monkeypatch.setenv("BORDER_COLLIE_HOME_SETTLED_SAMPLE_COUNT", "5")
+    monkeypatch.setenv("BORDER_COLLIE_HOME_SETTLED_MAX_SPREAD_M", "0.025")
+    monkeypatch.setenv("BORDER_COLLIE_HOME_SETTLED_SAMPLE_TIMEOUT_S", "1.5")
+    monkeypatch.setenv("BORDER_COLLIE_HOME_SETTLED_RETRY_COUNT", "0")
+
+    tuning = RunTuning.defaults("pear")
+    fields = {field["name"]: field for field in RunTuning.contract()["groups"]["home"]}
+
+    assert tuning.home.settle_interval_s == 0.45
+    assert tuning.home.settled_sample_count == 5
+    assert tuning.home.settled_maximum_spread_m == 0.025
+    assert tuning.home.settled_sample_timeout_s == 1.5
+    assert tuning.home.settled_retry_count == 0
+    assert fields["settle_interval_s"]["unit"] == "s"
+    assert fields["settled_sample_count"]["minimum"] == 3
+    assert fields["settled_sample_count"]["maximum"] == 5
+    assert fields["settled_maximum_spread_m"]["unit"] == "m"
+    assert fields["settled_retry_count"]["maximum"] == 1
+
+    with pytest.raises(ValueError, match="settled_sample_count"):
+        RunTuning.from_payload("pear", {"home": {"settled_sample_count": 2}})
+    with pytest.raises(ValueError, match="settled_retry_count"):
+        RunTuning.from_payload("pear", {"home": {"settled_retry_count": 2}})
 
 
 def test_activation_persists_exact_effective_tuning_in_result_and_black_box(
@@ -378,6 +412,11 @@ def test_production_consumes_guidance_and_home_values_from_the_snapshot() -> Non
                 "return_minimum_yaw_rps": 0.55,
                 "return_yaw_rps": 0.65,
                 "arrival_tolerance_m": 0.20,
+                "settle_interval_s": 0.45,
+                "settled_sample_count": 5,
+                "settled_maximum_spread_m": 0.025,
+                "settled_sample_timeout_s": 1.5,
+                "settled_retry_count": 0,
             },
         },
     )
@@ -412,3 +451,8 @@ def test_production_consumes_guidance_and_home_values_from_the_snapshot() -> Non
     )
     assert hardware.home_calls[1][1]["minimum_yaw_rps"] == 0.55
     assert hardware.home_calls[1][1]["maximum_yaw_rps"] == 0.65
+    assert hardware.home_calls[1][1]["settle_interval_s"] == 0.45
+    assert hardware.home_calls[1][1]["settled_sample_count"] == 5
+    assert hardware.home_calls[1][1]["settled_maximum_spread_m"] == 0.025
+    assert hardware.home_calls[1][1]["settled_sample_timeout_s"] == 1.5
+    assert hardware.home_calls[1][1]["settled_retry_count"] == 0

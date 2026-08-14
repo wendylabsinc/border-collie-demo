@@ -148,6 +148,27 @@ def test_run_black_box_can_be_downloaded_while_the_run_is_active(tmp_path) -> No
     assert b'"kind":"run_started"' in response.content
 
 
+def test_deep_home_recording_is_read_only_and_run_scoped(tmp_path) -> None:
+    run_id = "3465b41f-c05c-45bd-a6e6-55526e39b9dc"
+    path = tmp_path / run_id / "home-deep.ndjson"
+    path.parent.mkdir(parents=True)
+    path.write_text('{"kind":"pose"}\n', encoding="utf-8")
+
+    with TestClient(create_app(home_recordings_root=tmp_path)) as client:
+        response = client.get(f"/api/results/{run_id}/home-deep.ndjson")
+        missing = client.get(
+            "/api/results/00000000-0000-0000-0000-000000000000/"
+            "home-deep.ndjson"
+        )
+        invalid = client.get("/api/results/not-a-run/home-deep.ndjson")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/x-ndjson")
+    assert response.content == b'{"kind":"pose"}\n'
+    assert missing.status_code == 404
+    assert invalid.status_code == 404
+
+
 def test_fruit_test_page_can_select_supported_fruit_without_motion() -> None:
     selected: list[str] = []
     app = create_app(

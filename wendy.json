@@ -1,12 +1,12 @@
 {
   "appId": "border-collie-demo",
-  "version": "1.1.4-stage-default",
+  "version": "1.1.5-stage-default",
   "services": {
     "app": {
       "context": ".",
       "env": {
         "BORDER_COLLIE_PORT": "8110",
-        "BORDER_COLLIE_BUILD_LABEL": "stage-default-v5-fruit-bearing-map",
+        "BORDER_COLLIE_BUILD_LABEL": "stage-default-v6-settled-home-recorder",
         "BORDER_COLLIE_RUNTIME_MODE": "production",
         "BORDER_COLLIE_HARDWARE_ENABLED": "1",
         "BORDER_COLLIE_AUTONOMY_ENABLED": "1",
@@ -21,6 +21,15 @@
         "BORDER_COLLIE_BARK_STATUS_URL": "http://127.0.0.1:8111/status",
         "BORDER_COLLIE_EVIDENCE_BASE_URL": "http://127.0.0.1:8111/",
         "BORDER_COLLIE_EVIDENCE_TIMEOUT_S": "3.0",
+        "BORDER_COLLIE_RUNS_DIR": "/state/runs",
+        "BORDER_COLLIE_HOME_RECORDING_EVENTS_DIR": "/state/home-recorder/events",
+        "BORDER_COLLIE_HOME_RECORDINGS_DIR": "/state/home-recorder/runs",
+        "BORDER_COLLIE_HOME_RECORDER_STATUS_URL": "http://127.0.0.1:8112/status",
+        "BORDER_COLLIE_HOME_SETTLE_INTERVAL_S": "0.30",
+        "BORDER_COLLIE_HOME_SETTLED_SAMPLE_COUNT": "4",
+        "BORDER_COLLIE_HOME_SETTLED_MAX_SPREAD_M": "0.03",
+        "BORDER_COLLIE_HOME_SETTLED_SAMPLE_TIMEOUT_S": "1.0",
+        "BORDER_COLLIE_HOME_SETTLED_RETRY_COUNT": "1",
         "BORDER_COLLIE_STAGE_HOME_MARGIN_M": "0.50",
         "BORDER_COLLIE_FORWARD_PULSE_MPS": "0.50",
         "BORDER_COLLIE_FORWARD_PULSE_DURATION_S": "0.40",
@@ -56,7 +65,30 @@
         "GO2_NETWORK_INTERFACE": "enP8p1s0"
       },
       "entitlements": [
-        {"type": "network", "mode": "host"}
+        {"type": "network", "mode": "host"},
+        {
+          "type": "persist",
+          "name": "border-collie-demo-recordings",
+          "path": "/state"
+        }
+      ]
+    },
+    "home-recorder": {
+      "context": "./home-recorder",
+      "env": {
+        "HOME_RECORDER_PORT": "8112",
+        "HOME_RECORDER_STATE_DIR": "/state/home-recorder",
+        "HOME_RECORDER_EVENTS_DIR": "/state/home-recorder/events",
+        "HOME_RECORDER_MAX_EVENTS_PER_RUN": "10000",
+        "GO2_NETWORK_INTERFACE": "enP8p1s0"
+      },
+      "entitlements": [
+        {"type": "network", "mode": "host"},
+        {
+          "type": "persist",
+          "name": "border-collie-demo-recordings",
+          "path": "/state"
+        }
       ]
     },
     "media": {
@@ -83,7 +115,7 @@
         "PORT": "8092",
         "ACTION_MODE": "border_collie",
         "BORDER_COLLIE_URL": "http://127.0.0.1:8110",
-        "BORDER_COLLIE_EXPECTED_BUILD_LABEL": "stage-default-v5-fruit-bearing-map",
+        "BORDER_COLLIE_EXPECTED_BUILD_LABEL": "stage-default-v6-settled-home-recorder",
         "CONTINUOUS_TRANSCRIPTION": "0",
         "AUTO_ARM_ACTIONS": "1",
         "AUDIO_DEVICE": "DJI MIC MINI",

@@ -12,6 +12,11 @@ from .config import HardwareConfig, PerceptionConfig
 from .evidence import TerminalEvidenceClient
 from .failure_epilogue import PositionOnlyFailureEpilogue
 from .hardware import HardwareManager
+from .home_recording import (
+    HomeRecordingHub,
+    HomeRecordingStatus,
+    SharedHomeEventJournal,
+)
 from .media import BarkClient, BarkConfig
 from .orchestrator import SimulatedStageExecutor
 from .perception import PerceptionStatusClient
@@ -36,7 +41,24 @@ def build_app_from_env() -> FastAPI:
     runs_root = Path(
         os.environ.get("BORDER_COLLIE_RUNS_DIR", "artifacts/runs")
     ).resolve()
-    black_box = RunBlackBox(runs_root)
+    black_box = HomeRecordingHub(
+        RunBlackBox(runs_root),
+        SharedHomeEventJournal(
+            Path(
+                os.environ.get(
+                    "BORDER_COLLIE_HOME_RECORDING_EVENTS_DIR",
+                    "/state/home-recorder/events",
+                )
+            )
+        ),
+    )
+    recording_status = HomeRecordingStatus(
+        black_box,
+        passive_status_url=os.environ.get(
+            "BORDER_COLLIE_HOME_RECORDER_STATUS_URL",
+            "http://127.0.0.1:8112/status",
+        ),
+    )
     hardware = HardwareManager(HardwareConfig.from_env(), black_box=black_box)
     perception = PerceptionStatusClient(PerceptionConfig.from_env())
     bark = BarkClient(BarkConfig.from_env())
@@ -67,6 +89,13 @@ def build_app_from_env() -> FastAPI:
         terminal_evidence=terminal_evidence.capture,
         failure_epilogue=PositionOnlyFailureEpilogue(hardware),
         black_box=black_box,
+        recording_status=recording_status,
+        home_recordings_root=Path(
+            os.environ.get(
+                "BORDER_COLLIE_HOME_RECORDINGS_DIR",
+                "/state/home-recorder/runs",
+            )
+        ),
         runtime_mode="production",
     )
 

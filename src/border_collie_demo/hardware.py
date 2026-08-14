@@ -21,6 +21,13 @@ from .go2_motion import (
 )
 from .go2_pose import Go2PoseProvider, PoseStatus
 from .guidance import FruitGuidance, GuidanceAction, GuidanceDecision, GuidancePhase
+from .home_stability import (
+    HomeSample,
+    HomeStabilityConfig,
+    HomeStabilityDecision,
+    HomeStabilityWindow,
+    HomeVerificationError,
+)
 from .models import VelocityCommand
 from .return_home import (
     Pose2D,
@@ -1727,14 +1734,19 @@ class HardwareManager:
             raise HardwareUnavailable(
                 sample.error or "fresh Go2 pose is unavailable for Home measurement"
             )
+        delta_x_m = sample.pose.x_m - home_pose.x_m
+        delta_y_m = sample.pose.y_m - home_pose.y_m
         return {
-            "home_distance_m": math.hypot(
-                home_pose.x_m - sample.pose.x_m,
-                home_pose.y_m - sample.pose.y_m,
-            ),
+            "home_distance_m": math.hypot(delta_x_m, delta_y_m),
+            "home_delta_x_m": delta_x_m,
+            "home_delta_y_m": delta_y_m,
+            "pose_x_m": sample.pose.x_m,
+            "pose_y_m": sample.pose.y_m,
+            "pose_yaw_rad": sample.pose.yaw_rad,
             "pose_age_s": sample.age_s,
             "pose_captured_monotonic_s": sample.pose.captured_monotonic_s,
             "pose_source": "rt/sportmodestate",
+            "odometry_epoch": self._odometry_epoch,
         }
 
     async def return_home_position(
@@ -1750,8 +1762,18 @@ class HardwareManager:
         minimum_progress_m: float,
         stall_timeout_s: float,
         timeout_s: float,
+        settle_interval_s: float = 0.30,
+        settled_sample_count: int = 4,
+        settled_maximum_spread_m: float = 0.03,
+        settled_sample_timeout_s: float = 1.0,
+        settled_retry_count: int = 1,
     ) -> dict[str, object]:
-        """Return to measured Home position with no pulse or heading credit."""
+        """Return to Home and prove the stopped position is stable.
+
+        One inside-gate pose only begins the exact-zero settling contract. Home
+        completes after an advancing, same-epoch sample window remains inside
+        the unchanged position gate with bounded physical/estimator spread.
+        """
         home_pose = _home_pose(home)
         config = ReturnPlannerConfig(
             arrival_tolerance_m=arrival_tolerance_m,
@@ -1767,20 +1789,29 @@ class HardwareManager:
             raise ValueError("return yaw is outside the configured limit")
         if minimum_progress_m <= 0.0 or stall_timeout_s <= 0.0 or timeout_s <= 0.0:
             raise ValueError("return progress and timing values must be positive")
+        if not math.isfinite(settle_interval_s) or not (
+            0.0 <= settle_interval_s <= 2.0
+        ):
+            raise ValueError("settle_interval_s must stay within 0..2")
+        if not math.isfinite(settled_sample_timeout_s) or not (
+            0.25 <= settled_sample_timeout_s <= 3.0
+        ):
+            raise ValueError("settled_sample_timeout_s must stay within 0.25..3")
+        if (
+            isinstance(settled_retry_count, bool)
+            or not isinstance(settled_retry_count, int)
+            or not 0 <= settled_retry_count <= 1
+        ):
+            raise ValueError("settled_retry_count must stay within 0..1")
+        stability_config = HomeStabilityConfig(
+            arrival_tolerance_m=arrival_tolerance_m,
+            required_samples=settled_sample_count,
+            maximum_spread_m=settled_maximum_spread_m,
+        )
+        home_epoch = home.get("odometry_epoch", self._odometry_epoch)
+        if not isinstance(home_epoch, str) or home_epoch != self._odometry_epoch:
+            raise HardwareUnavailable("captured Home odometry epoch changed")
         self._require_autonomy_ready()
-
-        initial = self.measure_home_position(home)
-        initial_distance = float(initial["home_distance_m"])
-        if initial_distance <= arrival_tolerance_m:
-            return {
-                **initial,
-                "arrival_tolerance_m": arrival_tolerance_m,
-                "pose_samples": 1,
-                "motion_path": "factory_avoidance",
-                "motion_commands_sent": False,
-                "heading_restoration_skipped": True,
-                "measured_after_disarm": True,
-            }
 
         async with self._operation_lock:
             if self._active_operation is not None:
@@ -1788,130 +1819,383 @@ class HardwareManager:
                     f"hardware operation already active: {self._active_operation}"
                 )
             self._active_operation = "return_home"
-            lease: str | None = None
-            release_error: str | None = None
-            operation_error: Exception | None = None
             started = time.monotonic()
-            best_distance = initial_distance
-            progress_at = started
-            samples = 1
+            motion_deadline = started + timeout_s
+            pose_samples = 0
             commands_sent = False
-            heading_gate_escape = False
+            any_heading_gate_escape = False
+            final_decision: HomeStabilityDecision | None = None
+            terminal: dict[str, object] | None = None
             try:
                 assert self._motion is not None and self._pose is not None
-                lease = await self._motion.arm()
-                deadline = started + timeout_s
-                while time.monotonic() < deadline:
-                    sample = self._pose.status()
-                    if not sample.healthy or sample.pose is None:
-                        raise HardwareUnavailable(
-                            sample.error or "Go2 pose became stale during return Home"
-                        )
-                    current = Pose2D(
-                        sample.pose.x_m,
-                        sample.pose.y_m,
-                        sample.pose.yaw_rad,
-                    )
-                    step = plan_position_return_step(home_pose, current, config)
-                    samples += 1
-                    if step.mode is ReturnMode.COMPLETE:
-                        break
-                    now = time.monotonic()
-                    if step.distance_m <= best_distance - minimum_progress_m:
-                        best_distance = step.distance_m
-                        progress_at = now
-                    elif now - progress_at > stall_timeout_s:
-                        raise HardwareUnavailable(
-                            f"return Home stalled at {step.distance_m:.3f} m"
-                        )
-                    if step.mode is ReturnMode.TURN_TO_HOME:
-                        heading_gate_escape = True
-                        break
-                    command = VelocityCommand(
-                        step.forward_mps,
-                        step.yaw_rps,
-                        "return_home_position",
-                    )
-                    await self._send_motion_command(lease, command)
-                    commands_sent = True
-                    await asyncio.sleep(self.config.command_heartbeat_s)
-                else:
-                    raise HardwareUnavailable("return Home timed out")
-            except Exception as exc:  # noqa: BLE001 - always disarm below
-                operation_error = exc
-            finally:
-                if (
-                    lease is not None
-                    and self._motion is not None
-                    and self._motion.armed
-                ):
-                    try:
-                        await self._motion.release(lease)
-                    except MotionError as exc:
-                        release_error = str(exc)
-                        await self._motion.emergency_stop()
-                elif self._motion is not None:
-                    stop_errors = await self._motion.emergency_stop()
-                    if stop_errors:
-                        release_error = "; ".join(stop_errors)
-                self._active_operation = None
-
-            if operation_error is not None:
-                raise operation_error
-            if release_error is not None:
-                raise HardwareUnavailable(f"return Home stop failed: {release_error}")
-            try:
-                terminal = self.measure_home_position(home)
-            except HardwareUnavailable as exc:
-                if heading_gate_escape:
-                    self._record_black_box(
-                        "return_home_reconciliation",
+                for retry_index in range(settled_retry_count + 1):
+                    candidate = self.measure_home_position(home)
+                    pose_samples += 1
+                    self._record_home_event(
+                        "home_pose_sample",
                         {
-                            "home_distance_m": None,
-                            "arrival_tolerance_m": arrival_tolerance_m,
-                            "heading_gate_escape_reconciled": False,
-                            "measured_after_disarm": True,
-                            "measurement_error": str(exc),
+                            **candidate,
+                            "stage": "position_correction",
+                            "retry_index": retry_index,
+                            "gate_decision": (
+                                "inside_candidate"
+                                if float(candidate["home_distance_m"])
+                                <= arrival_tolerance_m
+                                else "outside_drive_required"
+                            ),
                         },
                     )
-                    raise HardwareUnavailable(
-                        "return Home heading escaped the forward steering gate; "
-                        f"fresh post-disarm position was unavailable: {exc}"
-                    ) from exc
-                raise
-            terminal_distance = float(terminal["home_distance_m"])
-            if heading_gate_escape:
-                self._record_black_box(
-                    "return_home_reconciliation",
+                    if float(candidate["home_distance_m"]) > arrival_tolerance_m:
+                        lease: str | None = None
+                        release_error: str | None = None
+                        best_distance = float(candidate["home_distance_m"])
+                        progress_at = time.monotonic()
+                        try:
+                            lease = await self._motion.arm()
+                            self._record_home_event(
+                                "home_motion_state",
+                                {
+                                    "stage": "position_correction",
+                                    "retry_index": retry_index,
+                                    "armed": True,
+                                    "motion_path": "factory_avoidance",
+                                },
+                            )
+                            while time.monotonic() < motion_deadline:
+                                sample = self._pose.status()
+                                if (
+                                    not sample.healthy
+                                    or sample.pose is None
+                                    or sample.age_s is None
+                                ):
+                                    raise HardwareUnavailable(
+                                        sample.error
+                                        or "Go2 pose became stale during return Home"
+                                    )
+                                current = Pose2D(
+                                    sample.pose.x_m,
+                                    sample.pose.y_m,
+                                    sample.pose.yaw_rad,
+                                )
+                                step = plan_position_return_step(
+                                    home_pose, current, config
+                                )
+                                pose_samples += 1
+                                self._record_home_pose(
+                                    home_pose,
+                                    sample,
+                                    stage="position_correction",
+                                    retry_index=retry_index,
+                                    gate_decision=step.mode.value,
+                                )
+                                if step.mode is ReturnMode.COMPLETE:
+                                    break
+                                now = time.monotonic()
+                                if (
+                                    step.distance_m
+                                    <= best_distance - minimum_progress_m
+                                ):
+                                    best_distance = step.distance_m
+                                    progress_at = now
+                                elif now - progress_at > stall_timeout_s:
+                                    raise HardwareUnavailable(
+                                        "return Home stalled at "
+                                        f"{step.distance_m:.3f} m"
+                                    )
+                                if step.mode is ReturnMode.TURN_TO_HOME:
+                                    any_heading_gate_escape = True
+                                    break
+                                await self._send_motion_command(
+                                    lease,
+                                    VelocityCommand(
+                                        step.forward_mps,
+                                        step.yaw_rps,
+                                        "return_home_position",
+                                    ),
+                                )
+                                commands_sent = True
+                                await asyncio.sleep(
+                                    self.config.command_heartbeat_s
+                                )
+                            else:
+                                raise HardwareUnavailable("return Home timed out")
+                        finally:
+                            if lease is not None and self._motion.armed:
+                                try:
+                                    await self._motion.release(lease)
+                                except MotionError as exc:
+                                    release_error = str(exc)
+                                    await self._motion.emergency_stop()
+                            else:
+                                stop_errors = await self._motion.emergency_stop()
+                                if stop_errors:
+                                    release_error = "; ".join(stop_errors)
+                            self._record_home_event(
+                                "home_motion_state",
+                                {
+                                    "stage": "exact_zero_release",
+                                    "retry_index": retry_index,
+                                    "armed": self._motion.armed,
+                                    "forward_mps": 0.0,
+                                    "yaw_rps": 0.0,
+                                    "release_error": release_error,
+                                },
+                            )
+                        if release_error is not None:
+                            raise HardwareUnavailable(
+                                f"return Home stop failed: {release_error}"
+                            )
+                    else:
+                        stop_errors = await self._motion.emergency_stop()
+                        self._record_home_event(
+                            "home_motion_state",
+                            {
+                                "stage": "exact_zero_release",
+                                "retry_index": retry_index,
+                                "armed": self._motion.armed,
+                                "forward_mps": 0.0,
+                                "yaw_rps": 0.0,
+                                "release_error": (
+                                    "; ".join(stop_errors) if stop_errors else None
+                                ),
+                            },
+                        )
+                        if stop_errors:
+                            raise HardwareUnavailable(
+                                "return Home stop failed: " + "; ".join(stop_errors)
+                            )
+
+                    if self._motion.armed:
+                        raise HardwareUnavailable(
+                            "return Home exact-zero disarm was not confirmed"
+                        )
+
+                    if settle_interval_s:
+                        await asyncio.sleep(settle_interval_s)
+                    try:
+                        terminal, final_decision = await self._verify_settled_home(
+                            home_pose,
+                            stability_config,
+                            home_epoch=home_epoch,
+                            sample_timeout_s=settled_sample_timeout_s,
+                            retry_index=retry_index,
+                        )
+                    except HardwareUnavailable as exc:
+                        if any_heading_gate_escape:
+                            raise HardwareUnavailable(
+                                "return Home heading escaped the forward steering "
+                                f"gate; {exc}"
+                            ) from exc
+                        raise
+                    pose_samples += final_decision.sample_count
+                    if final_decision.stable:
+                        return {
+                            **terminal,
+                            "arrival_tolerance_m": arrival_tolerance_m,
+                            "pose_samples": pose_samples,
+                            "motion_path": "factory_avoidance",
+                            "motion_commands_sent": commands_sent,
+                            "heading_restoration_skipped": True,
+                            "legacy_restore_heading_semantics": (
+                                "settled_position_verification_only"
+                            ),
+                            "measured_after_disarm": True,
+                            "settled_home_verified": True,
+                            "settled_sample_count": final_decision.sample_count,
+                            "settled_position_spread_m": (
+                                final_decision.position_spread_m
+                            ),
+                            "settled_distance_min_m": final_decision.distance_min_m,
+                            "settled_distance_max_m": final_decision.distance_max_m,
+                            "position_retry_count": retry_index,
+                            "heading_gate_escape_reconciled": (
+                                any_heading_gate_escape
+                            ),
+                        }
+                    if retry_index < settled_retry_count:
+                        self._record_home_event(
+                            "home_position_retry",
+                            {
+                                **final_decision.to_dict(),
+                                "retry_index": retry_index + 1,
+                                "maximum_retries": settled_retry_count,
+                                "motion_authority": "position_only",
+                            },
+                        )
+                        continue
+                    break
+            except Exception as exc:
+                self._record_home_event(
+                    "home_verification_terminal",
                     {
-                        **terminal,
-                        "arrival_tolerance_m": arrival_tolerance_m,
-                        "heading_gate_escape_reconciled": (
-                            terminal_distance <= arrival_tolerance_m
-                        ),
-                        "measured_after_disarm": True,
+                        "terminal_reason": str(exc),
+                        "terminal_error_type": type(exc).__name__,
+                        "motion_commands_sent": commands_sent,
+                        "settled_home_verified": False,
                     },
                 )
-            if terminal_distance > arrival_tolerance_m:
-                if heading_gate_escape:
-                    raise HardwareUnavailable(
-                        "return Home heading escaped the forward steering gate; "
-                        "fresh post-disarm position remained outside Home at "
-                        f"{terminal_distance:.3f} m"
-                    )
+                raise
+            finally:
+                if self._motion is not None and self._motion.armed:
+                    await self._motion.emergency_stop()
+                self._active_operation = None
+            assert final_decision is not None
+            self._record_home_event(
+                "home_verification_terminal",
+                {
+                    **final_decision.to_dict(),
+                    "terminal_reason": "settled_home_verification_failed",
+                    "position_retry_count": settled_retry_count,
+                    "motion_commands_sent": commands_sent,
+                },
+            )
+            prefix = (
+                "return Home heading escaped the forward steering gate; "
+                if any_heading_gate_escape
+                else ""
+            )
+            raise HardwareUnavailable(
+                prefix
+                + "settled Home verification failed: "
+                + final_decision.reason
+            )
+
+    async def _verify_settled_home(
+        self,
+        home_pose: Pose2D,
+        config: HomeStabilityConfig,
+        *,
+        home_epoch: str,
+        sample_timeout_s: float,
+        retry_index: int,
+    ) -> tuple[dict[str, object], HomeStabilityDecision]:
+        assert self._pose is not None
+        window = HomeStabilityWindow(
+            config,
+            expected_odometry_epoch=home_epoch,
+        )
+        deadline = time.monotonic() + sample_timeout_s
+        last_source_timestamp: float | None = None
+        latest: dict[str, object] | None = None
+        decision: HomeStabilityDecision | None = None
+        while time.monotonic() < deadline:
+            status = self._pose.status()
+            if not status.healthy or status.pose is None or status.age_s is None:
                 raise HardwareUnavailable(
-                    f"return ended outside Home after disarm: {terminal_distance:.3f} m"
+                    status.error or "fresh pose unavailable during settled Home check"
                 )
-            return {
-                **terminal,
-                "arrival_tolerance_m": arrival_tolerance_m,
-                "pose_samples": samples + 1,
-                "motion_path": "factory_avoidance",
-                "motion_commands_sent": commands_sent,
-                "heading_restoration_skipped": True,
-                "measured_after_disarm": True,
-                "heading_gate_escape_reconciled": heading_gate_escape,
+            source_timestamp = status.pose.captured_monotonic_s
+            if last_source_timestamp is not None:
+                if source_timestamp < last_source_timestamp:
+                    raise HardwareUnavailable(
+                        "settled Home pose timestamp regressed"
+                    )
+                if source_timestamp == last_source_timestamp:
+                    await asyncio.sleep(
+                        min(self.config.command_heartbeat_s, 0.05)
+                    )
+                    continue
+            last_source_timestamp = source_timestamp
+            latest = {
+                "home_distance_m": math.hypot(
+                    status.pose.x_m - home_pose.x_m,
+                    status.pose.y_m - home_pose.y_m,
+                ),
+                "home_delta_x_m": status.pose.x_m - home_pose.x_m,
+                "home_delta_y_m": status.pose.y_m - home_pose.y_m,
+                "pose_x_m": status.pose.x_m,
+                "pose_y_m": status.pose.y_m,
+                "pose_yaw_rad": status.pose.yaw_rad,
+                "pose_age_s": status.age_s,
+                "pose_captured_monotonic_s": source_timestamp,
+                "pose_source": "rt/sportmodestate",
+                "odometry_epoch": self._odometry_epoch,
             }
+            sample = HomeSample(
+                sequence=len(window.samples) + 1,
+                x_m=float(latest["home_delta_x_m"]),
+                y_m=float(latest["home_delta_y_m"]),
+                yaw_rad=status.pose.yaw_rad,
+                captured_monotonic_s=source_timestamp,
+                age_s=status.age_s,
+                odometry_epoch=self._odometry_epoch,
+            )
+            try:
+                decision = window.observe(sample)
+            except HomeVerificationError as exc:
+                raise HardwareUnavailable(str(exc)) from exc
+            self._record_home_event(
+                "home_settled_sample",
+                {
+                    **latest,
+                    "sample_sequence": sample.sequence,
+                    "stage": "settled_home_verification",
+                    "retry_index": retry_index,
+                    "gate_decision": decision.reason,
+                    "window": decision.to_dict(),
+                },
+            )
+            if decision.stable or decision.sample_count >= config.required_samples:
+                break
+            await asyncio.sleep(min(self.config.command_heartbeat_s, 0.05))
+        if latest is None or decision is None:
+            raise HardwareUnavailable(
+                "settled Home verification timed out without advancing pose samples"
+            )
+        if decision.sample_count < config.required_samples:
+            raise HardwareUnavailable(
+                "settled Home verification timed out before the required "
+                "advancing pose samples"
+            )
+        self._record_home_event(
+            "home_settled_window",
+            {
+                **decision.to_dict(),
+                "retry_index": retry_index,
+                "sample_timeout_s": sample_timeout_s,
+                "odometry_epoch": home_epoch,
+            },
+        )
+        return latest, decision
+
+    def _record_home_pose(
+        self,
+        home_pose: Pose2D,
+        status: PoseStatus,
+        *,
+        stage: str,
+        retry_index: int,
+        gate_decision: str,
+    ) -> None:
+        assert status.pose is not None
+        self._record_home_event(
+            "home_pose_sample",
+            {
+                "pose_x_m": status.pose.x_m,
+                "pose_y_m": status.pose.y_m,
+                "pose_yaw_rad": status.pose.yaw_rad,
+                "home_delta_x_m": status.pose.x_m - home_pose.x_m,
+                "home_delta_y_m": status.pose.y_m - home_pose.y_m,
+                "home_distance_m": math.hypot(
+                    status.pose.x_m - home_pose.x_m,
+                    status.pose.y_m - home_pose.y_m,
+                ),
+                "pose_captured_monotonic_s": status.pose.captured_monotonic_s,
+                "pose_age_s": status.age_s,
+                "pose_source": "rt/sportmodestate",
+                "odometry_epoch": self._odometry_epoch,
+                "stage": stage,
+                "retry_index": retry_index,
+                "gate_decision": gate_decision,
+            },
+        )
+
+    def _record_home_event(self, kind: str, payload: dict[str, object]) -> None:
+        """Best-effort diagnostic fan-out; recorder faults never own safety."""
+        try:
+            self._record_black_box(kind, payload)
+        except Exception:  # noqa: BLE001 - passive evidence cannot mask safety
+            return
 
     async def turn_toward_home(
         self,

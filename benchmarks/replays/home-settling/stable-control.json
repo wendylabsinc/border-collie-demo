@@ -1,0 +1,12 @@
+{
+  "run_id": "stable-control",
+  "description": "Deterministic control window with four advancing samples inside the Home gate.",
+  "expected_stable": true,
+  "odometry_epoch": "stable-control",
+  "samples": [
+    {"captured_monotonic_s": 0.000, "age_s": 0.010, "distance_m": 0.061},
+    {"captured_monotonic_s": 0.050, "age_s": 0.010, "distance_m": 0.064},
+    {"captured_monotonic_s": 0.100, "age_s": 0.009, "distance_m": 0.060},
+    {"captured_monotonic_s": 0.150, "age_s": 0.010, "distance_m": 0.063}
+  ]
+}

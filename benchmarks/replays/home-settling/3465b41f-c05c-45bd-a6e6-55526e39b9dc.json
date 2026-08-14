@@ -1,0 +1,12 @@
+{
+  "run_id": "3465b41f-c05c-45bd-a6e6-55526e39b9dc",
+  "description": "Return accepted 0.0577 m, then moved outside the gate about 160 ms later without a heading command.",
+  "expected_stable": false,
+  "odometry_epoch": "physical-3465b41f",
+  "samples": [
+    {"captured_monotonic_s": 0.000, "age_s": 0.010, "distance_m": 0.0577},
+    {"captured_monotonic_s": 0.160, "age_s": 0.011, "distance_m": 0.1130},
+    {"captured_monotonic_s": 0.210, "age_s": 0.010, "distance_m": 0.1120},
+    {"captured_monotonic_s": 0.260, "age_s": 0.009, "distance_m": 0.1140}
+  ]
+}
