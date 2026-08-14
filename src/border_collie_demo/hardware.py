@@ -54,6 +54,46 @@ def _finite_float(value: object) -> float | None:
     return number if math.isfinite(number) else None
 
 
+def _observation_frame_identity(
+    observations: dict[str, object],
+    *,
+    odometry_epoch: str,
+) -> dict[str, object] | None:
+    """Return the one processed-frame identity shared by raw observations.
+
+    The decoder's latest source frame can advance while inference is still
+    publishing the preceding processed frame.  The bearing map must therefore
+    bind robot yaw to the observations' own identity.  Mixed identities fail
+    closed instead of combining evidence from different camera instants.
+    """
+    identities: set[tuple[str, str, int]] = set()
+    for raw_observation in observations.values():
+        if not isinstance(raw_observation, dict):
+            continue
+        generation = raw_observation.get("generation")
+        time_base = raw_observation.get("source_time_base")
+        source_pts = raw_observation.get("source_pts")
+        if (
+            not isinstance(generation, str)
+            or not generation
+            or not isinstance(time_base, str)
+            or not time_base
+            or isinstance(source_pts, bool)
+            or not isinstance(source_pts, int)
+        ):
+            continue
+        identities.add((generation, time_base, source_pts))
+    if len(identities) != 1:
+        return None
+    generation, time_base, source_pts = identities.pop()
+    return {
+        "generation": generation,
+        "source_pts": source_pts,
+        "source_time_base": time_base,
+        "odometry_epoch": odometry_epoch,
+    }
+
+
 def _home_pose(home: dict[str, object]) -> Pose2D:
     values = tuple(_finite_float(home.get(name)) for name in ("x_m", "y_m", "yaw_rad"))
     if any(value is None for value in values):
@@ -1302,25 +1342,25 @@ class HardwareManager:
                         source = status.get("source")
                         observations = status.get("observations")
                         if isinstance(source, dict) and isinstance(observations, dict):
-                            bearing_map_status = bearing_map.observe(
-                                home_pose,
-                                {
-                                    "x_m": pose.pose.x_m,
-                                    "y_m": pose.pose.y_m,
-                                    "yaw_rad": pose.pose.yaw_rad,
-                                    "age_s": pose.age_s,
-                                },
-                                {
-                                    "generation": status.get("generation"),
-                                    "source_pts": source.get("pts"),
-                                    "source_time_base": source.get("time_base"),
-                                    "odometry_epoch": self._odometry_epoch,
-                                },
+                            observation_frame = _observation_frame_identity(
                                 observations,
+                                odometry_epoch=self._odometry_epoch,
                             )
-                            self._record_black_box(
-                                "fruit_bearing_map", bearing_map_status
-                            )
+                            if observation_frame is not None:
+                                bearing_map_status = bearing_map.observe(
+                                    home_pose,
+                                    {
+                                        "x_m": pose.pose.x_m,
+                                        "y_m": pose.pose.y_m,
+                                        "yaw_rad": pose.pose.yaw_rad,
+                                        "age_s": pose.age_s,
+                                    },
+                                    observation_frame,
+                                    observations,
+                                )
+                                self._record_black_box(
+                                    "fruit_bearing_map", bearing_map_status
+                                )
                     raw_inference = status.get("inference")
                     if isinstance(raw_inference, dict) and isinstance(
                         raw_inference.get("summary"), dict

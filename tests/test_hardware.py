@@ -622,6 +622,11 @@ def test_search_records_all_fruits_in_bearing_map_but_selected_target_drives_loc
         def status() -> dict[str, object]:
             nonlocal pts
             pts += 1
+            # The decoder can already have accepted the next camera frame while
+            # inference still publishes observations for the processed frame.
+            # Bearing evidence must follow the observations' identity, not the
+            # newer scheduler/source identity.
+            latest_source_pts = pts + 1
             shared = {
                 "generation": "camera-map",
                 "source_pts": pts,
@@ -630,7 +635,11 @@ def test_search_records_all_fruits_in_bearing_map_but_selected_target_drives_loc
             return {
                 "camera_healthy": True,
                 "generation": "camera-map",
-                "source": {"pts": pts, "time_base": "1/90000", "age_s": 0.01},
+                "source": {
+                    "pts": latest_source_pts,
+                    "time_base": "1/90000",
+                    "age_s": 0.01,
+                },
                 "detection": {
                     **shared,
                     "label": "pear",
