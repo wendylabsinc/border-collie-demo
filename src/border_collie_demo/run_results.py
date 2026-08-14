@@ -71,6 +71,7 @@ class RunResultStore:
         activation_id: str | None = None,
         run_tuning: dict[str, object] | None = None,
         search_experiment: dict[str, object] | None = None,
+        home_scope: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         if self._active_run_id is not None:
             raise ActiveRunError("a Demo Run is already active")
@@ -86,6 +87,7 @@ class RunResultStore:
             "activation_id": activation_id,
             "run_tuning": deepcopy(run_tuning),
             "search_experiment": deepcopy(search_experiment),
+            "home_scope": deepcopy(home_scope),
             "started_at_utc": started_utc,
             "started_monotonic_s": started_monotonic_s,
             "ended_at_utc": None,
@@ -112,6 +114,7 @@ class RunResultStore:
                 "activation_id": activation_id,
                 "run_tuning": deepcopy(run_tuning),
                 "search_experiment": deepcopy(search_experiment),
+                "home_scope": deepcopy(home_scope),
             },
         )
         self._append_event(
@@ -174,6 +177,8 @@ class RunResultStore:
         self,
         run_id: str,
         home: dict[str, Any],
+        *,
+        reused: bool = False,
     ) -> dict[str, Any]:
         result = self.get(run_id)
         if result["outcome"] is not None:
@@ -181,8 +186,12 @@ class RunResultStore:
         self._append_event(
             result,
             phase="capture_home",
-            reason="HOME_CAPTURED",
-            message="fresh robot-local position and heading captured as Home",
+            reason="HOME_REUSED" if reused else "HOME_CAPTURED",
+            message=(
+                "cohort Home reused for this Demo Run"
+                if reused
+                else "fresh robot-local position and heading captured as Home"
+            ),
         )
         result["home"] = deepcopy(home)
         result["message"] = result["events"][-1]["message"]

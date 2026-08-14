@@ -17,7 +17,7 @@ from .cohort_policy import (
     decide_terminal_run,
     evaluate_home_clearance,
 )
-from .stage_demo import FruitMission, StageDemo
+from .stage_demo import FruitMission, HomeScope, StageDemo
 
 
 class CohortConflict(RuntimeError):
@@ -59,6 +59,7 @@ class CohortController:
             if not (status.get("activation") or {}).get("ready"):
                 raise CohortConflict("activation readiness has not passed")
             cohort_id = str(uuid4())
+            home_scope = HomeScope(f"cohort:{cohort_id}", "cohort")
             self._current = {
                 "schema_version": 1,
                 "cohort_id": cohort_id,
@@ -71,6 +72,8 @@ class CohortController:
                 "current_run_id": None,
                 "stop_requested": False,
                 "abort_reason": None,
+                "home_scope": home_scope.to_dict(),
+                "home": None,
             }
             self._stop_requested = False
             self._persist()
@@ -119,6 +122,7 @@ class CohortController:
     async def _execute(self, policy: CohortPolicy) -> None:
         assert self._current is not None
         cohort = self._current
+        home_scope = HomeScope(**cohort["home_scope"])
         try:
             for number, fruit in enumerate(cohort["fruit_sequence"], start=1):
                 if self._stop_requested:
@@ -127,7 +131,12 @@ class CohortController:
                 activation_id = f"cohort:{cohort['cohort_id']}:run:{number}"
                 try:
                     activation = await self._demo.activate(
-                        FruitMission(fruit, "cohort", activation_id)
+                        FruitMission(
+                            fruit,
+                            "cohort",
+                            activation_id,
+                            home_scope=home_scope,
+                        )
                     )
                 except Exception as exc:  # noqa: BLE001 - activation is ambiguous
                     self._finish(
@@ -142,6 +151,15 @@ class CohortController:
                     )
                     return
                 run_id = activation.run["run_id"]
+                run_home = activation.run.get("home")
+                if not isinstance(run_home, dict):
+                    self._finish("ABORTED", f"run {number} has no stored cohort Home")
+                    return
+                if cohort["home"] is None:
+                    cohort["home"] = deepcopy(run_home)
+                elif cohort["home"] != run_home:
+                    self._finish("ABORTED", f"run {number} changed cohort Home")
+                    return
                 cohort["current_run_id"] = run_id
                 self._persist()
                 try:
@@ -178,6 +196,8 @@ class CohortController:
                     "reason": run.get("reason"),
                     "failed_phase": run.get("failed_phase"),
                     "final_safety_state": run.get("final_safety_state"),
+                    "home_scope": run.get("home_scope"),
+                    "home": run.get("home"),
                     "cohort_decision": decision,
                     "bearing_routing": {
                         "enabled": (

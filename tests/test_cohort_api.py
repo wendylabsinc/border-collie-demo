@@ -6,11 +6,15 @@ from fastapi.testclient import TestClient
 
 from border_collie_demo.api import create_app
 from border_collie_demo.orchestrator import SimulatedStageExecutor
+from border_collie_demo.run_results import RunResultStore
 
 
 class ReadyHardware:
     def __init__(self) -> None:
         self.started = False
+        self.capture_home_calls = 0
+        self.x_m = 1.0
+        self.y_m = 2.0
 
     async def start(self) -> None:
         self.started = True
@@ -23,9 +27,10 @@ class ReadyHardware:
         return []
 
     def capture_home(self) -> dict[str, object]:
+        self.capture_home_calls += 1
         return {
-            "x_m": 1.0,
-            "y_m": 2.0,
+            "x_m": self.x_m,
+            "y_m": self.y_m,
             "yaw_rad": 0.25,
             "captured_monotonic_s": 3.0,
             "age_s": 0.01,
@@ -42,7 +47,7 @@ class ReadyHardware:
                 "healthy": True,
                 "age_s": 0.01,
                 "error": None,
-                "pose": {"x_m": 1.0, "y_m": 2.0},
+                "pose": {"x_m": self.x_m, "y_m": self.y_m},
             },
             "motion": {
                 "armed": False,
@@ -66,10 +71,11 @@ def wait_for_cohort(client: TestClient, timeout_s: float = 2.0) -> dict:
 
 
 def test_api_runs_exact_fixed_fruit_cohort_and_persists_decisions(tmp_path) -> None:
+    hardware = ReadyHardware()
     app = create_app(
         runs_root=tmp_path / "runs",
         cohorts_root=tmp_path / "cohorts",
-        hardware=ReadyHardware(),
+        hardware=hardware,
         camera_perception_status=ready_camera,
         stage_executor=SimulatedStageExecutor(),
     )
@@ -98,6 +104,20 @@ def test_api_runs_exact_fixed_fruit_cohort_and_persists_decisions(tmp_path) -> N
         "banana",
     ]
     assert len({item["activation_id"] for item in cohort["runs"]}) == 3
+    assert hardware.capture_home_calls == 1
+    assert cohort["home"] == {
+        "x_m": 1.0,
+        "y_m": 2.0,
+        "yaw_rad": 0.25,
+        "captured_monotonic_s": 3.0,
+        "age_s": 0.01,
+        "source": "test",
+    }
+    assert cohort["home_scope"] == {
+        "scope_id": f"cohort:{cohort['cohort_id']}",
+        "kind": "cohort",
+    }
+    assert all(item["home"] == cohort["home"] for item in cohort["runs"])
     assert all(item["cohort_decision"] for item in cohort["runs"])
     assert all(
         item["bearing_routing"]
@@ -130,6 +150,64 @@ def test_api_random_cohort_persists_seeded_sequence(tmp_path) -> None:
             return wait_for_cohort(client)["fruit_sequence"]
 
     assert run(919, "a") == run(919, "b")
+
+
+def test_start_cohort_rebaselines_home_instead_of_rejecting_old_home(tmp_path) -> None:
+    runs_root = tmp_path / "runs"
+    results = RunResultStore(runs_root)
+    prior = results.start_run(
+        target_fruit="pear",
+        activation_source="audience_ui",
+        activation_id="old-run",
+    )
+    results.record_home(
+        prior["run_id"],
+        {
+            "x_m": 1.0,
+            "y_m": 2.0,
+            "yaw_rad": 0.25,
+            "captured_monotonic_s": 1.0,
+            "age_s": 0.01,
+            "source": "test",
+        },
+    )
+    results.seal(
+        prior["run_id"],
+        phase="failed",
+        outcome="FAILED",
+        reason="ARRIVAL_FAILURE",
+        message="old run ended away from its Home",
+        final_safety_state="DISARMED_CONFIRMED",
+    )
+    hardware = ReadyHardware()
+    hardware.x_m = 2.0
+    app = create_app(
+        runs_root=runs_root,
+        cohorts_root=tmp_path / "cohorts",
+        hardware=hardware,
+        camera_perception_status=ready_camera,
+        stage_executor=SimulatedStageExecutor(),
+    )
+
+    with TestClient(app) as client:
+        status = client.get("/api/status").json()
+        response = client.post(
+            "/api/cohorts",
+            json={
+                "runs": 1,
+                "randomized": False,
+                "target_fruit": "banana",
+                "seed": 7,
+            },
+        )
+        cohort = wait_for_cohort(client)
+
+    assert status["activation"]["ready"] is True
+    assert response.status_code == 201
+    assert cohort["status"] == "COMPLETED"
+    assert cohort["home"]["x_m"] == 2.0
+    assert cohort["runs"][0]["home"] == cohort["home"]
+    assert hardware.capture_home_calls == 1
 
 
 def test_terminal_failure_policy_is_applied_before_home_clearance(tmp_path) -> None:
@@ -233,6 +311,7 @@ def test_audience_ui_exposes_cohort_configuration_and_observation() -> None:
     assert 'id="cohort-randomized"' in page
     assert 'id="cohort-fixed-fruit"' in page
     assert "Failures stop the cohort by default" in page
+    assert "Starting captures a new Home for this cohort" in page
     assert "'/api/cohorts'" in page
     assert "'/api/cohorts/active'" in page
     assert "'/api/cohorts/active/stop'" in page

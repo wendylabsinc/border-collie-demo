@@ -7,7 +7,7 @@ import pytest
 from border_collie_demo.mission import MissionMachine
 from border_collie_demo.orchestrator import SimulatedStageExecutor
 from border_collie_demo.run_results import ActiveRunError, RunResultStore
-from border_collie_demo.stage_demo import FruitMission, StageDemo
+from border_collie_demo.stage_demo import FruitMission, HomeScope, StageDemo
 
 
 class ReadyHardware:
@@ -18,6 +18,7 @@ class ReadyHardware:
         self.yaw_rps = 0.0
         self.x_m = 1.0
         self.y_m = 2.0
+        self.capture_home_calls = 0
 
     async def start(self) -> None:
         self.started = True
@@ -33,9 +34,10 @@ class ReadyHardware:
         return []
 
     def capture_home(self) -> dict[str, object]:
+        self.capture_home_calls += 1
         return {
-            "x_m": 1.0,
-            "y_m": 2.0,
+            "x_m": self.x_m,
+            "y_m": self.y_m,
             "yaw_rad": 0.25,
             "captured_monotonic_s": 3.0,
             "age_s": 0.01,
@@ -254,7 +256,7 @@ def test_completion_fails_closed_when_exact_zero_cannot_be_confirmed(tmp_path) -
     asyncio.run(scenario())
 
 
-def test_next_activation_waits_for_fresh_return_to_prior_run_home(tmp_path) -> None:
+def test_new_standalone_run_replaces_a_completed_run_home(tmp_path) -> None:
     async def scenario() -> None:
         results = RunResultStore(tmp_path)
         prior = results.start_run(
@@ -291,30 +293,61 @@ def test_next_activation_waits_for_fresh_return_to_prior_run_home(tmp_path) -> N
         )
         await demo.start()
 
-        blocked = demo.status()
-
-        assert blocked["activation"]["ready"] is False
-        assert blocked["activation"]["inter_run"] == {
-            "required": True,
-            "prior_run_id": prior["run_id"],
-            "prior_outcome": "FAILED",
-            "home_distance_m": 1.0,
-            "stage_home_margin_m": 0.5,
-            "returned_home": False,
-        }
-        assert blocked["activation"]["blockers"][-1]["name"] == (
-            "inter_run_home_clearance"
-        )
-        with pytest.raises(ActiveRunError, match="has not returned Home"):
-            await demo.activate(FruitMission("pear", "soak", "attempt-2"))
-
-        hardware.x_m = 1.2
         ready = demo.status()
-
         assert ready["activation"]["ready"] is True
-        assert ready["activation"]["inter_run"]["returned_home"] is True
+
         activation = await demo.activate(FruitMission("pear", "soak", "attempt-2"))
         assert activation.run["target_fruit"] == "pear"
+        assert activation.run["home"]["x_m"] == 2.0
+        assert activation.run["home"]["y_m"] == 2.0
+        assert activation.run["home_scope"] == {
+            "scope_id": "run:attempt-2",
+            "kind": "run",
+        }
+        assert hardware.capture_home_calls == 1
+        await demo.stop()
+        await demo.close()
+
+    asyncio.run(scenario())
+
+
+def test_cohort_scope_reuses_one_home_and_requires_return_before_next_run(
+    tmp_path,
+) -> None:
+    async def scenario() -> None:
+        hardware = ReadyHardware()
+        demo = StageDemo(
+            MissionMachine(),
+            RunResultStore(tmp_path),
+            hardware,
+            ready_camera,
+            stage_home_margin_m=0.50,
+        )
+        await demo.start()
+        scope = HomeScope("cohort:test-1", "cohort")
+
+        first = await demo.activate(
+            FruitMission("banana", "cohort", "cohort-1-run-1", home_scope=scope)
+        )
+        await demo.stop()
+        hardware.x_m = 2.0
+
+        with pytest.raises(ActiveRunError, match="this cohort Home"):
+            await demo.activate(
+                FruitMission("pear", "cohort", "cohort-1-run-2", home_scope=scope)
+            )
+
+        hardware.x_m = 1.2
+        second = await demo.activate(
+            FruitMission("pear", "cohort", "cohort-1-run-2", home_scope=scope)
+        )
+
+        assert hardware.capture_home_calls == 1
+        assert second.run["home"] == first.run["home"]
+        assert second.run["events"][-1]["reason"] == "WAITING_FOR_COMMAND"
+        assert any(
+            event["reason"] == "HOME_REUSED" for event in second.run["events"]
+        )
         await demo.stop()
         await demo.close()
 

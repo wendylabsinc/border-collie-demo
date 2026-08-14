@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import math
 from collections.abc import Awaitable, Callable
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -40,6 +41,27 @@ class ActivationConflict(ValueError):
 
 
 @dataclass(frozen=True)
+class HomeScope:
+    """Own one captured Home for either one run or one bounded cohort."""
+
+    scope_id: str
+    kind: str
+
+    def __post_init__(self) -> None:
+        scope_id = self.scope_id.strip()
+        kind = self.kind.casefold().strip()
+        if not scope_id:
+            raise ValueError("Home scope id must not be empty")
+        if kind not in {"run", "cohort"}:
+            raise ValueError("Home scope kind must be run or cohort")
+        object.__setattr__(self, "scope_id", scope_id)
+        object.__setattr__(self, "kind", kind)
+
+    def to_dict(self) -> dict[str, str]:
+        return {"scope_id": self.scope_id, "kind": self.kind}
+
+
+@dataclass(frozen=True)
 class FruitMission:
     """Caller-owned identity and intent for exactly one Demo Run attempt."""
 
@@ -47,6 +69,7 @@ class FruitMission:
     activation_source: str
     activation_id: str
     tuning: RunTuning | None = None
+    home_scope: HomeScope | None = None
 
     def __post_init__(self) -> None:
         target = self.target_fruit.casefold().strip()
@@ -61,6 +84,12 @@ class FruitMission:
         object.__setattr__(self, "target_fruit", target)
         object.__setattr__(self, "activation_source", source)
         object.__setattr__(self, "activation_id", activation_id)
+        if self.home_scope is None:
+            object.__setattr__(
+                self,
+                "home_scope",
+                HomeScope(f"run:{activation_id}", "run"),
+            )
         if self.tuning is None:
             object.__setattr__(
                 self,
@@ -142,6 +171,9 @@ class StageDemo:
         self._started = False
         self._stage_executor = stage_executor
         self._stage_home_margin_m = stage_home_margin_m
+        self._home_scope: HomeScope | None = None
+        self._home: dict[str, object] | None = None
+        self._home_scope_last_run_id: str | None = None
         self._orchestrator = None
         if stage_executor is not None:
             self._orchestrator = DemoOrchestrator(
@@ -199,10 +231,16 @@ class StageDemo:
                 raise RestartRequired(
                     "physical remote takeover is latched; restart required"
                 )
-            clearance = self._inter_run_clearance(self._hardware.status())
-            if clearance is not None and not clearance["returned_home"]:
+            reuse_home = self._home_scope == mission.home_scope and self._home is not None
+            clearance = (
+                self._inter_run_clearance(self._hardware.status())
+                if reuse_home
+                else None
+            )
+            if reuse_home and clearance is not None and not clearance["returned_home"]:
                 raise ActiveRunError(
-                    "the prior Demo Run has not returned Home; another run cannot start"
+                    "the prior Demo Run has not returned to this cohort Home; "
+                    "another cohort run cannot start"
                 )
 
             run = self._results.start_run(
@@ -211,6 +249,7 @@ class StageDemo:
                 activation_id=mission.activation_id,
                 run_tuning=mission.tuning.to_dict(),
                 search_experiment=mission.tuning.search_experiment_dict(),
+                home_scope=mission.home_scope.to_dict(),
             )
             self._mission.begin_run("Demo Run activation persisted")
             run = self._results.enter_phase(
@@ -255,7 +294,11 @@ class StageDemo:
                 message="preflight passed; ready to capture Home",
             )
             try:
-                home = self._hardware.capture_home()
+                home = (
+                    deepcopy(self._home)
+                    if reuse_home
+                    else self._hardware.capture_home()
+                )
             except Exception as exc:  # noqa: BLE001 - hardware evidence seam
                 errors = await self._exact_stop()
                 self._mission.fail("fresh Home pose capture failed")
@@ -274,8 +317,18 @@ class StageDemo:
                 )
                 return Activation(run, idempotent_replay=False)
 
-            run = self._results.record_home(run["run_id"], home)
-            self._mission.advance("fresh Home pose captured")
+            if not reuse_home:
+                self._home_scope = mission.home_scope
+                self._home = deepcopy(home)
+            self._home_scope_last_run_id = run["run_id"]
+            run = self._results.record_home(
+                run["run_id"],
+                home,
+                reused=reuse_home,
+            )
+            self._mission.advance(
+                "cohort Home reused" if reuse_home else "fresh Home pose captured"
+            )
             run = self._results.enter_phase(
                 run["run_id"],
                 phase=self._mission.phase.value,
@@ -356,20 +409,8 @@ class StageDemo:
             for item in report["checks"]
             if not item["ready"]
         ]
-        if clearance is not None and not clearance["returned_home"]:
-            distance = clearance["home_distance_m"]
-            detail = (
-                "fresh current Home distance is unavailable"
-                if distance is None
-                else (
-                    f"prior run is {distance:.3f} m from Home; "
-                    f"required <= {self._stage_home_margin_m:.3f} m"
-                )
-            )
-            blockers.append({"name": "inter_run_home_clearance", "detail": detail})
         activation: dict[str, Any] = {
-            "ready": report["ready"]
-            and (clearance is None or clearance["returned_home"]),
+            "ready": report["ready"],
             "blockers": blockers,
         }
         if clearance is not None:
@@ -379,6 +420,14 @@ class StageDemo:
             "hardware": hardware,
             "active_run_id": self._results.active_run_id,
             "activation": activation,
+            "home_scope": (
+                None
+                if self._home_scope is None
+                else {
+                    **self._home_scope.to_dict(),
+                    "home": deepcopy(self._home),
+                }
+            ),
         }
 
     def list_results(self) -> list[dict[str, Any]]:
@@ -387,17 +436,23 @@ class StageDemo:
     def _inter_run_clearance(
         self, hardware: dict[str, object]
     ) -> dict[str, object] | None:
+        if (
+            self._home_scope is None
+            or self._home is None
+            or self._home_scope_last_run_id is None
+        ):
+            return None
         prior = next(
             (
                 run
                 for run in self._results.list_results()
-                if run.get("outcome") is not None and isinstance(run.get("home"), dict)
+                if run.get("run_id") == self._home_scope_last_run_id
             ),
             None,
         )
         if prior is None:
             return None
-        home = prior["home"]
+        home = self._home
         pose_status = hardware.get("pose")
         current = (
             pose_status.get("pose")
@@ -430,6 +485,7 @@ class StageDemo:
             "required": True,
             "prior_run_id": prior["run_id"],
             "prior_outcome": prior["outcome"],
+            "home_scope": self._home_scope.to_dict(),
             "home_distance_m": distance,
             "stage_home_margin_m": self._stage_home_margin_m,
             "returned_home": returned_home,
@@ -488,6 +544,7 @@ class StageDemo:
             run.get("target_fruit") != mission.target_fruit
             or run.get("activation_source") != mission.activation_source
             or run.get("run_tuning") != mission.tuning.to_dict()
+            or run.get("home_scope") != mission.home_scope.to_dict()
         ):
             raise ActivationConflict(
                 "activation_id already belongs to a different Fruit Mission"

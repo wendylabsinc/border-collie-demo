@@ -5,6 +5,17 @@ operator chooses the run count, a seeded randomized Target Fruit sequence or
 one fixed Target Fruit, and terminal reasons or failed phases that may be
 tolerated at the cohort boundary.
 
+Starting a cohort is an explicit Home-rebaseline action. The controller
+captures one fresh, disarmed robot-local Home and stores it in the durable
+cohort record. Every member Run Result stores that same Home and its cohort
+scope. Later runs never recapture or drift Home; they start only after fresh
+pose proves that Woof returned to the cohort Home.
+
+A standalone `POST /api/run` instead owns a run-scoped Home and captures it
+fresh for that activation. A completed run's old Home is therefore informative
+but cannot block an operator from deliberately starting a new run or cohort at
+the robot's current safe position.
+
 Defaults are deliberately strict:
 
 - five runs;
@@ -16,8 +27,8 @@ must already be terminal. Before the next activation, the controller requires
 all of the following from the existing `StageDemo` status boundary:
 
 - the inter-run evidence names that exact prior `run_id`;
-- fresh current pose is within `BORDER_COLLIE_STAGE_HOME_MARGIN_M` of that
-  run's captured Home (default `0.50 m`);
+- fresh current pose is within `BORDER_COLLIE_STAGE_HOME_MARGIN_M` of the
+  cohort's stored Home (default `0.50 m`);
 - there is no active run or recovery;
 - motion is disarmed with exact-zero forward and yaw commands;
 - activation readiness passes; and
@@ -46,8 +57,9 @@ each scheduled `FruitMission`; failure tolerance must never alter tuning or its
 safety validation.
 
 The durable cohort record contains the complete policy, seed, precomputed
-Target Fruit sequence, each Run Result identity/outcome, the policy decision,
-and the exact inter-run Home-clearance evidence.
+Target Fruit sequence, cohort Home and ownership scope, each Run Result
+identity/outcome, the policy decision, and the exact inter-run Home-clearance
+evidence.
 
 By default cohort records use a `cohorts/` sibling of
 `BORDER_COLLIE_RUNS_DIR`, so a deployment's durable Run Result mount also

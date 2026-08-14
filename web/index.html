@@ -140,7 +140,7 @@
       </div>
       <section class="cohort-panel" aria-labelledby="cohort-title">
         <h2 id="cohort-title">Back-to-back Demo Runs</h2>
-        <p>Failures stop the cohort by default. A tolerated failure never resumes a failed run; it permits a new independent run only after exact-zero disarm and fresh Home clearance for that exact run.</p>
+        <p>Failures stop the cohort by default. Starting captures a new Home for this cohort. Every run returns to that same stored Home; a tolerated failure never resumes a failed run or bypasses exact-zero disarm and fresh Home clearance.</p>
         <div class="cohort-grid">
           <label for="cohort-runs">Number of runs</label>
           <input id="cohort-runs" type="number" min="1" max="100" step="1" value="5">
