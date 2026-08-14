@@ -2,7 +2,7 @@
 
 Home completion is now a stopped-position claim, not a single-pose event. An
 inside-gate pose commands exact zero and disarms, waits briefly, then requires
-an advancing same-epoch window to remain inside the unchanged 0.10 m gate with
+an advancing same-epoch window to remain inside the configured 0.50 m gate with
 bounded spread. One bounded position-only retry is allowed; no Home-heading
 restoration movement is issued.
 
@@ -17,13 +17,14 @@ All settings are read when the app service starts and are also reported in the
 
 | Environment variable | Units | Default | Valid range | Safety meaning |
 | --- | --- | ---: | ---: | --- |
+| `BORDER_COLLIE_HOME_ARRIVAL_TOLERANCE_M` | meters | `0.50` | `0.05..0.50` | Every settled sample must remain inside this position gate. |
 | `BORDER_COLLIE_HOME_SETTLE_INTERVAL_S` | seconds | `0.30` | `0..2` | Exact-zero quiet time before verification. |
 | `BORDER_COLLIE_HOME_SETTLED_SAMPLE_COUNT` | samples | `4` | `3..5` | Consecutive advancing fresh poses required. |
 | `BORDER_COLLIE_HOME_SETTLED_MAX_SPREAD_M` | meters | `0.03` | `0.005..0.05` | Maximum pairwise planar spread in the window. |
 | `BORDER_COLLIE_HOME_SETTLED_SAMPLE_TIMEOUT_S` | seconds | `1.0` | `0.25..3` | Bounded time to collect the advancing window. |
 | `BORDER_COLLIE_HOME_SETTLED_RETRY_COUNT` | retries | `1` | `0..1` | Bounded position-only correction attempts. |
 
-These settings do not widen the 0.10 m Home gate, permit stale samples, accept
+These settings do not permit stale samples, accept
 repeated or regressed timestamps, cross odometry epochs, authorize heading
 restoration, or bypass the existing course/progress/timeout gates.
 

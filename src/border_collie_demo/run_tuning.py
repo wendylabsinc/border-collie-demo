@@ -136,7 +136,7 @@ class HomeTuning:
     align_tolerance_deg: float = 5.0
     align_timeout_s: float = 30.0
     return_forward_mps: float = 1.0
-    arrival_tolerance_m: float = 0.10
+    arrival_tolerance_m: float = 0.50
     heading_gate_deg: float = 20.0
     return_yaw_deadband_deg: float = 5.0
     return_minimum_yaw_rps: float = 0.50
@@ -153,6 +153,9 @@ class HomeTuning:
     @classmethod
     def from_env(cls) -> HomeTuning:
         values: dict[str, object] = {
+            "arrival_tolerance_m": os.environ.get(
+                "BORDER_COLLIE_HOME_ARRIVAL_TOLERANCE_M", "0.50"
+            ),
             "settle_interval_s": os.environ.get(
                 "BORDER_COLLIE_HOME_SETTLE_INTERVAL_S", "0.30"
             ),
@@ -170,6 +173,9 @@ class HomeTuning:
             ),
         }
         return cls(
+            arrival_tolerance_m=_number(
+                values, "arrival_tolerance_m", 0.50, 0.05, 0.50
+            ),
             settle_interval_s=_number(
                 values, "settle_interval_s", 0.30, 0.0, 2.0
             ),

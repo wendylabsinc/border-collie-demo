@@ -77,7 +77,7 @@ class PositionOnlyFailureEpilogue:
         self,
         robot: PositionHomeRobot,
         *,
-        arrival_tolerance_m: float = 0.10,
+        arrival_tolerance_m: float = 0.50,
         forward_mps: float = 1.0,
         heading_gate_rad: float = 0.3490658503988659,
         maximum_yaw_rps: float = 0.50,

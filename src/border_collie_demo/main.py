@@ -21,6 +21,7 @@ from .media import BarkClient, BarkConfig
 from .orchestrator import SimulatedStageExecutor
 from .perception import PerceptionStatusClient
 from .production import ProductionStageExecutor
+from .run_tuning import HomeTuning
 from .simulation import SimulatedHardware, simulated_camera_perception
 
 
@@ -87,7 +88,10 @@ def build_app_from_env() -> FastAPI:
             hardware, perception.status, bark
         ),
         terminal_evidence=terminal_evidence.capture,
-        failure_epilogue=PositionOnlyFailureEpilogue(hardware),
+        failure_epilogue=PositionOnlyFailureEpilogue(
+            hardware,
+            arrival_tolerance_m=HomeTuning.from_env().arrival_tolerance_m,
+        ),
         black_box=black_box,
         recording_status=recording_status,
         home_recordings_root=Path(

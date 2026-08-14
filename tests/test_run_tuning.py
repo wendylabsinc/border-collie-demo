@@ -40,7 +40,7 @@ def test_defaults_keep_target_confidence_and_share_the_search_contract() -> None
     assert pear.arrival.disappearance_bottom_ratio == 0.80
     assert pear.arrival.final_push_mps == 0.60
     assert pear.arrival.final_push_duration_s == 1.0
-    assert pear.home.arrival_tolerance_m == 0.10
+    assert pear.home.arrival_tolerance_m == 0.50
     assert pear.home.settle_interval_s == 0.30
     assert pear.home.settled_sample_count == 4
     assert pear.home.settled_maximum_spread_m == 0.03
@@ -214,6 +214,7 @@ def test_home_return_yaw_deadband_is_a_validated_runtime_control() -> None:
 def test_settled_home_contract_is_env_backed_bounded_and_visible_to_the_ui(
     monkeypatch,
 ) -> None:
+    monkeypatch.setenv("BORDER_COLLIE_HOME_ARRIVAL_TOLERANCE_M", "0.45")
     monkeypatch.setenv("BORDER_COLLIE_HOME_SETTLE_INTERVAL_S", "0.45")
     monkeypatch.setenv("BORDER_COLLIE_HOME_SETTLED_SAMPLE_COUNT", "5")
     monkeypatch.setenv("BORDER_COLLIE_HOME_SETTLED_MAX_SPREAD_M", "0.025")
@@ -223,6 +224,7 @@ def test_settled_home_contract_is_env_backed_bounded_and_visible_to_the_ui(
     tuning = RunTuning.defaults("pear")
     fields = {field["name"]: field for field in RunTuning.contract()["groups"]["home"]}
 
+    assert tuning.home.arrival_tolerance_m == 0.45
     assert tuning.home.settle_interval_s == 0.45
     assert tuning.home.settled_sample_count == 5
     assert tuning.home.settled_maximum_spread_m == 0.025
@@ -233,11 +235,16 @@ def test_settled_home_contract_is_env_backed_bounded_and_visible_to_the_ui(
     assert fields["settled_sample_count"]["maximum"] == 5
     assert fields["settled_maximum_spread_m"]["unit"] == "m"
     assert fields["settled_retry_count"]["maximum"] == 1
+    assert fields["arrival_tolerance_m"]["unit"] == "m"
+    assert fields["arrival_tolerance_m"]["maximum"] == 0.50
 
     with pytest.raises(ValueError, match="settled_sample_count"):
         RunTuning.from_payload("pear", {"home": {"settled_sample_count": 2}})
     with pytest.raises(ValueError, match="settled_retry_count"):
         RunTuning.from_payload("pear", {"home": {"settled_retry_count": 2}})
+    monkeypatch.setenv("BORDER_COLLIE_HOME_ARRIVAL_TOLERANCE_M", "0.51")
+    with pytest.raises(ValueError, match="arrival_tolerance_m"):
+        RunTuning.defaults("pear")
 
 
 def test_activation_persists_exact_effective_tuning_in_result_and_black_box(
