@@ -105,6 +105,20 @@
       #cohort-output { white-space: pre-wrap; overflow-wrap: anywhere; }
       .experiment-note { text-align: left; }
       .experiment-status { font-weight: 700; }
+      @media (max-width: 40rem) {
+        fieldset,
+        .failure-options {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        #run-tuning-fields > strong {
+          grid-column: auto !important;
+        }
+        table {
+          display: block;
+          max-width: 100%;
+          overflow-x: auto;
+        }
+      }
     </style>
   </head>
   <body>
@@ -172,7 +186,7 @@
             <label><input type="checkbox" data-tolerated-phase value="stand"> Stand</label>
             <label><input type="checkbox" data-tolerated-phase value="turn_toward_home"> Turn toward Home</label>
           </fieldset>
-          <button id="start-cohort" type="button">Start cohort</button>
+          <button id="start-cohort" type="button" disabled>Start cohort</button>
           <button id="stop-cohort" type="button" disabled>Stop cohort and Woof</button>
         </div>
         <p id="cohort-output" role="status">No cohort started.</p>
@@ -229,6 +243,36 @@
       let tuningContract = null;
       const tuningInputs = new Map();
       let cohortRunning = false;
+      let activeRunId = null;
+      let latestStatus = null;
+      let runSubmitting = false;
+      let cohortSubmitting = false;
+      let statusLoaded = false;
+      let runActionError = null;
+      let cohortActionError = null;
+
+      function updateControlOwnership() {
+        const owned = Boolean(activeRunId || cohortRunning);
+        const pending = runSubmitting || cohortSubmitting;
+        const blocked = Boolean(
+          !statusLoaded ||
+          latestStatus?.mission?.restart_required ||
+          latestStatus?.activation?.ready === false
+        );
+        activate.disabled = pending || owned || blocked;
+        targetFruit.disabled = pending || owned;
+        tuningControls.disabled = pending || owned;
+        startCohort.disabled = pending || owned || blocked;
+        stopCohort.disabled = !cohortRunning;
+        cohortRuns.disabled = pending || owned;
+        cohortRandomized.disabled = pending || owned;
+        cohortFixedFruit.disabled = (
+          pending || owned || cohortRandomized.checked
+        );
+        cohortSeed.disabled = pending || owned;
+        document.querySelectorAll('[data-tolerated-reason], [data-tolerated-phase]')
+          .forEach((control) => { control.disabled = pending || owned; });
+      }
 
       function renderTuning() {
         const profile = tuningContract?.fruits?.[targetFruit.value];
@@ -286,6 +330,22 @@
             : Number(input.value);
         }
         return payload;
+      }
+
+      function createActivationId() {
+        const values = new Uint32Array(2);
+        if (globalThis.crypto?.getRandomValues) {
+          globalThis.crypto.getRandomValues(values);
+        } else {
+          values[0] = Math.floor(Math.random() * 0xffffffff);
+          values[1] = Math.floor(Math.random() * 0xffffffff);
+        }
+        return [
+          'audience-ui',
+          Date.now().toString(36),
+          values[0].toString(36),
+          values[1].toString(36),
+        ].join('-');
       }
 
       function updateEffectiveTuning() {
@@ -360,6 +420,10 @@
       async function refreshStatus() {
         try {
           const current = await readJson(await fetch('/api/status'));
+          latestStatus = current;
+          statusLoaded = true;
+          activeRunId = current.active_run_id;
+          cohortRunning = current.cohort?.status === 'RUNNING';
           if (!tuningInitialized && current.run_tuning) {
             tuningContract = current.run_tuning;
             renderTuning();
@@ -373,19 +437,15 @@
           runtimeMode.textContent = current.runtime_mode === 'simulation'
             ? 'SIMULATION — no hardware motion commands are sent.'
             : '';
-          activate.disabled = Boolean(
-            current.active_run_id ||
-            cohortRunning ||
-            current.mission.restart_required ||
-            !current.activation.ready
-          );
-          targetFruit.disabled = Boolean(current.active_run_id);
-          tuningControls.disabled = Boolean(current.active_run_id);
+          updateControlOwnership();
           if (current.active_run_id) {
+            runActionError = null;
             const detail = await readJson(
               await fetch(`/api/results/${current.active_run_id}`)
             );
             showRun(detail.run);
+          } else if (runActionError) {
+            status.textContent = runActionError;
           } else if (current.mission.restart_required) {
             status.textContent = 'Remote Takeover is latched. Restart required.';
           } else if (lastRunId) {
@@ -404,7 +464,7 @@
           }
         } catch (error) {
           activate.disabled = true;
-          status.textContent = error.message;
+          if (!runActionError) status.textContent = error.message;
         }
       }
 
@@ -465,19 +525,16 @@
 
       function showCohort(cohort) {
         cohortRunning = cohort?.status === 'RUNNING';
-        startCohort.disabled = cohortRunning;
-        stopCohort.disabled = !cohortRunning;
-        cohortRuns.disabled = cohortRunning;
-        cohortRandomized.disabled = cohortRunning;
-        cohortFixedFruit.disabled = cohortRunning || cohortRandomized.checked;
-        cohortSeed.disabled = cohortRunning;
-        document.querySelectorAll('[data-tolerated-reason], [data-tolerated-phase]')
-          .forEach((control) => { control.disabled = cohortRunning; });
+        updateControlOwnership();
+        if (cohortActionError && !cohortRunning) {
+          cohortOutput.textContent = cohortActionError;
+          return;
+        }
         if (!cohort) {
           cohortOutput.textContent = 'No cohort started.';
           return;
         }
-        const latest = cohort.runs.at(-1);
+        const latest = cohort.runs[cohort.runs.length - 1];
         cohortOutput.textContent = [
           `Cohort ${cohort.cohort_id}: ${cohort.status}`,
           `${cohort.runs.length}/${cohort.policy.runs} runs recorded`,
@@ -496,35 +553,51 @@
       }
 
       activate.addEventListener('click', async () => {
-        activate.disabled = true;
-        targetFruit.disabled = true;
+        if (runSubmitting || cohortSubmitting || activeRunId || cohortRunning) return;
+        runSubmitting = true;
+        runActionError = null;
+        updateControlOwnership();
         status.textContent = 'Creating Demo Run…';
+        const activationId = createActivationId();
         try {
           const body = await readJson(await fetch('/api/run', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
               target_fruit: targetFruit.value,
+              activation_id: activationId,
               tuning: tuningPayload(),
             }),
           }));
+          activeRunId = body.run.run_id;
           showRun(body.run);
           await refreshStatus();
           await refreshExperiments();
         } catch (error) {
-          status.textContent = error.message;
+          runActionError = error.message;
+          status.textContent = runActionError;
           await refreshStatus();
+        } finally {
+          runSubmitting = false;
+          updateControlOwnership();
         }
       });
 
-      targetFruit.addEventListener('change', renderTuning);
+      targetFruit.addEventListener('change', () => {
+        runActionError = null;
+        renderTuning();
+      });
 
       cohortRandomized.addEventListener('change', () => {
-        cohortFixedFruit.disabled = cohortRandomized.checked;
+        cohortActionError = null;
+        updateControlOwnership();
       });
 
       startCohort.addEventListener('click', async () => {
-        startCohort.disabled = true;
+        if (runSubmitting || cohortSubmitting || activeRunId || cohortRunning) return;
+        cohortSubmitting = true;
+        cohortActionError = null;
+        updateControlOwnership();
         const toleratedFailures = [
           ...Array.from(document.querySelectorAll('[data-tolerated-reason]:checked'))
             .map((control) => ({reason: control.value})),
@@ -543,12 +616,29 @@
               tolerated_failures: toleratedFailures,
             }),
           }));
+          cohortActionError = null;
           showCohort(body.cohort);
         } catch (error) {
-          cohortOutput.textContent = error.message;
+          cohortActionError = error.message;
+          cohortOutput.textContent = cohortActionError;
           await refreshCohort();
+        } finally {
+          cohortSubmitting = false;
+          updateControlOwnership();
         }
       });
+
+      for (const control of [
+        cohortRuns,
+        cohortFixedFruit,
+        cohortSeed,
+        ...document.querySelectorAll('[data-tolerated-reason], [data-tolerated-phase]'),
+      ]) {
+        control.addEventListener('input', () => {
+          cohortActionError = null;
+          updateControlOwnership();
+        });
+      }
 
       stopCohort.addEventListener('click', async () => {
         stopCohort.disabled = true;

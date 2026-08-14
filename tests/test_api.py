@@ -1124,10 +1124,11 @@ def test_stage_ui_renders_server_owned_run_tuning_and_posts_snapshot(
     assert 'id="experiment-evidence"' in response.text
     assert "Feature under test" in response.text
     assert "bearing_routing" in response.text
-    # woof.local is served over plain HTTP, where Web Crypto UUID generation is
-    # unavailable. The API already creates the durable activation ID.
+    # woof.local is served over plain HTTP, where randomUUID may be unavailable.
+    # The audience UI uses getRandomValues with a non-crypto fallback instead.
     assert "crypto.randomUUID" not in response.text
-    assert "activation_id:" not in response.text
+    assert "createActivationId" in response.text
+    assert "activation_id: activationId" in response.text
 
 
 def test_search_experiment_api_distinguishes_completed_and_unrun_evidence(
