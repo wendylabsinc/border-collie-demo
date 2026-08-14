@@ -29,3 +29,25 @@ def test_bark_readiness_is_checked_before_demo_preflight() -> None:
         "ready": True,
         "detail": "Go2 bark sidecar is ready",
     }
+
+
+def test_thermal_beep_client_posts_to_existing_media_owner() -> None:
+    calls: list[tuple[str, float]] = []
+    client = BarkClient(
+        BarkConfig(
+            enabled=True,
+            thermal_beep_url="http://127.0.0.1:8111/api/thermal/beep",
+        ),
+        poster=lambda url, timeout: (
+            calls.append((url, timeout))
+            or {"ok": True, "uuid": "thermal-beep"}
+        ),
+    )
+
+    result = asyncio.run(client.thermal_beep())
+
+    assert calls == [("http://127.0.0.1:8111/api/thermal/beep", 2.0)]
+    assert result == {
+        "thermal_beep_played": True,
+        "thermal_beep_uuid": "thermal-beep",
+    }

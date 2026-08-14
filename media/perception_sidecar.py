@@ -12,7 +12,9 @@ import json
 import logging
 import math
 import os
+import struct
 import time
+import wave
 import zipfile
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
@@ -31,6 +33,64 @@ from media.model_router import FruitCandidate, FruitModelRouter, RoutedPredictio
 SUPPORTED_FRUITS = ("apple", "banana", "pear")
 SEARCH_CROP_FRUITS = frozenset({"apple", "banana"})
 INFERENCE_OVERRUN_S = 0.200
+THERMAL_BEEP_NAME = "woof_thermal_warning_beep"
+THERMAL_BEEP_PATH = "/tmp/woof_thermal_warning_beep.wav"
+
+
+def _audiohub_entries(response: Any) -> list[dict[str, Any]]:
+    if not isinstance(response, dict):
+        return []
+    payload: Any = response.get("data", response)
+    if isinstance(payload, dict):
+        payload = payload.get("data", payload)
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError:
+            return []
+    if not isinstance(payload, dict):
+        return []
+    records = payload.get("audio_list", [])
+    return [record for record in records if isinstance(record, dict)]
+
+
+def _named_audio_id(
+    records: list[dict[str, Any]], custom_name: str
+) -> str | None:
+    for record in records:
+        if str(record.get("CUSTOM_NAME") or "") != custom_name:
+            continue
+        unique_id = str(record.get("UNIQUE_ID") or "").strip()
+        if unique_id:
+            return unique_id
+    return None
+
+
+def _write_thermal_beep(path: str = THERMAL_BEEP_PATH) -> None:
+    """Create three short 880 Hz pulses without a binary asset."""
+
+    sample_rate = 44_100
+    amplitude = 13_000
+    frames = bytearray()
+    segments = ((0.16, True), (0.09, False)) * 2 + ((0.16, True),)
+    phase = 0
+    for duration_s, tone_on in segments:
+        for _ in range(int(sample_rate * duration_s)):
+            value = (
+                int(
+                    amplitude
+                    * math.sin(2.0 * math.pi * 880.0 * phase / sample_rate)
+                )
+                if tone_on
+                else 0
+            )
+            frames.extend(struct.pack("<h", value))
+            phase += 1
+    with wave.open(path, "wb") as stream:
+        stream.setnchannels(1)
+        stream.setsampwidth(2)
+        stream.setframerate(sample_rate)
+        stream.writeframes(bytes(frames))
 
 
 class TargetFruitRequest(BaseModel):
@@ -591,6 +651,8 @@ class PerceptionRuntime:
         self._last_evidence_capture_s: float | None = None
         self._connection: Any | None = None
         self._audiohub: Any | None = None
+        self._audio_lock = asyncio.Lock()
+        self._thermal_beep_uuid: str | None = None
         self._detector_task: asyncio.Task[None] | None = None
         self._model: Any | None = None
         self._banana_specialist_model: Any | None = None
@@ -692,8 +754,38 @@ class PerceptionRuntime:
     async def bark(self) -> dict[str, object]:
         if self._audiohub is None:
             raise RuntimeError("Go2 AudioHub is not connected")
-        await self._audiohub.play_by_uuid(self.bark_uuid)
+        async with self._audio_lock:
+            await self._audiohub.play_by_uuid(self.bark_uuid)
         return {"ok": True, "uuid": self.bark_uuid}
+
+    async def thermal_beep(self) -> dict[str, object]:
+        if self._audiohub is None:
+            raise RuntimeError("Go2 AudioHub is not connected")
+        async with self._audio_lock:
+            unique_id = self._thermal_beep_uuid
+            if unique_id is None:
+                response = await self._audiohub.get_audio_list()
+                unique_id = _named_audio_id(
+                    _audiohub_entries(response), THERMAL_BEEP_NAME
+                )
+            if unique_id is None:
+                await asyncio.to_thread(_write_thermal_beep)
+                await self._audiohub.upload_audio_file(THERMAL_BEEP_PATH)
+                for _ in range(5):
+                    response = await self._audiohub.get_audio_list()
+                    unique_id = _named_audio_id(
+                        _audiohub_entries(response), THERMAL_BEEP_NAME
+                    )
+                    if unique_id is not None:
+                        break
+                    await asyncio.sleep(0.2)
+            if unique_id is None:
+                raise RuntimeError(
+                    "thermal warning beep was not registered by AudioHub"
+                )
+            self._thermal_beep_uuid = unique_id
+            await self._audiohub.play_by_uuid(unique_id)
+        return {"ok": True, "uuid": unique_id}
 
     def status(self) -> dict[str, object]:
         return {
@@ -1150,6 +1242,13 @@ def create_app(runtime: PerceptionRuntime | None = None) -> FastAPI:
     async def bark() -> dict[str, object]:
         try:
             return await media.bark()
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    @app.post("/api/thermal/beep")
+    async def thermal_beep() -> dict[str, object]:
+        try:
+            return await media.thermal_beep()
         except Exception as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 

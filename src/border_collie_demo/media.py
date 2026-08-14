@@ -22,12 +22,15 @@ class BarkFailure(RuntimeError):
 class BarkConfig:
     enabled: bool = False
     url: str = "http://127.0.0.1:8111/api/bark"
+    thermal_beep_url: str = "http://127.0.0.1:8111/api/thermal/beep"
     status_url: str = "http://127.0.0.1:8111/status"
     timeout_s: float = 2.0
 
     def __post_init__(self) -> None:
         if not self.url.startswith(("http://", "https://")):
             raise ValueError("bark URL must use http or https")
+        if not self.thermal_beep_url.startswith(("http://", "https://")):
+            raise ValueError("thermal beep URL must use http or https")
         if not self.status_url.startswith(("http://", "https://")):
             raise ValueError("bark status URL must use http or https")
         if not math.isfinite(self.timeout_s) or self.timeout_s <= 0.0:
@@ -40,6 +43,10 @@ class BarkConfig:
             url=os.environ.get(
                 "BORDER_COLLIE_BARK_URL",
                 "http://127.0.0.1:8111/api/bark",
+            ).strip(),
+            thermal_beep_url=os.environ.get(
+                "BORDER_COLLIE_THERMAL_BEEP_URL",
+                "http://127.0.0.1:8111/api/thermal/beep",
             ).strip(),
             status_url=os.environ.get(
                 "BORDER_COLLIE_BARK_STATUS_URL",
@@ -97,6 +104,26 @@ class BarkClient:
         return {
             "bark_played": True,
             "bark_uuid": payload.get("uuid"),
+        }
+
+    async def thermal_beep(self) -> dict[str, object]:
+        if not self.config.enabled:
+            raise BarkFailure("Go2 audio sidecar is disabled")
+        try:
+            payload = await asyncio.to_thread(
+                self._poster,
+                self.config.thermal_beep_url,
+                self.config.timeout_s,
+            )
+        except Exception as exc:
+            raise BarkFailure(f"thermal beep request failed: {exc}") from exc
+        if payload.get("ok") is not True:
+            raise BarkFailure(
+                str(payload.get("error") or "thermal beep was not acknowledged")
+            )
+        return {
+            "thermal_beep_played": True,
+            "thermal_beep_uuid": payload.get("uuid"),
         }
 
 

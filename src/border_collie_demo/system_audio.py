@@ -27,12 +27,16 @@ class BarkPort(Protocol):
 
     async def bark(self) -> dict[str, object]: ...
 
+    async def thermal_beep(self) -> dict[str, object]: ...
+
 
 @dataclass(frozen=True)
 class SystemAudioConfig:
     enabled: bool = True
     bark_volume: int = 6
     bark_audible_s: float = 2.0
+    thermal_alert_volume: int = 10
+    thermal_alert_audible_s: float = 1.25
     rpc_timeout_s: float = 3.0
     restore_original_on_close: bool = False
 
@@ -40,10 +44,24 @@ class SystemAudioConfig:
         if isinstance(self.bark_volume, bool) or not 0 <= self.bark_volume <= 10:
             raise ValueError("bark_volume must be an integer from 0 through 10")
         if (
+            isinstance(self.thermal_alert_volume, bool)
+            or not 1 <= self.thermal_alert_volume <= 10
+        ):
+            raise ValueError(
+                "thermal_alert_volume must be an integer from 1 through 10"
+            )
+        if (
             not math.isfinite(self.bark_audible_s)
             or not 0.25 <= self.bark_audible_s <= 10.0
         ):
             raise ValueError("bark_audible_s must be between 0.25 and 10 seconds")
+        if (
+            not math.isfinite(self.thermal_alert_audible_s)
+            or not 0.25 <= self.thermal_alert_audible_s <= 10.0
+        ):
+            raise ValueError(
+                "thermal_alert_audible_s must be between 0.25 and 10 seconds"
+            )
         if not math.isfinite(self.rpc_timeout_s) or self.rpc_timeout_s <= 0.0:
             raise ValueError("rpc_timeout_s must be finite and positive")
 
@@ -62,6 +80,12 @@ class SystemAudioConfig:
             enabled=policy == "muted_except_bark",
             bark_volume=int(os.environ.get("BORDER_COLLIE_BARK_VOLUME", "6")),
             bark_audible_s=float(os.environ.get("BORDER_COLLIE_BARK_AUDIBLE_S", "2.0")),
+            thermal_alert_volume=int(
+                os.environ.get("BORDER_COLLIE_THERMAL_ALERT_VOLUME", "10")
+            ),
+            thermal_alert_audible_s=float(
+                os.environ.get("BORDER_COLLIE_THERMAL_ALERT_AUDIBLE_S", "1.25")
+            ),
             rpc_timeout_s=float(os.environ.get("BORDER_COLLIE_VUI_TIMEOUT_S", "3.0")),
             restore_original_on_close=os.environ.get(
                 "BORDER_COLLIE_RESTORE_SPEAKER_ON_CLOSE", "0"
@@ -212,6 +236,55 @@ class SystemAudioPolicy:
                     }
                 )
             return response
+
+    async def thermal_alert(self) -> dict[str, object]:
+        """Make one thermal beep audible, then restore the muted policy."""
+
+        if not self.config.enabled:
+            return await self._bark.thermal_beep()
+        if not self._ready or self._vui is None:
+            raise BarkFailure(self._error or "Go2 speaker policy is not ready")
+        async with self._lock:
+            beep_error: Exception | None = None
+            result: dict[str, object] | None = None
+            try:
+                await self._set_and_verify(self.config.thermal_alert_volume)
+                self._muted = False
+                self._warning = None
+                result = await self._bark.thermal_beep()
+                await self._sleep(self.config.thermal_alert_audible_s)
+            except Exception as exc:  # noqa: BLE001 - remute must always run
+                beep_error = exc
+            try:
+                await self._set_and_verify(0)
+                self._muted = True
+            except Exception as exc:
+                self._ready = False
+                self._muted = False
+                self._error = f"speaker remute failed after thermal alert: {exc}"
+                raise BarkFailure(self._error) from exc
+            if beep_error is not None:
+                if isinstance(beep_error, BarkFailure):
+                    raise beep_error
+                raise BarkFailure(
+                    f"thermal alert audio failed: {beep_error}"
+                ) from beep_error
+            assert result is not None
+            return {
+                **result,
+                "speaker_policy": "muted_except_bark",
+                "thermal_alert_volume": self.config.thermal_alert_volume,
+                "thermal_alert_audible_s": self.config.thermal_alert_audible_s,
+                "speaker_remuted": True,
+                "audio_trace": [
+                    {
+                        "state": "thermal_alert_audible",
+                        "volume": self.config.thermal_alert_volume,
+                    },
+                    {"state": "thermal_beep_requested"},
+                    {"state": "muted", "volume": 0},
+                ],
+            }
 
     async def close(self) -> list[str]:
         if not self.config.enabled or self._vui is None or not self._started:

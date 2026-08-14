@@ -23,6 +23,7 @@ from .perception import PerceptionStatusClient
 from .production import ProductionStageExecutor
 from .run_tuning import HomeTuning
 from .simulation import SimulatedHardware, simulated_camera_perception
+from .system_audio import SystemAudioConfig, create_system_audio_policy
 
 
 def build_app_from_env() -> FastAPI:
@@ -63,10 +64,14 @@ def build_app_from_env() -> FastAPI:
     hardware = HardwareManager(HardwareConfig.from_env(), black_box=black_box)
     perception = PerceptionStatusClient(PerceptionConfig.from_env())
     bark = BarkClient(BarkConfig.from_env())
+    system_audio = create_system_audio_policy(
+        bark,
+        SystemAudioConfig.from_env(),
+    )
 
     def best_effort_bark_status() -> dict[str, object]:
         try:
-            status = bark.status()
+            status = system_audio.status()
         except Exception as exc:  # noqa: BLE001 - bark cannot block motion readiness
             status = {"ready": False, "detail": str(exc)}
         return {
@@ -85,7 +90,7 @@ def build_app_from_env() -> FastAPI:
         runs_root=runs_root,
         media_status=best_effort_bark_status,
         stage_executor=ProductionStageExecutor(
-            hardware, perception.status, bark
+            hardware, perception.status, system_audio
         ),
         terminal_evidence=terminal_evidence.capture,
         failure_epilogue=PositionOnlyFailureEpilogue(
@@ -93,6 +98,7 @@ def build_app_from_env() -> FastAPI:
             arrival_tolerance_m=HomeTuning.from_env().arrival_tolerance_m,
         ),
         black_box=black_box,
+        system_audio=system_audio,
         recording_status=recording_status,
         home_recordings_root=Path(
             os.environ.get(

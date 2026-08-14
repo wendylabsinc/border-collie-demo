@@ -7,8 +7,21 @@ bounded spread. One bounded position-only retry is allowed; no Home-heading
 restoration movement is issued.
 
 The deployable identity for this contract is application version
-`1.1.5-stage-default`, build label
-`stage-default-v6-settled-home-recorder`.
+`1.1.6-stage-default`, build label
+`stage-default-v7-thermal-audio-lease`.
+
+## Thermal alarm audio lease
+
+The demo remains muted by default. `POST /api/thermal/beep` serializes with the
+audience bark, sets the Go2 VUI volume to `10/10`, asks the existing media
+AudioHub owner to play three short tones, waits `1.25 s`, and verifies volume
+is back at zero. Failure at any point still attempts and verifies remuting; it
+never issues a motion command or opens another WebRTC connection.
+
+| Environment variable | Units | Default | Valid range | Safety meaning |
+| --- | --- | ---: | ---: | --- |
+| `BORDER_COLLIE_THERMAL_ALERT_VOLUME` | Go2 volume steps | `10` | `1..10` | `10` is the Unitree API maximum, equivalent to 100%. |
+| `BORDER_COLLIE_THERMAL_ALERT_AUDIBLE_S` | seconds | `1.25` | `0.25..10` | Bounded audible window before verified remute. |
 
 ## Runtime settings
 

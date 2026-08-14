@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from border_collie_demo.main import build_app_from_env
 from border_collie_demo.orchestrator import SimulatedStageExecutor
 from border_collie_demo.simulation import SimulatedHardware, simulated_camera_perception
+from border_collie_demo.system_audio import SystemAudioPolicy
 
 
 def test_explicit_simulation_runtime_completes_activate_demo(
@@ -83,6 +84,7 @@ def test_production_runtime_wires_the_real_stage_executor(
 
     hardware = SimulatedHardware()
     monkeypatch.setenv("BORDER_COLLIE_RUNTIME_MODE", "production")
+    monkeypatch.setenv("BORDER_COLLIE_SYSTEM_AUDIO_POLICY", "normal")
     monkeypatch.setenv("BORDER_COLLIE_RUNS_DIR", str(tmp_path))
     monkeypatch.setattr(
         main_module,
@@ -105,4 +107,4 @@ def test_production_runtime_wires_the_real_stage_executor(
 
     assert run["outcome"] == "COMPLETED"
     assert created and created[0][0] is hardware
-    assert isinstance(created[0][2], Bark)
+    assert isinstance(created[0][2], SystemAudioPolicy)

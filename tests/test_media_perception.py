@@ -670,12 +670,20 @@ def test_media_http_boundary_exposes_readiness_and_bark() -> None:
             self.events.append("bark")
             return {"ok": True, "uuid": "bark-1"}
 
+        async def thermal_beep(self):
+            self.events.append("thermal_beep")
+            return {"ok": True, "uuid": "thermal-1"}
+
     runtime = Runtime()
     with TestClient(create_app(runtime)) as client:
         assert client.get("/status").json()["bark_ready"] is True
         assert client.post("/api/bark").json() == {"ok": True, "uuid": "bark-1"}
+        assert client.post("/api/thermal/beep").json() == {
+            "ok": True,
+            "uuid": "thermal-1",
+        }
 
-    assert runtime.events == ["start", "bark", "close"]
+    assert runtime.events == ["start", "bark", "thermal_beep", "close"]
 
 
 def test_media_http_boundary_selects_a_supported_camera_only_target() -> None:

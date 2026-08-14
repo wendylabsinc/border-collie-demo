@@ -55,6 +55,12 @@ class FakeBark:
             raise BarkFailure("speaker request failed")
         return {"bark_played": True, "bark_uuid": "woof"}
 
+    async def thermal_beep(self) -> dict[str, object]:
+        self.events.append(("thermal_beep",))
+        if self.fail:
+            raise BarkFailure("thermal beep request failed")
+        return {"thermal_beep_played": True, "thermal_beep_uuid": "hot"}
+
 
 def test_system_audio_defers_vui_construction_until_lifecycle_start() -> None:
     created: list[FakeVui] = []
@@ -167,5 +173,65 @@ def test_system_audio_records_inaudible_bark_without_failing_mission() -> None:
         assert policy.status()["ready"] is True
         assert "expected 6, got 0" in str(policy.status()["speaker_warning"])
         assert vui.volume == 0
+
+    asyncio.run(scenario())
+
+
+def test_thermal_alarm_uses_maximum_volume_then_remutes() -> None:
+    async def scenario() -> None:
+        vui = FakeVui(volume=7)
+        events = vui.events
+
+        async def sleep(duration_s: float) -> None:
+            events.append(("sleep", duration_s))
+
+        policy = SystemAudioPolicy(
+            vui,
+            FakeBark(events),
+            SystemAudioConfig(
+                thermal_alert_volume=10,
+                thermal_alert_audible_s=1.25,
+            ),
+            sleep=sleep,
+        )
+        await policy.start_muted()
+
+        result = await policy.thermal_alert()
+
+        assert events[-6:] == [
+            ("set", 10),
+            ("get", 10),
+            ("thermal_beep",),
+            ("sleep", 1.25),
+            ("set", 0),
+            ("get", 0),
+        ]
+        assert result["thermal_beep_played"] is True
+        assert result["thermal_alert_volume"] == 10
+        assert result["speaker_remuted"] is True
+        assert vui.volume == 0
+
+    asyncio.run(scenario())
+
+
+def test_thermal_alarm_failure_still_remutes() -> None:
+    async def scenario() -> None:
+        vui = FakeVui(volume=0)
+        policy = SystemAudioPolicy(
+            vui,
+            FakeBark(vui.events, fail=True),
+            SystemAudioConfig(
+                thermal_alert_volume=10,
+                thermal_alert_audible_s=1.0,
+            ),
+            sleep=lambda _duration: asyncio.sleep(0),
+        )
+        await policy.start_muted()
+
+        with pytest.raises(BarkFailure, match="thermal beep request failed"):
+            await policy.thermal_alert()
+
+        assert vui.volume == 0
+        assert vui.events[-2:] == [("set", 0), ("get", 0)]
 
     asyncio.run(scenario())

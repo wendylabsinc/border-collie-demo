@@ -174,6 +174,18 @@ def create_app(
     async def fruit_test() -> FileResponse:
         return FileResponse(root / "fruit-test.html")
 
+    @app.post("/api/thermal/beep")
+    async def thermal_beep() -> dict[str, object]:
+        if system_audio is None:
+            raise HTTPException(
+                status_code=503,
+                detail="system audio policy is not configured",
+            )
+        try:
+            return await system_audio.thermal_alert()
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
     @app.get("/api/camera/frame.jpg")
     async def camera_frame_proxy() -> Response:
         if camera_frame is None:

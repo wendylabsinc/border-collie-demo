@@ -1248,6 +1248,40 @@ def test_live_pulse_is_rejected_while_hardware_is_disabled() -> None:
     assert response.json()["detail"] == "Go2 hardware is disabled"
 
 
+def test_thermal_alarm_command_uses_system_audio_policy_without_motion() -> None:
+    class AudioPolicy:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def start_muted(self) -> None:
+            pass
+
+        async def close(self) -> list[str]:
+            return []
+
+        async def thermal_alert(self) -> dict[str, object]:
+            self.calls += 1
+            return {
+                "thermal_beep_played": True,
+                "thermal_alert_volume": 10,
+                "speaker_remuted": True,
+            }
+
+    audio = AudioPolicy()
+    hardware = ReadyHardwareBoundary()
+    with TestClient(create_app(hardware=hardware, system_audio=audio)) as client:
+        response = client.post("/api/thermal/beep")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "thermal_beep_played": True,
+        "thermal_alert_volume": 10,
+        "speaker_remuted": True,
+    }
+    assert audio.calls == 1
+    assert hardware.stop_calls == 1
+
+
 def test_remote_takeover_latch_blocks_live_pulse_before_hardware() -> None:
     mission = MissionMachine()
     mission.remote_takeover(RemoteInput("unitree_remote", "left_stick", monotonic()))
