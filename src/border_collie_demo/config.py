@@ -22,7 +22,8 @@ class HardwareConfig:
     maximum_forward_mps: float = 1.0
     maximum_yaw_rps: float = 0.80
     command_watchdog_s: float = 0.35
-    rpc_timeout_s: float = 0.75
+    rpc_timeout_s: float = 5.0
+    rpc_slow_threshold_s: float = 1.0
     client_timeout_s: float = 12.0
     remote_api_settle_s: float = 0.50
     pose_maximum_age_s: float = 0.50
@@ -38,6 +39,7 @@ class HardwareConfig:
             "maximum_yaw_rps",
             "command_watchdog_s",
             "rpc_timeout_s",
+            "rpc_slow_threshold_s",
             "client_timeout_s",
             "pose_maximum_age_s",
         )
@@ -51,6 +53,8 @@ class HardwareConfig:
             raise ValueError("command heartbeat must be faster than the watchdog")
         if self.remote_api_settle_s < 0.0:
             raise ValueError("remote_api_settle_s must be non-negative")
+        if self.rpc_slow_threshold_s >= self.rpc_timeout_s:
+            raise ValueError("RPC slow threshold must be less than the RPC timeout")
         if not 0.0 <= self.pear_tracking_minimum_confidence <= 1.0:
             raise ValueError(
                 "pear_tracking_minimum_confidence must be between zero and one"
@@ -82,7 +86,10 @@ class HardwareConfig:
             command_watchdog_s=float(
                 os.environ.get("BORDER_COLLIE_COMMAND_WATCHDOG_S", "0.35")
             ),
-            rpc_timeout_s=float(os.environ.get("BORDER_COLLIE_RPC_TIMEOUT_S", "0.75")),
+            rpc_timeout_s=float(os.environ.get("BORDER_COLLIE_RPC_TIMEOUT_S", "5.0")),
+            rpc_slow_threshold_s=float(
+                os.environ.get("BORDER_COLLIE_RPC_SLOW_THRESHOLD_S", "1.0")
+            ),
             client_timeout_s=float(
                 os.environ.get("BORDER_COLLIE_CLIENT_TIMEOUT_S", "12.0")
             ),

@@ -501,6 +501,54 @@ def test_motion_commands_stream_to_the_run_black_box_before_stage_completion(
     asyncio.run(scenario())
 
 
+def test_slow_motion_rpc_diagnostic_streams_to_the_active_run_black_box(
+    tmp_path,
+) -> None:
+    async def scenario() -> None:
+        from uuid import uuid4
+
+        class DiagnosticMotion(FakeMotion):
+            diagnostic_sink = None
+
+            def set_diagnostic_sink(self, sink) -> None:
+                self.diagnostic_sink = sink
+
+        recorder = RunBlackBox(tmp_path)
+        run_id = str(uuid4())
+        motion = DiagnosticMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+            black_box=recorder,
+        )
+        await manager.start()
+        manager.start_motion_trace("approach_fruit", run_id=run_id)
+        assert motion.diagnostic_sink is not None
+
+        motion.diagnostic_sink(
+            {
+                "kind": "motion_rpc_slow",
+                "method": "SwitchGet",
+                "slow_threshold_s": 1.0,
+                "timeout_s": 5.0,
+            }
+        )
+
+        events = recorder.read(run_id)
+        assert events[-1]["kind"] == "motion_rpc_slow"
+        assert events[-1]["phase"] == "approach_fruit"
+        assert events[-1]["payload"] == {
+            "method": "SwitchGet",
+            "slow_threshold_s": 1.0,
+            "timeout_s": 5.0,
+        }
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
 def test_mission_lifetime_pear_guidance_arrives_stopped_after_disappearance() -> None:
     async def scenario() -> None:
         motion = FakeMotion()

@@ -12,6 +12,7 @@ import asyncio
 import math
 import secrets
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -66,7 +67,8 @@ class MotionConfig:
     maximum_forward_mps: float = 1.0
     maximum_yaw_rps: float = 0.80
     command_watchdog_s: float = 0.35
-    rpc_timeout_s: float = 0.75
+    rpc_timeout_s: float = 5.0
+    rpc_slow_threshold_s: float = 1.0
     client_timeout_s: float = 12.0
     avoidance_verify_interval_s: float = 0.30
     remote_api_settle_s: float = 0.50
@@ -77,6 +79,7 @@ class MotionConfig:
             "maximum_yaw_rps",
             "command_watchdog_s",
             "rpc_timeout_s",
+            "rpc_slow_threshold_s",
             "client_timeout_s",
             "avoidance_verify_interval_s",
         ):
@@ -85,6 +88,8 @@ class MotionConfig:
                 raise ValueError(f"{name} must be finite and positive")
         if self.remote_api_settle_s < 0.0:
             raise ValueError("remote_api_settle_s must be non-negative")
+        if self.rpc_slow_threshold_s >= self.rpc_timeout_s:
+            raise ValueError("RPC slow threshold must be less than the RPC timeout")
 
 
 class Go2Motion:
@@ -93,10 +98,13 @@ class Go2Motion:
         sport: SportClientProtocol,
         avoidance: AvoidanceClientProtocol,
         config: MotionConfig | None = None,
+        *,
+        diagnostic_sink: Callable[[dict[str, object]], None] | None = None,
     ) -> None:
         self.sport = sport
         self.avoidance = avoidance
         self.config = config or MotionConfig()
+        self._diagnostic_sink = diagnostic_sink
         self._lock = asyncio.Lock()
         self._rpc_executor = ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="border-collie-sdk"
@@ -116,6 +124,8 @@ class Go2Motion:
         self._watchdog: asyncio.Task[None] | None = None
         self._watchdog_generation = 0
         self._sleep = asyncio.sleep
+        self._slow_call_count = 0
+        self._last_rpc_diagnostic: dict[str, object] | None = None
 
     @property
     def armed(self) -> bool:
@@ -131,6 +141,12 @@ class Go2Motion:
             return common and not self._avoidance_enabled and not self._remote_api_enabled
         return False
 
+    def set_diagnostic_sink(
+        self,
+        sink: Callable[[dict[str, object]], None] | None,
+    ) -> None:
+        self._diagnostic_sink = sink
+
     def status(self) -> dict[str, object]:
         return {
             "initialized": self._initialized,
@@ -141,6 +157,16 @@ class Go2Motion:
             "avoidance_enabled": self._avoidance_enabled,
             "remote_api_enabled": self._remote_api_enabled,
             "watchdog_s": self.config.command_watchdog_s,
+            "rpc": {
+                "timeout_s": self.config.rpc_timeout_s,
+                "slow_threshold_s": self.config.rpc_slow_threshold_s,
+                "slow_call_count": self._slow_call_count,
+                "last_diagnostic": (
+                    dict(self._last_rpc_diagnostic)
+                    if self._last_rpc_diagnostic is not None
+                    else None
+                ),
+            },
             "limits": {
                 "forward_mps": self.config.maximum_forward_mps,
                 "yaw_rps": self.config.maximum_yaw_rps,
@@ -222,9 +248,15 @@ class Go2Motion:
                         raise ValueError("regular SportClient lease is yaw-only")
                     await self._success(self.sport.Move, 0.0, 0.0, yaw)
                 else:
+                    verification_slow = False
                     if forward != 0.0 or yaw != 0.0:
-                        await self._verify_avoidance_if_due()
-                    await self._success(self.avoidance.Move, forward, 0.0, yaw)
+                        verification_slow = await self._verify_avoidance_if_due()
+                    if verification_slow:
+                        forward = 0.0
+                        yaw = 0.0
+                        command = VelocityCommand(reason="slow_rpc_pause")
+                    else:
+                        await self._success(self.avoidance.Move, forward, 0.0, yaw)
             except ValueError:
                 raise
             except Exception as exc:
@@ -328,18 +360,27 @@ class Go2Motion:
         self._remote_api_enabled = False
         self._last_verify_at = None
 
-    async def _verify_avoidance_if_due(self) -> None:
+    async def _verify_avoidance_if_due(self) -> bool:
         if (
             self._last_verify_at is not None
             and time.monotonic() - self._last_verify_at
             < self.config.avoidance_verify_interval_s
         ):
-            return
-        response = await self._call(self.avoidance.SwitchGet)
+            return False
+        response, slow = await self._call_timed(
+            self.avoidance.SwitchGet,
+            on_slow=self._stop_for_slow_verification,
+        )
         if response != (0, True):
             self._avoidance_enabled = False
             raise MotionError(f"avoidance switched off: {response!r}")
         self._last_verify_at = time.monotonic()
+        return slow
+
+    async def _stop_for_slow_verification(self) -> None:
+        result = await self._call_stop(self.sport.StopMove)
+        if result not in (0, -1):
+            raise MotionError(f"StopMove returned {result!r}")
 
     async def _release_locked(self, *, use_stop: bool) -> list[str]:
         self._cancel_watchdog()
@@ -450,12 +491,52 @@ class Go2Motion:
         *args: Any,
         timeout_s: float | None = None,
     ) -> Any:
+        result, _slow = await self._call_timed(
+            method,
+            *args,
+            timeout_s=timeout_s,
+        )
+        return result
+
+    async def _call_timed(
+        self,
+        method: Any,
+        *args: Any,
+        timeout_s: float | None = None,
+        on_slow: Callable[[], Any] | None = None,
+    ) -> tuple[Any, bool]:
         loop = asyncio.get_running_loop()
         future = loop.run_in_executor(self._rpc_executor, method, *args)
+        timeout = self.config.rpc_timeout_s if timeout_s is None else timeout_s
+        started = time.monotonic()
         try:
-            return await asyncio.wait_for(
-                asyncio.shield(future),
-                self.config.rpc_timeout_s if timeout_s is None else timeout_s,
+            done, _pending = await asyncio.wait(
+                (future,),
+                timeout=min(self.config.rpc_slow_threshold_s, timeout),
+            )
+            if done:
+                return await asyncio.shield(future), False
+            diagnostic = {
+                "kind": "motion_rpc_slow",
+                "method": method.__name__,
+                "slow_threshold_s": self.config.rpc_slow_threshold_s,
+                "timeout_s": timeout,
+            }
+            self._slow_call_count += 1
+            self._last_rpc_diagnostic = diagnostic
+            if self._diagnostic_sink is not None:
+                try:
+                    self._diagnostic_sink(dict(diagnostic))
+                except Exception:  # noqa: BLE001, S110 - diagnostics cannot stop motion
+                    pass
+            if on_slow is not None:
+                await on_slow()
+            remaining = timeout - (time.monotonic() - started)
+            if remaining <= 0.0:
+                raise asyncio.TimeoutError
+            return (
+                await asyncio.wait_for(asyncio.shield(future), remaining),
+                True,
             )
         except asyncio.TimeoutError as exc:
             raise MotionNotReady(f"{method.__name__} timed out") from exc

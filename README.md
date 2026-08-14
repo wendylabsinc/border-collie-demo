@@ -294,6 +294,15 @@ The pulse is fixed to the previously observed factory-path movement signal:
 heartbeats, a 350 ms stale-command watchdog, factory avoidance verification,
 and `StopMove` plus avoidance release in a `finally` boundary.
 
+Factory-avoidance RPCs use `BORDER_COLLIE_RPC_TIMEOUT_S` (seconds, default
+`5.0`, positive and greater than the slow threshold). Calls still pending at
+`BORDER_COLLIE_RPC_SLOW_THRESHOLD_S` (seconds, default `1.0`, positive and
+strictly below the timeout) emit a `motion_rpc_slow` black-box event. A slow
+`SwitchGet` issues the independent exact stop and suppresses the now-stale
+velocity command; fresh guidance may continue after the verification returns.
+Neither variable bypasses the lease, watchdog, avoidance-state, or exact-zero
+terminal gates.
+
 The endpoint is intentionally absent from the audience UI. A human-operated
 acceptance run must use the exact confirmation documented in
 [`lab/motion/README.md`](lab/motion/README.md). This repository has not yet

@@ -398,10 +398,14 @@ class HardwareManager:
                     maximum_yaw_rps=self.config.maximum_yaw_rps,
                     command_watchdog_s=self.config.command_watchdog_s,
                     rpc_timeout_s=self.config.rpc_timeout_s,
+                    rpc_slow_threshold_s=self.config.rpc_slow_threshold_s,
                     client_timeout_s=self.config.client_timeout_s,
                     remote_api_settle_s=self.config.remote_api_settle_s,
                 )
             )
+            set_diagnostic_sink = getattr(self._motion, "set_diagnostic_sink", None)
+            if callable(set_diagnostic_sink):
+                set_diagnostic_sink(self._record_motion_diagnostic)
             await self._motion.initialize()
             self._connected = True
             self._fault = None
@@ -2165,6 +2169,11 @@ class HardwareManager:
             phase=self._motion_trace_phase,
             payload=payload,
         )
+
+    def _record_motion_diagnostic(self, event: dict[str, object]) -> None:
+        payload = dict(event)
+        kind = str(payload.pop("kind", "motion_rpc_diagnostic"))
+        self._record_black_box(kind, payload)
 
     async def _best_effort_stop(self) -> None:
         if self._motion is None:
