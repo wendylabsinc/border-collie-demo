@@ -309,7 +309,7 @@ def evaluate_perception_evidence(
                 raw_observation.get("label") != supported_fruit
                 or observation_bbox is None
                 or observation_confidence is None
-                or observation_pts != pts
+                or observation_pts != detection_source_pts
                 or raw_observation.get("source_time_base") != time_base
                 or raw_observation.get("generation") != generation
             ):

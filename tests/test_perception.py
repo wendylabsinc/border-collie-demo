@@ -135,6 +135,10 @@ def test_status_preserves_validated_geometry_for_approach_and_arrival() -> None:
 
 def test_status_preserves_raw_all_fruit_observations_without_changing_target() -> None:
     payload = valid_payload()
+    # The decoder may advance before the completed inference is published.
+    # Raw observations remain bound to the selected detection's processed
+    # frame, not to the newer source scheduler frame.
+    payload["source"]["pts"] = 12346
     payload["observations"] = {
         "apple": {
             "label": "apple",
