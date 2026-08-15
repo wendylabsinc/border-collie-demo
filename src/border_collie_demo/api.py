@@ -231,6 +231,17 @@ def create_app(
             ),
         }
 
+    @app.get("/api/fruits/preview")
+    async def preview_fruit_status() -> dict[str, object]:
+        """Return the selected fruit's raw live observation without motion."""
+        try:
+            return await asyncio.to_thread(read_camera_perception)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"fruit perception status unavailable: {exc}",
+            ) from exc
+
     @app.get("/api/coco-test")
     async def read_coco_test() -> dict[str, object]:
         if coco_test_status is None:

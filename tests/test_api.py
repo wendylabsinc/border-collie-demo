@@ -151,6 +151,16 @@ def test_run_black_box_can_be_downloaded_while_the_run_is_active(tmp_path) -> No
 def test_fruit_test_page_can_select_supported_fruit_without_motion() -> None:
     selected: list[str] = []
     app = create_app(
+        camera_perception_status=lambda: {
+            "target_fruit": "apple",
+            "camera_healthy": True,
+            "detection": {
+                "label": "apple",
+                "confidence": 0.73,
+                "bbox_xyxy": [120.0, 240.0, 360.0, 700.0],
+                "age_s": 0.04,
+            },
+        },
         select_perception_target=lambda fruit: (
             selected.append(fruit)
             or {
@@ -166,6 +176,7 @@ def test_fruit_test_page_can_select_supported_fruit_without_motion() -> None:
             "/api/fruits/preview",
             json={"target_fruit": "apple"},
         )
+        status = client.get("/api/fruits/preview")
 
     assert page.status_code == 200
     assert "Camera only — Woof will not move" in page.text
@@ -173,11 +184,24 @@ def test_fruit_test_page_can_select_supported_fruit_without_motion() -> None:
     assert ":8111/api/camera/frame.jpg" not in page.text
     assert "document.hidden" in page.text
     assert "scheduleRefresh(1500)" in page.text
+    assert 'id="live-confidence"' in page.text
+    assert "fruit.addEventListener('change', selectFruit);" in page.text
     assert response.status_code == 200
     assert response.json() == {
         "target_fruit": "apple",
         "qualified_for_demo": True,
         "supported_fruits": ["apple", "banana", "pear"],
+    }
+    assert status.status_code == 200
+    assert status.json() == {
+        "target_fruit": "apple",
+        "camera_healthy": True,
+        "detection": {
+            "label": "apple",
+            "confidence": 0.73,
+            "bbox_xyxy": [120.0, 240.0, 360.0, 700.0],
+            "age_s": 0.04,
+        },
     }
     assert selected == ["apple"]
 
