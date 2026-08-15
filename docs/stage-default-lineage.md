@@ -95,3 +95,11 @@ focused-yaw passes without dropping below the verified `0.50 rad/s`
 factory-avoidance turning floor. Per-run tuning can
 disable the progressive profile and restore the prior `0.08` corridor without
 reverting source.
+
+The bounded search-settle successor is `stage-default-v13-search-settle`,
+Wendy application version `1.1.12-stage-default`. It extends the default search
+budget from 30 to 45 seconds and dampens near-center corrections without
+lowering Woof's verified yaw floor: one minimum-rate yaw-only correction is
+followed by one exact-zero fresh-frame settle before another correction can be
+issued. The timeout and near-center band are environment-backed, frozen per
+run, and exposed by the existing UI tuning contract.

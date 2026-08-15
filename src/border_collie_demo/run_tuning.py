@@ -86,11 +86,12 @@ def _group(
 class SearchTuning:
     yaw_rps: float = 0.50
     sweep_rad: float = 2.0 * math.pi
-    timeout_s: float = 30.0
+    timeout_s: float = 45.0
     focus_yaw_rps: float = 0.50
     progressive_focus_yaw_enabled: bool = True
     focus_yaw_step_rps: float = 0.10
     focus_minimum_yaw_rps: float = 0.50
+    focus_near_center_ratio: float = 0.20
     focus_missing_grace_s: float = 0.50
     bearing_routing_enabled: bool = False
 
@@ -249,12 +250,24 @@ class RunTuning:
             search=SearchTuning(
                 yaw_rps=guidance.search_yaw_rps,
                 sweep_rad=guidance.search_sweep_rad,
+                timeout_s=_number(
+                    {
+                        "timeout_s": os.environ.get(
+                            "BORDER_COLLIE_GUIDANCE_SEARCH_TIMEOUT_S", "45"
+                        )
+                    },
+                    "timeout_s",
+                    45.0,
+                    5.0,
+                    60.0,
+                ),
                 focus_yaw_rps=guidance.focus_yaw_rps,
                 progressive_focus_yaw_enabled=(
                     guidance.progressive_focus_yaw_enabled
                 ),
                 focus_yaw_step_rps=guidance.focus_yaw_step_rps,
                 focus_minimum_yaw_rps=guidance.focus_minimum_yaw_rps,
+                focus_near_center_ratio=guidance.focus_near_center_ratio,
                 focus_missing_grace_s=guidance.focus_missing_grace_s,
                 bearing_routing_enabled=env_bool(
                     "BORDER_COLLIE_BEARING_ROUTING_ENABLED", False
@@ -352,6 +365,7 @@ class RunTuning:
                 "progressive_focus_yaw_enabled",
                 "focus_yaw_step_rps",
                 "focus_minimum_yaw_rps",
+                "focus_near_center_ratio",
                 "focus_missing_grace_s",
                 "bearing_routing_enabled",
             },
@@ -466,6 +480,13 @@ class RunTuning:
                     defaults.search.focus_minimum_yaw_rps,
                     0.50,
                     0.80,
+                ),
+                focus_near_center_ratio=_number(
+                    search,
+                    "focus_near_center_ratio",
+                    defaults.search.focus_near_center_ratio,
+                    0.06,
+                    0.35,
                 ),
                 focus_missing_grace_s=_number(
                     search,
@@ -743,6 +764,13 @@ class RunTuning:
         if self.search.focus_minimum_yaw_rps > self.search.focus_yaw_rps:
             raise ValueError("minimum focus yaw cannot exceed focused alignment yaw")
         if (
+            self.search.focus_near_center_ratio
+            <= self.centering.lock_tolerance_ratio
+        ):
+            raise ValueError(
+                "near-center focus band must exceed the lock tolerance"
+            )
+        if (
             self.approach.slow_inference_grace_s
             < self.approach.detection_maximum_age_s
         ):
@@ -827,6 +855,18 @@ class RunTuning:
                     safety=(
                         "Never authorizes forward motion and cannot go below the "
                         "verified factory-avoidance turning floor."
+                    ),
+                ),
+                _field(
+                    "focus_near_center_ratio",
+                    "Near-center focus band",
+                    "frame ratio",
+                    0.06,
+                    0.35,
+                    0.01,
+                    safety=(
+                        "Uses the verified minimum yaw for one bounded correction, "
+                        "then holds zero for one fresh frame."
                     ),
                 ),
                 _field(

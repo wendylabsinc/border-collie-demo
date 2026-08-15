@@ -172,6 +172,9 @@ class ProductionStageExecutor:
                     ),
                     focus_yaw_step_rps=tuning.search.focus_yaw_step_rps,
                     focus_minimum_yaw_rps=tuning.search.focus_minimum_yaw_rps,
+                    focus_near_center_ratio=(
+                        tuning.search.focus_near_center_ratio
+                    ),
                     focus_missing_grace_s=tuning.search.focus_missing_grace_s,
                     center_tolerance_ratio=tuning.centering.lock_tolerance_ratio,
                     center_confirmations=tuning.recognition.required_frames,

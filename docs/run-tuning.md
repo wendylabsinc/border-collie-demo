@@ -37,6 +37,15 @@ verified `0.50 rad/s` factory-avoidance turning floor. Restoring
 `lock_tolerance_ratio` to `0.08` completes the prior
 lock profile without rebuilding or reverting source.
 
+The deployed search timeout default is 45 seconds through
+`BORDER_COLLIE_GUIDANCE_SEARCH_TIMEOUT_S` (`5..60 s`). Within
+`BORDER_COLLIE_GUIDANCE_FOCUS_NEAR_CENTER_RATIO` (default `0.20`, valid
+`0.06..0.35` frame width), focused alignment sends one yaw-only correction at
+the configured minimum and then one exact-zero fresh-frame settle. The settle
+does not advance lock counters; stale, wrong-generation, wrong-label, or
+camera-failure evidence remains terminal. Both values are frozen into the
+per-run tuning snapshot and can be changed from the UI without rebuilding.
+
 ## Non-tunable safety invariants
 
 Runtime tuning cannot weaken single-owner motion leases, the command watchdog,

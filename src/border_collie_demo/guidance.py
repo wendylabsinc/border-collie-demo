@@ -47,6 +47,7 @@ class GuidanceConfig:
     progressive_focus_yaw_enabled: bool = True
     focus_yaw_step_rps: float = 0.10
     focus_minimum_yaw_rps: float = 0.50
+    focus_near_center_ratio: float = 0.20
     focus_missing_grace_s: float = 0.50
     center_tolerance_ratio: float = 0.05
     center_confirmations: int = 3
@@ -74,6 +75,7 @@ class GuidanceConfig:
             self.focus_yaw_rps,
             self.focus_yaw_step_rps,
             self.focus_minimum_yaw_rps,
+            self.focus_near_center_ratio,
             self.focus_missing_grace_s,
             self.center_tolerance_ratio,
             self.approach_forward_mps,
@@ -108,6 +110,11 @@ class GuidanceConfig:
             raise ValueError(
                 "focus_minimum_yaw_rps must respect the verified 0.50 rad/s "
                 "floor and not exceed focus yaw"
+            )
+        if not self.center_tolerance_ratio < self.focus_near_center_ratio <= 0.35:
+            raise ValueError(
+                "focus_near_center_ratio must stay above center tolerance "
+                "and within 0.35 frame width"
             )
         if not 0.10 <= self.focus_missing_grace_s <= 1.0:
             raise ValueError(
@@ -175,6 +182,9 @@ class GuidanceConfig:
             ),
             focus_minimum_yaw_rps=float(
                 os.environ.get(prefix + "FOCUS_MINIMUM_YAW_RPS", "0.50")
+            ),
+            focus_near_center_ratio=float(
+                os.environ.get(prefix + "FOCUS_NEAR_CENTER_RATIO", "0.20")
             ),
             focus_missing_grace_s=float(
                 os.environ.get(prefix + "FOCUS_MISSING_GRACE_S", "0.50")
@@ -301,6 +311,7 @@ class FruitGuidance:
         self._focus_alignment_samples = 0
         self._last_focus_yaw_rps = 0.0
         self._focus_last_qualified_s: float | None = None
+        self._focus_near_center_settle_pending = False
         self._last_observed_s: float | None = None
         self._last_trusted_geometry: tuple[float, float, float] | None = None
         self._approach_forward_authorized = False
@@ -704,10 +715,29 @@ class FruitGuidance:
         centered = (
             abs(horizontal_error) <= self.config.center_tolerance_ratio + 1e-9
         )
+        if centered:
+            self._focus_near_center_settle_pending = False
         if not centered:
             self._focus_active = True
+            if self._focus_near_center_settle_pending:
+                self._focus_near_center_settle_pending = False
+                self._focus_last_qualified_s = now_s
+                return self._decision(
+                    GuidanceAction.HOLD,
+                    VelocityCommand(reason="focus_near_center_settle"),
+                    "focus_near_center_settle",
+                )
             direction = -1 if horizontal_error > 0.0 else 1
-            focus_yaw_rps = self._next_focus_yaw_rps(direction)
+            near_center = (
+                self.config.progressive_focus_yaw_enabled
+                and abs(horizontal_error)
+                <= self.config.focus_near_center_ratio + 1e-9
+            )
+            focus_yaw_rps = self._next_focus_yaw_rps(
+                direction,
+                force_minimum=near_center,
+            )
+            self._focus_near_center_settle_pending = near_center
             self._focus_last_qualified_s = now_s
             self._centered_fresh_samples = 0
             return self._decision(
@@ -715,9 +745,17 @@ class FruitGuidance:
                 VelocityCommand(
                     0.0,
                     focus_yaw_rps,
-                    "focus_align_target",
+                    (
+                        "focus_align_target_near_center"
+                        if near_center
+                        else "focus_align_target"
+                    ),
                 ),
-                "focus_align_target",
+                (
+                    "focus_align_target_near_center"
+                    if near_center
+                    else "focus_align_target"
+                ),
             )
         self._centered_fresh_samples = (
             self._centered_fresh_samples + 1 if centered else 0
@@ -761,6 +799,13 @@ class FruitGuidance:
     ) -> GuidanceDecision:
         if not self.acquisition_epoch:
             self._centered_fresh_samples = 0
+            if self._focus_near_center_settle_pending:
+                self._focus_near_center_settle_pending = False
+                return self._decision(
+                    GuidanceAction.HOLD,
+                    VelocityCommand(reason="focus_near_center_settle"),
+                    "focus_near_center_settle",
+                )
             if self._focus_active:
                 return self._focus_grace_or_search(
                     now_s,
@@ -815,15 +860,23 @@ class FruitGuidance:
         self._focus_alignment_samples = 0
         self._last_focus_yaw_rps = 0.0
         self._focus_last_qualified_s = None
+        self._focus_near_center_settle_pending = False
 
-    def _next_focus_yaw_rps(self, direction: int) -> float:
+    def _next_focus_yaw_rps(
+        self,
+        direction: int,
+        *,
+        force_minimum: bool = False,
+    ) -> float:
         """Return a bounded yaw that slows across agreeing fresh focus passes."""
         if direction != self._focus_direction:
             self._focus_alignment_samples = 0
         self._focus_direction = direction
         self._focus_alignment_samples += 1
         magnitude = self.config.focus_yaw_rps
-        if self.config.progressive_focus_yaw_enabled:
+        if force_minimum:
+            magnitude = self.config.focus_minimum_yaw_rps
+        elif self.config.progressive_focus_yaw_enabled:
             magnitude = max(
                 self.config.focus_minimum_yaw_rps,
                 self.config.focus_yaw_rps

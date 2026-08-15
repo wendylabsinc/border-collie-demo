@@ -293,6 +293,7 @@ def test_progressive_focus_yaw_slows_on_each_fresh_qualified_pass() -> None:
             focus_yaw_rps=0.80,
             focus_yaw_step_rps=0.10,
             focus_minimum_yaw_rps=0.50,
+            focus_near_center_ratio=0.055,
         ),
     )
 
@@ -338,6 +339,44 @@ def test_progressive_focus_yaw_slows_on_each_fresh_qualified_pass() -> None:
     assert first_centered.action is GuidanceAction.HOLD
     assert first_centered.command.yaw_rps == 0.0
     assert first_centered.centered_fresh_samples == 1
+
+
+def test_near_center_focus_uses_minimum_yaw_then_waits_for_fresh_settle() -> None:
+    guidance = FruitGuidance(
+        "pear",
+        config=GuidanceConfig(
+            search_yaw_rps=0.80,
+            focus_yaw_rps=0.80,
+            focus_minimum_yaw_rps=0.50,
+            focus_near_center_ratio=0.20,
+        ),
+    )
+
+    corrective_pulse = guidance.observe(
+        observation(pts=1, now_s=0.0, center_x=0.68),
+        now_s=0.0,
+    )
+    settle = guidance.observe(
+        observation(pts=2, now_s=0.1, center_x=0.85),
+        now_s=0.1,
+    )
+    far_correction = guidance.observe(
+        observation(pts=3, now_s=0.2, center_x=0.84),
+        now_s=0.2,
+    )
+
+    assert corrective_pulse.action is GuidanceAction.ALIGN
+    assert corrective_pulse.command.yaw_rps == -0.50
+    assert corrective_pulse.reason == "focus_align_target_near_center"
+    assert settle.action is GuidanceAction.HOLD
+    assert settle.command.yaw_rps == 0.0
+    assert settle.reason == "focus_near_center_settle"
+    assert far_correction.action is GuidanceAction.ALIGN
+    assert far_correction.command.yaw_rps == -0.70
+    assert all(
+        decision.command.forward_mps == 0.0
+        for decision in (corrective_pulse, settle, far_correction)
+    )
 
 
 def test_progressive_focus_yaw_resets_to_full_rate_after_crossing_center() -> None:

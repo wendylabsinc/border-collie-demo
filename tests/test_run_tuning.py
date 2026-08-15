@@ -30,10 +30,12 @@ def test_defaults_keep_target_confidence_and_share_the_search_contract() -> None
     assert banana.recognition.focus_confidence is None
     assert banana.recognition.lock_confidence == 0.20
     assert pear.search.yaw_rps == 0.50
+    assert pear.search.timeout_s == 45.0
     assert {fruit.search.focus_yaw_rps for fruit in (apple, pear, banana)} == {0.50}
     assert pear.search.progressive_focus_yaw_enabled is True
     assert pear.search.focus_yaw_step_rps == 0.10
     assert pear.search.focus_minimum_yaw_rps == 0.50
+    assert pear.search.focus_near_center_ratio == 0.20
     assert pear.search.focus_missing_grace_s == 0.50
     assert pear.search.bearing_routing_enabled is False
     assert pear.centering.lock_tolerance_ratio == 0.05
@@ -85,6 +87,8 @@ def test_progressive_focus_profile_is_env_backed_and_rollbackable_per_run(
     monkeypatch.setenv("BORDER_COLLIE_GUIDANCE_PROGRESSIVE_FOCUS_YAW_ENABLED", "1")
     monkeypatch.setenv("BORDER_COLLIE_GUIDANCE_FOCUS_YAW_STEP_RPS", "0.10")
     monkeypatch.setenv("BORDER_COLLIE_GUIDANCE_FOCUS_MINIMUM_YAW_RPS", "0.50")
+    monkeypatch.setenv("BORDER_COLLIE_GUIDANCE_FOCUS_NEAR_CENTER_RATIO", "0.18")
+    monkeypatch.setenv("BORDER_COLLIE_GUIDANCE_SEARCH_TIMEOUT_S", "45")
     monkeypatch.setenv("BORDER_COLLIE_GUIDANCE_CENTER_TOLERANCE_RATIO", "0.05")
 
     enabled = RunTuning.defaults("pear")
@@ -99,9 +103,18 @@ def test_progressive_focus_profile_is_env_backed_and_rollbackable_per_run(
     assert enabled.search.progressive_focus_yaw_enabled is True
     assert enabled.search.focus_yaw_step_rps == 0.10
     assert enabled.search.focus_minimum_yaw_rps == 0.50
+    assert enabled.search.focus_near_center_ratio == 0.18
+    assert enabled.search.timeout_s == 45.0
     assert enabled.centering.lock_tolerance_ratio == 0.05
     assert rollback.search.progressive_focus_yaw_enabled is False
     assert rollback.centering.lock_tolerance_ratio == 0.08
+
+
+def test_search_timeout_environment_default_is_bounded(monkeypatch) -> None:
+    monkeypatch.setenv("BORDER_COLLIE_GUIDANCE_SEARCH_TIMEOUT_S", "61")
+
+    with pytest.raises(ValueError, match="timeout_s must stay within 5.0..60.0"):
+        RunTuning.defaults("banana")
 
 
 def test_bearing_routing_default_is_env_backed_and_frozen_per_run(

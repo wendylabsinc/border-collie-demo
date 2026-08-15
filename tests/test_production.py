@@ -377,7 +377,7 @@ def test_production_reuses_one_guidance_identity_across_all_fruit_stages() -> No
         assert arrived["arrival_confirmed"] is True
         assert len(set(hardware.guidance_ids)) == 1
         assert hardware.calls == [
-            ("guide_target", False, 30.0),
+            ("guide_target", False, 45.0),
             ("guide_target", True, 20.0),
         ]
 
@@ -625,7 +625,7 @@ def test_production_applies_selected_fruit_search_confidence_only_to_the_run(
             timeout_s: float,
         ) -> dict[str, object]:
             assert allow_forward is False
-            assert timeout_s == 30.0
+            assert timeout_s == 45.0
             assert guidance.config.search_yaw_rps == 0.55
             assert guidance.config.center_confirmations == 4
             assert guidance.config.center_tolerance_ratio == 0.10
@@ -684,7 +684,7 @@ def test_production_preserves_baseline_fruit_policy_without_an_override(
             timeout_s: float,
         ) -> dict[str, object]:
             assert allow_forward is False
-            assert timeout_s == 30.0
+            assert timeout_s == 45.0
             assert guidance.policy.focus_confidence == focus
             assert guidance.policy.acquisition_confidence == lock
             guidance.acquisition_epoch = 1
