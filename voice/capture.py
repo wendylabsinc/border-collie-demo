@@ -72,7 +72,14 @@ class Capture:
             self._stream.close()
             self._stream = None
 
-    def frames(self):
-        """Yield ~frame_ms float32 mono frames at target_rate until stopped."""
+    def frames(self, *, timeout_s: float | None = None):
+        """Yield frames, failing when a live stream silently stops producing."""
+        if timeout_s is not None and timeout_s <= 0:
+            raise ValueError("timeout_s must be greater than zero")
         while True:
-            yield self._q.get()
+            try:
+                yield self._q.get(timeout=timeout_s)
+            except queue.Empty as exc:
+                raise TimeoutError(
+                    f"no microphone frame received for {timeout_s:.3f} seconds"
+                ) from exc

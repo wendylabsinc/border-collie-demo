@@ -54,6 +54,9 @@ AUDIO_DEVICE = os.environ.get("AUDIO_DEVICE", "auto")
 MICROPHONE_RETRY_INTERVAL_S = float(
     os.environ.get("MICROPHONE_RETRY_INTERVAL_S", "10.0")
 )
+MICROPHONE_FRAME_TIMEOUT_S = float(
+    os.environ.get("MICROPHONE_FRAME_TIMEOUT_S", "3.0")
+)
 ACTION_MODE = os.environ.get("ACTION_MODE", "mcp")
 BORDER_COLLIE_URL = os.environ.get("BORDER_COLLIE_URL", "http://127.0.0.1:8110")
 BORDER_COLLIE_EXPECTED_BUILD_LABEL = os.environ.get(
@@ -227,7 +230,7 @@ def build_app() -> FastAPI:
         else:
             print(f"[web] listening for '{wake_key}'; open http://<device>:{PORT}", flush=True)
         try:
-            for frame in capture.frames():
+            for frame in capture.frames(timeout_s=MICROPHONE_FRAME_TIMEOUT_S):
                 # In acoustic mode the wake model runs on every raw frame and
                 # keeps ASR idle until needed. ASR phrase mode intentionally
                 # transcribes each completed utterance to find the configured phrase.

@@ -32,3 +32,13 @@ seconds, defaults to `10.0`, and accepts `0.25..30.0`. Voice actions remain
 disarmed whenever capture is unavailable. `AUDIO_DEVICE` may be an exact input
 index, a case-insensitive device-name substring, or `auto`; retries cannot make
 a USB receiver appear if it does not expose a PortAudio-compatible input.
+
+`MICROPHONE_FRAME_TIMEOUT_S` is the maximum silence from the capture callback,
+in seconds (default `3.0`). If a USB receiver remains enumerated but stops
+producing frames, the session is closed and returned to the same discovery and
+capture retry loop. This timer observes frame delivery, not acoustic silence.
+
+Deploy with `scripts/deploy-stage-default --device woof.local`. The wrapper
+uses Wendy's persisted `unless-stopped` policy, so the app group returns after
+an ordinary process failure and after Go2/agent boot. A deliberate
+`wendy device apps stop` remains authoritative and is not undone.
