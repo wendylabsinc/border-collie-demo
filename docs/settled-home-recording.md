@@ -64,9 +64,10 @@ For a fresh yaw-only command (`forward_mps == 0`, nonzero `yaw_rps`), the
 recorder anchors the latest pose and calculates planar translation at every DDS
 sample. Crossing the configured threshold writes one `drift_detected` row and
 emits a `DRIFT DETECTED` warning containing the run, stage, motion path,
-requested command, measured drift, and threshold. The episode resets after a
-zero/translation command, stage transition, or command expiry. This is strictly
-observational: it cannot stop, alter, authorize, or disarm motion.
+exact `HardwareManager` sender function and active operation, requested command,
+measured drift, and threshold. The episode resets after a zero/translation
+command, stage transition, or command expiry. This is strictly observational:
+it cannot stop, alter, authorize, or disarm motion.
 
 | Environment variable | Units | Default | Valid range | Safety meaning |
 | --- | --- | ---: | ---: | --- |
@@ -89,8 +90,9 @@ Stagefile, lock, and build context, so an app source iteration with
 Each deep row is bounded by `HOME_RECORDER_MAX_EVENTS_PER_RUN` (default 10,000)
 and contains the applicable raw x/y/yaw, Home delta/distance, source timestamp
 and local sequence, odometry epoch, stage, forward/yaw command and path,
-armed/mode state, gate/window evidence from app events, and terminal reason.
-Frames and credentials are not recorded.
+exact sender function and active operation, armed/mode state, gate/window
+evidence from app events, and terminal reason. Frames and credentials are not
+recorded.
 
 ## Deterministic replay
 

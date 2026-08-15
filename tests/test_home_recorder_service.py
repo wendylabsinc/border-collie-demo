@@ -165,6 +165,8 @@ def test_passive_service_correlates_high_rate_pose_with_home_and_commands(tmp_pa
                 "forward_mps": 1.0,
                 "yaw_rps": 0.5,
                 "motion_path": "factory_avoidance",
+                "sender_function": "HardwareManager.return_home_position",
+                "active_operation": "return_home",
                 "recorded_monotonic_s": 11.9,
             },
         )
@@ -196,6 +198,8 @@ def test_passive_service_correlates_high_rate_pose_with_home_and_commands(tmp_pa
     assert pose["odometry_epoch"] == "odom-a"
     assert pose["command"] == {
         "motion_path": "factory_avoidance",
+        "sender_function": "HardwareManager.return_home_position",
+        "active_operation": "return_home",
         "forward_mps": 1.0,
         "yaw_rps": 0.5,
     }
@@ -244,6 +248,8 @@ def test_yaw_only_drift_is_recorded_and_warned_once_without_motion_authority(
                 "forward_mps": 0.0,
                 "yaw_rps": 0.5,
                 "motion_path": "sport_yaw",
+                "sender_function": "HardwareManager.turn_relative",
+                "active_operation": "measured_turn",
                 "recorded_monotonic_s": 1.0,
             },
         )
@@ -263,6 +269,8 @@ def test_yaw_only_drift_is_recorded_and_warned_once_without_motion_authority(
     assert drift_rows[0]["motion_path"] == "sport_yaw"
     assert drift_rows[0]["command"] == {
         "motion_path": "sport_yaw",
+        "sender_function": "HardwareManager.turn_relative",
+        "active_operation": "measured_turn",
         "forward_mps": 0.0,
         "yaw_rps": 0.5,
     }
@@ -275,6 +283,8 @@ def test_yaw_only_drift_is_recorded_and_warned_once_without_motion_authority(
                 "run_id": run_id,
                 "stage": "turn_to_fruit",
                 "motion_path": "sport_yaw",
+                "sender_function": "HardwareManager.turn_relative",
+                "active_operation": "measured_turn",
                 "drift_m": drift_rows[0]["drift_m"],
                 "threshold_m": 0.03,
                 "forward_mps": 0.0,

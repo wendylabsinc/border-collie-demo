@@ -461,6 +461,7 @@ class HardwareManager:
                             0.0,
                             "guarded_forward_pulse",
                         ),
+                        sender_function="HardwareManager.run_forward_pulse",
                     )
                     await asyncio.sleep(
                         min(self.config.command_heartbeat_s, deadline - now)
@@ -615,6 +616,7 @@ class HardwareManager:
                     await self._send_motion_command(
                         lease,
                         VelocityCommand(0.0, direction * rate, "measured_turn"),
+                        sender_function="HardwareManager.turn_relative",
                     )
                     await asyncio.sleep(self.config.command_heartbeat_s)
                 else:
@@ -861,6 +863,7 @@ class HardwareManager:
                     await self._send_motion_command(
                         lease,
                         VelocityCommand(0.0, command_rate, command_reason),
+                        sender_function="HardwareManager.find_target",
                     )
                     commands_sent = commands_sent or command_rate != 0.0
                     await asyncio.sleep(self.config.command_heartbeat_s)
@@ -1079,6 +1082,7 @@ class HardwareManager:
                             await self._send_motion_command(
                                 lease,
                                 VelocityCommand(reason="target_not_visible"),
+                                sender_function="HardwareManager.approach_target",
                             )
                             await asyncio.sleep(self.config.command_heartbeat_s)
                             continue
@@ -1086,6 +1090,7 @@ class HardwareManager:
                             await self._send_motion_command(
                                 lease,
                                 VelocityCommand(reason="bounded_final_push_disabled"),
+                                sender_function="HardwareManager.approach_target",
                             )
                         push_deadline = now + final_push_duration_s
                         while time.monotonic() < push_deadline:
@@ -1104,6 +1109,7 @@ class HardwareManager:
                                     0.0,
                                     "fruit_offscreen_final_push",
                                 ),
+                                sender_function="HardwareManager.approach_target",
                             )
                             commands_sent = True
                             forward_pulse_count += 1
@@ -1195,6 +1201,7 @@ class HardwareManager:
                                     yaw,
                                     "center_target_before_approach",
                                 ),
+                                sender_function="HardwareManager.approach_target",
                             )
                             commands_sent = commands_sent or yaw != 0.0
                             await asyncio.sleep(self.config.command_heartbeat_s)
@@ -1225,6 +1232,7 @@ class HardwareManager:
                                 else "approach_target"
                             ),
                         ),
+                        sender_function="HardwareManager.approach_target",
                     )
                     forward_pulse_count += 1
                     commands_sent = True
@@ -1494,7 +1502,11 @@ class HardwareManager:
                             },
                         )
 
-                    await self._send_motion_command(lease, decision.command)
+                    await self._send_motion_command(
+                        lease,
+                        decision.command,
+                        sender_function="HardwareManager.guide_target",
+                    )
                     if approach_recorder is not None:
                         approach_recorder.mark_command_sent()
                     commands_sent = commands_sent or (
@@ -1690,7 +1702,11 @@ class HardwareManager:
                         step.yaw_rps,
                         "return_home",
                     )
-                    await self._send_motion_command(lease, command)
+                    await self._send_motion_command(
+                        lease,
+                        command,
+                        sender_function="HardwareManager.return_home",
+                    )
                     commands_sent = True
                     if command.forward_mps > 0.0:
                         replayed_forward_pulses += 1
@@ -1911,6 +1927,9 @@ class HardwareManager:
                                         step.forward_mps,
                                         step.yaw_rps,
                                         "return_home_position",
+                                    ),
+                                    sender_function=(
+                                        "HardwareManager.return_home_position"
                                     ),
                                 )
                                 commands_sent = True
@@ -2421,6 +2440,8 @@ class HardwareManager:
         self,
         lease: str,
         command: VelocityCommand,
+        *,
+        sender_function: str,
     ) -> VelocityCommand:
         if self._motion is None:
             raise HardwareUnavailable("Go2 motion adapter is not connected")
@@ -2438,6 +2459,8 @@ class HardwareManager:
             "phase": self._motion_trace_phase,
             "recorded_monotonic_s": time.monotonic(),
             "motion_path": motion_status.get("mode"),
+            "sender_function": sender_function,
+            "active_operation": self._active_operation,
             **sent.to_dict(),
         }
         self._motion_trace.append(event)

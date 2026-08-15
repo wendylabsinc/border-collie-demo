@@ -99,6 +99,8 @@ class HomeTimelineRecorder:
                         "mode": None,
                         "command": {
                             "motion_path": None,
+                            "sender_function": None,
+                            "active_operation": None,
                             "forward_mps": 0.0,
                             "yaw_rps": 0.0,
                         },
@@ -123,6 +125,8 @@ class HomeTimelineRecorder:
                 context["mode"] = None
                 context["command"] = {
                     "motion_path": None,
+                    "sender_function": None,
+                    "active_operation": None,
                     "forward_mps": 0.0,
                     "yaw_rps": 0.0,
                 }
@@ -131,6 +135,8 @@ class HomeTimelineRecorder:
             if kind == "motion_command":
                 context["command"] = {
                     "motion_path": payload.get("motion_path"),
+                    "sender_function": payload.get("sender_function"),
+                    "active_operation": payload.get("active_operation"),
                     "forward_mps": float(payload.get("forward_mps", 0.0)),
                     "yaw_rps": float(payload.get("yaw_rps", 0.0)),
                 }
@@ -180,6 +186,8 @@ class HomeTimelineRecorder:
                 if payload.get("forward_mps") == 0.0 and payload.get("yaw_rps") == 0.0:
                     context["command"] = {
                         "motion_path": context["mode"],
+                        "sender_function": None,
+                        "active_operation": None,
                         "forward_mps": 0.0,
                         "yaw_rps": 0.0,
                     }
@@ -327,6 +335,8 @@ class HomeTimelineRecorder:
                         "captured_monotonic_s": captured_monotonic_s,
                         "stage": context["stage"],
                         "motion_path": context["command"]["motion_path"],
+                        "sender_function": context["command"]["sender_function"],
+                        "active_operation": context["command"]["active_operation"],
                         "drift_m": yaw_drift_m,
                         "threshold_m": self.yaw_drift_threshold_m,
                         "origin_pose": dict(yaw_episode["origin"]),
@@ -339,6 +349,8 @@ class HomeTimelineRecorder:
                         "run_id": run_id,
                         "stage": context["stage"],
                         "motion_path": context["command"]["motion_path"],
+                        "sender_function": context["command"]["sender_function"],
+                        "active_operation": context["command"]["active_operation"],
                         "drift_m": yaw_drift_m,
                         "threshold_m": self.yaw_drift_threshold_m,
                         "forward_mps": context["command"]["forward_mps"],

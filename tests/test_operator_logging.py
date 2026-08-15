@@ -55,6 +55,8 @@ def test_operator_logger_projects_state_failure_and_motion_without_trace_noise()
             "payload": {
                 "sequence": 19,
                 "motion_path": "factory_avoidance",
+                "sender_function": "HardwareManager.return_home_position",
+                "active_operation": "return_home",
                 "forward_mps": 1.0,
                 "yaw_rps": -0.5,
                 "reason": "return_home_position",
@@ -102,6 +104,8 @@ def test_operator_logger_projects_state_failure_and_motion_without_trace_noise()
             "phase": "approach_fruit",
             "command_sequence": 19,
             "motion_path": "factory_avoidance",
+            "sender_function": "HardwareManager.return_home_position",
+            "active_operation": "return_home",
             "forward_mps": 1.0,
             "yaw_rps": -0.5,
             "reason": "return_home_position",

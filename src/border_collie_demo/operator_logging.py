@@ -88,6 +88,8 @@ def _project(run_id: str, event: dict[str, Any]) -> dict[str, object] | None:
             **_take(
                 payload,
                 "motion_path",
+                "sender_function",
+                "active_operation",
                 "forward_mps",
                 "yaw_rps",
                 "reason",

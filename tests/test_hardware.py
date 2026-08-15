@@ -538,6 +538,10 @@ def test_motion_commands_stream_to_the_run_black_box_before_stage_completion(
         assert commands
         assert commands[0]["phase"] == "turn_to_fruit"
         assert commands[0]["payload"]["yaw_rps"] == 0.20
+        assert commands[0]["payload"]["sender_function"] == (
+            "HardwareManager.find_target"
+        )
+        assert commands[0]["payload"]["active_operation"] == "find_target"
         await manager.close()
 
     asyncio.run(scenario())

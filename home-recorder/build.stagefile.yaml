@@ -36,8 +36,6 @@ stages:
       HOME_RECORDER_STATE_DIR: /state/home-recorder
       HOME_RECORDER_EVENTS_DIR: /state/home-recorder/events
       HOME_RECORDER_MAX_EVENTS_PER_RUN: "10000"
-      HOME_RECORDER_YAW_DRIFT_THRESHOLD_M: "0.03"
-      HOME_RECORDER_COMMAND_ACTIVE_S: "0.50"
       GO2_NETWORK_INTERFACE: enP8p1s0
     install:
       apt:
