@@ -90,6 +90,7 @@ class RecognitionTuning:
 class CenteringTuning:
     lock_tolerance_ratio: float = 0.08
     outer_corridor_ratio: float = 0.20
+    focus_yaw_rps: float = 0.40
     approach_yaw_rps: float = 0.30
     recenter_yaw_rps: float = 0.50
 
@@ -183,6 +184,7 @@ class RunTuning:
             centering=CenteringTuning(
                 lock_tolerance_ratio=guidance.center_tolerance_ratio,
                 outer_corridor_ratio=guidance.outer_corridor_ratio,
+                focus_yaw_rps=guidance.focus_yaw_rps,
                 approach_yaw_rps=guidance.approach_yaw_rps,
                 recenter_yaw_rps=guidance.recenter_yaw_rps,
             ),
@@ -271,6 +273,7 @@ class RunTuning:
             {
                 "lock_tolerance_ratio",
                 "outer_corridor_ratio",
+                "focus_yaw_rps",
                 "approach_yaw_rps",
                 "recenter_yaw_rps",
             },
@@ -376,6 +379,13 @@ class RunTuning:
                     defaults.centering.outer_corridor_ratio,
                     0.12,
                     0.35,
+                ),
+                focus_yaw_rps=_number(
+                    centering,
+                    "focus_yaw_rps",
+                    defaults.centering.focus_yaw_rps,
+                    0.40,
+                    0.80,
                 ),
                 approach_yaw_rps=_number(
                     centering,
@@ -642,6 +652,18 @@ class RunTuning:
                     0.12,
                     0.35,
                     0.01,
+                ),
+                _field(
+                    "focus_yaw_rps",
+                    "Focused candidate yaw",
+                    "rad/s",
+                    0.40,
+                    0.80,
+                    0.05,
+                    safety=(
+                        "Separate from broad search yaw so a stepped sweep does not "
+                        "accelerate candidate alignment."
+                    ),
                 ),
                 _field(
                     "approach_yaw_rps",

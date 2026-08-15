@@ -1,9 +1,11 @@
 # Demo Run cohort policy
 
 The audience page can start a bounded cohort of independent Demo Runs. The
-operator chooses the run count, a seeded randomized Target Fruit sequence or
-one fixed Target Fruit, and terminal reasons or failed phases that may be
-tolerated at the cohort boundary.
+operator chooses the run count, a seeded randomized non-empty subset of
+Qualified Fruits or one fixed Target Fruit, and terminal reasons or failed
+phases that may be tolerated at the cohort boundary. Omitting the subset keeps
+the compatible all-qualified randomized default. Empty or unqualified subsets
+are rejected before a Demo Run is created.
 
 Defaults are deliberately strict:
 
@@ -45,9 +47,11 @@ application must construct and persist a fresh immutable tuning snapshot for
 each scheduled `FruitMission`; failure tolerance must never alter tuning or its
 safety validation.
 
-The durable cohort record contains the complete policy, seed, precomputed
-Target Fruit sequence, each Run Result identity/outcome, the policy decision,
-and the exact inter-run Home-clearance evidence.
+The durable cohort record contains the complete policy, exact selected fruit
+set, seed, precomputed Target Fruit sequence, requested tuning template, one
+effective immutable tuning snapshot per scheduled run, each Run Result
+identity/outcome, the policy decision, and the exact inter-run Home-clearance
+evidence.
 
 By default cohort records use a `cohorts/` sibling of
 `BORDER_COLLIE_RUNS_DIR`, so a deployment's durable Run Result mount also

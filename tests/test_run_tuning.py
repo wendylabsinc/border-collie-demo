@@ -303,9 +303,14 @@ def test_production_consumes_guidance_and_home_values_from_the_snapshot() -> Non
     tuning = RunTuning.from_payload(
         "pear",
         {
-            "search": {"yaw_rps": 0.55, "timeout_s": 22.0},
+            "search": {"yaw_rps": 0.80, "timeout_s": 22.0},
             "recognition": {"tracking_confidence": 0.60, "required_frames": 4},
-            "centering": {"outer_corridor_ratio": 0.25, "approach_yaw_rps": 0.40},
+            "centering": {
+                "outer_corridor_ratio": 0.25,
+                "focus_yaw_rps": 0.40,
+                "approach_yaw_rps": 0.30,
+                "recenter_yaw_rps": 0.50,
+            },
             "approach": {"forward_mps": 0.75},
             "arrival": {
                 "disappearance_bottom_ratio": 0.82,
@@ -313,7 +318,7 @@ def test_production_consumes_guidance_and_home_values_from_the_snapshot() -> Non
                 "final_push_duration_s": 0.40,
             },
             "home": {
-                "align_yaw_rps": 0.60,
+                "align_yaw_rps": 0.80,
                 "return_forward_mps": 0.75,
                 "return_yaw_deadband_deg": 7.0,
                 "return_minimum_yaw_rps": 0.55,
@@ -338,14 +343,17 @@ def test_production_consumes_guidance_and_home_values_from_the_snapshot() -> Non
 
     asyncio.run(scenario())
 
-    assert hardware.guidance.config.search_yaw_rps == 0.55
+    assert hardware.guidance.config.search_yaw_rps == 0.80
+    assert hardware.guidance.config.focus_yaw_rps == 0.40
     assert hardware.guidance.config.center_confirmations == 4
     assert hardware.guidance.config.approach_forward_mps == 0.75
     assert hardware.guidance.config.outer_corridor_ratio == 0.25
     assert hardware.guidance.config.final_push_mps == 0.65
     assert hardware.guidance.config.disappearance_bottom_ratio == 0.82
     assert hardware.guidance.policy.close_range_tracking_confidence == 0.60
-    assert hardware.home_calls[0][1]["yaw_rps"] == 0.60
+    assert hardware.guidance.config.approach_yaw_rps == 0.30
+    assert hardware.guidance.config.recenter_yaw_rps == 0.50
+    assert hardware.home_calls[0][1]["yaw_rps"] == 0.80
     assert hardware.home_calls[1][1]["forward_mps"] == 0.75
     assert hardware.home_calls[1][1]["arrival_tolerance_m"] == 0.20
     assert hardware.home_calls[1][1]["heading_tolerance_rad"] == pytest.approx(

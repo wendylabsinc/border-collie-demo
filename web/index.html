@@ -145,6 +145,12 @@
           <label for="cohort-runs">Number of runs</label>
           <input id="cohort-runs" type="number" min="1" max="100" step="1" value="5">
           <label><input id="cohort-randomized" type="checkbox" checked> Randomize qualified fruits with a saved seed</label>
+          <fieldset id="cohort-fruit-subset" class="failure-options">
+            <legend>Randomized fruit subset (select at least one)</legend>
+            <label><input type="checkbox" data-cohort-fruit value="apple" checked> Apple</label>
+            <label><input type="checkbox" data-cohort-fruit value="banana" checked> Banana</label>
+            <label><input type="checkbox" data-cohort-fruit value="pear" checked> Pear</label>
+          </fieldset>
           <label for="cohort-fixed-fruit">Fixed Target Fruit</label>
           <select id="cohort-fixed-fruit" disabled>
             <option value="pear">Pear</option>
@@ -153,6 +159,14 @@
           </select>
           <label for="cohort-seed">Random seed</label>
           <input id="cohort-seed" type="number" min="0" step="1" value="20260813">
+          <fieldset id="cohort-yaw-profile" class="failure-options">
+            <legend>Stepped-yaw experiment (frozen for this cohort)</legend>
+            <label for="cohort-search-yaw-rps">Broad fruit-locating yaw (rad/s)</label>
+            <input id="cohort-search-yaw-rps" type="number" min="0.4" max="0.8" step="0.05" value="0.8">
+            <label for="cohort-home-align-yaw-rps">Home turn/alignment yaw (rad/s)</label>
+            <input id="cohort-home-align-yaw-rps" type="number" min="0.5" max="0.8" step="0.05" value="0.8">
+            <small>Focused candidate alignment remains 0.4 rad/s; approach and recenter yaw remain unchanged.</small>
+          </fieldset>
           <fieldset class="failure-options">
             <legend>Tolerated terminal reasons</legend>
             <label><input type="checkbox" data-tolerated-reason value="TARGET_RECOGNITION_FAILURE"> Target recognition</label>
@@ -210,6 +224,8 @@
       const cohortRandomized = document.querySelector('#cohort-randomized');
       const cohortFixedFruit = document.querySelector('#cohort-fixed-fruit');
       const cohortSeed = document.querySelector('#cohort-seed');
+      const cohortSearchYaw = document.querySelector('#cohort-search-yaw-rps');
+      const cohortHomeAlignYaw = document.querySelector('#cohort-home-align-yaw-rps');
       const startCohort = document.querySelector('#start-cohort');
       const startThreeFruit = document.querySelector('#start-three-fruit');
       const stopCohort = document.querySelector('#stop-cohort');
@@ -423,6 +439,12 @@
         cohortRandomized.disabled = cohortRunning;
         cohortFixedFruit.disabled = cohortRunning || cohortRandomized.checked;
         cohortSeed.disabled = cohortRunning;
+        cohortSearchYaw.disabled = cohortRunning;
+        cohortHomeAlignYaw.disabled = cohortRunning;
+        document.querySelectorAll('[data-cohort-fruit]')
+          .forEach((control) => {
+            control.disabled = cohortRunning || !cohortRandomized.checked;
+          });
         document.querySelectorAll('[data-tolerated-reason], [data-tolerated-phase]')
           .forEach((control) => { control.disabled = cohortRunning; });
         if (!cohort) {
@@ -433,6 +455,8 @@
         cohortOutput.textContent = [
           `Cohort ${cohort.cohort_id}: ${cohort.status}`,
           `${cohort.runs.length}/${cohort.policy.runs} runs recorded`,
+          `Selected fruits: ${(cohort.selected_fruits || []).join(', ')}`,
+          `Seeded sequence: ${(cohort.fruit_sequence || []).join(' → ')}`,
           latest ? `Latest: ${latest.target_fruit} — ${latest.outcome} / ${latest.reason}` : '',
           cohort.abort_reason || '',
         ].filter(Boolean).join('\n');
@@ -473,6 +497,10 @@
 
       cohortRandomized.addEventListener('change', () => {
         cohortFixedFruit.disabled = cohortRandomized.checked;
+        document.querySelectorAll('[data-cohort-fruit]')
+          .forEach((control) => {
+            control.disabled = !cohortRandomized.checked;
+          });
       });
 
       async function createCohort(payload) {
@@ -491,7 +519,17 @@
         }
       }
 
+      function selectedCohortFruits() {
+        return Array.from(document.querySelectorAll('[data-cohort-fruit]:checked'))
+          .map((control) => control.value);
+      }
+
       startCohort.addEventListener('click', async () => {
+        const selectedFruits = selectedCohortFruits();
+        if (cohortRandomized.checked && selectedFruits.length === 0) {
+          cohortOutput.textContent = 'Select at least one fruit for a randomized cohort.';
+          return;
+        }
         const toleratedFailures = [
           ...Array.from(document.querySelectorAll('[data-tolerated-reason]:checked'))
             .map((control) => ({reason: control.value})),
@@ -502,8 +540,13 @@
           runs: Number(cohortRuns.value),
           randomized: cohortRandomized.checked,
           target_fruit: cohortRandomized.checked ? null : cohortFixedFruit.value,
+          fruit_subset: cohortRandomized.checked ? selectedCohortFruits() : null,
           seed: Number(cohortSeed.value),
           tolerated_failures: toleratedFailures,
+          tuning: {
+            search: {yaw_rps: Number(cohortSearchYaw.value)},
+            home: {align_yaw_rps: Number(cohortHomeAlignYaw.value)},
+          },
         });
       });
 
@@ -512,6 +555,7 @@
           runs: 3,
           randomized: true,
           target_fruit: null,
+          fruit_subset: ['apple', 'banana', 'pear'],
           seed: Number(cohortSeed.value),
           tolerated_failures: [
             {reason: 'TARGET_RECOGNITION_FAILURE'},
@@ -525,6 +569,10 @@
             {failed_phase: 'sit_and_bark'},
             {failed_phase: 'stand'},
           ],
+          tuning: {
+            search: {yaw_rps: Number(cohortSearchYaw.value)},
+            home: {align_yaw_rps: Number(cohortHomeAlignYaw.value)},
+          },
         });
       });
 

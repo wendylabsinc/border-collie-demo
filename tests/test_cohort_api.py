@@ -122,6 +122,82 @@ def test_api_random_cohort_persists_seeded_sequence(tmp_path) -> None:
     assert run(919, "a") == run(919, "b")
 
 
+def test_api_random_cohort_persists_subset_sequence_and_frozen_yaw_tuning(
+    tmp_path,
+) -> None:
+    app = create_app(
+        runs_root=tmp_path / "runs",
+        cohorts_root=tmp_path / "cohorts",
+        hardware=ReadyHardware(),
+        camera_perception_status=ready_camera,
+        stage_executor=SimulatedStageExecutor(),
+    )
+    request = {
+        "runs": 4,
+        "randomized": True,
+        "fruit_subset": ["apple", "pear"],
+        "seed": 919,
+        "tuning": {
+            "search": {"yaw_rps": 0.8},
+            "home": {"align_yaw_rps": 0.8},
+        },
+    }
+
+    with TestClient(app) as client:
+        started = client.post("/api/cohorts", json=request)
+        assert started.status_code == 201
+        cohort = wait_for_cohort(client)
+
+    assert cohort["policy"]["fruit_subset"] == ["apple", "pear"]
+    assert cohort["selected_fruits"] == ["apple", "pear"]
+    assert set(cohort["fruit_sequence"]) == {"apple", "pear"}
+    assert cohort["tuning_template"] == request["tuning"]
+    assert len(cohort["run_tuning_sequence"]) == 4
+    for number, snapshot in enumerate(cohort["run_tuning_sequence"], start=1):
+        assert snapshot["number"] == number
+        assert snapshot["target_fruit"] == cohort["fruit_sequence"][number - 1]
+        tuning = snapshot["run_tuning"]
+        assert tuning["search"]["yaw_rps"] == 0.8
+        assert tuning["home"]["align_yaw_rps"] == 0.8
+        assert tuning["centering"]["focus_yaw_rps"] == 0.4
+        assert tuning["centering"]["approach_yaw_rps"] == 0.3
+        assert tuning["centering"]["recenter_yaw_rps"] == 0.5
+    assert [item["run_tuning"] for item in cohort["runs"]] == [
+        item["run_tuning"] for item in cohort["run_tuning_sequence"]
+    ]
+
+
+def test_api_rejects_empty_or_unknown_randomized_subset_before_activation(
+    tmp_path,
+) -> None:
+    app = create_app(
+        runs_root=tmp_path / "runs",
+        cohorts_root=tmp_path / "cohorts",
+        hardware=ReadyHardware(),
+        camera_perception_status=ready_camera,
+        stage_executor=SimulatedStageExecutor(),
+    )
+    with TestClient(app) as client:
+        empty = client.post(
+            "/api/cohorts",
+            json={"runs": 2, "randomized": True, "fruit_subset": [], "seed": 1},
+        )
+        unknown = client.post(
+            "/api/cohorts",
+            json={
+                "runs": 2,
+                "randomized": True,
+                "fruit_subset": ["mango"],
+                "seed": 1,
+            },
+        )
+        runs = client.get("/api/results").json()["runs"]
+
+    assert empty.status_code in {409, 422}
+    assert unknown.status_code in {409, 422}
+    assert runs == []
+
+
 def test_terminal_failure_policy_is_applied_before_home_clearance(tmp_path) -> None:
     app = create_app(
         runs_root=tmp_path / "runs",
@@ -211,6 +287,8 @@ def test_cohort_request_defaults_are_explicit_and_validation_is_closed(tmp_path)
     assert defaulted.status_code == 201
     assert body["policy"]["runs"] == 5
     assert body["policy"]["randomized"] is True
+    assert body["policy"]["fruit_subset"] is None
+    assert body["selected_fruits"] == ["apple", "banana", "pear"]
     assert body["policy"]["tolerated_failures"] == []
     assert invalid.status_code in {409, 422}
 
@@ -222,6 +300,14 @@ def test_audience_ui_exposes_cohort_configuration_and_observation() -> None:
     assert 'value="5"' in page
     assert 'id="cohort-randomized"' in page
     assert 'id="cohort-fixed-fruit"' in page
+    assert 'data-cohort-fruit value="apple"' in page
+    assert 'data-cohort-fruit value="banana"' in page
+    assert 'data-cohort-fruit value="pear"' in page
+    assert 'id="cohort-search-yaw-rps"' in page
+    assert 'id="cohort-home-align-yaw-rps"' in page
+    assert "fruit_subset: cohortRandomized.checked ? selectedCohortFruits() : null" in page
+    assert "search: {yaw_rps: Number(cohortSearchYaw.value)}" in page
+    assert "home: {align_yaw_rps: Number(cohortHomeAlignYaw.value)}" in page
     assert 'id="start-three-fruit"' in page
     assert "runs: 3" in page
     assert "Run Apple + Banana + Pear once" in page

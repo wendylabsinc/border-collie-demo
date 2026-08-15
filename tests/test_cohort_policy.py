@@ -32,6 +32,7 @@ def test_policy_defaults_to_five_randomized_runs_and_stops_on_failure() -> None:
         "runs": 5,
         "randomized": True,
         "target_fruit": None,
+        "fruit_subset": None,
         "seed": 20260813,
         "tolerated_failures": [],
     }
@@ -151,6 +152,35 @@ def test_seeded_random_sequence_and_fixed_fruit_have_exact_run_count() -> None:
         "banana",
         "banana",
     ]
+
+
+def test_seeded_random_sequence_is_restricted_to_the_persisted_fruit_subset() -> None:
+    policy = CohortPolicy(
+        runs=5,
+        randomized=True,
+        seed=919,
+        fruit_subset=("pear", "apple"),
+    )
+
+    sequence = choose_fruit_sequence(policy, ["apple", "banana", "pear"])
+
+    assert policy.to_dict()["fruit_subset"] == ["apple", "pear"]
+    assert sequence == ["pear", "apple", "pear", "pear", "apple"]
+    assert set(sequence) == {"apple", "pear"}
+
+
+def test_randomized_fruit_subset_rejects_empty_and_unqualified_values() -> None:
+    with pytest.raises(ValueError, match="fruit_subset must not be empty"):
+        CohortPolicy(runs=2, randomized=True, seed=1, fruit_subset=())
+
+    policy = CohortPolicy(
+        runs=2,
+        randomized=True,
+        seed=1,
+        fruit_subset=("apple", "mango"),
+    )
+    with pytest.raises(ValueError, match="not qualified"):
+        choose_fruit_sequence(policy, ["apple", "banana", "pear"])
 
 
 def test_fixed_policy_requires_a_qualified_target() -> None:

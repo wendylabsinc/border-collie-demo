@@ -17,6 +17,7 @@ from .cohort_policy import (
     decide_terminal_run,
     evaluate_home_clearance,
 )
+from .run_tuning import RunTuning
 from .stage_demo import FruitMission, StageDemo
 
 
@@ -46,8 +47,32 @@ class CohortController:
             self._current["ended_at_utc"] = _utc_now()
             self._persist()
 
-    async def start(self, policy: CohortPolicy, qualified_fruits: list[str]) -> dict[str, Any]:
+    async def start(
+        self,
+        policy: CohortPolicy,
+        qualified_fruits: list[str],
+        *,
+        tuning_template: dict[str, object] | None = None,
+    ) -> dict[str, Any]:
         sequence = choose_fruit_sequence(policy, qualified_fruits)
+        selected_fruits = (
+            list(policy.fruit_subset)
+            if policy.randomized and policy.fruit_subset is not None
+            else (
+                sorted({fruit.casefold().strip() for fruit in qualified_fruits})
+                if policy.randomized
+                else [policy.target_fruit]
+            )
+        )
+        template = deepcopy(tuning_template or {})
+        run_tuning_sequence = [
+            {
+                "number": number,
+                "target_fruit": fruit,
+                "run_tuning": RunTuning.from_payload(fruit, template).to_dict(),
+            }
+            for number, fruit in enumerate(sequence, start=1)
+        ]
         async with self._lock:
             if self._task is not None and not self._task.done():
                 raise CohortConflict("a cohort is already running")
@@ -60,13 +85,16 @@ class CohortController:
                 raise CohortConflict("activation readiness has not passed")
             cohort_id = str(uuid4())
             self._current = {
-                "schema_version": 1,
+                "schema_version": 2,
                 "cohort_id": cohort_id,
                 "status": "RUNNING",
                 "started_at_utc": _utc_now(),
                 "ended_at_utc": None,
                 "policy": policy.to_dict(),
+                "selected_fruits": selected_fruits,
                 "fruit_sequence": sequence,
+                "tuning_template": template,
+                "run_tuning_sequence": run_tuning_sequence,
                 "runs": [],
                 "current_run_id": None,
                 "stop_requested": False,
@@ -75,7 +103,8 @@ class CohortController:
             self._stop_requested = False
             self._persist()
             self._task = asyncio.create_task(
-                self._execute(policy), name=f"fruit-cohort-{cohort_id}"
+                self._execute(policy, run_tuning_sequence),
+                name=f"fruit-cohort-{cohort_id}",
             )
             return deepcopy(self._current)
 
@@ -116,18 +145,32 @@ class CohortController:
         except (FileNotFoundError, json.JSONDecodeError, OSError):
             return None
 
-    async def _execute(self, policy: CohortPolicy) -> None:
+    async def _execute(
+        self,
+        policy: CohortPolicy,
+        run_tuning_sequence: list[dict[str, Any]],
+    ) -> None:
         assert self._current is not None
         cohort = self._current
         try:
             for number, fruit in enumerate(cohort["fruit_sequence"], start=1):
+                tuning_record = run_tuning_sequence[number - 1]
+                tuning = RunTuning.from_payload(
+                    fruit,
+                    tuning_record["run_tuning"],
+                )
                 if self._stop_requested:
                     self._finish("STOPPED", "operator stopped the cohort")
                     return
                 activation_id = f"cohort:{cohort['cohort_id']}:run:{number}"
                 try:
                     activation = await self._demo.activate(
-                        FruitMission(fruit, "cohort", activation_id)
+                        FruitMission(
+                            fruit,
+                            "cohort",
+                            activation_id,
+                            tuning=tuning,
+                        )
                     )
                 except Exception as exc:  # noqa: BLE001 - activation is ambiguous
                     self._finish(
@@ -168,6 +211,7 @@ class CohortController:
                     "reason": run.get("reason"),
                     "failed_phase": run.get("failed_phase"),
                     "final_safety_state": run.get("final_safety_state"),
+                    "run_tuning": deepcopy(tuning_record["run_tuning"]),
                     "cohort_decision": decision,
                 }
                 cohort["runs"].append(record)

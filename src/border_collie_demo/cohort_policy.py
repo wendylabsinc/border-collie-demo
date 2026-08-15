@@ -6,7 +6,6 @@ import random
 from dataclasses import dataclass
 from typing import Any
 
-
 HARD_STOP_REASONS = frozenset(
     {
         "CAMERA_FAILURE",
@@ -57,6 +56,7 @@ class CohortPolicy:
     runs: int = 5
     randomized: bool = True
     target_fruit: str | None = None
+    fruit_subset: tuple[str, ...] | None = None
     tolerated_failures: tuple[FailureSelector, ...] = ()
 
     def __post_init__(self) -> None:
@@ -65,13 +65,25 @@ class CohortPolicy:
         target = self.target_fruit.casefold().strip() if self.target_fruit else None
         if not self.randomized and target is None:
             raise ValueError("target_fruit is required when randomized is false")
+        subset = self.fruit_subset
+        if subset is not None:
+            normalized = tuple(
+                sorted({fruit.casefold().strip() for fruit in subset if fruit.strip()})
+            )
+            if not normalized:
+                raise ValueError("fruit_subset must not be empty")
+            subset = normalized
         object.__setattr__(self, "target_fruit", target)
+        object.__setattr__(self, "fruit_subset", subset)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "runs": self.runs,
             "randomized": self.randomized,
             "target_fruit": self.target_fruit,
+            "fruit_subset": (
+                None if self.fruit_subset is None else list(self.fruit_subset)
+            ),
             "seed": self.seed,
             "tolerated_failures": [item.to_dict() for item in self.tolerated_failures],
         }
@@ -88,6 +100,13 @@ def choose_fruit_sequence(
         if policy.target_fruit not in fruits:
             raise ValueError(f"Target Fruit {policy.target_fruit!r} is not qualified")
         return [policy.target_fruit] * policy.runs
+    if policy.fruit_subset is not None:
+        unqualified = sorted(set(policy.fruit_subset) - set(fruits))
+        if unqualified:
+            raise ValueError(
+                "Target Fruit subset is not qualified: " + ", ".join(unqualified)
+            )
+        fruits = list(policy.fruit_subset)
     rng = random.Random(policy.seed)
     repetitions, remainder = divmod(policy.runs, len(fruits))
     sequence = fruits * repetitions

@@ -146,6 +146,7 @@ class ProductionStageExecutor:
                 tuning = RunTuning.from_payload(context.target_fruit, payload)
                 config = GuidanceConfig(
                     search_yaw_rps=tuning.search.yaw_rps,
+                    focus_yaw_rps=tuning.centering.focus_yaw_rps,
                     search_sweep_rad=tuning.search.sweep_rad,
                     center_tolerance_ratio=tuning.centering.lock_tolerance_ratio,
                     center_confirmations=tuning.recognition.required_frames,

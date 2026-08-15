@@ -307,6 +307,44 @@ def test_apple_focus_and_acquisition_thresholds_are_runtime_tunable(
     assert focused.action is GuidanceAction.HOLD
 
 
+def test_broad_search_yaw_does_not_raise_focused_candidate_alignment_yaw() -> None:
+    guidance = FruitGuidance(
+        "apple",
+        config=GuidanceConfig(search_yaw_rps=0.8, focus_yaw_rps=0.4),
+    )
+
+    sweeping = guidance.observe(
+        observation(pts=1, now_s=0.0, label=None),
+        now_s=0.0,
+    )
+    focus_started = guidance.observe(
+        observation(
+            pts=2,
+            now_s=0.1,
+            label="apple",
+            confidence=0.5,
+            center_x=0.8,
+        ),
+        now_s=0.1,
+    )
+    focused_alignment = guidance.observe(
+        observation(
+            pts=3,
+            now_s=0.2,
+            label="apple",
+            confidence=0.5,
+            center_x=0.8,
+        ),
+        now_s=0.2,
+    )
+
+    assert sweeping.action is GuidanceAction.SEARCH
+    assert sweeping.command.yaw_rps == 0.8
+    assert focus_started.action is GuidanceAction.HOLD
+    assert focused_alignment.action is GuidanceAction.ALIGN
+    assert focused_alignment.command.yaw_rps == -0.4
+
+
 def test_lower_edge_disappearance_arrives_stopped_without_final_push() -> None:
     config = GuidanceConfig(final_push_mps=0.6, final_push_duration_s=1.0)
     guidance = FruitGuidance("banana", config=config)

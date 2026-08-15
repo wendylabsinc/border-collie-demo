@@ -41,6 +41,7 @@ class GuidanceConfig:
     """Runtime-tunable guidance policy with hardware-safety validation."""
 
     search_yaw_rps: float = 0.40
+    focus_yaw_rps: float = 0.40
     search_sweep_rad: float = 2.0 * math.pi
     center_tolerance_ratio: float = 0.08
     center_confirmations: int = 3
@@ -63,6 +64,7 @@ class GuidanceConfig:
     def __post_init__(self) -> None:
         finite = (
             self.search_yaw_rps,
+            self.focus_yaw_rps,
             self.search_sweep_rad,
             self.center_tolerance_ratio,
             self.approach_forward_mps,
@@ -83,6 +85,8 @@ class GuidanceConfig:
             raise ValueError("guidance values must be finite")
         if not 0.40 <= self.search_yaw_rps <= 0.80:
             raise ValueError("search_yaw_rps must stay within 0.40..0.80 rad/s")
+        if not 0.40 <= self.focus_yaw_rps <= 0.80:
+            raise ValueError("focus_yaw_rps must stay within 0.40..0.80 rad/s")
         if not 0.0 < self.search_sweep_rad <= 2.0 * math.pi:
             raise ValueError("search_sweep_rad must stay within one revolution")
         if not 0.0 < self.center_tolerance_ratio < self.outer_corridor_ratio < 0.5:
@@ -128,6 +132,7 @@ class GuidanceConfig:
         prefix = "BORDER_COLLIE_GUIDANCE_"
         config = cls(
             search_yaw_rps=float(os.environ.get(prefix + "SEARCH_YAW_RPS", "0.40")),
+            focus_yaw_rps=float(os.environ.get(prefix + "FOCUS_YAW_RPS", "0.40")),
             search_sweep_rad=float(
                 os.environ.get(prefix + "SEARCH_SWEEP_RAD", str(2.0 * math.pi))
             ),
@@ -628,7 +633,7 @@ class FruitGuidance:
             GuidanceAction.ALIGN,
             VelocityCommand(
                 0.0,
-                -math.copysign(self.config.search_yaw_rps, horizontal_error),
+                -math.copysign(self.config.focus_yaw_rps, horizontal_error),
                 "center_target_during_search",
             ),
             "center_target_during_search",

@@ -17,11 +17,11 @@ run and does not mutate process environment or require a restart/deployment.
 The authoritative defaults, units, ranges, step sizes, and safety notes are
 machine-readable in `RunTuning.contract()` rather than repeated here:
 
-- `search`: yaw rate, bounded sweep, and timeout;
+- `search`: broad sweep yaw rate, bounded sweep, and timeout;
 - `recognition`: selected-fruit focus/lock/tracking confidence and required
   fresh centered frames;
-- `centering`: lock band, moving corridor, moving yaw, and in-place recenter
-  yaw;
+- `centering`: lock band, moving corridor, focused candidate yaw, moving yaw,
+  and in-place recenter yaw;
 - `approach`: forward speed, timeout, duplicate hold, source freshness, and
   detection freshness;
 - `arrival`: visual near gates, confirmation/loss policy, and the one bounded
@@ -50,3 +50,11 @@ Cohort policy is separate from mission tuning. A cohort request may carry a
 and pass that new snapshot to `FruitMission(tuning=...)`. It must never store
 mission tuning inside `CohortPolicy` or reuse a target-bound object for a
 different randomized fruit.
+
+The stepped-yaw cohort profile raises only broad fruit-locating rotation and
+the initial Home turn/alignment to the verified software ceiling of
+`0.80 rad/s`. Focused candidate alignment remains `0.40 rad/s`; moving approach
+yaw remains `0.30 rad/s`; and in-place approach recenter remains `0.50 rad/s`.
+The request template and every fruit-bound effective snapshot are persisted
+before the first activation so later UI or environment changes cannot alter an
+active cohort.

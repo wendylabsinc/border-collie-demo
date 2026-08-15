@@ -78,8 +78,10 @@ class CohortRequest(BaseModel):
     runs: int = Field(default=5, ge=1, le=100)
     randomized: bool = True
     target_fruit: Literal["apple", "banana", "pear"] | None = None
+    fruit_subset: list[Literal["apple", "banana", "pear"]] | None = None
     seed: int | None = Field(default=None, ge=0)
     tolerated_failures: list[FailureSelectorRequest] = Field(default_factory=list)
+    tuning: dict[str, object] | None = None
 
 
 def create_app(
@@ -309,6 +311,11 @@ def create_app(
                 runs=request.runs,
                 randomized=request.randomized,
                 target_fruit=request.target_fruit,
+                fruit_subset=(
+                    None
+                    if request.fruit_subset is None
+                    else tuple(request.fruit_subset)
+                ),
                 seed=(
                     request.seed
                     if request.seed is not None
@@ -322,7 +329,11 @@ def create_app(
                     for item in request.tolerated_failures
                 ),
             )
-            cohort = await cohorts.start(policy, list(QUALIFIED_FRUITS))
+            cohort = await cohorts.start(
+                policy,
+                list(QUALIFIED_FRUITS),
+                tuning_template=request.tuning,
+            )
         except (CohortConflict, ValueError) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {"cohort": cohort}
