@@ -1,4 +1,6 @@
 version: 1
-sourceHash: sha256:53b1403e967a5e9f5c66cde26d578ede9d901a1f544be635540303907e42db01
+sourceHash: sha256:ae89b4ff5fd512f8010bdd1cb4dfa1763aa6d127a76c9afa36ca85f62217f85a
 images:
     dustynv/pytorch:2.7-r36.4.0-cu128-24.04: sha256:4bb7f0a3852f86629ed271aaf6c4aa000305cc4e4673b8e9f334668ee1b22bc8
+downloads:
+    https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.pt: sha256:0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1

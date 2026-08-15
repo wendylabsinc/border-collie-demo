@@ -13,6 +13,8 @@ stages:
       BANANA_SPECIALIST_MODEL_PATH: /media/banana-specialist.pt
       BANANA_SPECIALIST_MIN_CONFIDENCE: "0.55"
       BANANA_SPECIALIST_MIN_IOU: "0.10"
+      COCO_TEST_MODEL_PATH: /models/yolo11n.pt
+      COCO_TEST_INTERVAL_S: "0.5"
       BORDER_COLLIE_MEDIA_PORT: "8111"
       BORDER_COLLIE_BARK_UUID: 161387de-21ab-4f0b-b4e9-97124b000d06
     install:
@@ -31,6 +33,10 @@ stages:
         - requirements: requirements.txt
           index: https://pypi.org/simple
           buildPackages: [build-essential, portaudio19-dev]
+    download:
+      - url: https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.pt
+        sha256: 0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1
+        dest: /models/yolo11n.pt
     copy:
       - from: local
         paths: [model/model.engine]
@@ -39,7 +45,7 @@ stages:
         paths: [model/banana-specialist.pt]
         dest: /media/banana-specialist.pt
       - from: local
-        paths: [__init__.py, model_router.py, perception_sidecar.py]
+        paths: [__init__.py, coco_tester.py, model_router.py, perception_sidecar.py]
         dest: /app/media/
     user: root
     cmd: [uvicorn, media.perception_sidecar:app, --host, 0.0.0.0, --port, "8111"]

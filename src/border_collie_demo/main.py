@@ -59,6 +59,8 @@ def build_app_from_env() -> FastAPI:
         camera_perception_status=perception.status,
         camera_frame=perception.camera_frame,
         select_perception_target=perception.select_target,
+        coco_test_status=perception.coco_test_status,
+        configure_coco_test=perception.configure_coco_test,
         runs_root=runs_root,
         media_status=best_effort_bark_status,
         stage_executor=ProductionStageExecutor(

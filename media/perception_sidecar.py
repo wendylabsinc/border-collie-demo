@@ -26,6 +26,7 @@ from uuid import uuid4
 from fastapi import FastAPI, HTTPException, Response
 from pydantic import BaseModel
 
+from media.coco_tester import CocoTester
 from media.model_router import FruitCandidate, FruitModelRouter, RoutedPrediction
 
 SUPPORTED_FRUITS = ("apple", "banana", "pear")
@@ -34,6 +35,12 @@ SEARCH_CROP_FRUITS = frozenset({"apple", "banana"})
 
 class TargetFruitRequest(BaseModel):
     target_fruit: Literal["apple", "banana", "pear"]
+
+
+class CocoTestRequest(BaseModel):
+    enabled: bool
+    minimum_confidence: float | None = None
+    reset: bool = False
 
 
 @dataclass(frozen=True)
@@ -455,6 +462,12 @@ class PerceptionRuntime:
             os.environ.get("EVIDENCE_FRAME_INTERVAL_S", "0.5")
         )
         self._crop_confirm = CropConfirmConfig.from_env()
+        self._coco_tester = CocoTester(
+            model_path=os.environ.get(
+                "COCO_TEST_MODEL_PATH", "/models/yolo11n.pt"
+            ).strip(),
+            interval_s=float(os.environ.get("COCO_TEST_INTERVAL_S", "0.5")),
+        )
         self._last_evidence_capture_s: float | None = None
         self._connection: Any | None = None
         self._audiohub: Any | None = None
@@ -567,6 +580,7 @@ class PerceptionRuntime:
             **self.evidence.status(),
             "bark_ready": self._audiohub is not None and bool(self.bark_uuid),
             "crop_confirm": asdict(self._crop_confirm),
+            "coco_test": self._coco_tester.status(),
             "model_router": (
                 self._model_router.status()
                 if self._model_router is not None
@@ -594,10 +608,29 @@ class PerceptionRuntime:
         with self._target_lock:
             self._target_fruit = normalized
             self.evidence.select_target(normalized)
+        self._coco_tester.configure(enabled=False)
         return {
             "target_fruit": normalized,
             "supported_fruits": list(SUPPORTED_FRUITS),
         }
+
+    async def configure_coco_test(
+        self,
+        *,
+        enabled: bool,
+        minimum_confidence: float | None = None,
+        reset: bool = False,
+    ) -> dict[str, object]:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._inference_executor,
+            partial(
+                self._coco_tester.configure,
+                enabled=enabled,
+                minimum_confidence=minimum_confidence,
+                reset=reset,
+            ),
+        )
 
     def camera_frame(self) -> bytes:
         with self._preview_lock:
@@ -684,6 +717,7 @@ class PerceptionRuntime:
         with self._target_lock:
             target_fruit = self._target_fruit
         bgr = frame.to_ndarray(format="bgr24")
+        self._coco_tester.observe(bgr, pts=pts)
         started = time.monotonic()
         try:
             full_frame_prediction = self._predict_candidate(
@@ -982,6 +1016,21 @@ def create_app(runtime: PerceptionRuntime | None = None) -> FastAPI:
             return media.select_target(request.target_fruit)
         except Exception as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.get("/api/coco-test")
+    async def coco_test_status() -> dict[str, object]:
+        return media.status()["coco_test"]
+
+    @app.post("/api/coco-test")
+    async def configure_coco_test(request: CocoTestRequest) -> dict[str, object]:
+        try:
+            return await media.configure_coco_test(
+                enabled=request.enabled,
+                minimum_confidence=request.minimum_confidence,
+                reset=request.reset,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     @app.post("/api/bark")
     async def bark() -> dict[str, object]:

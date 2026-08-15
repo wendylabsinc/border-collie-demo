@@ -182,6 +182,42 @@ def test_fruit_test_page_can_select_supported_fruit_without_motion() -> None:
     assert selected == ["apple"]
 
 
+def test_fruit_test_page_controls_read_only_full_coco_confidence_test() -> None:
+    changes: list[dict[str, object]] = []
+    app = create_app(
+        coco_test_status=lambda: {
+            "enabled": True,
+            "model": "yolo11n.pt",
+            "class_count": 80,
+            "frames_processed": 12,
+            "classes": [],
+        },
+        configure_coco_test=lambda payload: changes.append(payload) or {
+            "enabled": payload["enabled"],
+            "model": "yolo11n.pt",
+            "class_count": 80,
+            "frames_processed": 0,
+            "classes": [],
+        },
+    )
+
+    with TestClient(app) as client:
+        page = client.get("/fruit-test")
+        status = client.get("/api/coco-test")
+        enabled = client.post(
+            "/api/coco-test",
+            json={"enabled": True, "minimum_confidence": 0.05, "reset": True},
+        )
+
+    assert "COCO replacement tester" in page.text
+    assert "all-frame score" in page.text
+    assert status.json()["class_count"] == 80
+    assert enabled.status_code == 200
+    assert changes == [
+        {"enabled": True, "minimum_confidence": 0.05, "reset": True}
+    ]
+
+
 def test_fruit_list_qualifies_red_apple_pear_and_specialist_banana() -> None:
     response = TestClient(create_app()).get("/api/fruits")
 

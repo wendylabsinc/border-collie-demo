@@ -56,6 +56,14 @@ def test_production_runtime_wires_the_real_stage_executor(
         def camera_frame():
             return b"\xff\xd8preview\xff\xd9"
 
+        @staticmethod
+        def coco_test_status():
+            return {"enabled": False, "strictly_read_only": True}
+
+        @staticmethod
+        def configure_coco_test(payload):
+            return {**payload, "strictly_read_only": True}
+
     def stages(hardware, perception, bark):
         created.append((hardware, perception, bark))
         return SimulatedStageExecutor()

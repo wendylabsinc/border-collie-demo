@@ -1,12 +1,12 @@
 {
   "appId": "border-collie-demo",
-  "version": "1.1.2-stage-default",
+  "version": "1.2.0-stage-default",
   "services": {
     "app": {
       "context": ".",
       "env": {
         "BORDER_COLLIE_PORT": "8110",
-        "BORDER_COLLIE_BUILD_LABEL": "stage-default-v3-runtime-tuning-cohorts",
+        "BORDER_COLLIE_BUILD_LABEL": "stage-default-v3-coco-replacement-tester",
         "BORDER_COLLIE_RUNTIME_MODE": "production",
         "BORDER_COLLIE_HARDWARE_ENABLED": "1",
         "BORDER_COLLIE_AUTONOMY_ENABLED": "1",
@@ -15,6 +15,7 @@
         "BORDER_COLLIE_PERCEPTION_STATUS_URL": "http://127.0.0.1:8111/status",
         "BORDER_COLLIE_PERCEPTION_TARGET_URL": "http://127.0.0.1:8111/api/target",
         "BORDER_COLLIE_PERCEPTION_FRAME_URL": "http://127.0.0.1:8111/api/camera/frame.jpg",
+        "BORDER_COLLIE_COCO_TEST_URL": "http://127.0.0.1:8111/api/coco-test",
         "BORDER_COLLIE_PERCEPTION_TIMEOUT_S": "0.25",
         "BORDER_COLLIE_BARK_ENABLED": "1",
         "BORDER_COLLIE_BARK_URL": "http://127.0.0.1:8111/api/bark",
@@ -61,6 +62,8 @@
         "BANANA_SPECIALIST_MODEL_PATH": "/media/banana-specialist.pt",
         "BANANA_SPECIALIST_MIN_CONFIDENCE": "0.55",
         "BANANA_SPECIALIST_MIN_IOU": "0.10",
+        "COCO_TEST_MODEL_PATH": "/models/yolo11n.pt",
+        "COCO_TEST_INTERVAL_S": "0.5",
         "BORDER_COLLIE_BARK_UUID": "161387de-21ab-4f0b-b4e9-97124b000d06",
         "EVIDENCE_MAXIMUM_FRAMES": "40",
         "EVIDENCE_FRAME_INTERVAL_S": "0.5"
@@ -77,7 +80,7 @@
         "PORT": "8092",
         "ACTION_MODE": "border_collie",
         "BORDER_COLLIE_URL": "http://127.0.0.1:8110",
-        "BORDER_COLLIE_EXPECTED_BUILD_LABEL": "stage-default-v3-runtime-tuning-cohorts",
+        "BORDER_COLLIE_EXPECTED_BUILD_LABEL": "stage-default-v3-coco-replacement-tester",
         "CONTINUOUS_TRANSCRIPTION": "0",
         "AUTO_ARM_ACTIONS": "1",
         "AUDIO_DEVICE": "DJI MIC MINI",

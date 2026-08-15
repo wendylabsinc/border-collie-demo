@@ -7,12 +7,19 @@
     <style>
       :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
       body { margin: 0; min-height: 100vh; display: grid; place-items: center; }
-      main { width: calc(100% - 2rem); max-width: 48rem; text-align: center; }
+      main { width: calc(100% - 2rem); max-width: 64rem; text-align: center; padding: 1rem 0 3rem; }
       .notice { padding: 0.8rem; border: 2px solid #2e9d55; border-radius: 0.6rem; font-weight: 700; }
       .controls { display: flex; gap: 0.75rem; justify-content: center; margin: 1rem 0; }
       select, button { min-height: 3rem; padding: 0 1rem; font: inherit; }
       img { width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: #111; border-radius: 0.6rem; }
       #result { min-height: 3rem; font-weight: 700; }
+      .tester { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #7776; }
+      .tester p { max-width: 48rem; margin-inline: auto; }
+      input { min-height: 2.6rem; width: 6rem; font: inherit; }
+      table { width: 100%; border-collapse: collapse; margin-top: 1rem; text-align: right; }
+      th, td { padding: 0.55rem; border-bottom: 1px solid #7776; }
+      th:first-child, td:first-child { text-align: left; }
+      .muted { opacity: 0.72; }
     </style>
   </head>
   <body>
@@ -32,6 +39,32 @@
       </div>
       <img id="camera" alt="Live Woof camera with fruit recognition overlay">
       <p id="result" role="status" aria-live="polite">Choose a fruit, then hold it in view.</p>
+      <section class="tester" aria-labelledby="coco-title">
+        <h2 id="coco-title">COCO replacement tester</h2>
+        <p>
+          Hold one possible replacement prop in the same stage position. The stock
+          YOLO11n detector checks the whole 80-class COCO set. Rank candidates by
+          <strong>all-frame score</strong>, which includes missed frames as zero.
+        </p>
+        <div class="controls">
+          <label>
+            Minimum confidence
+            <input id="coco-confidence" type="number" min="0.01" max="0.95" step="0.01" value="0.05">
+          </label>
+          <button id="coco-start" type="button">Start / reset sample</button>
+          <button id="coco-stop" type="button">Stop</button>
+        </div>
+        <p id="coco-status" class="muted" role="status" aria-live="polite">Tester stopped.</p>
+        <table>
+          <thead>
+            <tr>
+              <th>COCO class</th><th>Now</th><th>All-frame score</th>
+              <th>When seen</th><th>Maximum</th><th>Detection rate</th>
+            </tr>
+          </thead>
+          <tbody id="coco-results"><tr><td colspan="6">No sample yet.</td></tr></tbody>
+        </table>
+      </section>
       <p><a href="/">Back to the pear demo</a></p>
     </main>
     <script>
@@ -40,7 +73,13 @@
       const camera = document.querySelector('#camera');
       const result = document.querySelector('#result');
       const frameUrl = '/api/camera/frame.jpg';
+      const cocoConfidence = document.querySelector('#coco-confidence');
+      const cocoStart = document.querySelector('#coco-start');
+      const cocoStop = document.querySelector('#coco-stop');
+      const cocoStatus = document.querySelector('#coco-status');
+      const cocoResults = document.querySelector('#coco-results');
       let refreshTimer = null;
+      let cocoTimer = null;
 
       function refreshCamera() {
         if (document.hidden) return;
@@ -80,7 +119,80 @@
         }
       });
 
+      function percent(value) {
+        return value == null ? '—' : `${(Number(value) * 100).toFixed(1)}%`;
+      }
+
+      function renderCoco(body) {
+        const rows = Array.isArray(body.classes) ? body.classes.slice(0, 12) : [];
+        cocoResults.replaceChildren();
+        if (!rows.length) {
+          const row = cocoResults.insertRow();
+          const cell = row.insertCell();
+          cell.colSpan = 6;
+          cell.textContent = body.frames_processed ? 'No COCO classes above the threshold.' : 'Waiting for samples…';
+        } else {
+          for (const item of rows) {
+            const row = cocoResults.insertRow();
+            const values = [
+              item.label,
+              percent(item.latest_confidence),
+              percent(item.all_frame_score),
+              percent(item.mean_detected_confidence),
+              percent(item.maximum_confidence),
+              `${percent(item.detection_rate)} (${item.frames_detected}/${body.frames_processed})`,
+            ];
+            for (const value of values) row.insertCell().textContent = value;
+          }
+        }
+        cocoStatus.textContent = body.error
+          ? `Tester error: ${body.error}`
+          : `${body.enabled ? 'Sampling' : 'Stopped'} · ${body.class_count || 0} COCO classes · `
+            + `${body.frames_processed || 0} frames · latest ${body.latest_inference_ms == null ? '—' : body.latest_inference_ms.toFixed(1) + ' ms'}`;
+        window.clearTimeout(cocoTimer);
+        if (body.enabled && !document.hidden) cocoTimer = window.setTimeout(refreshCoco, 500);
+      }
+
+      async function refreshCoco() {
+        try {
+          const response = await fetch('/api/coco-test', {cache: 'no-store'});
+          const body = await response.json();
+          if (!response.ok) throw new Error(body.detail || 'COCO tester unavailable.');
+          renderCoco(body);
+        } catch (error) {
+          cocoStatus.textContent = error.message;
+        }
+      }
+
+      async function configureCoco(enabled) {
+        cocoStart.disabled = true;
+        cocoStop.disabled = true;
+        try {
+          const response = await fetch('/api/coco-test', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+              enabled,
+              minimum_confidence: Number(cocoConfidence.value),
+              reset: enabled,
+            }),
+          });
+          const body = await response.json();
+          if (!response.ok) throw new Error(body.detail || 'COCO tester update failed.');
+          renderCoco(body);
+        } catch (error) {
+          cocoStatus.textContent = error.message;
+        } finally {
+          cocoStart.disabled = false;
+          cocoStop.disabled = false;
+        }
+      }
+
+      cocoStart.addEventListener('click', () => configureCoco(true));
+      cocoStop.addEventListener('click', () => configureCoco(false));
+
       refreshCamera();
+      refreshCoco();
     </script>
   </body>
 </html>

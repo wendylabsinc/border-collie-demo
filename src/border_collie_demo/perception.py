@@ -21,6 +21,7 @@ DETECTION_MAXIMUM_AGE_S = 0.250
 
 StatusFetcher = Callable[[str, float], dict[str, Any]]
 TargetPoster = Callable[[str, str, float], dict[str, Any]]
+JsonPoster = Callable[[str, dict[str, object], float], dict[str, Any]]
 Clock = Callable[[], float]
 
 
@@ -33,11 +34,13 @@ class PerceptionStatusClient:
         *,
         fetcher: StatusFetcher | None = None,
         target_poster: TargetPoster | None = None,
+        json_poster: JsonPoster | None = None,
         clock: Clock = time.monotonic,
     ) -> None:
         self.config = config or PerceptionConfig()
         self._fetcher = fetcher or _fetch_status
         self._target_poster = target_poster or _post_target
+        self._json_poster = json_poster or _post_json
         self._clock = clock
 
     def select_target(self, target_fruit: str) -> dict[str, object]:
@@ -74,6 +77,22 @@ class PerceptionStatusClient:
                 "ready": False,
                 "detail": f"camera/perception status unavailable: {exc}",
             }
+
+    def coco_test_status(self) -> dict[str, object]:
+        if not self.config.enabled:
+            raise RuntimeError("production camera/perception adapter is disabled")
+        return self._fetcher(self.config.coco_test_url, self.config.timeout_s)
+
+    def configure_coco_test(
+        self, payload: dict[str, object]
+    ) -> dict[str, object]:
+        if not self.config.enabled:
+            raise RuntimeError("production camera/perception adapter is disabled")
+        return self._json_poster(
+            self.config.coco_test_url,
+            payload,
+            max(self.config.timeout_s, 10.0),
+        )
 
     def camera_frame(self) -> bytes:
         if not self.config.enabled:
@@ -301,7 +320,13 @@ def _fetch_status(url: str, timeout_s: float) -> dict[str, Any]:
 
 
 def _post_target(url: str, target_fruit: str, timeout_s: float) -> dict[str, Any]:
-    body = json.dumps({"target_fruit": target_fruit}).encode("utf-8")
+    return _post_json(url, {"target_fruit": target_fruit}, timeout_s)
+
+
+def _post_json(
+    url: str, payload_body: dict[str, object], timeout_s: float
+) -> dict[str, Any]:
+    body = json.dumps(payload_body).encode("utf-8")
     request = Request(
         url,
         data=body,
@@ -314,7 +339,7 @@ def _post_target(url: str, target_fruit: str, timeout_s: float) -> dict[str, Any
     with urlopen(request, timeout=timeout_s) as response:
         payload = json.load(response)
     if not isinstance(payload, dict):
-        raise TypeError("fruit target response must be a JSON object")
+        raise TypeError("perception response must be a JSON object")
     return payload
 
 

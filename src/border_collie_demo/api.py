@@ -57,6 +57,14 @@ class FruitPreviewRequest(BaseModel):
     target_fruit: Literal["apple", "banana", "pear"]
 
 
+class CocoTestRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+    minimum_confidence: float | None = Field(default=None, ge=0.01, le=0.95)
+    reset: bool = False
+
+
 class FailureSelectorRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -83,6 +91,10 @@ def create_app(
     camera_frame: Callable[[], bytes] | None = None,
     select_perception_target: Callable[[str], dict[str, object]] | None = None,
     media_status: Callable[[], dict[str, object]] | None = None,
+    coco_test_status: Callable[[], dict[str, object]] | None = None,
+    configure_coco_test: (
+        Callable[[dict[str, object]], dict[str, object]] | None
+    ) = None,
     stage_executor: StageExecutor | None = None,
     terminal_evidence: Callable[[], list[EvidenceArtifact]] | None = None,
     failure_epilogue: FailureEpilogue | None = None,
@@ -218,6 +230,34 @@ def create_app(
                 "supported_fruits", list(SUPPORTED_FRUITS)
             ),
         }
+
+    @app.get("/api/coco-test")
+    async def read_coco_test() -> dict[str, object]:
+        if coco_test_status is None:
+            raise HTTPException(status_code=503, detail="COCO tester is not connected")
+        try:
+            return await asyncio.to_thread(coco_test_status)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503, detail=f"COCO tester unavailable: {exc}"
+            ) from exc
+
+    @app.post("/api/coco-test")
+    async def change_coco_test(request: CocoTestRequest) -> dict[str, object]:
+        if results.active_run_id is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="COCO tester cannot change during an active Demo Run",
+            )
+        if configure_coco_test is None:
+            raise HTTPException(status_code=503, detail="COCO tester is not connected")
+        payload = request.model_dump()
+        try:
+            return await asyncio.to_thread(configure_coco_test, payload)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503, detail=f"COCO tester configuration failed: {exc}"
+            ) from exc
 
     @app.get("/api/status")
     async def status() -> dict[str, object]:

@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 from media import perception_sidecar
+from media.coco_tester import CocoTester
 from media.model_router import FruitModelRouter
 from media.perception_sidecar import EvidenceFrameBuffer, PerceptionEvidence, create_app
 
@@ -52,6 +53,91 @@ class FakeImage:
     def __getitem__(self, slices):
         y_slice, x_slice = slices[:2]
         return FakeImage(y_slice.stop - y_slice.start, x_slice.stop - x_slice.start)
+
+
+class FakeClasses:
+    def __init__(self, values):
+        self.values = values
+
+    def detach(self):
+        return self
+
+    def cpu(self):
+        return self
+
+    def tolist(self):
+        return self.values
+
+
+def test_coco_tester_ranks_all_frame_confidence_without_touching_target_evidence() -> None:
+    class Boxes:
+        def __init__(self) -> None:
+            self.conf = FakeTensor([0.80, 0.60])
+            self.cls = FakeClasses([47, 49])
+            self.xyxy = [
+                FakeTensor([10, 20, 100, 200]),
+                FakeTensor([30, 40, 120, 220]),
+            ]
+
+        def __len__(self):
+            return 2
+
+    class Model:
+        def __init__(self) -> None:
+            self.names = {47: "apple", 49: "orange"}
+
+        def predict(self, **options):
+            assert options["conf"] == 0.05
+            assert "classes" not in options
+            return [SimpleNamespace(boxes=Boxes())]
+
+    tester = CocoTester(model_loader=lambda _path: Model(), clock=lambda: 10.0)
+
+    enabled = tester.configure(enabled=True, minimum_confidence=0.05, reset=True)
+    first = tester.observe(object(), pts=100, now_s=10.0)
+    second = tester.observe(object(), pts=101, now_s=10.5)
+
+    assert enabled["class_count"] == 2
+    assert first is True and second is True
+    status = tester.status()
+    assert status["enabled"] is True
+    assert status["frames_processed"] == 2
+    assert status["classes"][0] == {
+        "label": "apple",
+        "class_id": 47,
+        "latest_confidence": 0.8,
+        "mean_detected_confidence": 0.8,
+        "all_frame_score": 0.8,
+        "maximum_confidence": 0.8,
+        "detection_rate": 1.0,
+        "frames_detected": 2,
+    }
+    assert status["classes"][1]["label"] == "orange"
+    assert status["classes"][1]["all_frame_score"] == 0.6
+
+
+def test_coco_tester_is_disabled_by_default_and_rate_limits_extra_inference() -> None:
+    calls = 0
+
+    class Model:
+        def __init__(self) -> None:
+            self.names = {47: "apple"}
+
+        def predict(self, **_options):
+            nonlocal calls
+            calls += 1
+            return [SimpleNamespace(boxes=FakeBoxes([], []))]
+
+    tester = CocoTester(model_loader=lambda _path: Model(), interval_s=0.5)
+
+    assert tester.observe(object(), pts=1, now_s=1.0) is False
+    tester.configure(enabled=True, minimum_confidence=0.05, reset=True)
+    assert tester.observe(object(), pts=2, now_s=2.0) is True
+    assert tester.observe(object(), pts=3, now_s=2.2) is False
+    assert tester.observe(object(), pts=4, now_s=2.5) is True
+    tester.configure(enabled=False)
+    assert tester.observe(object(), pts=5, now_s=3.0) is False
+    assert calls == 2
 
 
 def test_preview_encoding_cannot_starve_the_sidecar_status_event_loop() -> None:
@@ -597,6 +683,51 @@ def test_media_http_boundary_selects_a_supported_camera_only_target() -> None:
     assert response.status_code == 200
     assert response.json()["target_fruit"] == "banana"
     assert runtime.target_fruit == "banana"
+
+
+def test_media_http_boundary_configures_only_the_read_only_coco_tester() -> None:
+    class Runtime:
+        def __init__(self) -> None:
+            self.configuration = None
+
+        async def start(self) -> None:
+            pass
+
+        async def close(self) -> None:
+            pass
+
+        def status(self):
+            return {
+                "coco_test": {
+                    "enabled": False,
+                    "strictly_read_only": True,
+                    "class_count": 80,
+                }
+            }
+
+        async def configure_coco_test(self, **configuration):
+            self.configuration = configuration
+            return {
+                **configuration,
+                "strictly_read_only": True,
+                "class_count": 80,
+            }
+
+    runtime = Runtime()
+    with TestClient(create_app(runtime)) as client:
+        status = client.get("/api/coco-test")
+        changed = client.post(
+            "/api/coco-test",
+            json={"enabled": True, "minimum_confidence": 0.05, "reset": True},
+        )
+
+    assert status.json()["strictly_read_only"] is True
+    assert changed.json()["class_count"] == 80
+    assert runtime.configuration == {
+        "enabled": True,
+        "minimum_confidence": 0.05,
+        "reset": True,
+    }
 
 
 def test_media_http_boundary_exposes_the_latest_annotated_camera_frame() -> None:

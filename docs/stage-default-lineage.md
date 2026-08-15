@@ -33,3 +33,9 @@ The integrated candidate is `stage-default-v3-runtime-tuning-cohorts`, Wendy
 application version `1.1.2-stage-default`. It adds the immutable per-run tuning
 interface and independently gated cohort controller. None of these changes is
 physically qualified until its first supervised run completes.
+
+The diagnostic-only derivative is `stage-default-v3-coco-replacement-tester`,
+Wendy application version `1.2.0-stage-default`. It preserves the v3 mission
+controller while adding an opt-in, rate-limited stock COCO detector to the
+camera-only `/fruit-test` page. COCO observations never enter mission evidence
+or motion authority.
