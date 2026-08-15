@@ -1010,9 +1010,9 @@ def test_run_activation_persists_selected_fruit_search_confidence_tuning(
             "/api/run",
             json={
                 "target_fruit": fruit,
-                "activation_id": f"{fruit}-yaw-045",
+                "activation_id": f"{fruit}-yaw-055",
                 "tuning": {
-                    "search_yaw_rps": 0.45,
+                    "search_yaw_rps": 0.55,
                     "focus_confidence": focus,
                     "lock_confidence": lock,
                     "center_confirmations": 4,
@@ -1024,7 +1024,7 @@ def test_run_activation_persists_selected_fruit_search_confidence_tuning(
         assert response.status_code == 201
         assert response.json()["run"]["search_experiment"] == {
             "target_fruit": fruit,
-            "search_yaw_rps": 0.45,
+            "search_yaw_rps": 0.55,
             "focus_confidence": focus,
             "lock_confidence": lock,
             "center_confirmations": 4,

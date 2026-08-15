@@ -626,7 +626,7 @@ def test_production_applies_selected_fruit_search_confidence_only_to_the_run(
         ) -> dict[str, object]:
             assert allow_forward is False
             assert timeout_s == 30.0
-            assert guidance.config.search_yaw_rps == 0.45
+            assert guidance.config.search_yaw_rps == 0.55
             assert guidance.config.center_confirmations == 4
             assert guidance.config.center_tolerance_ratio == 0.10
             assert guidance.target_fruit == fruit
@@ -646,7 +646,7 @@ def test_production_applies_selected_fruit_search_confidence_only_to_the_run(
                 home={"x_m": 0.0, "y_m": 0.0, "yaw_rad": 0.0},
                 search_experiment={
                     "target_fruit": fruit,
-                    "search_yaw_rps": 0.45,
+                    "search_yaw_rps": 0.55,
                     "focus_confidence": focus,
                     "lock_confidence": lock,
                     "center_confirmations": 4,
@@ -822,8 +822,8 @@ def test_return_stages_use_captured_home_and_locked_arrival_rules() -> None:
         assert restored["heading_restoration_skipped"] is True
         assert restored["motion_commands_sent"] is False
         assert restored["settled_home_verified"] is True
-        assert RunTuning.defaults("pear").search.yaw_rps == 0.40
-        assert RunTuning.defaults("pear").search.focus_yaw_rps == 0.40
+        assert RunTuning.defaults("pear").search.yaw_rps == 0.50
+        assert RunTuning.defaults("pear").search.focus_yaw_rps == 0.50
         assert restored["legacy_restore_heading_semantics"] == (
             "settled_position_verification_already_complete"
         )

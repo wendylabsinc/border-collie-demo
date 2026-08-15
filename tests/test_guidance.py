@@ -244,7 +244,7 @@ def test_physical_banana_search_replay_retains_fine_focus_through_brief_misses()
     guidance = FruitGuidance(
         "banana",
         config=GuidanceConfig(
-            focus_yaw_rps=0.20,
+            focus_yaw_rps=0.50,
             focus_missing_grace_s=0.50,
         ),
     )
@@ -265,12 +265,12 @@ def test_physical_banana_search_replay_retains_fine_focus_through_brief_misses()
     )
 
     assert focused.action is GuidanceAction.ALIGN
-    assert focused.command.yaw_rps == 0.20
+    assert focused.command.yaw_rps == 0.50
     assert focused.reason == "focus_align_target"
     assert focused.focus_active is True
     assert focused.focus_direction == 1
     assert missing.action is GuidanceAction.ALIGN
-    assert missing.command.yaw_rps == 0.20
+    assert missing.command.yaw_rps == 0.50
     assert missing.reason == "focus_missing_grace"
     assert missing.centered_fresh_samples == 0
     assert missing.focus_active is True
@@ -280,13 +280,21 @@ def test_physical_banana_search_replay_retains_fine_focus_through_brief_misses()
         now_s=11.27,
     )
     assert expired.action is GuidanceAction.SEARCH
-    assert expired.command.yaw_rps == 0.40
+    assert expired.command.yaw_rps == 0.50
     assert expired.reason == "focus_missing_grace_expired"
     assert expired.focus_active is False
 
 
 def test_progressive_focus_yaw_slows_on_each_fresh_qualified_pass() -> None:
-    guidance = FruitGuidance("pear")
+    guidance = FruitGuidance(
+        "pear",
+        config=GuidanceConfig(
+            search_yaw_rps=0.80,
+            focus_yaw_rps=0.80,
+            focus_yaw_step_rps=0.10,
+            focus_minimum_yaw_rps=0.50,
+        ),
+    )
 
     passes = [
         guidance.observe(
@@ -302,6 +310,8 @@ def test_progressive_focus_yaw_slows_on_each_fresh_qualified_pass() -> None:
             (1, 0.0, 0.64),
             (2, 0.1, 0.60),
             (3, 0.2, 0.56),
+            (4, 0.3, 0.56),
+            (5, 0.4, 0.56),
         )
     ]
 
@@ -309,13 +319,21 @@ def test_progressive_focus_yaw_slows_on_each_fresh_qualified_pass() -> None:
         GuidanceAction.ALIGN,
         GuidanceAction.ALIGN,
         GuidanceAction.ALIGN,
+        GuidanceAction.ALIGN,
+        GuidanceAction.ALIGN,
     ]
-    assert [decision.command.yaw_rps for decision in passes] == [-0.40, -0.30, -0.20]
+    assert [decision.command.yaw_rps for decision in passes] == [
+        -0.80,
+        -0.70,
+        -0.60,
+        -0.50,
+        -0.50,
+    ]
     assert all(decision.command.forward_mps == 0.0 for decision in passes)
 
     first_centered = guidance.observe(
-        observation(pts=4, now_s=0.3, confidence=0.80, center_x=0.55),
-        now_s=0.3,
+        observation(pts=6, now_s=0.5, confidence=0.80, center_x=0.55),
+        now_s=0.5,
     )
     assert first_centered.action is GuidanceAction.HOLD
     assert first_centered.command.yaw_rps == 0.0
@@ -339,7 +357,7 @@ def test_progressive_focus_yaw_resets_to_full_rate_after_crossing_center() -> No
     )
 
     assert crossed.action is GuidanceAction.ALIGN
-    assert crossed.command.yaw_rps == 0.40
+    assert crossed.command.yaw_rps == 0.50
 
 
 def test_legacy_focus_profile_is_a_runtime_rollback() -> None:
@@ -364,8 +382,8 @@ def test_legacy_focus_profile_is_a_runtime_rollback() -> None:
         now_s=0.2,
     )
 
-    assert first.command.yaw_rps == -0.40
-    assert second.command.yaw_rps == -0.40
+    assert first.command.yaw_rps == -0.50
+    assert second.command.yaw_rps == -0.50
     assert centered.action is GuidanceAction.HOLD
     assert centered.centered_fresh_samples == 1
 
@@ -391,7 +409,7 @@ def test_apple_high_confidence_candidate_holds_then_sustained_tracking_locks() -
     )
 
     assert sweeping.action is GuidanceAction.SEARCH
-    assert sweeping.command.yaw_rps == 0.40
+    assert sweeping.command.yaw_rps == 0.50
     assert focused.action is GuidanceAction.HOLD
     assert focused.command.forward_mps == 0.0
     assert focused.command.yaw_rps == 0.0
@@ -969,11 +987,11 @@ def test_guidance_env_defaults_match_the_canonical_deployment_contract(
 
     config = GuidanceConfig.from_env()
 
-    assert config.search_yaw_rps == 0.4
-    assert config.focus_yaw_rps == 0.4
+    assert config.search_yaw_rps == 0.5
+    assert config.focus_yaw_rps == 0.5
     assert config.progressive_focus_yaw_enabled is True
     assert config.focus_yaw_step_rps == 0.10
-    assert config.focus_minimum_yaw_rps == 0.20
+    assert config.focus_minimum_yaw_rps == 0.50
     assert config.focus_missing_grace_s == 0.5
     assert config.center_tolerance_ratio == 0.05
     assert config.center_confirmations == 3
@@ -989,11 +1007,11 @@ def test_guidance_env_defaults_match_the_canonical_deployment_contract(
 def test_search_yaw_accepts_bounded_physical_qualification_value(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("BORDER_COLLIE_GUIDANCE_SEARCH_YAW_RPS", "0.40")
+    monkeypatch.setenv("BORDER_COLLIE_GUIDANCE_SEARCH_YAW_RPS", "0.50")
 
     config = GuidanceConfig.from_env()
 
-    assert config.search_yaw_rps == 0.40
+    assert config.search_yaw_rps == 0.50
 
 
 def test_one_weak_close_frame_declares_stopped_arrival() -> None:

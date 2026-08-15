@@ -84,13 +84,13 @@ def _group(
 
 @dataclass(frozen=True)
 class SearchTuning:
-    yaw_rps: float = 0.40
+    yaw_rps: float = 0.50
     sweep_rad: float = 2.0 * math.pi
     timeout_s: float = 30.0
-    focus_yaw_rps: float = 0.40
+    focus_yaw_rps: float = 0.50
     progressive_focus_yaw_enabled: bool = True
     focus_yaw_step_rps: float = 0.10
-    focus_minimum_yaw_rps: float = 0.20
+    focus_minimum_yaw_rps: float = 0.50
     focus_missing_grace_s: float = 0.50
     bearing_routing_enabled: bool = False
 
@@ -424,7 +424,7 @@ class RunTuning:
         result = cls(
             target_fruit=target,
             search=SearchTuning(
-                yaw_rps=_number(search, "yaw_rps", defaults.search.yaw_rps, 0.40, 0.80),
+                yaw_rps=_number(search, "yaw_rps", defaults.search.yaw_rps, 0.50, 0.80),
                 sweep_rad=_number(
                     search,
                     "sweep_rad",
@@ -439,8 +439,8 @@ class RunTuning:
                     search,
                     "focus_yaw_rps",
                     defaults.search.focus_yaw_rps,
-                    0.10,
-                    0.40,
+                    0.50,
+                    0.80,
                 ),
                 progressive_focus_yaw_enabled=_boolean(
                     search,
@@ -458,8 +458,8 @@ class RunTuning:
                     search,
                     "focus_minimum_yaw_rps",
                     defaults.search.focus_minimum_yaw_rps,
-                    0.10,
-                    0.40,
+                    0.50,
+                    0.80,
                 ),
                 focus_missing_grace_s=_number(
                     search,
@@ -775,7 +775,7 @@ class RunTuning:
         """Server-owned UI schema: labels, units, bounds, defaults, constraints."""
         fields: dict[str, list[dict[str, object]]] = {
             "search": [
-                _field("yaw_rps", "Search yaw", "rad/s", 0.40, 0.80, 0.05),
+                _field("yaw_rps", "Search yaw", "rad/s", 0.50, 0.80, 0.05),
                 _field(
                     "sweep_rad",
                     "Search sweep",
@@ -789,8 +789,8 @@ class RunTuning:
                     "focus_yaw_rps",
                     "Focused alignment yaw",
                     "rad/s",
-                    0.10,
-                    0.40,
+                    0.50,
+                    0.80,
                     0.05,
                     safety="Yaw-only; never authorizes forward motion.",
                 ),
@@ -815,10 +815,13 @@ class RunTuning:
                     "focus_minimum_yaw_rps",
                     "Minimum focused yaw",
                     "rad/s",
-                    0.10,
-                    0.40,
+                    0.50,
+                    0.80,
                     0.05,
-                    safety="Never authorizes forward motion.",
+                    safety=(
+                        "Never authorizes forward motion and cannot go below the "
+                        "verified factory-avoidance turning floor."
+                    ),
                 ),
                 _field(
                     "focus_missing_grace_s",

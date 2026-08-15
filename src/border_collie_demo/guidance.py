@@ -41,12 +41,12 @@ class GuidanceAction(str, Enum):
 class GuidanceConfig:
     """Runtime-tunable guidance policy with hardware-safety validation."""
 
-    search_yaw_rps: float = 0.40
+    search_yaw_rps: float = 0.50
     search_sweep_rad: float = 2.0 * math.pi
-    focus_yaw_rps: float = 0.40
+    focus_yaw_rps: float = 0.50
     progressive_focus_yaw_enabled: bool = True
     focus_yaw_step_rps: float = 0.10
-    focus_minimum_yaw_rps: float = 0.20
+    focus_minimum_yaw_rps: float = 0.50
     focus_missing_grace_s: float = 0.50
     center_tolerance_ratio: float = 0.05
     center_confirmations: int = 3
@@ -93,19 +93,21 @@ class GuidanceConfig:
         )
         if not all(math.isfinite(value) for value in finite):
             raise ValueError("guidance values must be finite")
-        if not 0.40 <= self.search_yaw_rps <= 0.80:
-            raise ValueError("search_yaw_rps must stay within 0.40..0.80 rad/s")
+        if not 0.50 <= self.search_yaw_rps <= 0.80:
+            raise ValueError("search_yaw_rps must stay within 0.50..0.80 rad/s")
         if not 0.0 < self.search_sweep_rad <= 2.0 * math.pi:
             raise ValueError("search_sweep_rad must stay within one revolution")
-        if not 0.10 <= self.focus_yaw_rps <= self.search_yaw_rps:
+        if not 0.50 <= self.focus_yaw_rps <= self.search_yaw_rps:
             raise ValueError(
-                "focus_yaw_rps must stay within 0.10 rad/s and search yaw"
+                "focus_yaw_rps must respect the verified 0.50 rad/s floor "
+                "and not exceed search yaw"
             )
         if not 0.05 <= self.focus_yaw_step_rps <= 0.20:
             raise ValueError("focus_yaw_step_rps must stay within 0.05..0.20 rad/s")
-        if not 0.10 <= self.focus_minimum_yaw_rps <= self.focus_yaw_rps:
+        if not 0.50 <= self.focus_minimum_yaw_rps <= self.focus_yaw_rps:
             raise ValueError(
-                "focus_minimum_yaw_rps must stay within 0.10 rad/s and focus yaw"
+                "focus_minimum_yaw_rps must respect the verified 0.50 rad/s "
+                "floor and not exceed focus yaw"
             )
         if not 0.10 <= self.focus_missing_grace_s <= 1.0:
             raise ValueError(
@@ -158,12 +160,12 @@ class GuidanceConfig:
     def from_env(cls) -> GuidanceConfig:
         prefix = "BORDER_COLLIE_GUIDANCE_"
         config = cls(
-            search_yaw_rps=float(os.environ.get(prefix + "SEARCH_YAW_RPS", "0.40")),
+            search_yaw_rps=float(os.environ.get(prefix + "SEARCH_YAW_RPS", "0.50")),
             search_sweep_rad=float(
                 os.environ.get(prefix + "SEARCH_SWEEP_RAD", str(2.0 * math.pi))
             ),
             focus_yaw_rps=float(
-                os.environ.get(prefix + "FOCUS_YAW_RPS", "0.40")
+                os.environ.get(prefix + "FOCUS_YAW_RPS", "0.50")
             ),
             progressive_focus_yaw_enabled=env_bool(
                 prefix + "PROGRESSIVE_FOCUS_YAW_ENABLED", True
@@ -172,7 +174,7 @@ class GuidanceConfig:
                 os.environ.get(prefix + "FOCUS_YAW_STEP_RPS", "0.10")
             ),
             focus_minimum_yaw_rps=float(
-                os.environ.get(prefix + "FOCUS_MINIMUM_YAW_RPS", "0.20")
+                os.environ.get(prefix + "FOCUS_MINIMUM_YAW_RPS", "0.50")
             ),
             focus_missing_grace_s=float(
                 os.environ.get(prefix + "FOCUS_MISSING_GRACE_S", "0.50")

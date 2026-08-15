@@ -52,9 +52,9 @@ is treated as qualified.
   another turn.
 - **Superseded implementation note:** `stage-default-v4-banana-reliability-replay`
   encoded those three contracts and a deterministic non-motion replay with a
-  `0.20 rad/s` focused Sports yaw. The canonical deployment default is now
-  `0.40 rad/s`; per-run overrides remain bounded to `0.10..0.40 rad/s`, and
-  changing this default does not itself constitute physical qualification.
+  `0.20 rad/s` focused yaw. The canonical factory-avoidance search/focus floor
+  is now the observed working `0.50 rad/s`; lower per-run overrides are
+  rejected because they can change posture without producing a useful turn.
 
 ## First reuse decision
 

@@ -91,6 +91,7 @@ The combined rollbackable focus-lock candidate is
 `stage-default-v12-controller-progressive-lock`, Wendy application version
 `1.1.11-stage-default`. It preserves the controller-input successor, narrows
 the lock corridor from `+/-8%` to `+/-5%`, and reduces agreeing fresh
-focused-yaw passes from `0.40` to `0.30` to `0.20 rad/s`. Per-run tuning can
+focused-yaw passes without dropping below the verified `0.50 rad/s`
+factory-avoidance turning floor. Per-run tuning can
 disable the progressive profile and restore the prior `0.08` corridor without
 reverting source.

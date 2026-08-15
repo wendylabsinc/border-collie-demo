@@ -8,7 +8,8 @@ final-push state; there is no search-to-approach handoff token.
 
 The defaults retain the physically useful base behavior with the qualified
 slower-search experiment: search at `0.40 rad/s`, progressively align at
-`0.40`, `0.30`, then `0.20 rad/s`, require three fresh samples within `+/-5%`
+no lower than the verified `0.50 rad/s` factory-avoidance turning floor, require
+three fresh samples within `+/-5%`
 of frame center, translate
 continuously at `1.0 m/s`, steer while moving outside the center band, remove
 forward authority outside the outer corridor, and permit one `0.60 m/s` by
@@ -35,11 +36,11 @@ motion safety limits.
 
 | Environment variable | Units | Default | Valid range | Safety constraint |
 | --- | --- | ---: | ---: | --- |
-| `BORDER_COLLIE_GUIDANCE_SEARCH_YAW_RPS` | rad/s | `0.40` | `0.40..0.80` | `0.50` is physically proven; `0.40` is the supervised slower-search experiment. Lower values remain rejected because `0.24..0.30` produced posture changes without a useful turn. |
-| `BORDER_COLLIE_GUIDANCE_FOCUS_YAW_RPS` | rad/s | `0.40` | `0.10..0.40`, no greater than search yaw | A qualified off-center fruit changes the yaw-only search into fine alignment. This value never authorizes translation, and a per-run override may still select a slower bounded value. |
+| `BORDER_COLLIE_GUIDANCE_SEARCH_YAW_RPS` | rad/s | `0.50` | `0.50..0.80` | `0.50` is physically proven. Lower values are rejected because `0.24..0.30` produced posture changes without a useful turn. |
+| `BORDER_COLLIE_GUIDANCE_FOCUS_YAW_RPS` | rad/s | `0.50` | `0.50..0.80`, no greater than search yaw | A qualified off-center fruit changes the yaw-only search into fine alignment. This value never authorizes translation and cannot go below the verified factory-avoidance turning floor. |
 | `BORDER_COLLIE_GUIDANCE_PROGRESSIVE_FOCUS_YAW_ENABLED` | boolean | `1` | `0` or `1` | Each fresh qualified off-center pass reduces focused yaw. Set `0` to restore the fixed focused-yaw profile without a code rollback. |
 | `BORDER_COLLIE_GUIDANCE_FOCUS_YAW_STEP_RPS` | rad/s per fresh pass | `0.10` | `0.05..0.20` | Changes yaw only; duplicate, weak, or missing observations never advance the reduction. |
-| `BORDER_COLLIE_GUIDANCE_FOCUS_MINIMUM_YAW_RPS` | rad/s | `0.20` | `0.10..focus yaw` | Lower bound for the progressive profile. Crossing frame center resets the next correction to the full focus yaw in the opposite direction. |
+| `BORDER_COLLIE_GUIDANCE_FOCUS_MINIMUM_YAW_RPS` | rad/s | `0.50` | `0.50..focus yaw` | Verified lower bound for the progressive profile. Crossing frame center resets the next correction to the full focus yaw in the opposite direction. |
 | `BORDER_COLLIE_GUIDANCE_FOCUS_MISSING_GRACE_S` | seconds | `0.50` | `0.10..1.0` | Brief fresh missing or weak observations retain only the last corrective yaw direction. They never advance lock counters; expiry resumes the bounded broad sweep. |
 | `BORDER_COLLIE_APPLE_FOCUS_CONFIDENCE` | confidence ratio | `0.40` | `0.40..0.70`, at least the Apple acquisition floor | The first fresh Apple observation at this floor stops the broad sweep and starts zero-motion focused confirmation. It never authorizes translation. |
 | `BORDER_COLLIE_APPLE_ACQUISITION_CONFIDENCE` | confidence ratio | `0.40` | `0.40..0.70`, at most the Apple focus floor | After focus begins, three fresh centered Apple observations at or above this app-owned floor lock identity. A weaker or missing observation holds at zero and resets confirmation; stale or unhealthy evidence still fails closed. |
@@ -94,7 +95,7 @@ changed pair under the same activation ID as an idempotency conflict.
 - A fruit outside the outer corridor remains identified, but forward authority
   is zero until recentered.
 - Before lock, a qualified off-center fruit enters focused yaw-only alignment.
-  Each agreeing fresh pass reduces yaw from `0.40` to `0.30` to `0.20 rad/s`;
+  Each agreeing fresh pass may reduce yaw, but never below `0.50 rad/s`;
   crossing center resets the opposite correction to `0.40 rad/s`. Its last
   direction and rate survive bounded fresh missing/weak samples, preventing a
   one-frame detector gap from restarting the broad sweep in the wrong direction.

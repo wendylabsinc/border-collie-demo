@@ -32,7 +32,9 @@ machine-readable in `RunTuning.contract()` rather than repeated here:
 
 The focused-yaw profile is consumed directly by the mission-lifetime guidance
 module. Disabling `progressive_focus_yaw_enabled` restores fixed
-`focus_yaw_rps`; restoring `lock_tolerance_ratio` to `0.08` completes the prior
+`focus_yaw_rps`; all nonzero focused corrections remain at or above the
+verified `0.50 rad/s` factory-avoidance turning floor. Restoring
+`lock_tolerance_ratio` to `0.08` completes the prior
 lock profile without rebuilding or reverting source.
 
 ## Non-tunable safety invariants
