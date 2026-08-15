@@ -13,6 +13,8 @@ from time import monotonic
 from typing import Any
 from uuid import UUID
 
+from .operator_logging import OperatorEventSink
+
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -21,12 +23,19 @@ def _utc_now() -> str:
 class RunBlackBox:
     """Record ordered diagnostic facts without retaining camera images."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        operator_sink: OperatorEventSink | None = None,
+    ) -> None:
         self.root = root.resolve()
+        self._operator_sink = operator_sink
         self._lock = threading.Lock()
         self._sequences: dict[str, int] = {}
         self._closed = False
         self._last_error: str | None = None
+        self._last_operator_error: str | None = None
         self._pending: queue.Queue[tuple[Path, dict[str, Any]] | None] = queue.Queue()
         self._writer = threading.Thread(
             target=self._write_loop,
@@ -64,6 +73,11 @@ class RunBlackBox:
             }
             self._sequences[normalized] = sequence
         self._pending.put((path, event))
+        if self._operator_sink is not None:
+            try:
+                self._operator_sink.emit(normalized, deepcopy(event))
+            except Exception as exc:  # noqa: BLE001 - logs never affect safety
+                self._last_operator_error = str(exc)
         return deepcopy(event)
 
     def read(self, run_id: str) -> list[dict[str, Any]]:

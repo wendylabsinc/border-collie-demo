@@ -42,4 +42,4 @@ stages:
         paths: [__init__.py, model_router.py, perception_sidecar.py]
         dest: /app/media/
     user: root
-    cmd: [uvicorn, media.perception_sidecar:app, --host, 0.0.0.0, --port, "8111"]
+    cmd: [uvicorn, media.perception_sidecar:app, --host, 0.0.0.0, --port, "8111", --no-access-log]

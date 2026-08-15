@@ -62,3 +62,9 @@ frozen per-run `search.bearing_routing_enabled`, both defaulting to false.
 All-fruit mapping remains active when false; only the initial mapped turn is
 disabled. This permits a baseline broad scan followed by a treatment run in the
 same app process without rebuilding or restarting services.
+
+The observability-only candidate is `stage-default-v9-operator-logs`, Wendy
+application version `1.1.8-stage-default`. It projects selected durable
+black-box events into compact INFO JSON for operators and suppresses routine
+app/media HTTP access lines. It does not change mission policy, perception,
+motion commands, Home gates, or stored evidence.

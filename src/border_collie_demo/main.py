@@ -18,6 +18,7 @@ from .home_recording import (
     SharedHomeEventJournal,
 )
 from .media import BarkClient, BarkConfig
+from .operator_logging import OperatorEventLogger
 from .orchestrator import SimulatedStageExecutor
 from .perception import PerceptionStatusClient
 from .production import ProductionStageExecutor
@@ -44,7 +45,7 @@ def build_app_from_env() -> FastAPI:
         os.environ.get("BORDER_COLLIE_RUNS_DIR", "artifacts/runs")
     ).resolve()
     black_box = HomeRecordingHub(
-        RunBlackBox(runs_root),
+        RunBlackBox(runs_root, operator_sink=OperatorEventLogger.from_env()),
         SharedHomeEventJournal(
             Path(
                 os.environ.get(
@@ -116,6 +117,7 @@ def main() -> None:
         build_app_from_env(),
         host="0.0.0.0",
         port=port,
+        access_log=False,
     )
 
 
