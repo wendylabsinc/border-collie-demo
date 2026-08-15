@@ -33,3 +33,18 @@ frame. Maximum confidence alone is not a reliability measure.
 COCO's fruit labels are `apple`, `banana`, and `orange`. Other food/object
 classes are still displayed because the purpose is to find the most stable
 stage prop, not to restrict the experiment to botanical fruit.
+
+## Stage candidate identities
+
+The camera-only Mango selector uses COCO's raw `sports ball` proposal for its
+box. It confirms Mango only when the pixels inside that box contain substantial
+red **and** orange hue evidence. A red-only result (confusable with the red
+apple), orange-only result (confusable with Orange), fewer than 25 useful color
+samples, or less than 20% classified coverage remains `unknown`.
+
+The separate Orange candidate uses the raw `bowl` proposal plus the existing
+orange hue evidence. This raw-label boundary prevents Mango's `sports ball`
+box from being shown as Orange. The status retains each proposal's original
+COCO label, confidence, and bounding box next to the derived candidate
+evidence. These candidate identities remain diagnostic and never enter Demo
+Run perception or motion authority.

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from threading import Lock
 from typing import Any
 
-from media.fruit_color import classify_bbox_color
+from media.fruit_color import classify_bbox_color, classify_replacement_candidate
 
 
 @dataclass
@@ -211,26 +211,29 @@ class CocoTester:
         frames = self._frames_processed
         classes = []
         for label, stats in self._stats.items():
-            classes.append(
-                {
-                    "label": label,
-                    "class_id": stats.class_id,
-                    "latest_confidence": stats.latest_confidence,
-                    "mean_detected_confidence": (
-                        stats.confidence_sum / stats.frames_detected
-                    ),
-                    "all_frame_score": stats.confidence_sum / frames if frames else 0.0,
-                    "maximum_confidence": stats.maximum_confidence,
-                    "detection_rate": stats.frames_detected / frames if frames else 0.0,
-                    "frames_detected": stats.frames_detected,
-                    "latest_bbox_xyxy": (
-                        None
-                        if stats.latest_bbox_xyxy is None
-                        else list(stats.latest_bbox_xyxy)
-                    ),
-                    "latest_color": stats.latest_color,
-                }
-            )
+            item = {
+                "label": label,
+                "class_id": stats.class_id,
+                "latest_confidence": stats.latest_confidence,
+                "mean_detected_confidence": (
+                    stats.confidence_sum / stats.frames_detected
+                ),
+                "all_frame_score": stats.confidence_sum / frames if frames else 0.0,
+                "maximum_confidence": stats.maximum_confidence,
+                "detection_rate": stats.frames_detected / frames if frames else 0.0,
+                "frames_detected": stats.frames_detected,
+                "latest_bbox_xyxy": (
+                    None
+                    if stats.latest_bbox_xyxy is None
+                    else list(stats.latest_bbox_xyxy)
+                ),
+                "latest_color": stats.latest_color,
+            }
+            if label.casefold() in {"bowl", "sports ball"}:
+                item["latest_candidate_evidence"] = classify_replacement_candidate(
+                    label, stats.latest_color
+                )
+            classes.append(item)
         classes.sort(
             key=lambda item: (
                 float(item["all_frame_score"]),

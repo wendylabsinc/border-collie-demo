@@ -253,6 +253,72 @@ def test_coco_color_candidates_reject_large_background_boxes() -> None:
     ]
 
 
+def test_coco_sports_ball_proposal_only_confirms_mango_from_mixed_hues() -> None:
+    class Crop:
+        def __init__(self, pixels) -> None:
+            self.pixels = pixels
+
+        def reshape(self, *_shape):
+            return self
+
+        def tolist(self):
+            return self.pixels
+
+    class Source:
+        shape = (100, 100, 3)
+
+        def __init__(self, pixels) -> None:
+            self.pixels = pixels
+
+        def __getitem__(self, _key):
+            return Crop(self.pixels)
+
+    class Boxes:
+        def __init__(self, class_id: int) -> None:
+            self.conf = FakeTensor([0.24])
+            self.cls = FakeClasses([class_id])
+            self.xyxy = [FakeTensor([10, 10, 90, 90])]
+
+        def __len__(self):
+            return 1
+
+    class Model:
+        def __init__(self, class_id: int, label: str) -> None:
+            self.class_id = class_id
+            self.names = {class_id: label}
+
+        def predict(self, **_options):
+            return [SimpleNamespace(boxes=Boxes(self.class_id))]
+
+    def observe(
+        pixels, *, class_id: int = 32, label: str = "sports ball"
+    ) -> dict[str, object]:
+        tester = CocoTester(
+            model_loader=lambda _path: Model(class_id, label), clock=lambda: 10.0
+        )
+        tester.configure(enabled=True, reset=True)
+        tester.observe(Source(pixels), pts=1, now_s=10.0)
+        return tester.status()["classes"][0]
+
+    mango = observe([[0, 8, 230]] * 60 + [[0, 80, 230]] * 40)
+    assert mango["label"] == "sports ball"
+    assert mango["latest_confidence"] == 0.24
+    assert mango["latest_bbox_xyxy"] == [10.0, 10.0, 90.0, 90.0]
+    assert mango["latest_candidate_evidence"]["identity"] == "mango"
+
+    assert (
+        observe([[0, 8, 230]] * 100)["latest_candidate_evidence"]["identity"]
+        == "unknown"
+    )
+    assert (
+        observe([[0, 132, 240]] * 100)["latest_candidate_evidence"]["identity"]
+        == "unknown"
+    )
+    orange = observe([[0, 132, 240]] * 100, class_id=45, label="bowl")
+    assert orange["label"] == "bowl"
+    assert orange["latest_candidate_evidence"]["identity"] == "orange"
+
+
 def test_coco_tester_is_disabled_by_default_and_rate_limits_extra_inference() -> None:
     calls = 0
 

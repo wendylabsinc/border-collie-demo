@@ -195,6 +195,13 @@ def test_fruit_test_page_can_select_supported_fruit_without_motion() -> None:
     assert "Camera only — Woof will not move" in page.text
     assert "const frameUrl = '/api/camera/raw.jpg';" in page.text
     assert '<option value="orange" data-model="coco">Orange (COCO)</option>' in page.text
+    assert (
+        '<option value="mango" data-model="coco" '
+        'data-coco-label="sports ball">Mango (COCO sports ball)</option>' in page.text
+    )
+    assert "await configureCoco(true)" in page.text
+    assert "item.label.toLowerCase() === 'sports ball'" in page.text
+    assert "proposal.latest_candidate_evidence" in page.text
     assert 'id="model-box"' in page.text
     assert "body.color_candidates" in page.text
     assert "saturated color confirmed Orange" in page.text

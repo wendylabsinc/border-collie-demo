@@ -39,6 +39,7 @@
             <option value="banana">Banana</option>
             <option value="pear">Pear</option>
             <option value="orange" data-model="coco">Orange (COCO)</option>
+            <option value="mango" data-model="coco" data-coco-label="sports ball">Mango (COCO sports ball)</option>
           </select>
         </label>
         <button id="preview" type="button">Refresh selection</button>
@@ -97,6 +98,7 @@
       let refreshTimer = null;
       let fruitStatusTimer = null;
       let cocoTimer = null;
+      let mangoSelectionSampling = false;
 
       function refreshCamera() {
         if (document.hidden) return;
@@ -124,12 +126,23 @@
         modelBox.style.display = 'none';
         result.textContent = `Switching the camera test to ${fruit.value}…`;
         try {
-          const cocoColor = fruit.value === 'orange';
-          const response = await fetch(cocoColor ? '/api/coco-test' : '/api/fruits/preview', {
-            method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(cocoColor
-              ? {enabled: true, minimum_confidence: 0.01, reset: true}
-              : {target_fruit: fruit.value}),
+          if (['orange', 'mango'].includes(fruit.value)) {
+            mangoSelectionSampling = Boolean(await configureCoco(true));
+            if (!mangoSelectionSampling) throw new Error(cocoStatus.textContent);
+            result.textContent = fruit.value === 'mango'
+              ? 'Looking for Mango using the raw COCO sports ball proposal and bounded mixed-hue evidence…'
+              : 'Looking for Orange using bounded COCO geometry and color evidence…';
+            await refreshFruitStatus();
+            return;
+          }
+          if (mangoSelectionSampling) {
+            await configureCoco(false);
+            mangoSelectionSampling = false;
+          }
+          const response = await fetch('/api/fruits/preview', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({target_fruit: fruit.value}),
           });
           const body = await response.json();
           if (!response.ok) throw new Error(body.detail || 'Selection failed.');
@@ -164,8 +177,10 @@
         window.clearTimeout(fruitStatusTimer);
         try {
           const expected = fruit.value.toLowerCase();
+          const mangoSelected = expected === 'mango';
+          const cocoSelected = ['orange', 'mango'].includes(expected);
           const response = await fetch(
-            expected === 'orange' ? '/api/coco-test' : '/api/fruits/preview',
+            cocoSelected ? '/api/coco-test' : '/api/fruits/preview',
             {cache: 'no-store'},
           );
           const body = await response.json();
@@ -183,33 +198,51 @@
             }
             return;
           }
-          const detection = body.detection && typeof body.detection === 'object'
-            ? body.detection
-            : {};
+          const proposal = mangoSelected && Array.isArray(body.classes)
+            ? body.classes.find(item => typeof item.label === 'string' && item.label.toLowerCase() === 'sports ball')
+            : null;
+          const mangoEvidence = proposal && proposal.latest_candidate_evidence;
+          const detection = mangoSelected
+            ? {
+                label: proposal && proposal.label,
+                confidence: proposal && proposal.latest_confidence,
+                bbox_xyxy: proposal && proposal.latest_bbox_xyxy,
+                color_identity: mangoEvidence && mangoEvidence.identity,
+                color_confidence: mangoEvidence && mangoEvidence.confidence,
+              }
+            : body.detection && typeof body.detection === 'object'
+              ? body.detection
+              : {};
           const label = typeof detection.label === 'string' ? detection.label.toLowerCase() : '';
           const confidence = Number(detection.confidence);
           const colorIdentity = detection.color_identity;
           const colorConfidence = Number(detection.color_confidence);
           const box = Array.isArray(detection.bbox_xyxy) ? detection.bbox_xyxy : null;
-          const identityMatches = expected === 'apple'
+          const identityMatches = expected === 'mango'
+            ? label === 'sports ball' && colorIdentity === 'mango'
+            : expected === 'apple'
               ? label === 'apple' && colorIdentity === 'red_apple'
               : label === expected;
           if (identityMatches && Number.isFinite(confidence) && box && box.length === 4) {
-            const colorText = ['apple', 'orange'].includes(expected) && Number.isFinite(colorConfidence)
+            const colorText = ['apple', 'orange', 'mango'].includes(expected) && Number.isFinite(colorConfidence)
               ? ` · color ${percent(colorConfidence)}`
               : '';
             liveConfidence.textContent = `${percent(confidence)}${colorText}`;
             drawBox(
               box,
-              body.source && body.source.width,
-              body.source && body.source.height,
-              `${fruit.options[fruit.selectedIndex].textContent} ${percent(confidence)}`,
+              mangoSelected ? body.source_width : body.source && body.source.width,
+              mangoSelected ? body.source_height : body.source && body.source.height,
+              expected === 'mango'
+                ? `Mango ${percent(confidence)} · raw sports ball`
+                : `${fruit.options[fruit.selectedIndex].textContent} ${percent(confidence)}`,
             );
-            result.textContent = `${fruit.options[fruit.selectedIndex].textContent} detected. YOLO supplied the box; saturated color confirmed the identity.`;
+            result.textContent = expected === 'mango'
+              ? `Mango detected. Raw COCO sports ball ${percent(confidence)} supplied the box; mixed red/orange color evidence confirmed Mango.`
+              : `${fruit.options[fruit.selectedIndex].textContent} detected. YOLO supplied the box; saturated color confirmed the identity.`;
           } else {
             liveConfidence.textContent = 'Not detected';
             modelBox.style.display = 'none';
-            const colorDetail = ['apple', 'orange'].includes(expected)
+            const colorDetail = ['apple', 'orange', 'mango'].includes(expected)
               ? ` Color currently reads ${colorIdentity || 'unknown'}.`
               : '';
             result.textContent = `No confirmed ${fruit.options[fruit.selectedIndex].textContent} in the latest processed frame.${colorDetail}`;
@@ -283,8 +316,10 @@
           const body = await response.json();
           if (!response.ok) throw new Error(body.detail || 'COCO tester update failed.');
           renderCoco(body);
+          return body;
         } catch (error) {
           cocoStatus.textContent = error.message;
+          return null;
         } finally {
           cocoStart.disabled = false;
           cocoStop.disabled = false;
