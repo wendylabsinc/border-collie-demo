@@ -32,9 +32,10 @@ machine-readable in `RunTuning.contract()` rather than repeated here:
 
 The focused-yaw profile is consumed directly by the mission-lifetime guidance
 module. Disabling `progressive_focus_yaw_enabled` restores fixed
-`focus_yaw_rps`; all nonzero focused corrections remain at or above the
-verified `0.50 rad/s` factory-avoidance turning floor. Restoring
-`lock_tolerance_ratio` to `0.08` completes the prior
+`focus_yaw_rps`; the default `0.40 rad/s` yaw-only Sport profile restores the
+5/5 scan rate without changing approach motion; the exact Sport-path
+combination remains physically unqualified. Restoring `lock_tolerance_ratio`
+to `0.08` completes the prior
 lock profile without rebuilding or reverting source.
 
 The deployed search timeout default is 45 seconds through

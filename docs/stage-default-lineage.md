@@ -111,3 +111,15 @@ next fresh same-generation Target Fruit frame. Positive improvement means the
 absolute horizontal center error decreased; negative improvement means it
 worsened. Duplicate frames never create measurements, and the recorder does
 not change motion authority or safety decisions.
+
+The search-cadence successor is `stage-default-v15-5of5-search`, Wendy
+application version `1.1.14-stage-default`. It retains v14 approach, Arrival,
+Home, recording, and UI behavior while restoring the physically successful
+5/5 scan rate: a `0.40 rad/s` measured one-revolution scan through the yaw-only
+SportClient lease. Search no longer waits behind factory-avoidance
+`SwitchGet` verification before observing the next camera frame. The
+deployment default can be rolled back to `factory_avoidance` with
+`BORDER_COLLIE_SEARCH_MOTION_PATH` without rebuilding the image; neither path
+permits translation during search.
+The `0.40 rad/s` rate and 5/5 evidence are physical; this exact SportClient
+combination remains software-tested until one supervised search qualifies it.

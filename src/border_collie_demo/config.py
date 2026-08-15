@@ -26,6 +26,7 @@ class HardwareConfig:
     rpc_slow_threshold_s: float = 1.0
     client_timeout_s: float = 12.0
     remote_api_settle_s: float = 0.50
+    search_motion_path: str = "sport_yaw"
     pose_maximum_age_s: float = 0.50
     pear_tracking_minimum_confidence: float = 0.55
     pear_tracking_confirmations: int = 3
@@ -53,6 +54,10 @@ class HardwareConfig:
             raise ValueError("command heartbeat must be faster than the watchdog")
         if self.remote_api_settle_s < 0.0:
             raise ValueError("remote_api_settle_s must be non-negative")
+        if self.search_motion_path not in {"sport_yaw", "factory_avoidance"}:
+            raise ValueError(
+                "search_motion_path must be sport_yaw or factory_avoidance"
+            )
         if self.rpc_slow_threshold_s >= self.rpc_timeout_s:
             raise ValueError("RPC slow threshold must be less than the RPC timeout")
         if not 0.0 <= self.pear_tracking_minimum_confidence <= 1.0:
@@ -96,6 +101,9 @@ class HardwareConfig:
             remote_api_settle_s=float(
                 os.environ.get("BORDER_COLLIE_REMOTE_API_SETTLE_S", "0.50")
             ),
+            search_motion_path=os.environ.get(
+                "BORDER_COLLIE_SEARCH_MOTION_PATH", "sport_yaw"
+            ).strip(),
             pose_maximum_age_s=float(
                 os.environ.get("BORDER_COLLIE_POSE_MAX_AGE_S", "0.50")
             ),

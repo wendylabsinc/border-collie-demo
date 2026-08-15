@@ -822,8 +822,8 @@ def test_return_stages_use_captured_home_and_locked_arrival_rules() -> None:
         assert restored["heading_restoration_skipped"] is True
         assert restored["motion_commands_sent"] is False
         assert restored["settled_home_verified"] is True
-        assert RunTuning.defaults("pear").search.yaw_rps == 0.50
-        assert RunTuning.defaults("pear").search.focus_yaw_rps == 0.50
+        assert RunTuning.defaults("pear").search.yaw_rps == 0.40
+        assert RunTuning.defaults("pear").search.focus_yaw_rps == 0.40
         assert restored["legacy_restore_heading_semantics"] == (
             "settled_position_verification_already_complete"
         )

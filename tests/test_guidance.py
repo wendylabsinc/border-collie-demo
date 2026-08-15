@@ -244,6 +244,7 @@ def test_physical_banana_search_replay_retains_fine_focus_through_brief_misses()
     guidance = FruitGuidance(
         "banana",
         config=GuidanceConfig(
+            search_yaw_rps=0.50,
             focus_yaw_rps=0.50,
             focus_missing_grace_s=0.50,
         ),
@@ -396,7 +397,7 @@ def test_progressive_focus_yaw_resets_to_full_rate_after_crossing_center() -> No
     )
 
     assert crossed.action is GuidanceAction.ALIGN
-    assert crossed.command.yaw_rps == 0.50
+    assert crossed.command.yaw_rps == 0.40
 
 
 def test_legacy_focus_profile_is_a_runtime_rollback() -> None:
@@ -421,8 +422,8 @@ def test_legacy_focus_profile_is_a_runtime_rollback() -> None:
         now_s=0.2,
     )
 
-    assert first.command.yaw_rps == -0.50
-    assert second.command.yaw_rps == -0.50
+    assert first.command.yaw_rps == -0.40
+    assert second.command.yaw_rps == -0.40
     assert centered.action is GuidanceAction.HOLD
     assert centered.centered_fresh_samples == 1
 
@@ -448,7 +449,7 @@ def test_apple_high_confidence_candidate_holds_then_sustained_tracking_locks() -
     )
 
     assert sweeping.action is GuidanceAction.SEARCH
-    assert sweeping.command.yaw_rps == 0.50
+    assert sweeping.command.yaw_rps == 0.40
     assert focused.action is GuidanceAction.HOLD
     assert focused.command.forward_mps == 0.0
     assert focused.command.yaw_rps == 0.0
@@ -1026,11 +1027,11 @@ def test_guidance_env_defaults_match_the_canonical_deployment_contract(
 
     config = GuidanceConfig.from_env()
 
-    assert config.search_yaw_rps == 0.5
-    assert config.focus_yaw_rps == 0.5
+    assert config.search_yaw_rps == 0.4
+    assert config.focus_yaw_rps == 0.4
     assert config.progressive_focus_yaw_enabled is True
     assert config.focus_yaw_step_rps == 0.10
-    assert config.focus_minimum_yaw_rps == 0.50
+    assert config.focus_minimum_yaw_rps == 0.40
     assert config.focus_missing_grace_s == 0.5
     assert config.center_tolerance_ratio == 0.05
     assert config.center_confirmations == 3

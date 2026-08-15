@@ -29,12 +29,12 @@ def test_defaults_keep_target_confidence_and_share_the_search_contract() -> None
     assert pear.recognition.tracking_confidence == 0.55
     assert banana.recognition.focus_confidence is None
     assert banana.recognition.lock_confidence == 0.20
-    assert pear.search.yaw_rps == 0.50
+    assert pear.search.yaw_rps == 0.40
     assert pear.search.timeout_s == 45.0
-    assert {fruit.search.focus_yaw_rps for fruit in (apple, pear, banana)} == {0.50}
+    assert {fruit.search.focus_yaw_rps for fruit in (apple, pear, banana)} == {0.40}
     assert pear.search.progressive_focus_yaw_enabled is True
     assert pear.search.focus_yaw_step_rps == 0.10
-    assert pear.search.focus_minimum_yaw_rps == 0.50
+    assert pear.search.focus_minimum_yaw_rps == 0.40
     assert pear.search.focus_near_center_ratio == 0.20
     assert pear.search.focus_missing_grace_s == 0.50
     assert pear.search.bearing_routing_enabled is False
@@ -70,21 +70,30 @@ def test_focus_yaw_default_allows_a_bounded_per_run_override() -> None:
     assert {
         fruit["defaults"]["search"]["focus_yaw_rps"]
         for fruit in contract["fruits"].values()
-    } == {0.50}
+    } == {0.40}
     assert (
         RunTuning.from_payload(
-            "banana", {"search": {"focus_yaw_rps": 0.50}}
+            "banana",
+            {
+                "search": {
+                    "yaw_rps": 0.50,
+                    "focus_yaw_rps": 0.50,
+                    "focus_minimum_yaw_rps": 0.40,
+                }
+            },
         ).search.focus_yaw_rps
         == 0.50
     )
-    with pytest.raises(ValueError, match="within 0.5..0.8"):
-        RunTuning.from_payload("banana", {"search": {"focus_yaw_rps": 0.49}})
+    with pytest.raises(ValueError, match="within 0.4..0.8"):
+        RunTuning.from_payload("banana", {"search": {"focus_yaw_rps": 0.39}})
 
 
 def test_progressive_focus_profile_is_env_backed_and_rollbackable_per_run(
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("BORDER_COLLIE_GUIDANCE_PROGRESSIVE_FOCUS_YAW_ENABLED", "1")
+    monkeypatch.setenv("BORDER_COLLIE_GUIDANCE_SEARCH_YAW_RPS", "0.50")
+    monkeypatch.setenv("BORDER_COLLIE_GUIDANCE_FOCUS_YAW_RPS", "0.50")
     monkeypatch.setenv("BORDER_COLLIE_GUIDANCE_FOCUS_YAW_STEP_RPS", "0.10")
     monkeypatch.setenv("BORDER_COLLIE_GUIDANCE_FOCUS_MINIMUM_YAW_RPS", "0.50")
     monkeypatch.setenv("BORDER_COLLIE_GUIDANCE_FOCUS_NEAR_CENTER_RATIO", "0.18")
@@ -140,8 +149,8 @@ def test_home_turn_yaw_default_is_env_backed_without_changing_search(
     tuning = RunTuning.defaults("pear")
 
     assert tuning.home.align_yaw_rps == 0.75
-    assert tuning.search.yaw_rps == 0.50
-    assert tuning.search.focus_yaw_rps == 0.50
+    assert tuning.search.yaw_rps == 0.40
+    assert tuning.search.focus_yaw_rps == 0.40
 
 
 def test_home_stall_timeout_is_env_backed_and_frozen_per_run(monkeypatch) -> None:

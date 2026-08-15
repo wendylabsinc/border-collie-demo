@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+from dataclasses import replace
 
 import pytest
 
@@ -771,7 +772,7 @@ def test_search_black_box_measures_each_alignment_command_against_next_fresh_fra
                 "improvement_ratio": -0.17,
                 "improvement_percent_points": -17.0,
                 "outcome": "worsened",
-                "commanded_yaw_rps": -0.5,
+                "commanded_yaw_rps": -0.4,
                 "elapsed_to_observation_s": pytest.approx(0.01, abs=0.03),
             },
             {
@@ -787,7 +788,7 @@ def test_search_black_box_measures_each_alignment_command_against_next_fresh_fra
                 "improvement_ratio": 0.04,
                 "improvement_percent_points": 4.0,
                 "outcome": "improved",
-                "commanded_yaw_rps": -0.5,
+                "commanded_yaw_rps": -0.4,
                 "elapsed_to_observation_s": pytest.approx(0.01, abs=0.03),
             },
         ]
@@ -804,6 +805,137 @@ def test_search_black_box_measures_each_alignment_command_against_next_fresh_fra
         await manager.close()
 
     asyncio.run(scenario())
+
+
+def test_search_uses_sport_yaw_so_slow_avoidance_does_not_hide_camera_frames() -> None:
+    async def scenario() -> None:
+        class SlowFactoryMotion(FakeMotion):
+            async def command(
+                self,
+                lease: str,
+                command: VelocityCommand,
+            ) -> VelocityCommand:
+                if self.mode == "factory_avoidance":
+                    await asyncio.sleep(0.25)
+                return await super().command(lease, command)
+
+        motion = SlowFactoryMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+        guidance = FruitGuidance("banana")
+        pts = 0
+
+        def status() -> dict[str, object]:
+            nonlocal pts
+            pts += 1
+            return {
+                "camera_healthy": True,
+                "generation": "camera-5of5",
+                "source": {
+                    "pts": pts,
+                    "time_base": "1/90000",
+                    "age_s": 0.01,
+                },
+                "detection": {
+                    "label": "banana",
+                    "confidence": 0.80,
+                    "generation": "camera-5of5",
+                    "source_pts": pts,
+                    "source_time_base": "1/90000",
+                    "age_s": 0.01,
+                    "center_x_ratio": 0.50,
+                    "center_y_ratio": 0.55,
+                    "bottom_ratio": 0.65,
+                },
+            }
+
+        result = await manager.guide_target(
+            status,
+            guidance,
+            allow_forward=False,
+            timeout_s=0.45,
+        )
+
+        assert result["label"] == "banana"
+        assert result["samples"] == 3
+        assert result["search_motion_path"] == "sport_yaw"
+        assert motion.command_modes == ["sport_yaw"] * 3
+        assert all(command.forward_mps == 0.0 for command in motion.commands)
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_search_motion_path_can_roll_back_to_factory_avoidance() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        manager = HardwareManager(
+            replace(live_config(), search_motion_path="factory_avoidance"),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+        )
+        await manager.start()
+        guidance = FruitGuidance("banana")
+        pts = 0
+
+        def status() -> dict[str, object]:
+            nonlocal pts
+            pts += 1
+            return {
+                "camera_healthy": True,
+                "generation": "camera-rollback",
+                "source": {
+                    "pts": pts,
+                    "time_base": "1/90000",
+                    "age_s": 0.01,
+                },
+                "detection": {
+                    "label": "banana",
+                    "confidence": 0.80,
+                    "generation": "camera-rollback",
+                    "source_pts": pts,
+                    "source_time_base": "1/90000",
+                    "age_s": 0.01,
+                    "center_x_ratio": 0.50,
+                    "center_y_ratio": 0.55,
+                    "bottom_ratio": 0.65,
+                },
+            }
+
+        result = await manager.guide_target(
+            status,
+            guidance,
+            allow_forward=False,
+            timeout_s=0.45,
+        )
+
+        assert result["search_motion_path"] == "factory_avoidance"
+        assert motion.command_modes == ["factory_avoidance"] * 3
+        assert all(command.forward_mps == 0.0 for command in motion.commands)
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_hardware_config_rejects_unknown_search_motion_path() -> None:
+    with pytest.raises(ValueError, match="sport_yaw or factory_avoidance"):
+        replace(live_config(), search_motion_path="unknown")
+
+
+def test_search_motion_path_environment_can_restore_factory_avoidance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BORDER_COLLIE_SEARCH_MOTION_PATH", "factory_avoidance")
+
+    assert HardwareConfig.from_env().search_motion_path == "factory_avoidance"
 
 
 def test_search_records_all_fruits_in_bearing_map_but_selected_target_drives_lock() -> None:

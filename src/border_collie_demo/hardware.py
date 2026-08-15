@@ -1440,7 +1440,14 @@ class HardwareManager:
                             or "fresh Go2 pose is required before Target Fruit search"
                         )
                     previous_search_yaw = initial_pose.pose.yaw_rad
-                lease = await self._motion.arm()
+                lease = (
+                    await self._motion.arm_sport_yaw()
+                    if (
+                        not allow_forward
+                        and self.config.search_motion_path == "sport_yaw"
+                    )
+                    else await self._motion.arm()
+                )
                 deadline = started + timeout_s
                 while time.monotonic() < deadline:
                     now = time.monotonic()
@@ -1588,6 +1595,7 @@ class HardwareManager:
                             "measured_yaw_rad": measured_yaw_rad,
                             "search_progress_rad": search_progress_rad,
                             "commanded_yaw_rps": decision.command.yaw_rps,
+                            "search_motion_path": self.config.search_motion_path,
                             "guidance_action": decision.action.value,
                             "guidance_reason": decision.reason,
                             "resulting_command": decision.command.to_dict(),
@@ -1681,6 +1689,11 @@ class HardwareManager:
                             **inference_evidence,
                             **alignment_recorder.evidence(),
                             "motion_commands_sent": commands_sent,
+                            "search_motion_path": (
+                                self.config.search_motion_path
+                                if not allow_forward
+                                else None
+                            ),
                             **(
                                 approach_recorder.evidence()
                                 if approach_recorder is not None
@@ -2570,6 +2583,7 @@ class HardwareManager:
             "connected": connected,
             "fault": self._fault,
             "network_interface": self.config.network_interface,
+            "search_motion_path": self.config.search_motion_path,
             "active_operation": self._active_operation,
             "posture": self._posture,
             "can_pulse_forward": can_pulse,
