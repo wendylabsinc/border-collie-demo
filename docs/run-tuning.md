@@ -17,7 +17,8 @@ run and does not mutate process environment or require a restart/deployment.
 The authoritative defaults, units, ranges, step sizes, and safety notes are
 machine-readable in `RunTuning.contract()` rather than repeated here:
 
-- `search`: yaw rate, bounded sweep, and timeout;
+- `search`: yaw rate, bounded sweep, timeout, and the rollbackable progressive
+  focused-yaw profile;
 - `recognition`: selected-fruit focus/lock/tracking confidence and required
   fresh centered frames;
 - `centering`: lock band, moving corridor, moving yaw, and in-place recenter
@@ -29,10 +30,10 @@ machine-readable in `RunTuning.contract()` rather than repeated here:
 - `home`: initial alignment, return translation/steering, progress, stall, and
   completion tolerances.
 
-Candidate confirmation, fine search, and double-back are not separate control
-paths in the current `codex/kinda-good` implementation. They are therefore not
-exposed as placebo settings. Add their real behavior to `RunTuning` only when
-the production executor consumes it.
+The focused-yaw profile is consumed directly by the mission-lifetime guidance
+module. Disabling `progressive_focus_yaw_enabled` restores fixed
+`focus_yaw_rps`; restoring `lock_tolerance_ratio` to `0.08` completes the prior
+lock profile without rebuilding or reverting source.
 
 ## Non-tunable safety invariants
 

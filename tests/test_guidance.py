@@ -285,6 +285,91 @@ def test_physical_banana_search_replay_retains_fine_focus_through_brief_misses()
     assert expired.focus_active is False
 
 
+def test_progressive_focus_yaw_slows_on_each_fresh_qualified_pass() -> None:
+    guidance = FruitGuidance("pear")
+
+    passes = [
+        guidance.observe(
+            observation(
+                pts=pts,
+                now_s=now_s,
+                confidence=0.80,
+                center_x=center_x,
+            ),
+            now_s=now_s,
+        )
+        for pts, now_s, center_x in (
+            (1, 0.0, 0.64),
+            (2, 0.1, 0.60),
+            (3, 0.2, 0.56),
+        )
+    ]
+
+    assert [decision.action for decision in passes] == [
+        GuidanceAction.ALIGN,
+        GuidanceAction.ALIGN,
+        GuidanceAction.ALIGN,
+    ]
+    assert [decision.command.yaw_rps for decision in passes] == [-0.40, -0.30, -0.20]
+    assert all(decision.command.forward_mps == 0.0 for decision in passes)
+
+    first_centered = guidance.observe(
+        observation(pts=4, now_s=0.3, confidence=0.80, center_x=0.55),
+        now_s=0.3,
+    )
+    assert first_centered.action is GuidanceAction.HOLD
+    assert first_centered.command.yaw_rps == 0.0
+    assert first_centered.centered_fresh_samples == 1
+
+
+def test_progressive_focus_yaw_resets_to_full_rate_after_crossing_center() -> None:
+    guidance = FruitGuidance("pear")
+    guidance.observe(
+        observation(pts=1, now_s=0.0, center_x=0.64),
+        now_s=0.0,
+    )
+    guidance.observe(
+        observation(pts=2, now_s=0.1, center_x=0.60),
+        now_s=0.1,
+    )
+
+    crossed = guidance.observe(
+        observation(pts=3, now_s=0.2, center_x=0.44),
+        now_s=0.2,
+    )
+
+    assert crossed.action is GuidanceAction.ALIGN
+    assert crossed.command.yaw_rps == 0.40
+
+
+def test_legacy_focus_profile_is_a_runtime_rollback() -> None:
+    guidance = FruitGuidance(
+        "pear",
+        config=GuidanceConfig(
+            progressive_focus_yaw_enabled=False,
+            center_tolerance_ratio=0.08,
+        ),
+    )
+
+    first = guidance.observe(
+        observation(pts=1, now_s=0.0, center_x=0.64),
+        now_s=0.0,
+    )
+    second = guidance.observe(
+        observation(pts=2, now_s=0.1, center_x=0.60),
+        now_s=0.1,
+    )
+    centered = guidance.observe(
+        observation(pts=3, now_s=0.2, center_x=0.575),
+        now_s=0.2,
+    )
+
+    assert first.command.yaw_rps == -0.40
+    assert second.command.yaw_rps == -0.40
+    assert centered.action is GuidanceAction.HOLD
+    assert centered.centered_fresh_samples == 1
+
+
 def test_apple_high_confidence_candidate_holds_then_sustained_tracking_locks() -> None:
     guidance = FruitGuidance("apple")
 
@@ -886,8 +971,11 @@ def test_guidance_env_defaults_match_the_canonical_deployment_contract(
 
     assert config.search_yaw_rps == 0.4
     assert config.focus_yaw_rps == 0.4
+    assert config.progressive_focus_yaw_enabled is True
+    assert config.focus_yaw_step_rps == 0.10
+    assert config.focus_minimum_yaw_rps == 0.20
     assert config.focus_missing_grace_s == 0.5
-    assert config.center_tolerance_ratio == 0.08
+    assert config.center_tolerance_ratio == 0.05
     assert config.center_confirmations == 3
     assert config.approach_forward_mps == 1.0
     assert config.outer_corridor_ratio == 0.20

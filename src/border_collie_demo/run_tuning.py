@@ -88,6 +88,9 @@ class SearchTuning:
     sweep_rad: float = 2.0 * math.pi
     timeout_s: float = 30.0
     focus_yaw_rps: float = 0.40
+    progressive_focus_yaw_enabled: bool = True
+    focus_yaw_step_rps: float = 0.10
+    focus_minimum_yaw_rps: float = 0.20
     focus_missing_grace_s: float = 0.50
     bearing_routing_enabled: bool = False
 
@@ -102,7 +105,7 @@ class RecognitionTuning:
 
 @dataclass(frozen=True)
 class CenteringTuning:
-    lock_tolerance_ratio: float = 0.08
+    lock_tolerance_ratio: float = 0.05
     outer_corridor_ratio: float = 0.20
     approach_yaw_rps: float = 0.30
     recenter_yaw_rps: float = 0.50
@@ -241,6 +244,11 @@ class RunTuning:
                 yaw_rps=guidance.search_yaw_rps,
                 sweep_rad=guidance.search_sweep_rad,
                 focus_yaw_rps=guidance.focus_yaw_rps,
+                progressive_focus_yaw_enabled=(
+                    guidance.progressive_focus_yaw_enabled
+                ),
+                focus_yaw_step_rps=guidance.focus_yaw_step_rps,
+                focus_minimum_yaw_rps=guidance.focus_minimum_yaw_rps,
                 focus_missing_grace_s=guidance.focus_missing_grace_s,
                 bearing_routing_enabled=env_bool(
                     "BORDER_COLLIE_BEARING_ROUTING_ENABLED", False
@@ -335,6 +343,9 @@ class RunTuning:
                 "sweep_rad",
                 "timeout_s",
                 "focus_yaw_rps",
+                "progressive_focus_yaw_enabled",
+                "focus_yaw_step_rps",
+                "focus_minimum_yaw_rps",
                 "focus_missing_grace_s",
                 "bearing_routing_enabled",
             },
@@ -428,6 +439,25 @@ class RunTuning:
                     search,
                     "focus_yaw_rps",
                     defaults.search.focus_yaw_rps,
+                    0.10,
+                    0.40,
+                ),
+                progressive_focus_yaw_enabled=_boolean(
+                    search,
+                    "progressive_focus_yaw_enabled",
+                    defaults.search.progressive_focus_yaw_enabled,
+                ),
+                focus_yaw_step_rps=_number(
+                    search,
+                    "focus_yaw_step_rps",
+                    defaults.search.focus_yaw_step_rps,
+                    0.05,
+                    0.20,
+                ),
+                focus_minimum_yaw_rps=_number(
+                    search,
+                    "focus_minimum_yaw_rps",
+                    defaults.search.focus_minimum_yaw_rps,
                     0.10,
                     0.40,
                 ),
@@ -704,6 +734,8 @@ class RunTuning:
             raise ValueError("detection age cannot exceed source age")
         if self.search.focus_yaw_rps > self.search.yaw_rps:
             raise ValueError("focus yaw cannot exceed broad search yaw")
+        if self.search.focus_minimum_yaw_rps > self.search.focus_yaw_rps:
+            raise ValueError("minimum focus yaw cannot exceed focused alignment yaw")
         if (
             self.approach.slow_inference_grace_s
             < self.approach.detection_maximum_age_s
@@ -761,6 +793,32 @@ class RunTuning:
                     0.40,
                     0.05,
                     safety="Yaw-only; never authorizes forward motion.",
+                ),
+                _boolean_field(
+                    "progressive_focus_yaw_enabled",
+                    "Slow focused yaw on each pass",
+                    True,
+                    safety=(
+                        "Yaw-only. Disable to restore the fixed focused-yaw profile."
+                    ),
+                ),
+                _field(
+                    "focus_yaw_step_rps",
+                    "Focused yaw reduction per pass",
+                    "rad/s",
+                    0.05,
+                    0.20,
+                    0.05,
+                    safety="Applies only to fresh qualified off-center observations.",
+                ),
+                _field(
+                    "focus_minimum_yaw_rps",
+                    "Minimum focused yaw",
+                    "rad/s",
+                    0.10,
+                    0.40,
+                    0.05,
+                    safety="Never authorizes forward motion.",
                 ),
                 _field(
                     "focus_missing_grace_s",

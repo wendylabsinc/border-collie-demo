@@ -158,7 +158,7 @@ class ProductionStageExecutor:
                         },
                         "centering": {
                             "lock_tolerance_ratio": legacy.get(
-                                "center_tolerance_ratio", 0.08
+                                "center_tolerance_ratio", 0.05
                             )
                         },
                     }
@@ -167,6 +167,11 @@ class ProductionStageExecutor:
                     search_yaw_rps=tuning.search.yaw_rps,
                     search_sweep_rad=tuning.search.sweep_rad,
                     focus_yaw_rps=tuning.search.focus_yaw_rps,
+                    progressive_focus_yaw_enabled=(
+                        tuning.search.progressive_focus_yaw_enabled
+                    ),
+                    focus_yaw_step_rps=tuning.search.focus_yaw_step_rps,
+                    focus_minimum_yaw_rps=tuning.search.focus_minimum_yaw_rps,
                     focus_missing_grace_s=tuning.search.focus_missing_grace_s,
                     center_tolerance_ratio=tuning.centering.lock_tolerance_ratio,
                     center_confirmations=tuning.recognition.required_frames,

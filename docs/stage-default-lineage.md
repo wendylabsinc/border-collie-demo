@@ -74,3 +74,10 @@ Wendy application version `1.1.9-stage-default`. It retains every fresh DDS
 pose from Home capture through the terminal result and emits one
 `DRIFT DETECTED` warning when a yaw-only episode translates by the configured
 distance. The recorder has no command writer and the alert never changes motion.
+
+The rollbackable focus-lock experiment is
+`stage-default-v11-progressive-lock-yaw`, Wendy application version
+`1.1.10-stage-default`. It narrows the lock corridor from `+/-8%` to `+/-5%`
+and reduces agreeing fresh focused-yaw passes from `0.40` to `0.30` to
+`0.20 rad/s`. Per-run tuning can disable the progressive profile and restore
+the prior `0.08` corridor without reverting source.

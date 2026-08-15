@@ -82,7 +82,7 @@ class SearchExperimentTuning:
     focus_confidence: float | None = None
     lock_confidence: float | None = None
     center_confirmations: int = 3
-    center_tolerance_ratio: float = 0.08
+    center_tolerance_ratio: float = 0.05
 
     def __post_init__(self) -> None:
         target = self.target_fruit.casefold().strip()
@@ -158,7 +158,7 @@ class SearchExperimentTuning:
             ),
             center_tolerance_ratio=float(
                 os.environ.get(
-                    "BORDER_COLLIE_GUIDANCE_CENTER_TOLERANCE_RATIO", "0.08"
+                    "BORDER_COLLIE_GUIDANCE_CENTER_TOLERANCE_RATIO", "0.05"
                 )
             ),
         )

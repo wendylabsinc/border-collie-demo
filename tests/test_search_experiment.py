@@ -33,7 +33,7 @@ def test_search_experiment_tuning_preserves_each_fruits_baseline_policy(
         "focus_confidence": focus,
         "lock_confidence": lock,
         "center_confirmations": 3,
-        "center_tolerance_ratio": 0.08,
+        "center_tolerance_ratio": 0.05,
     }
 
 

@@ -11,7 +11,7 @@ do not rebuild or redeploy either service.
 | Selected-fruit focus confidence | fruit policy | see below; at least lock | probability |
 | Selected-fruit lock confidence | fruit policy | see below; no greater than focus | probability |
 | Centered confirmations | `3` | `2..5` | fresh frames |
-| Center tolerance | `0.08` | `0.05..0.12` | fraction of image width from center |
+| Center tolerance | `0.05` | `0.05..0.12` | fraction of image width from center |
 
 Existing camera health, freshness, generation, frame-progress, geometry,
 motion-authority, watchdog, and exact-zero stop requirements remain mandatory.

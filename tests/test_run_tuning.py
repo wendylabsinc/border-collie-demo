@@ -31,9 +31,12 @@ def test_defaults_keep_target_confidence_and_share_the_search_contract() -> None
     assert banana.recognition.lock_confidence == 0.20
     assert pear.search.yaw_rps == 0.40
     assert {fruit.search.focus_yaw_rps for fruit in (apple, pear, banana)} == {0.40}
+    assert pear.search.progressive_focus_yaw_enabled is True
+    assert pear.search.focus_yaw_step_rps == 0.10
+    assert pear.search.focus_minimum_yaw_rps == 0.20
     assert pear.search.focus_missing_grace_s == 0.50
     assert pear.search.bearing_routing_enabled is False
-    assert pear.centering.lock_tolerance_ratio == 0.08
+    assert pear.centering.lock_tolerance_ratio == 0.05
     assert pear.approach.forward_mps == 1.0
     assert pear.approach.slow_inference_grace_s == 0.50
     assert pear.arrival.near_bottom_ratio == 0.90
@@ -73,6 +76,31 @@ def test_focus_yaw_default_allows_a_bounded_per_run_override() -> None:
     )
     with pytest.raises(ValueError, match="within"):
         RunTuning.from_payload("banana", {"search": {"focus_yaw_rps": 0.41}})
+
+
+def test_progressive_focus_profile_is_env_backed_and_rollbackable_per_run(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("BORDER_COLLIE_GUIDANCE_PROGRESSIVE_FOCUS_YAW_ENABLED", "1")
+    monkeypatch.setenv("BORDER_COLLIE_GUIDANCE_FOCUS_YAW_STEP_RPS", "0.10")
+    monkeypatch.setenv("BORDER_COLLIE_GUIDANCE_FOCUS_MINIMUM_YAW_RPS", "0.20")
+    monkeypatch.setenv("BORDER_COLLIE_GUIDANCE_CENTER_TOLERANCE_RATIO", "0.05")
+
+    enabled = RunTuning.defaults("pear")
+    rollback = RunTuning.from_payload(
+        "pear",
+        {
+            "search": {"progressive_focus_yaw_enabled": False},
+            "centering": {"lock_tolerance_ratio": 0.08},
+        },
+    )
+
+    assert enabled.search.progressive_focus_yaw_enabled is True
+    assert enabled.search.focus_yaw_step_rps == 0.10
+    assert enabled.search.focus_minimum_yaw_rps == 0.20
+    assert enabled.centering.lock_tolerance_ratio == 0.05
+    assert rollback.search.progressive_focus_yaw_enabled is False
+    assert rollback.centering.lock_tolerance_ratio == 0.08
 
 
 def test_bearing_routing_default_is_env_backed_and_frozen_per_run(
