@@ -7,6 +7,7 @@ SportModeState and the shared, versioned app event journal only.
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
 import signal
@@ -32,11 +33,29 @@ RECORDED_HOME_PHASES = frozenset(
 
 
 class HomeTimelineRecorder:
-    def __init__(self, root: Path, *, maximum_events_per_run: int = 10_000) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        maximum_events_per_run: int = 10_000,
+        yaw_drift_threshold_m: float = 0.03,
+        command_active_s: float = 0.50,
+        logger: Any | None = None,
+    ) -> None:
         if maximum_events_per_run < 3:
             raise ValueError("maximum_events_per_run must be at least 3")
+        if (
+            not math.isfinite(yaw_drift_threshold_m)
+            or not 0.005 <= yaw_drift_threshold_m <= 0.50
+        ):
+            raise ValueError("yaw_drift_threshold_m must be between 0.005 and 0.50")
+        if not math.isfinite(command_active_s) or not 0.10 <= command_active_s <= 2.0:
+            raise ValueError("command_active_s must be between 0.10 and 2.0")
         self.root = root.resolve()
         self.maximum_events_per_run = maximum_events_per_run
+        self.yaw_drift_threshold_m = yaw_drift_threshold_m
+        self.command_active_s = command_active_s
+        self._logger = logger or logging.getLogger("home-recorder")
         self._lock = threading.Lock()
         self._runs: dict[str, dict[str, Any]] = {}
         self._counts: dict[str, int] = {}
@@ -46,6 +65,8 @@ class HomeTimelineRecorder:
         self._last_finite_pose_monotonic_s: float | None = None
         self._pose_error: str | None = None
         self._dropped_events = 0
+        self._drift_detection_count = 0
+        self._alert_error: str | None = None
         self._last_error: str | None = None
 
     def process_app_event(self, event: dict[str, Any]) -> None:
@@ -81,7 +102,10 @@ class HomeTimelineRecorder:
                             "forward_mps": 0.0,
                             "yaw_rps": 0.0,
                         },
-                        "recording": False,
+                        "command_recorded_monotonic_s": None,
+                        "last_pose": None,
+                        "yaw_episode": None,
+                        "recording": True,
                     }
                 except (KeyError, TypeError, ValueError) as exc:
                     self._last_error = f"invalid Home event: {exc}"
@@ -90,9 +114,20 @@ class HomeTimelineRecorder:
             context = self._runs.get(run_id)
             if context is None:
                 return
+            previous_stage = context["stage"]
             context["stage"] = phase
             if phase in RECORDED_HOME_PHASES:
                 context["recording"] = True
+            if kind == "mission_event" and phase != previous_stage:
+                context["armed"] = False
+                context["mode"] = None
+                context["command"] = {
+                    "motion_path": None,
+                    "forward_mps": 0.0,
+                    "yaw_rps": 0.0,
+                }
+                context["command_recorded_monotonic_s"] = None
+                context["yaw_episode"] = None
             if kind == "motion_command":
                 context["command"] = {
                     "motion_path": payload.get("motion_path"),
@@ -101,6 +136,43 @@ class HomeTimelineRecorder:
                 }
                 context["armed"] = True
                 context["mode"] = payload.get("motion_path")
+                command_recorded_monotonic_s = float(
+                    payload.get(
+                        "recorded_monotonic_s",
+                        event.get("recorded_monotonic_s", 0.0),
+                    )
+                )
+                context["command_recorded_monotonic_s"] = (
+                    command_recorded_monotonic_s
+                )
+                command = context["command"]
+                yaw_only = (
+                    command["forward_mps"] == 0.0
+                    and command["yaw_rps"] != 0.0
+                )
+                if yaw_only:
+                    episode = context.get("yaw_episode")
+                    last_command_at = (
+                        None if episode is None else episode["last_command_monotonic_s"]
+                    )
+                    if (
+                        episode is None
+                        or last_command_at is None
+                        or command_recorded_monotonic_s - last_command_at
+                        > self.command_active_s
+                    ):
+                        last_pose = context.get("last_pose")
+                        context["yaw_episode"] = {
+                            "origin": last_pose,
+                            "last_command_monotonic_s": command_recorded_monotonic_s,
+                            "alerted": False,
+                        }
+                    else:
+                        episode["last_command_monotonic_s"] = (
+                            command_recorded_monotonic_s
+                        )
+                else:
+                    context["yaw_episode"] = None
             elif kind == "home_motion_state":
                 if isinstance(payload.get("armed"), bool):
                     context["armed"] = payload["armed"]
@@ -111,6 +183,8 @@ class HomeTimelineRecorder:
                         "forward_mps": 0.0,
                         "yaw_rps": 0.0,
                     }
+                    context["command_recorded_monotonic_s"] = None
+                    context["yaw_episode"] = None
             row = {
                 "schema_version": SCHEMA_VERSION,
                 "kind": "app_event",
@@ -166,9 +240,49 @@ class HomeTimelineRecorder:
             for run_id, context in tuple(self._runs.items()):
                 if not context["recording"]:
                     continue
+                current_pose = {
+                    "x_m": x_m,
+                    "y_m": y_m,
+                    "yaw_rad": yaw_rad,
+                    "captured_monotonic_s": captured_monotonic_s,
+                }
+                context["last_pose"] = current_pose
+                command_recorded_monotonic_s = context.get(
+                    "command_recorded_monotonic_s"
+                )
+                if (
+                    command_recorded_monotonic_s is not None
+                    and captured_monotonic_s - command_recorded_monotonic_s
+                    > self.command_active_s
+                ):
+                    context["armed"] = False
+                    context["mode"] = None
+                    context["command"] = {
+                        "motion_path": None,
+                        "forward_mps": 0.0,
+                        "yaw_rps": 0.0,
+                    }
+                    context["command_recorded_monotonic_s"] = None
+                    context["yaw_episode"] = None
                 home = context["home"]
                 delta_x = x_m - home["x_m"]
                 delta_y = y_m - home["y_m"]
+                yaw_episode = context.get("yaw_episode")
+                yaw_drift_m: float | None = None
+                drift_detected = False
+                if yaw_episode is not None:
+                    origin = yaw_episode.get("origin")
+                    if origin is None:
+                        yaw_episode["origin"] = current_pose
+                    else:
+                        yaw_drift_m = round(
+                            math.hypot(
+                                x_m - float(origin["x_m"]),
+                                y_m - float(origin["y_m"]),
+                            ),
+                            6,
+                        )
+                        drift_detected = yaw_drift_m >= self.yaw_drift_threshold_m
                 self._append(
                     run_id,
                     {
@@ -193,8 +307,50 @@ class HomeTimelineRecorder:
                         "armed": context["armed"],
                         "mode": context["mode"],
                         "command": dict(context["command"]),
+                        "yaw_only_drift_m": yaw_drift_m,
+                        "yaw_drift_threshold_m": self.yaw_drift_threshold_m,
+                        "drift_detected": drift_detected,
                     },
                 )
+                if (
+                    drift_detected
+                    and yaw_episode is not None
+                    and not yaw_episode["alerted"]
+                ):
+                    yaw_episode["alerted"] = True
+                    self._drift_detection_count += 1
+                    drift_event = {
+                        "schema_version": SCHEMA_VERSION,
+                        "kind": "drift_detected",
+                        "run_id": run_id,
+                        "pose_sequence": self._pose_sequence,
+                        "captured_monotonic_s": captured_monotonic_s,
+                        "stage": context["stage"],
+                        "motion_path": context["command"]["motion_path"],
+                        "drift_m": yaw_drift_m,
+                        "threshold_m": self.yaw_drift_threshold_m,
+                        "origin_pose": dict(yaw_episode["origin"]),
+                        "raw_pose": dict(current_pose),
+                        "command": dict(context["command"]),
+                        "observability_only": True,
+                    }
+                    self._append(run_id, drift_event)
+                    alert = {
+                        "run_id": run_id,
+                        "stage": context["stage"],
+                        "motion_path": context["command"]["motion_path"],
+                        "drift_m": yaw_drift_m,
+                        "threshold_m": self.yaw_drift_threshold_m,
+                        "forward_mps": context["command"]["forward_mps"],
+                        "yaw_rps": context["command"]["yaw_rps"],
+                    }
+                    try:
+                        self._logger.warning(
+                            "DRIFT DETECTED %s",
+                            json.dumps(alert, separators=(",", ":")),
+                        )
+                    except Exception as exc:  # noqa: BLE001 - observation only
+                        self._alert_error = str(exc)
 
     def path(self, run_id: str) -> Path:
         return self.root / str(UUID(run_id)) / "home-deep.ndjson"
@@ -216,6 +372,10 @@ class HomeTimelineRecorder:
                 ),
                 "pose_recovery_confirmations_required": POSE_RECOVERY_CONFIRMATIONS,
                 "dropped_events": self._dropped_events,
+                "drift_detection_count": self._drift_detection_count,
+                "alert_error": self._alert_error,
+                "yaw_drift_threshold_m": self.yaw_drift_threshold_m,
+                "command_active_s": self.command_active_s,
                 "maximum_events_per_run": self.maximum_events_per_run,
                 "last_error": last_error,
             }
@@ -318,6 +478,10 @@ def status_server(recorder: HomeTimelineRecorder, port: int) -> ThreadingHTTPSer
 
 
 def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s [home-recorder] %(message)s",
+    )
     state_root = Path(os.environ.get("HOME_RECORDER_STATE_DIR", "/state/home-recorder"))
     event_root = Path(
         os.environ.get("HOME_RECORDER_EVENTS_DIR", "/state/home-recorder/events")
@@ -326,6 +490,12 @@ def main() -> None:
         state_root / "runs",
         maximum_events_per_run=int(
             os.environ.get("HOME_RECORDER_MAX_EVENTS_PER_RUN", "10000")
+        ),
+        yaw_drift_threshold_m=float(
+            os.environ.get("HOME_RECORDER_YAW_DRIFT_THRESHOLD_M", "0.03")
+        ),
+        command_active_s=float(
+            os.environ.get("HOME_RECORDER_COMMAND_ACTIVE_S", "0.50")
         ),
     )
     tailer = SharedEventTailer(event_root, recorder)

@@ -152,9 +152,8 @@ def test_passive_service_correlates_high_rate_pose_with_home_and_commands(tmp_pa
             {"x_m": 1.0, "y_m": 2.0, "yaw_rad": 0.5, "odometry_epoch": "odom-a"},
         )
     )
-    # A high-rate pose during fruit work is deliberately not retained. The
-    # service keeps the Home reference but spends its bounded budget only once
-    # the Home-return timeline begins.
+    # Every fresh pose is retained from Home capture through the terminal
+    # result, including fruit work before the Home-return phases.
     recorder.record_pose(9.0, 9.0, 0.0, captured_monotonic_s=11.0)
     recorder.process_app_event(
         app_event(
@@ -162,7 +161,12 @@ def test_passive_service_correlates_high_rate_pose_with_home_and_commands(tmp_pa
             2,
             "motion_command",
             "return_home",
-            {"forward_mps": 1.0, "yaw_rps": 0.5, "motion_path": "factory_avoidance"},
+            {
+                "forward_mps": 1.0,
+                "yaw_rps": 0.5,
+                "motion_path": "factory_avoidance",
+                "recorded_monotonic_s": 11.9,
+            },
         )
     )
     recorder.record_pose(1.08, 2.06, 0.45, captured_monotonic_s=12.0)
@@ -180,7 +184,10 @@ def test_passive_service_correlates_high_rate_pose_with_home_and_commands(tmp_pa
         json.loads(line)
         for line in recorder.path(run_id).read_text(encoding="utf-8").splitlines()
     ]
-    pose = next(row for row in rows if row["kind"] == "pose")
+    poses = [row for row in rows if row["kind"] == "pose"]
+    assert len(poses) == 2
+    assert poses[0]["stage"] == "capture_home"
+    pose = poses[1]
     assert pose["schema_version"] == 1
     assert pose["pose_sequence"] == 2
     assert pose["raw_pose"] == {"x_m": 1.08, "y_m": 2.06, "yaw_rad": 0.45}
@@ -195,6 +202,93 @@ def test_passive_service_correlates_high_rate_pose_with_home_and_commands(tmp_pa
     assert pose["stage"] == "return_home"
     assert rows[-1]["terminal_reason"] == "RETURN_HOME_FAILURE"
     assert recorder.status()["active_run_ids"] == []
+
+
+def test_yaw_only_drift_is_recorded_and_warned_once_without_motion_authority(
+    tmp_path,
+) -> None:
+    module = load_module()
+    run_id = str(uuid4())
+
+    class CaptureLogger:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def warning(self, message: str, *args: object) -> None:
+            self.messages.append(message % args)
+
+    logger = CaptureLogger()
+    recorder = module.HomeTimelineRecorder(
+        tmp_path,
+        yaw_drift_threshold_m=0.03,
+        command_active_s=0.5,
+        logger=logger,
+    )
+    recorder.process_app_event(
+        app_event(
+            run_id,
+            1,
+            "home_captured",
+            "capture_home",
+            {"x_m": 0.0, "y_m": 0.0, "yaw_rad": 0.0, "odometry_epoch": "odom-a"},
+        )
+    )
+    recorder.record_pose(0.0, 0.0, 0.0, captured_monotonic_s=0.9)
+    recorder.process_app_event(
+        app_event(
+            run_id,
+            2,
+            "motion_command",
+            "turn_to_fruit",
+            {
+                "forward_mps": 0.0,
+                "yaw_rps": 0.5,
+                "motion_path": "sport_yaw",
+                "recorded_monotonic_s": 1.0,
+            },
+        )
+    )
+
+    recorder.record_pose(0.01, 0.0, 0.1, captured_monotonic_s=1.1)
+    recorder.record_pose(0.031, 0.004, 0.2, captured_monotonic_s=1.2)
+    recorder.record_pose(0.050, 0.010, 0.3, captured_monotonic_s=1.3)
+
+    rows = [
+        json.loads(line)
+        for line in recorder.path(run_id).read_text(encoding="utf-8").splitlines()
+    ]
+    drift_rows = [row for row in rows if row["kind"] == "drift_detected"]
+    assert len(drift_rows) == 1
+    assert drift_rows[0]["stage"] == "turn_to_fruit"
+    assert drift_rows[0]["motion_path"] == "sport_yaw"
+    assert drift_rows[0]["command"] == {
+        "motion_path": "sport_yaw",
+        "forward_mps": 0.0,
+        "yaw_rps": 0.5,
+    }
+    assert drift_rows[0]["drift_m"] > 0.03
+    assert drift_rows[0]["threshold_m"] == 0.03
+    assert logger.messages == [
+        "DRIFT DETECTED "
+        + json.dumps(
+            {
+                "run_id": run_id,
+                "stage": "turn_to_fruit",
+                "motion_path": "sport_yaw",
+                "drift_m": drift_rows[0]["drift_m"],
+                "threshold_m": 0.03,
+                "forward_mps": 0.0,
+                "yaw_rps": 0.5,
+            },
+            separators=(",", ":"),
+        )
+    ]
+    assert recorder.status()["drift_detection_count"] == 1
+
+    source = MODULE_PATH.read_text(encoding="utf-8")
+    assert "ChannelPublisher" not in source
+    assert "SportClient" not in source
+    assert "ObstaclesAvoidClient" not in source
 
 
 def test_passive_service_is_bounded_and_contains_no_robot_writer_or_rpc_imports(

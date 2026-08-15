@@ -1,12 +1,12 @@
 {
   "appId": "border-collie-demo",
-  "version": "1.1.8-stage-default",
+  "version": "1.1.9-stage-default",
   "services": {
     "app": {
       "context": ".",
       "env": {
         "BORDER_COLLIE_PORT": "8110",
-        "BORDER_COLLIE_BUILD_LABEL": "stage-default-v9-operator-logs",
+        "BORDER_COLLIE_BUILD_LABEL": "stage-default-v10-pose-drift-recorder",
         "BORDER_COLLIE_OPERATOR_LOG_ENABLED": "1",
         "BORDER_COLLIE_RUNTIME_MODE": "production",
         "BORDER_COLLIE_HARDWARE_ENABLED": "1",
@@ -89,6 +89,8 @@
         "HOME_RECORDER_STATE_DIR": "/state/home-recorder",
         "HOME_RECORDER_EVENTS_DIR": "/state/home-recorder/events",
         "HOME_RECORDER_MAX_EVENTS_PER_RUN": "10000",
+        "HOME_RECORDER_YAW_DRIFT_THRESHOLD_M": "0.03",
+        "HOME_RECORDER_COMMAND_ACTIVE_S": "0.50",
         "GO2_NETWORK_INTERFACE": "enP8p1s0"
       },
       "entitlements": [
@@ -124,7 +126,7 @@
         "PORT": "8092",
         "ACTION_MODE": "border_collie",
         "BORDER_COLLIE_URL": "http://127.0.0.1:8110",
-        "BORDER_COLLIE_EXPECTED_BUILD_LABEL": "stage-default-v9-operator-logs",
+        "BORDER_COLLIE_EXPECTED_BUILD_LABEL": "stage-default-v10-pose-drift-recorder",
         "CONTINUOUS_TRANSCRIPTION": "0",
         "AUTO_ARM_ACTIONS": "1",
         "AUDIO_DEVICE": "DJI MIC MINI",

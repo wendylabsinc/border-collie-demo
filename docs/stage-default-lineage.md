@@ -68,3 +68,9 @@ application version `1.1.8-stage-default`. It projects selected durable
 black-box events into compact INFO JSON for operators and suppresses routine
 app/media HTTP access lines. It does not change mission policy, perception,
 motion commands, Home gates, or stored evidence.
+
+The passive-diagnostics successor is `stage-default-v10-pose-drift-recorder`,
+Wendy application version `1.1.9-stage-default`. It retains every fresh DDS
+pose from Home capture through the terminal result and emits one
+`DRIFT DETECTED` warning when a yaw-only episode translates by the configured
+distance. The recorder has no command writer and the alert never changes motion.

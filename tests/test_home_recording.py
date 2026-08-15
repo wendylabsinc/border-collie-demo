@@ -31,14 +31,20 @@ def test_home_recording_hub_keeps_one_versioned_shared_event_section(tmp_path) -
     hub.record(
         run_id,
         "motion_command",
-        phase="return_home",
-        payload={"forward_mps": 1.0, "yaw_rps": 0.5, "motion_path": "factory"},
+        phase="turn_to_fruit",
+        payload={"forward_mps": 0.0, "yaw_rps": 0.5, "motion_path": "sport_yaw"},
     )
     hub.record(
         run_id,
         "guidance_decision",
         phase="approach_fruit",
         payload={"confidence": 0.7},
+    )
+    hub.record(
+        run_id,
+        "mission_event",
+        phase="find_fruit",
+        payload={"reason": "FIND_FRUIT_STARTED"},
     )
     hub.close()
 
@@ -51,10 +57,16 @@ def test_home_recording_hub_keeps_one_versioned_shared_event_section(tmp_path) -
     assert [event["kind"] for event in events] == [
         "home_captured",
         "motion_command",
+        "mission_event",
     ]
     assert {event["schema_version"] for event in events} == {1}
-    assert events[1]["phase"] == "return_home"
-    assert primary.read(run_id)[-1]["kind"] == "guidance_decision"
+    assert events[1]["phase"] == "turn_to_fruit"
+    assert [event["kind"] for event in primary.read(run_id)] == [
+        "home_captured",
+        "motion_command",
+        "guidance_decision",
+        "mission_event",
+    ]
 
 
 def test_shared_recorder_failure_never_prevents_primary_safety_evidence(tmp_path) -> None:

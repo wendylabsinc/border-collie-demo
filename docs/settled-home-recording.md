@@ -7,8 +7,8 @@ bounded spread. One bounded position-only retry is allowed; no Home-heading
 restoration movement is issued.
 
 The deployable identity for this contract is application version
-`1.1.7-stage-default`, build label
-`stage-default-v8-bearing-heading-home-turn`.
+`1.1.9-stage-default`, build label
+`stage-default-v10-pose-drift-recorder`.
 
 ## Thermal alarm audio lease
 
@@ -54,10 +54,24 @@ shared app journal and `rt/sportmodestate`; it imports no Unitree command
 client, writer, or RPC client. It correlates every active-run pose with Home,
 stage, odometry epoch, armed/mode state, and the latest app motion command, then
 writes `/state/home-recorder/runs/<run-id>/home-deep.ndjson`. Pose retention
-starts at `turn_toward_home` (or failure recovery), so high-rate DDS traffic
-during fruit search cannot exhaust the bounded Home window. The app exposes
-that file read-only at `GET /api/results/<run-id>/home-deep.ndjson`, and the
-recorder exposes health only at port 8112 `GET /status`.
+starts as soon as Home is captured and continues through the terminal result,
+so initial turns, fruit search, approach, posture, and Home return share one
+pose timeline. The app exposes that file read-only at
+`GET /api/results/<run-id>/home-deep.ndjson`, and the recorder exposes health
+only at port 8112 `GET /status`.
+
+For a fresh yaw-only command (`forward_mps == 0`, nonzero `yaw_rps`), the
+recorder anchors the latest pose and calculates planar translation at every DDS
+sample. Crossing the configured threshold writes one `drift_detected` row and
+emits a `DRIFT DETECTED` warning containing the run, stage, motion path,
+requested command, measured drift, and threshold. The episode resets after a
+zero/translation command, stage transition, or command expiry. This is strictly
+observational: it cannot stop, alter, authorize, or disarm motion.
+
+| Environment variable | Units | Default | Valid range | Safety meaning |
+| --- | --- | ---: | ---: | --- |
+| `HOME_RECORDER_YAW_DRIFT_THRESHOLD_M` | meters | `0.03` | `0.005..0.50` | Logging threshold only; it never changes motion authority. |
+| `HOME_RECORDER_COMMAND_ACTIVE_S` | seconds | `0.50` | `0.10..2.0` | Maximum age for associating a pose with the latest command; expired commands are recorded as zero and cannot create a late drift alert. |
 
 A non-finite DDS pose is rejected and increments `rejected_pose_samples`; it
 does not advance the pose sequence or get written into a run trace. Readiness

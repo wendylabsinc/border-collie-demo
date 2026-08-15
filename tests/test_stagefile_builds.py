@@ -69,3 +69,10 @@ def test_home_recorder_is_a_separate_passive_service_with_shared_durable_state()
         "path": "/state",
     }
     assert stagefile["stages"][-1]["cmd"] == ["python", "home_recorder.py"]
+    assert recorder["env"]["HOME_RECORDER_YAW_DRIFT_THRESHOLD_M"] == "0.03"
+    assert recorder["env"]["HOME_RECORDER_COMMAND_ACTIVE_S"] == "0.50"
+    assert (
+        stagefile["stages"][-1]["env"]["HOME_RECORDER_YAW_DRIFT_THRESHOLD_M"]
+        == "0.03"
+    )
+    assert stagefile["stages"][-1]["env"]["HOME_RECORDER_COMMAND_ACTIVE_S"] == "0.50"

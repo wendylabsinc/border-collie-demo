@@ -39,6 +39,12 @@ HOME_KINDS = frozenset(
         "home_position_retry",
         "home_verification_terminal",
         "run_sealed",
+        # The passive recorder needs every command phase to correlate its
+        # high-rate pose stream with yaw-only drift. It remains read-only and
+        # never feeds observations back into control authority.
+        "motion_command",
+        "mission_event",
+        "stage_result",
     }
 )
 
