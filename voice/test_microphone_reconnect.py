@@ -6,6 +6,31 @@ from microphone import run_microphone_session_loop
 
 
 class MicrophoneReconnectTests(unittest.TestCase):
+    def test_retries_every_configured_ten_seconds(self) -> None:
+        attempts = 0
+        sleeps: list[float] = []
+        state: dict[str, object] = {
+            "ready": False,
+            "device": None,
+            "error": "not started",
+        }
+
+        def session() -> None:
+            nonlocal attempts
+            attempts += 1
+            state.update(ready=False, error="receiver missing")
+
+        run_microphone_session_loop(
+            session=session,
+            state=state,
+            retry_interval_s=10.0,
+            sleep=sleeps.append,
+            should_stop=lambda: attempts == 3,
+        )
+
+        self.assertEqual(attempts, 3)
+        self.assertEqual(sleeps, [10.0, 10.0])
+
     def test_missing_open_failure_and_disconnect_all_retry_until_capture_recovers(
         self,
     ) -> None:

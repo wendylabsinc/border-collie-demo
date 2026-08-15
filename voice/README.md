@@ -28,7 +28,7 @@ acceptance result across browser reconnects.
 
 Microphone discovery, stream-open failures, and runtime disconnects all return
 to a bounded reconnect loop. `MICROPHONE_RETRY_INTERVAL_S` is measured in
-seconds, defaults to `2.0`, and accepts `0.25..30.0`. Voice actions remain
+seconds, defaults to `10.0`, and accepts `0.25..30.0`. Voice actions remain
 disarmed whenever capture is unavailable. `AUDIO_DEVICE` may be an exact input
 index, a case-insensitive device-name substring, or `auto`; retries cannot make
 a USB receiver appear if it does not expose a PortAudio-compatible input.

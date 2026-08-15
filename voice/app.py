@@ -52,7 +52,7 @@ MODEL_SHA256 = os.environ.get(
 PORT = int(os.environ.get("PORT", "8080"))
 AUDIO_DEVICE = os.environ.get("AUDIO_DEVICE", "auto")
 MICROPHONE_RETRY_INTERVAL_S = float(
-    os.environ.get("MICROPHONE_RETRY_INTERVAL_S", "2.0")
+    os.environ.get("MICROPHONE_RETRY_INTERVAL_S", "10.0")
 )
 ACTION_MODE = os.environ.get("ACTION_MODE", "mcp")
 BORDER_COLLIE_URL = os.environ.get("BORDER_COLLIE_URL", "http://127.0.0.1:8110")
