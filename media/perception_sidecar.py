@@ -27,6 +27,7 @@ from fastapi import FastAPI, HTTPException, Response
 from pydantic import BaseModel
 
 from media.coco_tester import CocoTester
+from media.fruit_color import classify_bbox_color
 from media.model_router import FruitCandidate, FruitModelRouter, RoutedPrediction
 
 SUPPORTED_FRUITS = ("apple", "banana", "pear")
@@ -857,6 +858,7 @@ class PerceptionRuntime:
         # close-range continuation path (floors as low as 0.10).
         confidence = candidate.confidence
         bbox = candidate.bbox_xyxy
+        color = classify_bbox_color(bgr, bbox)
         detection = self.evidence.note_detection(
             pts=pts,
             label=target_fruit,
@@ -869,6 +871,9 @@ class PerceptionRuntime:
                 "model_route": model_route,
                 "crop_confirmation": crop_confirmation,
                 "search_crop": search_crop,
+                "color_identity": color["identity"],
+                "color_confidence": color["confidence"],
+                "color_evidence": color,
             },
         )
         if detection is None:

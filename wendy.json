@@ -15,6 +15,7 @@
         "BORDER_COLLIE_PERCEPTION_STATUS_URL": "http://127.0.0.1:8111/status",
         "BORDER_COLLIE_PERCEPTION_TARGET_URL": "http://127.0.0.1:8111/api/target",
         "BORDER_COLLIE_PERCEPTION_FRAME_URL": "http://127.0.0.1:8111/api/camera/frame.jpg",
+        "BORDER_COLLIE_PERCEPTION_RAW_FRAME_URL": "http://127.0.0.1:8111/api/camera/raw.jpg",
         "BORDER_COLLIE_COCO_TEST_URL": "http://127.0.0.1:8111/api/coco-test",
         "BORDER_COLLIE_PERCEPTION_TIMEOUT_S": "0.25",
         "BORDER_COLLIE_BARK_ENABLED": "1",

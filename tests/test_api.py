@@ -134,6 +134,19 @@ def test_camera_preview_is_proxied_through_the_main_app() -> None:
     assert response.content == jpeg
 
 
+def test_raw_camera_preview_is_proxied_for_client_side_model_boxes() -> None:
+    jpeg = b"\xff\xd8raw-preview\xff\xd9"
+
+    response = TestClient(create_app(raw_camera_frame=lambda: jpeg)).get(
+        "/api/camera/raw.jpg"
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/jpeg"
+    assert response.headers["cache-control"] == "no-store"
+    assert response.content == jpeg
+
+
 def test_run_black_box_can_be_downloaded_while_the_run_is_active(tmp_path) -> None:
     with TestClient(ready_app(tmp_path)) as client:
         run = client.post(
@@ -180,7 +193,9 @@ def test_fruit_test_page_can_select_supported_fruit_without_motion() -> None:
 
     assert page.status_code == 200
     assert "Camera only — Woof will not move" in page.text
-    assert "const frameUrl = '/api/camera/frame.jpg';" in page.text
+    assert "const frameUrl = '/api/camera/raw.jpg';" in page.text
+    assert '<option value="orange" data-model="coco">Orange (COCO)</option>' in page.text
+    assert 'id="model-box"' in page.text
     assert ":8111/api/camera/frame.jpg" not in page.text
     assert "document.hidden" in page.text
     assert "scheduleRefresh(1500)" in page.text

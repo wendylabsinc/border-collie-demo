@@ -95,10 +95,16 @@ class PerceptionStatusClient:
         )
 
     def camera_frame(self) -> bytes:
+        return self._camera_frame(self.config.frame_url)
+
+    def raw_camera_frame(self) -> bytes:
+        return self._camera_frame(self.config.raw_frame_url)
+
+    def _camera_frame(self, url: str) -> bytes:
         if not self.config.enabled:
             raise RuntimeError("production camera/perception adapter is disabled")
         request = Request(
-            self.config.frame_url,
+            url,
             headers={"Accept": "image/jpeg"},
         )
         with urlopen(request, timeout=self.config.timeout_s) as response:
@@ -178,6 +184,10 @@ def evaluate_perception_evidence(
     detection_age_s = _age(now_s, detection_completed_s)
     bbox = _bounding_box(detection.get("bbox_xyxy"), source_width, source_height)
     inference_passes = _whole_number(detection.get("inference_passes"))
+    color_identity = detection.get("color_identity")
+    if color_identity not in {"red_apple", "orange", "unknown"}:
+        color_identity = "unknown"
+    color_confidence = _finite_number(detection.get("color_confidence"))
     raw_crop_confirmation = detection.get("crop_confirmation")
     if isinstance(raw_crop_confirmation, dict):
         crop_confirmation: dict[str, object] | None = {
@@ -285,6 +295,8 @@ def evaluate_perception_evidence(
             "consecutive_detections": detection_count,
             "inference_s": inference_s,
             "inference_passes": inference_passes,
+            "color_identity": color_identity,
+            "color_confidence": color_confidence,
             "crop_confirmation": crop_confirmation,
             "completed_monotonic_s": detection_completed_s,
             "age_s": detection_age_s,

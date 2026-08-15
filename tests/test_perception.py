@@ -36,6 +36,8 @@ def valid_payload() -> dict[str, object]:
                 "crop_xyxy": [400, 280, 880, 720],
                 "agreement_iou": 0.72,
             },
+            "color_identity": "red_apple",
+            "color_confidence": 0.91,
         },
     }
 
@@ -108,6 +110,8 @@ def test_status_preserves_validated_geometry_for_approach_and_arrival() -> None:
     assert status["detection"]["inference_passes"] == 2
     assert status["detection"]["crop_confirmation"]["promoted"] is True
     assert status["detection"]["crop_confirmation"]["crop_confidence"] == 0.81
+    assert status["detection"]["color_identity"] == "red_apple"
+    assert status["detection"]["color_confidence"] == 0.91
 
 
 def test_detection_must_be_bound_to_the_current_camera_generation() -> None:

@@ -89,6 +89,7 @@ def create_app(
     runs_root: Path | None = None,
     camera_perception_status: Callable[[], dict[str, object]] | None = None,
     camera_frame: Callable[[], bytes] | None = None,
+    raw_camera_frame: Callable[[], bytes] | None = None,
     select_perception_target: Callable[[str], dict[str, object]] | None = None,
     media_status: Callable[[], dict[str, object]] | None = None,
     coco_test_status: Callable[[], dict[str, object]] | None = None,
@@ -190,6 +191,25 @@ def create_app(
             raise HTTPException(
                 status_code=503,
                 detail=f"camera preview unavailable: {exc}",
+            ) from exc
+        return Response(
+            content=jpeg,
+            media_type="image/jpeg",
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get("/api/camera/raw.jpg")
+    async def raw_camera_frame_proxy() -> Response:
+        if raw_camera_frame is None:
+            raise HTTPException(
+                status_code=503, detail="raw camera preview is not connected"
+            )
+        try:
+            jpeg = await asyncio.to_thread(raw_camera_frame)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"raw camera preview unavailable: {exc}",
             ) from exc
         return Response(
             content=jpeg,

@@ -70,6 +70,22 @@ class FakeClasses:
 
 
 def test_coco_tester_ranks_all_frame_confidence_without_touching_target_evidence() -> None:
+    class Crop:
+        def __init__(self, pixels) -> None:
+            self.pixels = pixels
+
+        def reshape(self, *_shape):
+            return self
+
+        def tolist(self):
+            return self.pixels
+
+    class Source:
+        shape = (720, 1280, 3)
+
+        def __getitem__(self, _key):
+            return Crop([[0, 128, 255]] * 100)
+
     class Boxes:
         def __init__(self) -> None:
             self.conf = FakeTensor([0.80, 0.60])
@@ -94,8 +110,8 @@ def test_coco_tester_ranks_all_frame_confidence_without_touching_target_evidence
     tester = CocoTester(model_loader=lambda _path: Model(), clock=lambda: 10.0)
 
     enabled = tester.configure(enabled=True, minimum_confidence=0.05, reset=True)
-    first = tester.observe(object(), pts=100, now_s=10.0)
-    second = tester.observe(object(), pts=101, now_s=10.5)
+    first = tester.observe(Source(), pts=100, now_s=10.0)
+    second = tester.observe(Source(), pts=101, now_s=10.5)
 
     assert enabled["class_count"] == 2
     assert first is True and second is True
@@ -111,9 +127,68 @@ def test_coco_tester_ranks_all_frame_confidence_without_touching_target_evidence
         "maximum_confidence": 0.8,
         "detection_rate": 1.0,
         "frames_detected": 2,
+        "latest_bbox_xyxy": [10.0, 20.0, 100.0, 200.0],
+        "latest_color": {
+            "identity": "orange",
+            "confidence": 1.0,
+            "sample_count": 100,
+            "classified_coverage": 1.0,
+            "red_fraction": 0.0,
+            "orange_fraction": 1.0,
+        },
     }
     assert status["classes"][1]["label"] == "orange"
     assert status["classes"][1]["all_frame_score"] == 0.6
+    assert status["classes"][1]["latest_bbox_xyxy"] == [30.0, 40.0, 120.0, 220.0]
+    assert status["source_width"] == 1280
+    assert status["source_height"] == 720
+
+
+def test_coco_bbox_color_distinguishes_red_apple_from_orange() -> None:
+    class Crop:
+        def __init__(self, pixels) -> None:
+            self.pixels = pixels
+
+        def reshape(self, *_shape):
+            return self
+
+        def tolist(self):
+            return self.pixels
+
+    class Source:
+        shape = (100, 100, 3)
+
+        def __init__(self, pixels) -> None:
+            self.pixels = pixels
+
+        def __getitem__(self, _key):
+            return Crop(self.pixels)
+
+    class Boxes:
+        def __init__(self) -> None:
+            self.conf = FakeTensor([0.86])
+            self.cls = FakeClasses([47])
+            self.xyxy = [FakeTensor([10, 10, 90, 90])]
+
+        def __len__(self):
+            return 1
+
+    class Model:
+        def __init__(self) -> None:
+            self.names = {47: "apple"}
+
+        def predict(self, **_options):
+            return [SimpleNamespace(boxes=Boxes())]
+
+    def identity(pixels) -> str:
+        tester = CocoTester(model_loader=lambda _path: Model(), clock=lambda: 10.0)
+        tester.configure(enabled=True, reset=True)
+        tester.observe(Source(pixels), pts=1, now_s=10.0)
+        return tester.status()["classes"][0]["latest_color"]["identity"]
+
+    assert identity([[0, 8, 230]] * 100) == "red_apple"
+    assert identity([[0, 132, 240]] * 100) == "orange"
+    assert identity([[105, 110, 115]] * 100) == "unknown"
 
 
 def test_coco_tester_is_disabled_by_default_and_rate_limits_extra_inference() -> None:

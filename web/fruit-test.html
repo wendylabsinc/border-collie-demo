@@ -11,7 +11,10 @@
       .notice { padding: 0.8rem; border: 2px solid #2e9d55; border-radius: 0.6rem; font-weight: 700; }
       .controls { display: flex; gap: 0.75rem; justify-content: center; align-items: end; margin: 1rem 0; flex-wrap: wrap; }
       select, button { min-height: 3rem; padding: 0 1rem; font: inherit; }
-      img { width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: #111; border-radius: 0.6rem; }
+      .viewer { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #111; border-radius: 0.6rem; overflow: hidden; }
+      .viewer img { width: 100%; height: 100%; object-fit: contain; display: block; }
+      .model-box { position: absolute; display: none; border: 4px solid #38d86b; box-sizing: border-box; pointer-events: none; }
+      .model-box span { position: absolute; left: -4px; top: -2.1rem; padding: 0.25rem 0.45rem; color: white; background: #147d35; font-weight: 800; white-space: nowrap; }
       #result { min-height: 3rem; font-weight: 700; }
       .confidence { min-width: 11rem; padding: 0.55rem 1rem; border: 2px solid #2e9d55; border-radius: 0.6rem; }
       .confidence strong { display: block; font-size: 1.7rem; line-height: 1.1; font-variant-numeric: tabular-nums; }
@@ -35,6 +38,7 @@
             <option value="apple">Apple</option>
             <option value="banana">Banana</option>
             <option value="pear">Pear</option>
+            <option value="orange" data-model="coco">Orange (COCO)</option>
           </select>
         </label>
         <button id="preview" type="button">Refresh selection</button>
@@ -43,7 +47,10 @@
           <strong id="live-confidence">—</strong>
         </div>
       </div>
-      <img id="camera" alt="Live Woof camera with fruit recognition overlay">
+      <div class="viewer">
+        <img id="camera" alt="Live Woof camera with selected-fruit model box">
+        <div id="model-box" class="model-box"><span id="box-label"></span></div>
+      </div>
       <p id="result" role="status" aria-live="polite">Choose a fruit. Its green model box and confidence will update live.</p>
       <section class="tester" aria-labelledby="coco-title">
         <h2 id="coco-title">COCO replacement tester</h2>
@@ -77,9 +84,11 @@
       const fruit = document.querySelector('#fruit');
       const preview = document.querySelector('#preview');
       const camera = document.querySelector('#camera');
+      const modelBox = document.querySelector('#model-box');
+      const boxLabel = document.querySelector('#box-label');
       const result = document.querySelector('#result');
       const liveConfidence = document.querySelector('#live-confidence');
-      const frameUrl = '/api/camera/frame.jpg';
+      const frameUrl = '/api/camera/raw.jpg';
       const cocoConfidence = document.querySelector('#coco-confidence');
       const cocoStart = document.querySelector('#coco-start');
       const cocoStop = document.querySelector('#coco-stop');
@@ -112,19 +121,19 @@
       async function selectFruit() {
         preview.disabled = true;
         liveConfidence.textContent = '—';
+        modelBox.style.display = 'none';
         result.textContent = `Switching the camera test to ${fruit.value}…`;
         try {
+          const detectorTarget = fruit.value === 'orange' ? 'apple' : fruit.value;
           const response = await fetch('/api/fruits/preview', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({target_fruit: fruit.value}),
+            body: JSON.stringify({target_fruit: detectorTarget}),
           });
           const body = await response.json();
           if (!response.ok) throw new Error(body.detail || 'Selection failed.');
           const fruitLabel = fruit.options[fruit.selectedIndex].textContent;
-          result.textContent = body.qualified_for_demo
-            ? `Looking only for ${fruitLabel}. Waiting for a model box…`
-            : `Looking for ${fruitLabel}. Recognition test only; demo motion stays locked.`;
+          result.textContent = `Looking only for ${fruitLabel}. Waiting for a model and color match…`;
           await refreshFruitStatus();
         } catch (error) {
           result.textContent = error.message;
@@ -135,6 +144,19 @@
 
       function percent(value) {
         return value == null ? '—' : `${(Number(value) * 100).toFixed(1)}%`;
+      }
+
+      function drawBox(box, width, height, label) {
+        if (!box || box.length !== 4 || !width || !height) {
+          modelBox.style.display = 'none';
+          return;
+        }
+        modelBox.style.left = `${box[0] / width * 100}%`;
+        modelBox.style.top = `${box[1] / height * 100}%`;
+        modelBox.style.width = `${(box[2] - box[0]) / width * 100}%`;
+        modelBox.style.height = `${(box[3] - box[1]) / height * 100}%`;
+        boxLabel.textContent = label;
+        modelBox.style.display = 'block';
       }
 
       async function refreshFruitStatus() {
@@ -149,16 +171,37 @@
           const expected = fruit.value.toLowerCase();
           const label = typeof detection.label === 'string' ? detection.label.toLowerCase() : '';
           const confidence = Number(detection.confidence);
+          const colorIdentity = detection.color_identity;
+          const colorConfidence = Number(detection.color_confidence);
           const box = Array.isArray(detection.bbox_xyxy) ? detection.bbox_xyxy : null;
-          if (label === expected && Number.isFinite(confidence) && box && box.length === 4) {
-            liveConfidence.textContent = percent(confidence);
-            result.textContent = `${fruit.options[fruit.selectedIndex].textContent} detected. The green rectangle is its model bounding box.`;
+          const identityMatches = expected === 'orange'
+            ? label === 'apple' && colorIdentity === 'orange'
+            : expected === 'apple'
+              ? label === 'apple' && colorIdentity === 'red_apple'
+              : label === expected;
+          if (identityMatches && Number.isFinite(confidence) && box && box.length === 4) {
+            const colorText = ['apple', 'orange'].includes(expected) && Number.isFinite(colorConfidence)
+              ? ` · color ${percent(colorConfidence)}`
+              : '';
+            liveConfidence.textContent = `${percent(confidence)}${colorText}`;
+            drawBox(
+              box,
+              body.source && body.source.width,
+              body.source && body.source.height,
+              `${fruit.options[fruit.selectedIndex].textContent} ${percent(confidence)}`,
+            );
+            result.textContent = `${fruit.options[fruit.selectedIndex].textContent} detected. YOLO supplied the box; saturated color confirmed the identity.`;
           } else {
             liveConfidence.textContent = 'Not detected';
-            result.textContent = `No ${fruit.options[fruit.selectedIndex].textContent} box in the latest processed frame.`;
+            modelBox.style.display = 'none';
+            const colorDetail = ['apple', 'orange'].includes(expected)
+              ? ` Color currently reads ${colorIdentity || 'unknown'}.`
+              : '';
+            result.textContent = `No confirmed ${fruit.options[fruit.selectedIndex].textContent} in the latest processed frame.${colorDetail}`;
           }
         } catch (error) {
           liveConfidence.textContent = 'Unavailable';
+          modelBox.style.display = 'none';
           result.textContent = error.message;
         } finally {
           if (!document.hidden) fruitStatusTimer = window.setTimeout(refreshFruitStatus, 400);

@@ -57,6 +57,10 @@ def test_production_runtime_wires_the_real_stage_executor(
             return b"\xff\xd8preview\xff\xd9"
 
         @staticmethod
+        def raw_camera_frame():
+            return b"\xff\xd8raw-preview\xff\xd9"
+
+        @staticmethod
         def coco_test_status():
             return {"enabled": False, "strictly_read_only": True}
 

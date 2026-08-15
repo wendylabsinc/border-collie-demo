@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from threading import Lock
 from typing import Any
 
+from media.fruit_color import classify_bbox_color
+
 
 @dataclass
 class _ClassStats:
@@ -17,6 +19,8 @@ class _ClassStats:
     confidence_sum: float = 0.0
     maximum_confidence: float = 0.0
     latest_confidence: float | None = None
+    latest_bbox_xyxy: tuple[float, float, float, float] | None = None
+    latest_color: dict[str, object] | None = None
 
 
 class CocoTester:
@@ -46,6 +50,8 @@ class CocoTester:
         self._frames_skipped = 0
         self._latest_pts: int | None = None
         self._latest_inference_ms: float | None = None
+        self._source_width: int | None = None
+        self._source_height: int | None = None
         self._total_inference_ms = 0.0
         self._stats: dict[str, _ClassStats] = {}
         self._error: str | None = None
@@ -125,25 +131,37 @@ class CocoTester:
         with self._lock:
             self._frames_processed += 1
             self._latest_pts = pts
+            shape = getattr(source, "shape", None)
+            if isinstance(shape, (list, tuple)) and len(shape) >= 2:
+                height, width = shape[:2]
+                if isinstance(width, int) and isinstance(height, int):
+                    self._source_width = width
+                    self._source_height = height
             self._latest_inference_ms = inference_ms
             self._total_inference_ms += inference_ms
             self._error = None
             for stats in self._stats.values():
                 stats.latest_confidence = None
-            for class_id, confidence in best_by_class.items():
+                stats.latest_bbox_xyxy = None
+                stats.latest_color = None
+            for class_id, (confidence, bbox_xyxy) in best_by_class.items():
                 label = self._names.get(class_id, f"class-{class_id}")
                 stats = self._stats.setdefault(label, _ClassStats(class_id=class_id))
                 stats.frames_detected += 1
                 stats.confidence_sum += confidence
                 stats.maximum_confidence = max(stats.maximum_confidence, confidence)
                 stats.latest_confidence = confidence
+                stats.latest_bbox_xyxy = bbox_xyxy
+                stats.latest_color = classify_bbox_color(source, bbox_xyxy)
         return True
 
     def status(self) -> dict[str, object]:
         with self._lock:
             return self._status_locked()
 
-    def _best_by_class(self, results: object) -> dict[int, float]:
+    def _best_by_class(
+        self, results: object
+    ) -> dict[int, tuple[float, tuple[float, float, float, float] | None]]:
         if not isinstance(results, (list, tuple)) or not results:
             return {}
         boxes = getattr(results[0], "boxes", None)
@@ -151,13 +169,30 @@ class CocoTester:
             return {}
         confidences = boxes.conf.detach().cpu().tolist()
         class_ids = boxes.cls.detach().cpu().tolist()
-        best: dict[int, float] = {}
-        for raw_class_id, raw_confidence in zip(class_ids, confidences, strict=True):
+        raw_boxes = getattr(boxes, "xyxy", None)
+        if hasattr(raw_boxes, "detach"):
+            box_values = raw_boxes.detach().cpu().tolist()
+        elif isinstance(raw_boxes, (list, tuple)):
+            box_values = [
+                item.detach().cpu().tolist() if hasattr(item, "detach") else item
+                for item in raw_boxes
+            ]
+        else:
+            box_values = [None] * len(confidences)
+        best: dict[
+            int, tuple[float, tuple[float, float, float, float] | None]
+        ] = {}
+        for raw_class_id, raw_confidence, raw_box in zip(
+            class_ids, confidences, box_values, strict=True
+        ):
             class_id = int(raw_class_id)
             confidence = float(raw_confidence)
             if not math.isfinite(confidence):
                 continue
-            best[class_id] = max(best.get(class_id, 0.0), confidence)
+            bbox_xyxy = _valid_bbox(raw_box)
+            current = best.get(class_id)
+            if current is None or confidence > current[0]:
+                best[class_id] = (confidence, bbox_xyxy)
         return best
 
     def _reset_locked(self) -> None:
@@ -166,6 +201,8 @@ class CocoTester:
         self._frames_skipped = 0
         self._latest_pts = None
         self._latest_inference_ms = None
+        self._source_width = None
+        self._source_height = None
         self._total_inference_ms = 0.0
         self._stats = {}
         self._error = None
@@ -186,6 +223,12 @@ class CocoTester:
                     "maximum_confidence": stats.maximum_confidence,
                     "detection_rate": stats.frames_detected / frames if frames else 0.0,
                     "frames_detected": stats.frames_detected,
+                    "latest_bbox_xyxy": (
+                        None
+                        if stats.latest_bbox_xyxy is None
+                        else list(stats.latest_bbox_xyxy)
+                    ),
+                    "latest_color": stats.latest_color,
                 }
             )
         classes.sort(
@@ -206,9 +249,25 @@ class CocoTester:
             "frames_skipped_by_interval": self._frames_skipped,
             "latest_source_pts": self._latest_pts,
             "latest_inference_ms": self._latest_inference_ms,
+            "source_width": self._source_width,
+            "source_height": self._source_height,
             "mean_inference_ms": (
                 self._total_inference_ms / frames if frames else None
             ),
             "classes": classes,
             "error": self._error,
         }
+
+
+def _valid_bbox(value: object) -> tuple[float, float, float, float] | None:
+    if not isinstance(value, (list, tuple)) or len(value) != 4:
+        return None
+    try:
+        x1, y1, x2, y2 = (float(item) for item in value)
+    except (TypeError, ValueError):
+        return None
+    if not all(math.isfinite(item) for item in (x1, y1, x2, y2)):
+        return None
+    if x1 < 0.0 or y1 < 0.0 or x2 <= x1 or y2 <= y1:
+        return None
+    return x1, y1, x2, y2
