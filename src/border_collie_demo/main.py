@@ -8,7 +8,8 @@ from fastapi import FastAPI
 
 from .api import create_app
 from .black_box import RunBlackBox
-from .config import HardwareConfig, PerceptionConfig
+from .config import HardwareConfig, PerceptionConfig, env_bool
+from .controller_start import Go2ControllerStartSource
 from .evidence import TerminalEvidenceClient
 from .failure_epilogue import PositionOnlyFailureEpilogue
 from .hardware import HardwareManager
@@ -83,6 +84,11 @@ def build_app_from_env() -> FastAPI:
         }
 
     terminal_evidence = TerminalEvidenceClient.from_env()
+    controller_start_source = (
+        Go2ControllerStartSource()
+        if env_bool("BORDER_COLLIE_CONTROLLER_START_ENABLED")
+        else None
+    )
     return create_app(
         hardware=hardware,
         camera_perception_status=perception.status,
@@ -108,6 +114,7 @@ def build_app_from_env() -> FastAPI:
             )
         ),
         runtime_mode="production",
+        controller_start_source=controller_start_source,
     )
 
 

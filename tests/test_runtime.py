@@ -83,7 +83,29 @@ def test_production_runtime_wires_the_real_stage_executor(
             return []
 
     hardware = SimulatedHardware()
+    class ControllerSource:
+        def __init__(self) -> None:
+            self.started = False
+            self.closed = False
+            self.observer = None
+
+        async def start(self, observer) -> None:
+            self.started = True
+            self.observer = observer
+
+        async def close(self) -> None:
+            self.closed = True
+
+        def status(self) -> dict[str, object]:
+            return {
+                "connected": self.started and not self.closed,
+                "topic": "rt/lf/lowstate",
+            }
+
+    controller = ControllerSource()
+
     monkeypatch.setenv("BORDER_COLLIE_RUNTIME_MODE", "production")
+    monkeypatch.setenv("BORDER_COLLIE_CONTROLLER_START_ENABLED", "1")
     monkeypatch.setenv("BORDER_COLLIE_SYSTEM_AUDIO_POLICY", "normal")
     monkeypatch.setenv("BORDER_COLLIE_RUNS_DIR", str(tmp_path))
     monkeypatch.setattr(
@@ -95,6 +117,12 @@ def test_production_runtime_wires_the_real_stage_executor(
     monkeypatch.setattr(main_module, "BarkClient", Bark)
     monkeypatch.setattr(main_module, "TerminalEvidenceClient", Evidence)
     monkeypatch.setattr(main_module, "ProductionStageExecutor", stages)
+    monkeypatch.setattr(
+        main_module,
+        "Go2ControllerStartSource",
+        lambda: controller,
+        raising=False,
+    )
 
     with TestClient(build_app_from_env()) as client:
         started = client.post("/api/run", json={"target_fruit": "pear"}).json()["run"]
@@ -108,3 +136,5 @@ def test_production_runtime_wires_the_real_stage_executor(
     assert run["outcome"] == "COMPLETED"
     assert created and created[0][0] is hardware
     assert isinstance(created[0][2], SystemAudioPolicy)
+    assert controller.started is True
+    assert controller.closed is True

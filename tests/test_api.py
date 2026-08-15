@@ -5,6 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from border_collie_demo.api import create_app
+from border_collie_demo.controller_start import ControllerSample
 from border_collie_demo.evidence import EvidenceArtifact
 from border_collie_demo.mission import MissionMachine
 from border_collie_demo.models import MissionPhase, RemoteInput
@@ -80,6 +81,97 @@ def ready_app(runs_root):
         hardware=ReadyHardwareBoundary(),
         camera_perception_status=ready_camera_perception,
     )
+
+
+def test_controller_source_starts_with_app_but_boot_alone_never_activates_motion(
+    tmp_path,
+) -> None:
+    class ControllerSource:
+        def __init__(self) -> None:
+            self.started = False
+            self.closed = False
+            self.observer = None
+
+        async def start(self, observer) -> None:
+            self.started = True
+            self.observer = observer
+
+        async def close(self) -> None:
+            self.closed = True
+
+        def status(self) -> dict[str, object]:
+            return {
+                "connected": self.started and not self.closed,
+                "topic": "rt/lf/lowstate",
+            }
+
+    hardware = ReadyHardwareBoundary()
+    hardware.capture_home_calls = 0
+    original_capture_home = hardware.capture_home
+
+    def capture_home():
+        hardware.capture_home_calls += 1
+        return original_capture_home()
+
+    hardware.capture_home = capture_home
+    source = ControllerSource()
+    app = create_app(
+        runs_root=tmp_path,
+        hardware=hardware,
+        camera_perception_status=ready_camera_perception,
+        controller_start_source=source,
+    )
+
+    with TestClient(app) as client:
+        status = client.get("/api/status").json()
+        assert source.started is True
+        assert status["controller_start"]["source"]["connected"] is True
+        assert status["controller_start"]["adapter"]["ready"] is False
+        assert status["active_run_id"] is None
+        assert hardware.capture_home_calls == 0
+        assert hardware.status()["motion"]["armed"] is False
+
+    assert source.closed is True
+
+
+def test_controller_start_edge_uses_the_same_demo_activation_flow(tmp_path) -> None:
+    class ControllerSource:
+        def __init__(self) -> None:
+            self.decision = None
+
+        async def start(self, observer) -> None:
+            released = bytearray(40)
+            pressed = bytearray(40)
+            pressed[2:4] = (1 << 2).to_bytes(2, "little")
+            await observer(
+                ControllerSample("rt/lf/lowstate", 90, 900.0, bytes(released))
+            )
+            self.decision = await observer(
+                ControllerSample("rt/lf/lowstate", 91, 900.1, bytes(pressed))
+            )
+
+        async def close(self) -> None:
+            pass
+
+        def status(self) -> dict[str, object]:
+            return {"connected": True, "topic": "rt/lf/lowstate"}
+
+    source = ControllerSource()
+    with TestClient(
+        create_app(
+            runs_root=tmp_path,
+            hardware=ReadyHardwareBoundary(),
+            camera_perception_status=ready_camera_perception,
+            controller_start_source=source,
+        )
+    ) as client:
+        runs = client.get("/api/results").json()["runs"]
+
+        assert source.decision.disposition == "accepted"
+        assert len(runs) == 1
+        assert runs[0]["target_fruit"] == "pear"
+        assert runs[0]["activation_source"] == "go2_controller"
+        assert runs[0]["current_phase"] == "wait_for_command"
 
 
 class PoseLostAtHomeBoundary(ReadyHardwareBoundary):

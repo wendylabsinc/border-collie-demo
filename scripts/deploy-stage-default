@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+project_dir=$(dirname -- "$script_dir")
+cd "$project_dir"
+
+# Wendy's supported unless-stopped policy restores this app group after an
+# ordinary process exit and after agent/device boot. A deliberate `wendy stop`
+# remains authoritative and persists across reboot.
+exec "${WENDY_BIN:-wendy}" run --detach --restart-unless-stopped "$@"

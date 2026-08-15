@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .black_box import RunBlackBox
 from .cohort_policy import CohortPolicy, FailureSelector
 from .cohorts import CohortConflict, CohortController
+from .controller_start import ControllerStartAdapter, ControllerStartSource
 from .evidence import EvidenceArtifact
 from .fruits import QUALIFIED_FRUITS, SUPPORTED_FRUITS
 from .hardware import HardwareManager, HardwareUnavailable
@@ -93,6 +94,7 @@ def create_app(
     cohorts_root: Path | None = None,
     recording_status: Callable[[], dict[str, object]] | None = None,
     home_recordings_root: Path | None = None,
+    controller_start_source: ControllerStartSource | None = None,
 ) -> FastAPI:
     machine = mission or MissionMachine()
     robot = hardware or HardwareManager()
@@ -142,14 +144,36 @@ def create_app(
         ),
     )
 
+    async def activate_from_controller(mission: FruitMission):
+        if cohorts.running():
+            raise ActiveRunError("the active cohort owns Demo Run activation")
+        return await demo.activate(mission)
+
+    controller_start_adapter = (
+        None
+        if controller_start_source is None
+        else ControllerStartAdapter(
+            activate=activate_from_controller,
+            black_box=results.black_box,
+            active_run_id=lambda: results.active_run_id,
+        )
+    )
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         await demo.start()
         if system_audio is not None:
             await system_audio.start_muted()
+        if (
+            controller_start_source is not None
+            and controller_start_adapter is not None
+        ):
+            await controller_start_source.start(controller_start_adapter.observe)
         try:
             yield
         finally:
+            if controller_start_source is not None:
+                await controller_start_source.close()
             await cohorts.close()
             await demo.close()
             if system_audio is not None:
@@ -252,6 +276,21 @@ def create_app(
             "search_experiment": search_experiment_contract(),
             "fruit_bearing_map": (
                 read_bearing_map() if callable(read_bearing_map) else None
+            ),
+            "controller_start": (
+                {
+                    "enabled": False,
+                    "detail": "physical Start activation is disabled",
+                }
+                if (
+                    controller_start_source is None
+                    or controller_start_adapter is None
+                )
+                else {
+                    "enabled": True,
+                    "source": controller_start_source.status(),
+                    "adapter": controller_start_adapter.status(),
+                }
             ),
             "home_recording": (
                 recording_status()

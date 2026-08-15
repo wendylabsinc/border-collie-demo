@@ -74,3 +74,15 @@ Wendy application version `1.1.9-stage-default`. It retains every fresh DDS
 pose from Home capture through the terminal result and emits one
 `DRIFT DETECTED` warning when a yaw-only episode translates by the configured
 distance. The recorder has no command writer and the alert never changes motion.
+
+The controller-input successor is `stage-default-v11-controller-start-pear`,
+Wendy application version `1.1.10-stage-default`. It adds one read-only
+`rt/lf/lowstate` adapter: after observing Start released, one Start rising edge
+requests one idempotent Pear Demo Run through `StageDemo.activate`. The adapter
+retains exact source, tick, receive time, and button evidence; holding Start or
+repeated DDS delivery cannot create additional runs. It does not own motion and
+cannot bypass preflight, takeover, exclusive-run, watchdog, Home, or disarm
+contracts. The repository deployment wrapper makes Wendy's supported
+`unless-stopped` boot/exit restart policy explicit; boot alone never activates
+a run. This candidate is software-tested only until physically qualified on a
+clear, supervised Go2.
