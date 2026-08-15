@@ -52,6 +52,7 @@ FORWARD_CAPABLE_OPERATIONS = frozenset(
     {"forward_pulse", "approach_target", "guide_target", "return_home"}
 )
 APPROACH_TRACE_LIMIT = 256
+ALIGNMENT_TRACE_LIMIT = 256
 
 
 def _finite_float(value: object) -> float | None:
@@ -356,6 +357,124 @@ class _ApproachRecorder:
                     if self._latest_inference_summary is not None
                     else {}
                 ),
+            },
+        }
+
+
+class _AlignmentEffectRecorder:
+    """Measure the next fresh observation after each camera-guided yaw command."""
+
+    def __init__(
+        self,
+        target_fruit: str,
+        *,
+        event_sink: Callable[[dict[str, object]], None] | None = None,
+    ) -> None:
+        self._target_fruit = target_fruit
+        self._event_sink = event_sink
+        self._pending: dict[str, object] | None = None
+        self._effects: deque[dict[str, object]] = deque(maxlen=ALIGNMENT_TRACE_LIMIT)
+        self._measured_commands = 0
+        self._outcomes: Counter[str] = Counter()
+        self._improvement_total = 0.0
+
+    def observe(
+        self,
+        status: dict[str, object],
+        decision: GuidanceDecision,
+        *,
+        sample: int,
+        now_s: float,
+    ) -> dict[str, object] | None:
+        source = status.get("source")
+        detection = status.get("detection")
+        source_record = source if isinstance(source, dict) else {}
+        detection_record = detection if isinstance(detection, dict) else {}
+        source_pts = source_record.get("pts")
+        generation = status.get("generation")
+        center_x = _finite_float(detection_record.get("center_x_ratio"))
+        label = detection_record.get("label")
+        effect: dict[str, object] | None = None
+
+        if (
+            self._pending is not None
+            and decision.frame_advanced
+            and source_pts != self._pending["source_pts_before"]
+        ):
+            pending = self._pending
+            self._pending = None
+            if (
+                generation == pending["generation"]
+                and label == self._target_fruit
+                and center_x is not None
+            ):
+                before = float(pending["center_x_before"])
+                error_before = abs(before - 0.5)
+                error_after = abs(center_x - 0.5)
+                improvement = error_before - error_after
+                if improvement > 1e-9:
+                    outcome = "improved"
+                elif improvement < -1e-9:
+                    outcome = "worsened"
+                else:
+                    outcome = "unchanged"
+                effect = {
+                    "target_fruit": self._target_fruit,
+                    "command_sample": pending["command_sample"],
+                    "observation_sample": sample,
+                    "source_pts_before": pending["source_pts_before"],
+                    "source_pts_after": source_pts,
+                    "center_x_before": round(before, 6),
+                    "center_x_after": round(center_x, 6),
+                    "center_error_before": round(error_before, 6),
+                    "center_error_after": round(error_after, 6),
+                    "improvement_ratio": round(improvement, 6),
+                    "improvement_percent_points": round(improvement * 100.0, 4),
+                    "outcome": outcome,
+                    "commanded_yaw_rps": pending["commanded_yaw_rps"],
+                    "elapsed_to_observation_s": round(
+                        now_s - float(pending["commanded_at_s"]), 6
+                    ),
+                }
+                self._effects.append(effect)
+                self._measured_commands += 1
+                self._outcomes[outcome] += 1
+                self._improvement_total += improvement
+                if self._event_sink is not None:
+                    self._event_sink(dict(effect))
+
+        commanded_yaw_rps = decision.command.yaw_rps
+        if (
+            decision.frame_advanced
+            and commanded_yaw_rps != 0.0
+            and label == self._target_fruit
+            and center_x is not None
+        ):
+            self._pending = {
+                "command_sample": sample,
+                "source_pts_before": source_pts,
+                "generation": generation,
+                "center_x_before": center_x,
+                "commanded_yaw_rps": commanded_yaw_rps,
+                "commanded_at_s": now_s,
+            }
+        return effect
+
+    def evidence(self) -> dict[str, object]:
+        return {
+            "alignment_effects": [dict(effect) for effect in self._effects],
+            "alignment_trace_limit": ALIGNMENT_TRACE_LIMIT,
+            "alignment_summary": {
+                "measured_commands": self._measured_commands,
+                "improved": self._outcomes["improved"],
+                "worsened": self._outcomes["worsened"],
+                "unchanged": self._outcomes["unchanged"],
+                "average_improvement_ratio": (
+                    self._improvement_total / self._measured_commands
+                    if self._measured_commands
+                    else None
+                ),
+                "pending_command": self._pending is not None,
             },
         }
 
@@ -1305,6 +1424,12 @@ class HardwareManager:
                 if allow_forward
                 else None
             )
+            alignment_recorder = _AlignmentEffectRecorder(
+                guidance.target_fruit,
+                event_sink=lambda event: self._record_black_box(
+                    "alignment_effect", event
+                ),
+            )
             try:
                 assert self._motion is not None and self._pose is not None
                 if not allow_forward:
@@ -1393,6 +1518,12 @@ class HardwareManager:
                         allow_forward=allow_forward,
                     )
                     samples += 1
+                    alignment_effect = alignment_recorder.observe(
+                        status,
+                        decision,
+                        sample=samples,
+                        now_s=now,
+                    )
                     if approach_recorder is not None:
                         approach_recorder.record(status, decision, now_s=now)
                     if not allow_forward:
@@ -1468,6 +1599,7 @@ class HardwareManager:
                             ),
                             "locked": decision.phase is GuidancePhase.LOCKED,
                             "fruit_bearing_map": bearing_map_status,
+                            "alignment_effect": alignment_effect,
                         }
                         search_trace.append(search_event)
                         self._record_black_box("guidance_decision", search_event)
@@ -1487,6 +1619,7 @@ class HardwareManager:
                                         search_trace
                                     ),
                                     **inference_evidence,
+                                    **alignment_recorder.evidence(),
                                     **diagnostics,
                                 },
                             )
@@ -1498,6 +1631,7 @@ class HardwareManager:
                                 "search_trace": search_trace,
                                 "confidence_summary": confidence_summary(search_trace),
                                 **inference_evidence,
+                                **alignment_recorder.evidence(),
                                 **diagnostics,
                             },
                         )
@@ -1545,6 +1679,7 @@ class HardwareManager:
                                 else None
                             ),
                             **inference_evidence,
+                            **alignment_recorder.evidence(),
                             "motion_commands_sent": commands_sent,
                             **(
                                 approach_recorder.evidence()
@@ -1563,6 +1698,7 @@ class HardwareManager:
                             "search_trace": search_trace,
                             "confidence_summary": confidence_summary(search_trace),
                             **inference_evidence,
+                            **alignment_recorder.evidence(),
                             **(
                                 approach_recorder.evidence()
                                 if approach_recorder is not None

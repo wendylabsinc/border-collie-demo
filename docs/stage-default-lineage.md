@@ -103,3 +103,11 @@ lowering Woof's verified yaw floor: one minimum-rate yaw-only correction is
 followed by one exact-zero fresh-frame settle before another correction can be
 issued. The timeout and near-center band are environment-backed, frozen per
 run, and exposed by the existing UI tuning contract.
+
+The observability successor is `stage-default-v14-alignment-effects`, Wendy
+application version `1.1.13-stage-default`. It preserves the v13 motion policy
+and records the visual effect of every camera-guided yaw correction against the
+next fresh same-generation Target Fruit frame. Positive improvement means the
+absolute horizontal center error decreased; negative improvement means it
+worsened. Duplicate frames never create measurements, and the recorder does
+not change motion authority or safety decisions.

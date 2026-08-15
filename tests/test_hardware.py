@@ -698,6 +698,114 @@ def test_mission_lifetime_pear_guidance_arrives_stopped_after_disappearance() ->
     asyncio.run(scenario())
 
 
+def test_search_black_box_measures_each_alignment_command_against_next_fresh_frame(
+    tmp_path,
+) -> None:
+    async def scenario() -> None:
+        from uuid import uuid4
+
+        recorder = RunBlackBox(tmp_path)
+        run_id = str(uuid4())
+        motion = FakeMotion()
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: FakePose(),
+            black_box=recorder,
+        )
+        await manager.start()
+        manager.start_motion_trace("turn_to_fruit", run_id=run_id)
+        guidance = FruitGuidance("banana")
+        centers = iter((0.68, 0.85, 0.58, 0.54, 0.52, 0.50))
+        pts = 0
+
+        def status() -> dict[str, object]:
+            nonlocal pts
+            pts += 1
+            center_x = next(centers, 0.50)
+            return {
+                "camera_healthy": True,
+                "generation": "camera-align",
+                "source": {
+                    "pts": pts,
+                    "time_base": "1/90000",
+                    "age_s": 0.01,
+                },
+                "detection": {
+                    "label": "banana",
+                    "confidence": 0.80,
+                    "generation": "camera-align",
+                    "source_pts": pts,
+                    "source_time_base": "1/90000",
+                    "age_s": 0.01,
+                    "center_x_ratio": center_x,
+                    "center_y_ratio": 0.55,
+                    "bottom_ratio": 0.65,
+                },
+            }
+
+        result = await manager.guide_target(
+            status,
+            guidance,
+            allow_forward=False,
+            timeout_s=0.5,
+        )
+
+        effects = [
+            event["payload"]
+            for event in recorder.read(run_id)
+            if event["kind"] == "alignment_effect"
+        ]
+        assert effects == [
+            {
+                "target_fruit": "banana",
+                "command_sample": 1,
+                "observation_sample": 2,
+                "source_pts_before": 1,
+                "source_pts_after": 2,
+                "center_x_before": 0.68,
+                "center_x_after": 0.85,
+                "center_error_before": 0.18,
+                "center_error_after": 0.35,
+                "improvement_ratio": -0.17,
+                "improvement_percent_points": -17.0,
+                "outcome": "worsened",
+                "commanded_yaw_rps": -0.5,
+                "elapsed_to_observation_s": pytest.approx(0.01, abs=0.03),
+            },
+            {
+                "target_fruit": "banana",
+                "command_sample": 3,
+                "observation_sample": 4,
+                "source_pts_before": 3,
+                "source_pts_after": 4,
+                "center_x_before": 0.58,
+                "center_x_after": 0.54,
+                "center_error_before": 0.08,
+                "center_error_after": 0.04,
+                "improvement_ratio": 0.04,
+                "improvement_percent_points": 4.0,
+                "outcome": "improved",
+                "commanded_yaw_rps": -0.5,
+                "elapsed_to_observation_s": pytest.approx(0.01, abs=0.03),
+            },
+        ]
+        assert result["alignment_summary"] == {
+            "measured_commands": 2,
+            "improved": 1,
+            "worsened": 1,
+            "unchanged": 0,
+            "average_improvement_ratio": pytest.approx(-0.065),
+            "pending_command": False,
+        }
+        assert result["alignment_effects"] == effects
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
 def test_search_records_all_fruits_in_bearing_map_but_selected_target_drives_lock() -> None:
     async def scenario() -> None:
         motion = FakeMotion()
