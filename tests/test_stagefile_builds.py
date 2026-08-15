@@ -71,3 +71,11 @@ def test_home_recorder_is_a_separate_passive_service_with_shared_durable_state()
     assert stagefile["stages"][-1]["cmd"] == ["python", "home_recorder.py"]
     assert recorder["env"]["HOME_RECORDER_YAW_DRIFT_THRESHOLD_M"] == "0.03"
     assert recorder["env"]["HOME_RECORDER_COMMAND_ACTIVE_S"] == "0.50"
+
+
+def test_app_enables_read_only_controller_start_subscription() -> None:
+    descriptor = yaml.safe_load((ROOT / "wendy.json").read_text())
+    app = descriptor["services"]["app"]
+
+    assert app["env"]["BORDER_COLLIE_CONTROLLER_START_ENABLED"] == "1"
+    assert {item["type"] for item in app["entitlements"]} >= {"network", "persist"}

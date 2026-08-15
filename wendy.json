@@ -1,16 +1,17 @@
 {
   "appId": "border-collie-demo",
-  "version": "1.1.10-stage-default",
+  "version": "1.1.11-stage-default",
   "services": {
     "app": {
       "context": ".",
       "env": {
         "BORDER_COLLIE_PORT": "8110",
-        "BORDER_COLLIE_BUILD_LABEL": "stage-default-v11-progressive-lock-yaw",
+        "BORDER_COLLIE_BUILD_LABEL": "stage-default-v12-controller-progressive-lock",
         "BORDER_COLLIE_OPERATOR_LOG_ENABLED": "1",
         "BORDER_COLLIE_RUNTIME_MODE": "production",
         "BORDER_COLLIE_HARDWARE_ENABLED": "1",
         "BORDER_COLLIE_AUTONOMY_ENABLED": "1",
+        "BORDER_COLLIE_CONTROLLER_START_ENABLED": "1",
         "BORDER_COLLIE_LAB_MOTION_ENABLED": "0",
         "BORDER_COLLIE_PERCEPTION_ENABLED": "1",
         "BORDER_COLLIE_PERCEPTION_STATUS_URL": "http://127.0.0.1:8111/status",
@@ -129,7 +130,7 @@
         "PORT": "8092",
         "ACTION_MODE": "border_collie",
         "BORDER_COLLIE_URL": "http://127.0.0.1:8110",
-        "BORDER_COLLIE_EXPECTED_BUILD_LABEL": "stage-default-v11-progressive-lock-yaw",
+        "BORDER_COLLIE_EXPECTED_BUILD_LABEL": "stage-default-v12-controller-progressive-lock",
         "CONTINUOUS_TRANSCRIPTION": "0",
         "AUTO_ARM_ACTIONS": "1",
         "AUDIO_DEVICE": "DJI MIC MINI",
