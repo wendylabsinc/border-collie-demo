@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "date_utc": "2026-08-15",
+  "build_label": "stage-default-v14-alignment-effects",
+  "version": "1.1.13-stage-default",
+  "commit": "b8c62e1b401d1462299f53cf791a8cf0c3bdbbe1",
+  "cohort_id": "7b8ca718-35b0-4eae-8041-300f689e3334",
+  "seed": 2026081513,
+  "fruit_sequence": ["banana", "apple", "pear"],
+  "status": "COMPLETED",
+  "machine_successes": 0,
+  "attempts": 3,
+  "recording_contract": {
+    "metric": "absolute horizontal center error before a sent yaw command minus the error on the next fresh same-generation Target Fruit frame",
+    "positive_meaning": "closer to image center",
+    "negative_meaning": "farther from image center",
+    "full_effects": "durable per-run black-box.ndjson events with kind alignment_effect"
+  },
+  "runs": [
+    {
+      "number": 1,
+      "target_fruit": "banana",
+      "run_id": "5358dc1b-db5b-4ffc-8d3e-d2823bc91e80",
+      "outcome": "FAILED",
+      "reason": "TARGET_RECOGNITION_FAILURE",
+      "failed_phase": "turn_to_fruit",
+      "terminal_home_distance_m": 0.13205730618019176,
+      "final_safety_state": "DISARMED_CONFIRMED",
+      "detected_frames": 0,
+      "alignment": {
+        "measured": 0,
+        "improved": 0,
+        "worsened": 0,
+        "unchanged": 0,
+        "average_improvement_ratio": null,
+        "minimum_improvement_ratio": null,
+        "maximum_improvement_ratio": null,
+        "average_observation_latency_s": null
+      }
+    },
+    {
+      "number": 2,
+      "target_fruit": "apple",
+      "run_id": "093ad8c2-0278-4fcf-8080-6588e1ea4e55",
+      "outcome": "FAILED",
+      "reason": "TARGET_RECOGNITION_FAILURE",
+      "failed_phase": "turn_to_fruit",
+      "terminal_home_distance_m": 0.022488492385536924,
+      "final_safety_state": "DISARMED_CONFIRMED",
+      "detected_frames": 15,
+      "confidence_minimum": 0.017376601696014404,
+      "confidence_maximum": 0.7248698472976685,
+      "confidence_average": 0.4362389028072357,
+      "alignment": {
+        "measured": 10,
+        "improved": 5,
+        "worsened": 4,
+        "unchanged": 1,
+        "average_improvement_ratio": 0.0223438,
+        "minimum_improvement_ratio": -0.267188,
+        "maximum_improvement_ratio": 0.226953,
+        "average_observation_latency_s": 1.6355819
+      }
+    },
+    {
+      "number": 3,
+      "target_fruit": "pear",
+      "run_id": "8877dff9-4faf-4564-ba56-51c7f57c4ab3",
+      "outcome": "FAILED",
+      "reason": "TARGET_RECOGNITION_FAILURE",
+      "failed_phase": "turn_to_fruit",
+      "terminal_home_distance_m": 0.0927092728744328,
+      "final_safety_state": "DISARMED_CONFIRMED",
+      "detected_frames": 62,
+      "confidence_minimum": 0.01013106107711792,
+      "confidence_maximum": 0.8925619125366211,
+      "confidence_average": 0.3347708054127232,
+      "alignment": {
+        "measured": 46,
+        "improved": 23,
+        "worsened": 16,
+        "unchanged": 7,
+        "average_improvement_ratio": 0.0033458478260869574,
+        "minimum_improvement_ratio": -0.362109,
+        "maximum_improvement_ratio": 0.311719,
+        "average_observation_latency_s": 0.21420534782608702
+      }
+    }
+  ],
+  "interpretation": [
+    "Banana was never detected, so alignment control was not the failure cause for run 1.",
+    "Apple corrections were net positive on average but highly variable and never produced the required consecutive centered lock.",
+    "Pear corrections were nearly neutral on average with large frame-to-frame swings, supporting detector geometry instability and overcorrection rather than insufficient total search time.",
+    "All three runs returned inside the 0.50 m cohort Home margin and ended disarmed."
+  ]
+}
