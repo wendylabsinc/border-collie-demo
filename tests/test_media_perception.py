@@ -253,7 +253,9 @@ def test_coco_color_candidates_reject_large_background_boxes() -> None:
     ]
 
 
-def test_coco_sports_ball_proposal_only_confirms_mango_from_mixed_hues() -> None:
+def test_coco_current_scene_confirms_lower_frame_bowl_as_mango_not_sports_ball_pear() -> (
+    None
+):
     class Crop:
         def __init__(self, pixels) -> None:
             self.pixels = pixels
@@ -265,7 +267,7 @@ def test_coco_sports_ball_proposal_only_confirms_mango_from_mixed_hues() -> None
             return self.pixels
 
     class Source:
-        shape = (100, 100, 3)
+        shape = (720, 1280, 3)
 
         def __init__(self, pixels) -> None:
             self.pixels = pixels
@@ -274,49 +276,64 @@ def test_coco_sports_ball_proposal_only_confirms_mango_from_mixed_hues() -> None
             return Crop(self.pixels)
 
     class Boxes:
-        def __init__(self, class_id: int) -> None:
+        def __init__(self, class_id: int, bbox: list[float]) -> None:
             self.conf = FakeTensor([0.24])
             self.cls = FakeClasses([class_id])
-            self.xyxy = [FakeTensor([10, 10, 90, 90])]
+            self.xyxy = [FakeTensor(bbox)]
 
         def __len__(self):
             return 1
 
     class Model:
-        def __init__(self, class_id: int, label: str) -> None:
+        def __init__(self, class_id: int, label: str, bbox: list[float]) -> None:
             self.class_id = class_id
+            self.bbox = bbox
             self.names = {class_id: label}
 
         def predict(self, **_options):
-            return [SimpleNamespace(boxes=Boxes(self.class_id))]
+            return [SimpleNamespace(boxes=Boxes(self.class_id, self.bbox))]
 
     def observe(
-        pixels, *, class_id: int = 32, label: str = "sports ball"
+        pixels,
+        *,
+        class_id: int,
+        label: str,
+        bbox: list[float],
     ) -> dict[str, object]:
         tester = CocoTester(
-            model_loader=lambda _path: Model(class_id, label), clock=lambda: 10.0
+            model_loader=lambda _path: Model(class_id, label, bbox), clock=lambda: 10.0
         )
         tester.configure(enabled=True, reset=True)
         tester.observe(Source(pixels), pts=1, now_s=10.0)
         return tester.status()["classes"][0]
 
-    mango = observe([[0, 8, 230]] * 60 + [[0, 80, 230]] * 40)
-    assert mango["label"] == "sports ball"
+    mango = observe(
+        [[172, 218, 246]] * 100,
+        class_id=45,
+        label="bowl",
+        bbox=[736.8, 496.2, 775.2, 515.1],
+    )
+    assert mango["label"] == "bowl"
     assert mango["latest_confidence"] == 0.24
-    assert mango["latest_bbox_xyxy"] == [10.0, 10.0, 90.0, 90.0]
+    assert mango["latest_bbox_xyxy"] == [736.8, 496.2, 775.2, 515.1]
     assert mango["latest_candidate_evidence"]["identity"] == "mango"
 
-    assert (
-        observe([[0, 8, 230]] * 100)["latest_candidate_evidence"]["identity"]
-        == "unknown"
+    pear = observe(
+        [[0, 180, 50]] * 100,
+        class_id=32,
+        label="sports ball",
+        bbox=[446.0, 486.0, 477.0, 514.0],
     )
-    assert (
-        observe([[0, 132, 240]] * 100)["latest_candidate_evidence"]["identity"]
-        == "unknown"
+    assert pear["label"] == "sports ball"
+    assert pear["latest_candidate_evidence"]["identity"] == "unknown"
+
+    not_lower_frame = observe(
+        [[172, 218, 246]] * 100,
+        class_id=45,
+        label="bowl",
+        bbox=[736.8, 196.2, 775.2, 215.1],
     )
-    orange = observe([[0, 132, 240]] * 100, class_id=45, label="bowl")
-    assert orange["label"] == "bowl"
-    assert orange["latest_candidate_evidence"]["identity"] == "orange"
+    assert not_lower_frame["latest_candidate_evidence"]["identity"] == "unknown"
 
 
 def test_coco_tester_is_disabled_by_default_and_rate_limits_extra_inference() -> None:

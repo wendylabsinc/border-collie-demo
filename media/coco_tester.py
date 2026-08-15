@@ -231,7 +231,11 @@ class CocoTester:
             }
             if label.casefold() in {"bowl", "sports ball"}:
                 item["latest_candidate_evidence"] = classify_replacement_candidate(
-                    label, stats.latest_color
+                    label,
+                    stats.latest_color,
+                    stats.latest_bbox_xyxy,
+                    source_width=self._source_width,
+                    source_height=self._source_height,
                 )
             classes.append(item)
         classes.sort(

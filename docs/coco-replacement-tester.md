@@ -36,15 +36,15 @@ stage prop, not to restrict the experiment to botanical fruit.
 
 ## Stage candidate identities
 
-The camera-only Mango selector uses COCO's raw `sports ball` proposal for its
-box. It confirms Mango only when the pixels inside that box contain substantial
-red **and** orange hue evidence. A red-only result (confusable with the red
-apple), orange-only result (confusable with Orange), fewer than 25 useful color
-samples, or less than 20% classified coverage remains `unknown`.
+The camera-only Mango selector uses COCO's raw `bowl` proposal for its box. It
+confirms the staged Mango candidate only when that proposal is small, in the
+bounded lower-frame stage band, and contains strong warm/yellow color evidence.
+Fewer than 25 useful color samples, less than 20% classified coverage, weak
+color evidence, another raw class (including the pear's `sports ball` false
+positive), or out-of-band geometry remains `unknown`.
 
-The separate Orange candidate uses the raw `bowl` proposal plus the existing
-orange hue evidence. This raw-label boundary prevents Mango's `sports ball`
-box from being shown as Orange. The status retains each proposal's original
-COCO label, confidence, and bounding box next to the derived candidate
-evidence. These candidate identities remain diagnostic and never enter Demo
-Run perception or motion authority.
+The status retains each proposal's original COCO label, confidence, and
+bounding box next to the derived candidate evidence. This is a bounded test of
+the current prop and stage placement, not a general botanical Mango-vs-Orange
+classifier. Candidate identities remain diagnostic and never enter Demo Run
+perception or motion authority.

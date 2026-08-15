@@ -90,55 +90,55 @@ def classify_bgr_pixels(pixels: object) -> dict[str, object]:
     }
 
 
-def classify_mango_color_evidence(color: object) -> dict[str, object]:
-    """Recognize the staged mango's red/orange blend, or remain unknown.
-
-    This evidence is only meaningful when paired with the COCO ``sports ball``
-    geometry proposal. A single red or orange hue band is intentionally not
-    enough to distinguish Mango from the red apple or Orange props.
-    """
+def classify_replacement_candidate(
+    model_label: str,
+    color: object,
+    bbox_xyxy: object,
+    *,
+    source_width: int | None,
+    source_height: int | None,
+) -> dict[str, object]:
+    """Confirm the staged warm/yellow Mango proposal, or remain unknown."""
     unknown = {"identity": "unknown", "confidence": 0.0}
-    if not isinstance(color, dict):
+    if model_label.casefold().strip() != "bowl" or not isinstance(color, dict):
+        return unknown
+    if not isinstance(bbox_xyxy, (list, tuple)) or len(bbox_xyxy) != 4:
+        return unknown
+    if not source_width or not source_height:
         return unknown
     try:
+        confidence = float(color.get("confidence", 0.0))
         sample_count = int(color.get("sample_count", 0))
         coverage = float(color.get("classified_coverage", 0.0))
-        red_fraction = float(color.get("red_fraction", 0.0))
-        orange_fraction = float(color.get("orange_fraction", 0.0))
+        x1, y1, x2, y2 = (float(value) for value in bbox_xyxy)
     except (TypeError, ValueError):
         return unknown
-    values = (coverage, red_fraction, orange_fraction)
+    values = (confidence, coverage, x1, y1, x2, y2)
     if not all(math.isfinite(value) for value in values):
         return unknown
-    classified = red_fraction + orange_fraction
-    if sample_count < 25 or coverage < 0.20 or classified <= 0.0:
+    if (
+        color.get("identity") != "orange"
+        or not 0.65 <= confidence <= 1.0
+        or sample_count < 25
+        or coverage < 0.20
+        or x1 < 0.0
+        or y1 < 0.0
+        or x2 <= x1
+        or y2 <= y1
+    ):
         return unknown
-    red_share = red_fraction / classified
-    orange_share = orange_fraction / classified
-    if min(red_share, orange_share) < 0.20:
+    width_ratio = (x2 - x1) / source_width
+    height_ratio = (y2 - y1) / source_height
+    center_y_ratio = ((y1 + y2) / 2.0) / source_height
+    bottom_ratio = y2 / source_height
+    if not (
+        0.01 <= width_ratio <= 0.08
+        and 0.01 <= height_ratio <= 0.08
+        and 0.60 <= center_y_ratio <= 0.82
+        and bottom_ratio <= 0.85
+    ):
         return unknown
-    balance = min(red_share, orange_share) / 0.50
-    return {
-        "identity": "mango",
-        "confidence": balance * min(1.0, coverage / 0.50),
-    }
-
-
-def classify_replacement_candidate(
-    model_label: str, color: object
-) -> dict[str, object]:
-    """Combine one raw COCO proposal label with bounded color evidence."""
-    normalized_label = model_label.casefold().strip()
-    if normalized_label == "sports ball":
-        return classify_mango_color_evidence(color)
-    if normalized_label == "bowl" and isinstance(color, dict):
-        try:
-            confidence = float(color.get("confidence", 0.0))
-        except (TypeError, ValueError):
-            confidence = 0.0
-        if color.get("identity") == "orange" and math.isfinite(confidence):
-            return {"identity": "orange", "confidence": confidence}
-    return {"identity": "unknown", "confidence": 0.0}
+    return {"identity": "mango", "confidence": confidence}
 
 
 def _unknown() -> dict[str, object]:

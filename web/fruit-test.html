@@ -39,7 +39,7 @@
             <option value="banana">Banana</option>
             <option value="pear">Pear</option>
             <option value="orange" data-model="coco">Orange (COCO)</option>
-            <option value="mango" data-model="coco" data-coco-label="sports ball">Mango (COCO sports ball)</option>
+            <option value="mango" data-model="coco" data-coco-label="bowl">Mango (COCO bowl)</option>
           </select>
         </label>
         <button id="preview" type="button">Refresh selection</button>
@@ -130,7 +130,7 @@
             mangoSelectionSampling = Boolean(await configureCoco(true));
             if (!mangoSelectionSampling) throw new Error(cocoStatus.textContent);
             result.textContent = fruit.value === 'mango'
-              ? 'Looking for Mango using the raw COCO sports ball proposal and bounded mixed-hue evidence…'
+              ? 'Looking for Mango using the raw COCO bowl proposal and bounded warm/yellow evidence…'
               : 'Looking for Orange using bounded COCO geometry and color evidence…';
             await refreshFruitStatus();
             return;
@@ -199,7 +199,7 @@
             return;
           }
           const proposal = mangoSelected && Array.isArray(body.classes)
-            ? body.classes.find(item => typeof item.label === 'string' && item.label.toLowerCase() === 'sports ball')
+            ? body.classes.find(item => typeof item.label === 'string' && item.label.toLowerCase() === 'bowl')
             : null;
           const mangoEvidence = proposal && proposal.latest_candidate_evidence;
           const detection = mangoSelected
@@ -219,7 +219,7 @@
           const colorConfidence = Number(detection.color_confidence);
           const box = Array.isArray(detection.bbox_xyxy) ? detection.bbox_xyxy : null;
           const identityMatches = expected === 'mango'
-            ? label === 'sports ball' && colorIdentity === 'mango'
+            ? label === 'bowl' && colorIdentity === 'mango'
             : expected === 'apple'
               ? label === 'apple' && colorIdentity === 'red_apple'
               : label === expected;
@@ -233,11 +233,11 @@
               mangoSelected ? body.source_width : body.source && body.source.width,
               mangoSelected ? body.source_height : body.source && body.source.height,
               expected === 'mango'
-                ? `Mango ${percent(confidence)} · raw sports ball`
+                ? `Mango ${percent(confidence)} · raw bowl`
                 : `${fruit.options[fruit.selectedIndex].textContent} ${percent(confidence)}`,
             );
             result.textContent = expected === 'mango'
-              ? `Mango detected. Raw COCO sports ball ${percent(confidence)} supplied the box; mixed red/orange color evidence confirmed Mango.`
+              ? `Mango candidate detected. Raw COCO bowl ${percent(confidence)} supplied the box; bounded lower-frame warm/yellow evidence matched.`
               : `${fruit.options[fruit.selectedIndex].textContent} detected. YOLO supplied the box; saturated color confirmed the identity.`;
           } else {
             liveConfidence.textContent = 'Not detected';
