@@ -122,13 +122,17 @@ class VoicePageTests(unittest.TestCase):
         self.assertNotIn("msg.audio_ms", INDEX_HTML)
         self.assertNotIn("msg.input_dbfs", INDEX_HTML)
 
-    def test_wake_and_command_remain_visible_as_separate_steps(self) -> None:
+    def test_wake_resets_to_waiting_after_a_short_visible_window(self) -> None:
         self.assertIn('id="wakePanel"', INDEX_HTML)
         self.assertIn('id="commandPanel"', INDEX_HTML)
         self.assertIn("HEARD at", INDEX_HTML)
         self.assertIn("VALID DOG COMMAND", INDEX_HTML)
         self.assertIn("msg.kind === 'snapshot'", INDEX_HTML)
-        self.assertNotIn("wake.classList.remove", INDEX_HTML)
+        self.assertIn("const WAKE_RESET_MS = 5000", INDEX_HTML)
+        self.assertIn("function resetWake()", INDEX_HTML)
+        self.assertIn("window.clearTimeout(wakeResetTimer)", INDEX_HTML)
+        self.assertIn("window.setTimeout(resetWake, WAKE_RESET_MS)", INDEX_HTML)
+        self.assertIn("Listening for &ldquo;{{WAKE}}&rdquo;", INDEX_HTML)
 
     def test_demo_auto_arm_state_is_visible(self) -> None:
         self.assertIn("ARMED · ALWAYS ACTIVE", INDEX_HTML)

@@ -103,6 +103,8 @@ INDEX_HTML = """<!doctype html>
   const armButton = document.getElementById('armButton');
   let empty = document.getElementById('empty');
   let currentCommandId = null;
+  const WAKE_RESET_MS = 5000;
+  let wakeResetTimer = null;
 
   function atTime(seconds) {
     return seconds ? new Date(seconds * 1000).toLocaleTimeString() : 'just now';
@@ -115,11 +117,21 @@ INDEX_HTML = """<!doctype html>
     commandDetail.textContent = 'Wake phrase heard — listening for apple, banana, or pear';
   }
 
+  function resetWake() {
+    window.clearTimeout(wakeResetTimer);
+    wakeResetTimer = null;
+    wakePanel.className = 'event-panel';
+    wakeValue.textContent = 'WAITING';
+    wakeDetail.textContent = 'Listening for “{{WAKE}}”';
+  }
+
   function renderWake(msg) {
+    window.clearTimeout(wakeResetTimer);
     wakePanel.className = 'event-panel heard';
     wakeValue.textContent = (msg.wake_phrase || '{{WAKE}}').toUpperCase();
     wakeDetail.textContent = `HEARD at ${atTime(msg.detected_at)}`;
     resetCommand();
+    wakeResetTimer = window.setTimeout(resetWake, WAKE_RESET_MS);
   }
 
   function renderCommand(msg) {
