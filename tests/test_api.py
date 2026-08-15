@@ -1244,6 +1244,46 @@ def test_stage_ui_renders_server_owned_run_tuning_and_posts_snapshot(
     assert "activation_id: activationId" in response.text
 
 
+def test_status_exposes_existing_read_only_fruit_bearing_map(tmp_path) -> None:
+    class BearingMapStages(SimulatedStageExecutor):
+        def bearing_map_status(self) -> dict[str, object]:
+            return {
+                "valid": True,
+                "anchor": {"yaw_rad": 0.25},
+                "fruits": {
+                    "pear": {
+                        "bearing_rad": -0.5,
+                        "confidence": 0.72,
+                        "sample_count": 3,
+                        "age_s": 1.25,
+                    }
+                },
+                "authority": "yaw_route_only",
+                "persistence": "process_local",
+            }
+
+    with TestClient(
+        create_app(runs_root=tmp_path, stage_executor=BearingMapStages())
+    ) as client:
+        response = client.get("/api/status")
+
+    assert response.status_code == 200
+    assert response.json()["fruit_bearing_map"] == {
+        "valid": True,
+        "anchor": {"yaw_rad": 0.25},
+        "fruits": {
+            "pear": {
+                "bearing_rad": -0.5,
+                "confidence": 0.72,
+                "sample_count": 3,
+                "age_s": 1.25,
+            }
+        },
+        "authority": "yaw_route_only",
+        "persistence": "process_local",
+    }
+
+
 def test_search_experiment_api_distinguishes_completed_and_unrun_evidence(
     tmp_path,
 ) -> None:

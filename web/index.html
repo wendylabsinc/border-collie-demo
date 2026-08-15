@@ -105,6 +105,52 @@
       #cohort-output { white-space: pre-wrap; overflow-wrap: anywhere; }
       .experiment-note { text-align: left; }
       .experiment-status { font-weight: 700; }
+      .bearing-panel {
+        margin: 1.25rem 0 2rem;
+        padding: 1rem;
+        border: 1px solid currentColor;
+        border-radius: 0.75rem;
+        text-align: left;
+      }
+      .bearing-layout {
+        display: grid;
+        grid-template-columns: minmax(12rem, 18rem) minmax(14rem, 1fr);
+        gap: 1rem;
+        align-items: center;
+      }
+      .bearing-compass {
+        width: 100%;
+        height: auto;
+        color: currentColor;
+      }
+      .bearing-ring,
+      .bearing-axis {
+        fill: none;
+        stroke: currentColor;
+        opacity: 0.3;
+      }
+      .bearing-home { fill: #64748b; }
+      .bearing-marker { stroke: Canvas; stroke-width: 2; }
+      .bearing-label {
+        fill: currentColor;
+        font: 700 9px system-ui, sans-serif;
+        text-anchor: middle;
+      }
+      .bearing-list {
+        display: grid;
+        gap: 0.65rem;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+      .bearing-list li {
+        padding: 0.65rem;
+        border-inline-start: 0.4rem solid var(--fruit-color, currentColor);
+        background: color-mix(in srgb, currentColor 6%, transparent);
+      }
+      .bearing-list strong { text-transform: capitalize; }
+      #fruit-bearing-note,
+      #fruit-bearing-state { margin-bottom: 0; }
       @media (max-width: 40rem) {
         fieldset,
         .failure-options {
@@ -118,6 +164,7 @@
           max-width: 100%;
           overflow-x: auto;
         }
+        .bearing-layout { grid-template-columns: minmax(0, 1fr); }
       }
     </style>
   </head>
@@ -135,6 +182,36 @@
           alt="Live Woof camera with the YOLO fruit model overlay"
         >
         <p id="camera-state" role="status">Connecting to camera…</p>
+      </section>
+      <section
+        id="fruit-bearing-map"
+        class="bearing-panel"
+        aria-labelledby="fruit-bearing-title"
+        data-authority="unavailable"
+      >
+        <h2 id="fruit-bearing-title">Fruit direction map</h2>
+        <div class="bearing-layout">
+          <svg
+            class="bearing-compass"
+            viewBox="0 0 200 200"
+            role="img"
+            aria-labelledby="fruit-bearing-compass-title fruit-bearing-compass-description"
+          >
+            <title id="fruit-bearing-compass-title">Fruit bearings from Home-forward</title>
+            <desc id="fruit-bearing-compass-description">A read-only compass showing the shortest left or right rotation from the captured Home heading.</desc>
+            <circle class="bearing-ring" cx="100" cy="100" r="76"></circle>
+            <circle class="bearing-ring" cx="100" cy="100" r="45"></circle>
+            <path class="bearing-axis" d="M100 18V182M18 100H182"></path>
+            <path class="bearing-home" d="M100 18L92 36H108Z"></path>
+            <text class="bearing-label" x="100" y="12">HOME-FORWARD</text>
+            <text class="bearing-label" x="25" y="96">LEFT</text>
+            <text class="bearing-label" x="175" y="96">RIGHT</text>
+            <g id="fruit-bearing-markers"></g>
+          </svg>
+          <ul id="fruit-bearing-list" class="bearing-list"></ul>
+        </div>
+        <p id="fruit-bearing-state" role="status">No mapped fruit bearings yet.</p>
+        <p id="fruit-bearing-note">Visualization only: this process-local map never authorizes motion, target identity, or Arrival.</p>
       </section>
       <div class="controls">
         <label for="target-fruit">Target Fruit</label>
@@ -222,6 +299,10 @@
       const buildLabel = document.querySelector('#build-label');
       const cameraFeed = document.querySelector('#camera-feed');
       const cameraState = document.querySelector('#camera-state');
+      const fruitBearingMap = document.querySelector('#fruit-bearing-map');
+      const fruitBearingMarkers = document.querySelector('#fruit-bearing-markers');
+      const fruitBearingList = document.querySelector('#fruit-bearing-list');
+      const fruitBearingState = document.querySelector('#fruit-bearing-state');
       const tuningControls = document.querySelector('#run-tuning-controls');
       const tuningFields = document.querySelector('#run-tuning-fields');
       const effectiveTuning = document.querySelector('#effective-tuning');
@@ -250,6 +331,72 @@
       let statusLoaded = false;
       let runActionError = null;
       let cohortActionError = null;
+      const fruitColors = {
+        apple: '#dc2626',
+        banana: '#eab308',
+        pear: '#16a34a',
+      };
+
+      function normalizeRadians(angle) {
+        const turn = Math.PI * 2;
+        return ((angle + Math.PI) % turn + turn) % turn - Math.PI;
+      }
+
+      function rotationLabel(deltaRad) {
+        const degrees = Math.abs(deltaRad * 180 / Math.PI);
+        if (degrees < 0.05) return '0.0° aligned';
+        const sign = deltaRad > 0 ? '+' : '-';
+        return `${sign}${degrees.toFixed(1)}° ${deltaRad > 0 ? 'left' : 'right'}`;
+      }
+
+      function renderBearingMap(map) {
+        const fruits = ['apple', 'banana', 'pear'];
+        const anchorYaw = Number(map?.anchor?.yaw_rad);
+        const usable = Boolean(map?.valid && Number.isFinite(anchorYaw));
+        fruitBearingMap.dataset.authority = map?.authority || 'unavailable';
+        fruitBearingMarkers.replaceChildren();
+        fruitBearingList.replaceChildren(...fruits.map((label) => {
+          const item = document.createElement('li');
+          item.dataset.bearingFruit = label;
+          item.style.setProperty('--fruit-color', fruitColors[label]);
+          const observation = usable ? map?.fruits?.[label] : null;
+          const bearing = Number(observation?.bearing_rad);
+          if (!observation || !Number.isFinite(bearing)) {
+            item.textContent = `${label[0].toUpperCase()}${label.slice(1)} — not mapped`;
+            return item;
+          }
+
+          const delta = normalizeRadians(bearing - anchorYaw);
+          const confidence = Number(observation.confidence);
+          const sampleCount = Number(observation.sample_count);
+          const age = Number(observation.age_s);
+          const sampleLabel = sampleCount === 1 ? 'sample' : 'samples';
+          item.textContent = [
+            `${label[0].toUpperCase()}${label.slice(1)} — ${rotationLabel(delta)}`,
+            Number.isFinite(confidence) ? `${(confidence * 100).toFixed(1)}% confidence` : 'confidence unknown',
+            Number.isFinite(sampleCount) ? `${sampleCount} ${sampleLabel}` : 'sample count unknown',
+            Number.isFinite(age) ? `${age.toFixed(1)} s ago` : 'last observation unknown',
+          ].join(' · ');
+
+          const radius = 68;
+          const x = 100 - Math.sin(delta) * radius;
+          const y = 100 - Math.cos(delta) * radius;
+          const marker = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+          marker.classList.add('bearing-marker');
+          marker.dataset.bearingFruit = label;
+          marker.setAttribute('cx', x.toFixed(2));
+          marker.setAttribute('cy', y.toFixed(2));
+          marker.setAttribute('r', '7');
+          marker.setAttribute('fill', fruitColors[label]);
+          marker.setAttribute('aria-label', `${label}: ${rotationLabel(delta)}`);
+          fruitBearingMarkers.appendChild(marker);
+          return item;
+        }));
+
+        fruitBearingState.textContent = usable
+          ? `Map updated: ${map.last_observation_reason || 'observation status unavailable'}. Angles are relative to captured Home-forward.`
+          : `Map unavailable: ${map?.invalidation_reason || 'waiting for centered fruit observations'}.`;
+      }
 
       function updateControlOwnership() {
         const owned = Boolean(activeRunId || cohortRunning);
@@ -423,6 +570,7 @@
           latestStatus = current;
           statusLoaded = true;
           activeRunId = current.active_run_id;
+          renderBearingMap(current.fruit_bearing_map);
           cohortRunning = current.cohort?.status === 'RUNNING';
           if (!tuningInitialized && current.run_tuning) {
             tuningContract = current.run_tuning;

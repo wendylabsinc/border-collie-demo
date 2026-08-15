@@ -26,6 +26,35 @@ const api = {
     mission: {restart_required: false},
     activation: {ready: true, blockers: []},
     run_tuning: tuningContract,
+    fruit_bearing_map: {
+      valid: true,
+      invalidation_reason: null,
+      last_observation_reason: 'centered_observations_recorded',
+      anchor: {yaw_rad: Math.PI / 6},
+      fruits: {
+        apple: {
+          bearing_rad: Math.PI / 2,
+          confidence: 0.81,
+          sample_count: 4,
+          age_s: 1.25,
+        },
+        banana: {
+          bearing_rad: -Math.PI / 6,
+          confidence: 0.64,
+          sample_count: 2,
+          age_s: 2.5,
+        },
+        pear: {
+          bearing_rad: Math.PI / 6,
+          confidence: 0.72,
+          sample_count: 3,
+          age_s: 0.4,
+        },
+      },
+      authority: 'yaw_route_only',
+      reference: 'odometry_epoch_and_current_heading',
+      persistence: 'process_local',
+    },
   },
   cohort: null,
   run: {...terminalRun},
@@ -416,6 +445,29 @@ try {
   assert.match(evidenceText, /Banana \(controlled target\)/);
   assert.match(evidenceText, /Not run/);
   assert.match(await evaluate("document.querySelector('#experiment-live-note').textContent"), /1 non-terminal run/);
+
+  // Bearing visualization is a read-only view of the existing process-local map.
+  await waitFor("document.querySelector('#fruit-bearing-list [data-bearing-fruit=apple]')?.textContent.includes('+60.0° left')");
+  assert.match(
+    await evaluate("document.querySelector('#fruit-bearing-list [data-bearing-fruit=apple]').textContent"),
+    /81\.0%.*4 samples.*1\.3 s/,
+  );
+  assert.match(
+    await evaluate("document.querySelector('#fruit-bearing-list [data-bearing-fruit=banana]').textContent"),
+    /-60\.0° right.*64\.0%.*2 samples.*2\.5 s/,
+  );
+  assert.match(
+    await evaluate("document.querySelector('#fruit-bearing-list [data-bearing-fruit=pear]').textContent"),
+    /0\.0° aligned.*72\.0%.*3 samples.*0\.4 s/,
+  );
+  assert.equal(
+    await evaluate("document.querySelector('#fruit-bearing-map').dataset.authority"),
+    'yaw_route_only',
+  );
+  assert.match(
+    await evaluate("document.querySelector('#fruit-bearing-note').textContent"),
+    /visualization only.*never authorizes motion/i,
+  );
 
   console.log('browser UI contract: PASS');
 } finally {
