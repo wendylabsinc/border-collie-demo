@@ -1,12 +1,12 @@
 {
   "appId": "border-collie-demo",
-  "version": "1.1.10-stage-default",
+  "version": "1.1.11-stage-default",
   "services": {
     "app": {
       "context": ".",
       "env": {
         "BORDER_COLLIE_PORT": "8110",
-        "BORDER_COLLIE_BUILD_LABEL": "stage-default-v11-controller-start-pear",
+        "BORDER_COLLIE_BUILD_LABEL": "stage-default-v12-restored-bark",
         "BORDER_COLLIE_OPERATOR_LOG_ENABLED": "1",
         "BORDER_COLLIE_RUNTIME_MODE": "production",
         "BORDER_COLLIE_HARDWARE_ENABLED": "1",
@@ -111,7 +111,6 @@
         "BANANA_SPECIALIST_MODEL_PATH": "/media/banana-specialist.pt",
         "BANANA_SPECIALIST_MIN_CONFIDENCE": "0.55",
         "BANANA_SPECIALIST_MIN_IOU": "0.10",
-        "BORDER_COLLIE_BARK_UUID": "161387de-21ab-4f0b-b4e9-97124b000d06",
         "EVIDENCE_MAXIMUM_FRAMES": "40",
         "EVIDENCE_FRAME_INTERVAL_S": "0.5"
       },
@@ -127,7 +126,7 @@
         "PORT": "8092",
         "ACTION_MODE": "border_collie",
         "BORDER_COLLIE_URL": "http://127.0.0.1:8110",
-        "BORDER_COLLIE_EXPECTED_BUILD_LABEL": "stage-default-v11-controller-start-pear",
+        "BORDER_COLLIE_EXPECTED_BUILD_LABEL": "stage-default-v12-restored-bark",
         "CONTINUOUS_TRANSCRIPTION": "0",
         "AUTO_ARM_ACTIONS": "1",
         "AUDIO_DEVICE": "DJI MIC MINI",

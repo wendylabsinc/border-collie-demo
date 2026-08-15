@@ -14,7 +14,6 @@ stages:
       BANANA_SPECIALIST_MIN_CONFIDENCE: "0.55"
       BANANA_SPECIALIST_MIN_IOU: "0.10"
       BORDER_COLLIE_MEDIA_PORT: "8111"
-      BORDER_COLLIE_BARK_UUID: 161387de-21ab-4f0b-b4e9-97124b000d06
     install:
       apt:
         packages:
@@ -41,5 +40,8 @@ stages:
       - from: local
         paths: [__init__.py, model_router.py, perception_sidecar.py]
         dest: /app/media/
+      - from: local
+        paths: [assets/border_collie_demo_bark.wav.b64]
+        dest: /app/media/assets/
     user: root
     cmd: [uvicorn, media.perception_sidecar:app, --host, 0.0.0.0, --port, "8111", --no-access-log]

@@ -86,3 +86,11 @@ contracts. The repository deployment wrapper makes Wendy's supported
 `unless-stopped` boot/exit restart policy explicit; boot alone never activates
 a run. This candidate is software-tested only until physically qualified on a
 clear, supervised Go2.
+
+The audio successor is `stage-default-v12-restored-bark`, Wendy application
+version `1.1.11-stage-default`. It replaces the mutable preloaded AudioHub UUID
+with the checked-in Joannis bark WAV, resolves or uploads that file under the
+stable `border_collie_demo_bark` name, and caches only the UUID returned by the
+current robot. Failure to register the exact asset remains best-effort audience
+audio and cannot change posture, Home, or motion outcomes. The thermal alarm
+retains its separate three-tone asset and endpoint.

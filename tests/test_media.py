@@ -14,7 +14,12 @@ def test_bark_client_requires_positive_sidecar_acknowledgement() -> None:
         result = await client.bark()
 
         assert calls == [("http://127.0.0.1:8098/api/bark", 2.0)]
-        assert result == {"bark_played": True, "bark_uuid": "bark-1"}
+        assert result == {
+            "bark_played": True,
+            "bark_uuid": "bark-1",
+            "bark_sound": None,
+            "bark_source": None,
+        }
 
     asyncio.run(scenario())
 

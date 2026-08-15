@@ -104,6 +104,8 @@ class BarkClient:
         return {
             "bark_played": True,
             "bark_uuid": payload.get("uuid"),
+            "bark_sound": payload.get("sound"),
+            "bark_source": payload.get("source"),
         }
 
     async def thermal_beep(self) -> dict[str, object]:

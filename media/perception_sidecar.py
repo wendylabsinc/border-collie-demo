@@ -1,12 +1,13 @@
 """Read-only Go2 camera, fruit inference, and bark sidecar.
 
 The process intentionally owns no Unitree motion client. It exposes only fresh
-source/detection evidence and the preloaded bark action.
+source/detection evidence and the bundled bark action.
 """
 
 from __future__ import annotations
 
 import asyncio
+import base64
 import io
 import json
 import logging
@@ -17,10 +18,12 @@ import time
 import wave
 import zipfile
 from collections import deque
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass
 from functools import partial
+from pathlib import Path
 from threading import Lock
 from typing import Any, Literal
 from uuid import uuid4
@@ -33,6 +36,11 @@ from media.model_router import FruitCandidate, FruitModelRouter, RoutedPredictio
 SUPPORTED_FRUITS = ("apple", "banana", "pear")
 SEARCH_CROP_FRUITS = frozenset({"apple", "banana"})
 INFERENCE_OVERRUN_S = 0.200
+BARK_AUDIO_NAME = "border_collie_demo_bark"
+BARK_AUDIO_B64_PATH = Path(__file__).with_name("assets") / (
+    "border_collie_demo_bark.wav.b64"
+)
+BARK_AUDIO_PATH = "/tmp/border_collie_demo_bark.wav"
 THERMAL_BEEP_NAME = "woof_thermal_warning_beep"
 THERMAL_BEEP_PATH = "/tmp/woof_thermal_warning_beep.wav"
 
@@ -91,6 +99,22 @@ def _write_thermal_beep(path: str = THERMAL_BEEP_PATH) -> None:
         stream.setsampwidth(2)
         stream.setframerate(sample_rate)
         stream.writeframes(bytes(frames))
+
+
+def _write_bark_asset(
+    source: Path = BARK_AUDIO_B64_PATH,
+    destination: str = BARK_AUDIO_PATH,
+) -> None:
+    """Materialize the checked-in Joannis bark WAV."""
+
+    encoded = b"".join(source.read_bytes().split())
+    try:
+        payload = base64.b64decode(encoded, validate=True)
+    except ValueError as exc:
+        raise RuntimeError("bundled bark asset is not valid base64") from exc
+    if not payload.startswith(b"RIFF") or payload[8:12] != b"WAVE":
+        raise RuntimeError("bundled bark asset is not a WAV file")
+    Path(destination).write_bytes(payload)
 
 
 class TargetFruitRequest(BaseModel):
@@ -632,10 +656,6 @@ class PerceptionRuntime:
         self.banana_specialist_minimum_agreement_iou = float(
             os.environ.get("BANANA_SPECIALIST_MIN_IOU", "0.10")
         )
-        self.bark_uuid = os.environ.get(
-            "BORDER_COLLIE_BARK_UUID",
-            "161387de-21ab-4f0b-b4e9-97124b000d06",
-        )
         self.evidence = PerceptionEvidence(generation=uuid4().hex)
         self._frames: asyncio.Queue[tuple[Any, float, int, str]] = asyncio.Queue(
             maxsize=1
@@ -652,6 +672,7 @@ class PerceptionRuntime:
         self._connection: Any | None = None
         self._audiohub: Any | None = None
         self._audio_lock = asyncio.Lock()
+        self._bark_audio_uuid: str | None = None
         self._thermal_beep_uuid: str | None = None
         self._detector_task: asyncio.Task[None] | None = None
         self._model: Any | None = None
@@ -755,8 +776,46 @@ class PerceptionRuntime:
         if self._audiohub is None:
             raise RuntimeError("Go2 AudioHub is not connected")
         async with self._audio_lock:
-            await self._audiohub.play_by_uuid(self.bark_uuid)
-        return {"ok": True, "uuid": self.bark_uuid}
+            unique_id = self._bark_audio_uuid
+            if unique_id is None:
+                unique_id = await self._resolve_named_audio(
+                    custom_name=BARK_AUDIO_NAME,
+                    audio_path=BARK_AUDIO_PATH,
+                    writer=_write_bark_asset,
+                )
+                self._bark_audio_uuid = unique_id
+            await self._audiohub.play_by_uuid(unique_id)
+        return {
+            "ok": True,
+            "uuid": unique_id,
+            "sound": "bark",
+            "source": "bundled_audio_asset",
+        }
+
+    async def _resolve_named_audio(
+        self,
+        *,
+        custom_name: str,
+        audio_path: str,
+        writer: Callable[[], None],
+    ) -> str:
+        assert self._audiohub is not None
+        response = await self._audiohub.get_audio_list()
+        unique_id = _named_audio_id(_audiohub_entries(response), custom_name)
+        if unique_id is None:
+            await asyncio.to_thread(writer)
+            await self._audiohub.upload_audio_file(audio_path)
+            for _ in range(5):
+                response = await self._audiohub.get_audio_list()
+                unique_id = _named_audio_id(
+                    _audiohub_entries(response), custom_name
+                )
+                if unique_id is not None:
+                    break
+                await asyncio.sleep(0.2)
+        if unique_id is None:
+            raise RuntimeError(f"{custom_name} was not registered by AudioHub")
+        return unique_id
 
     async def thermal_beep(self) -> dict[str, object]:
         if self._audiohub is None:
@@ -764,33 +823,21 @@ class PerceptionRuntime:
         async with self._audio_lock:
             unique_id = self._thermal_beep_uuid
             if unique_id is None:
-                response = await self._audiohub.get_audio_list()
-                unique_id = _named_audio_id(
-                    _audiohub_entries(response), THERMAL_BEEP_NAME
+                unique_id = await self._resolve_named_audio(
+                    custom_name=THERMAL_BEEP_NAME,
+                    audio_path=THERMAL_BEEP_PATH,
+                    writer=_write_thermal_beep,
                 )
-            if unique_id is None:
-                await asyncio.to_thread(_write_thermal_beep)
-                await self._audiohub.upload_audio_file(THERMAL_BEEP_PATH)
-                for _ in range(5):
-                    response = await self._audiohub.get_audio_list()
-                    unique_id = _named_audio_id(
-                        _audiohub_entries(response), THERMAL_BEEP_NAME
-                    )
-                    if unique_id is not None:
-                        break
-                    await asyncio.sleep(0.2)
-            if unique_id is None:
-                raise RuntimeError(
-                    "thermal warning beep was not registered by AudioHub"
-                )
-            self._thermal_beep_uuid = unique_id
+                self._thermal_beep_uuid = unique_id
             await self._audiohub.play_by_uuid(unique_id)
         return {"ok": True, "uuid": unique_id}
 
     def status(self) -> dict[str, object]:
         return {
             **self.evidence.status(),
-            "bark_ready": self._audiohub is not None and bool(self.bark_uuid),
+            "bark_ready": self._audiohub is not None and BARK_AUDIO_B64_PATH.is_file(),
+            "bark_source": "bundled_audio_asset",
+            "bark_audio_name": BARK_AUDIO_NAME,
             "crop_confirm": asdict(self._crop_confirm),
             "model_router": (
                 self._model_router.status()

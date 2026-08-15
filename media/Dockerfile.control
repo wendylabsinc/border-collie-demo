@@ -15,14 +15,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 COPY requirements.txt __init__.py perception_sidecar.py ./media/
+COPY assets/border_collie_demo_bark.wav.b64 ./media/assets/
 COPY model/model.engine /media/model.engine
 RUN --mount=type=cache,target=/root/.cache/pip \
     python3 -m pip install -r /app/media/requirements.txt
 
 ENV UNITREE_ROBOT_IP=192.168.123.161 \
     PEAR_MODEL_PATH=/media/model.engine \
-    BORDER_COLLIE_MEDIA_PORT=8111 \
-    BORDER_COLLIE_BARK_UUID=161387de-21ab-4f0b-b4e9-97124b000d06
+    BORDER_COLLIE_MEDIA_PORT=8111
 
 EXPOSE 8111
 

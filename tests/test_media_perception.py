@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import io
 import json
 import logging
@@ -54,6 +55,69 @@ class FakeImage:
     def __getitem__(self, slices):
         y_slice, x_slice = slices[:2]
         return FakeImage(y_slice.stop - y_slice.start, x_slice.stop - x_slice.start)
+
+
+def test_bundled_bark_asset_matches_the_selected_joannis_bark(tmp_path) -> None:
+    bark = tmp_path / "bark.wav"
+    perception_sidecar._write_bark_asset(destination=str(bark))
+
+    assert bark.read_bytes().startswith(b"RIFF")
+    assert bark.read_bytes()[8:12] == b"WAVE"
+    assert hashlib.sha256(bark.read_bytes()).hexdigest() == (
+        "fc07061360bf4e67eca5378ad910a43dd63067fb8acf26341906f51ff7217877"
+    )
+
+
+def test_bark_registers_and_reuses_the_bundled_asset_instead_of_a_static_uuid() -> None:
+    class AudioHub:
+        def __init__(self) -> None:
+            self.registered = False
+            self.uploaded: list[str] = []
+            self.played: list[str] = []
+            self.list_calls = 0
+
+        async def get_audio_list(self):
+            self.list_calls += 1
+            records = (
+                [
+                    {
+                        "CUSTOM_NAME": perception_sidecar.BARK_AUDIO_NAME,
+                        "UNIQUE_ID": "dynamic-bark-uuid",
+                    }
+                ]
+                if self.registered
+                else []
+            )
+            return {"data": {"audio_list": records}}
+
+        async def upload_audio_file(self, path: str) -> None:
+            self.uploaded.append(path)
+            self.registered = True
+
+        async def play_by_uuid(self, unique_id: str) -> None:
+            self.played.append(unique_id)
+
+    async def scenario() -> None:
+        runtime = perception_sidecar.PerceptionRuntime()
+        audiohub = AudioHub()
+        runtime._audiohub = audiohub
+        try:
+            first = await runtime.bark()
+            second = await runtime.bark()
+        finally:
+            runtime._inference_executor.shutdown(wait=True, cancel_futures=True)
+
+        assert first == second == {
+            "ok": True,
+            "uuid": "dynamic-bark-uuid",
+            "sound": "bark",
+            "source": "bundled_audio_asset",
+        }
+        assert audiohub.uploaded == [perception_sidecar.BARK_AUDIO_PATH]
+        assert audiohub.played == ["dynamic-bark-uuid", "dynamic-bark-uuid"]
+        assert audiohub.list_calls == 2
+
+    asyncio.run(scenario())
 
 
 def test_inference_summary_counts_processed_timed_and_overrun_frames_exactly() -> None:

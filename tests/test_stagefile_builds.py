@@ -45,6 +45,19 @@ def test_media_pip_overlay_is_visible_to_dustynv_virtualenv() -> None:
     assert media["env"]["PYTHONPATH"] == "/usr/local/lib/python3.12/site-packages"
 
 
+def test_media_stagefile_packages_the_named_bark_asset_not_a_robot_uuid() -> None:
+    stagefile = yaml.safe_load((ROOT / "media/build.stagefile.yaml").read_text())
+    media = stagefile["stages"][-1]
+    copied_paths = {
+        path
+        for operation in media["copy"]
+        for path in operation["paths"]
+    }
+
+    assert "assets/border_collie_demo_bark.wav.b64" in copied_paths
+    assert "BORDER_COLLIE_BARK_UUID" not in media["env"]
+
+
 def test_home_recorder_is_a_separate_passive_service_with_shared_durable_state() -> None:
     descriptor = yaml.safe_load((ROOT / "wendy.json").read_text())
     app = descriptor["services"]["app"]
