@@ -62,13 +62,13 @@ def classify_bgr_pixels(pixels: object) -> dict[str, object]:
         if maximum < 40.0 or maximum - minimum < max(30.0, maximum * 0.25):
             continue
         valid += 1
-        if red_channel < green * 1.15 or red_channel < blue * 1.25:
+        if red_channel < max(green, blue):
             continue
-        green_ratio = green / max(red_channel, 1.0)
-        blue_ratio = blue / max(red_channel, 1.0)
-        if green_ratio <= 0.30 and blue_ratio <= 0.45:
+        delta = maximum - minimum
+        hue_degrees = (60.0 * ((green - blue) / delta)) % 360.0
+        if hue_degrees <= 15.0 or hue_degrees >= 345.0:
             red += 1
-        elif 0.30 < green_ratio <= 0.82 and blue_ratio <= 0.50:
+        elif hue_degrees <= 80.0:
             orange += 1
 
     classified = red + orange

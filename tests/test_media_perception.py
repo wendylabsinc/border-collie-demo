@@ -188,6 +188,7 @@ def test_coco_bbox_color_distinguishes_red_apple_from_orange() -> None:
 
     assert identity([[0, 8, 230]] * 100) == "red_apple"
     assert identity([[0, 132, 240]] * 100) == "orange"
+    assert identity([[172, 218, 246]] * 100) == "orange"
     assert identity([[105, 110, 115]] * 100) == "unknown"
 
 
