@@ -124,11 +124,12 @@
         modelBox.style.display = 'none';
         result.textContent = `Switching the camera test to ${fruit.value}…`;
         try {
-          const detectorTarget = fruit.value === 'orange' ? 'apple' : fruit.value;
-          const response = await fetch('/api/fruits/preview', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({target_fruit: detectorTarget}),
+          const cocoColor = fruit.value === 'orange';
+          const response = await fetch(cocoColor ? '/api/coco-test' : '/api/fruits/preview', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(cocoColor
+              ? {enabled: true, minimum_confidence: 0.01, reset: true}
+              : {target_fruit: fruit.value}),
           });
           const body = await response.json();
           if (!response.ok) throw new Error(body.detail || 'Selection failed.');
@@ -162,21 +163,35 @@
       async function refreshFruitStatus() {
         window.clearTimeout(fruitStatusTimer);
         try {
-          const response = await fetch('/api/fruits/preview', {cache: 'no-store'});
+          const expected = fruit.value.toLowerCase();
+          const response = await fetch(
+            expected === 'orange' ? '/api/coco-test' : '/api/fruits/preview',
+            {cache: 'no-store'},
+          );
           const body = await response.json();
           if (!response.ok) throw new Error(body.detail || 'Fruit status unavailable.');
+          if (expected === 'orange') {
+            const candidate = (body.color_candidates || []).find(item => item.identity === 'orange');
+            if (candidate) {
+              liveConfidence.textContent = `${percent(candidate.model_confidence)} model · color ${percent(candidate.color_confidence)}`;
+              drawBox(candidate.bbox_xyxy, body.source_width, body.source_height, `Orange ${percent(candidate.model_confidence)}`);
+              result.textContent = `Orange detected from a ${candidate.model_label} proposal. YOLO supplied the box; saturated color confirmed Orange.`;
+            } else {
+              liveConfidence.textContent = 'Not detected';
+              modelBox.style.display = 'none';
+              result.textContent = 'No small lower-frame COCO box has confirmed Orange color yet.';
+            }
+            return;
+          }
           const detection = body.detection && typeof body.detection === 'object'
             ? body.detection
             : {};
-          const expected = fruit.value.toLowerCase();
           const label = typeof detection.label === 'string' ? detection.label.toLowerCase() : '';
           const confidence = Number(detection.confidence);
           const colorIdentity = detection.color_identity;
           const colorConfidence = Number(detection.color_confidence);
           const box = Array.isArray(detection.bbox_xyxy) ? detection.bbox_xyxy : null;
-          const identityMatches = expected === 'orange'
-            ? label === 'apple' && colorIdentity === 'orange'
-            : expected === 'apple'
+          const identityMatches = expected === 'apple'
               ? label === 'apple' && colorIdentity === 'red_apple'
               : label === expected;
           if (identityMatches && Number.isFinite(confidence) && box && box.length === 4) {

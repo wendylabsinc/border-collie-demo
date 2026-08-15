@@ -238,6 +238,41 @@ class CocoTester:
             ),
             reverse=True,
         )
+        color_candidates: list[dict[str, object]] = []
+        if self._source_width and self._source_height:
+            frame_area = self._source_width * self._source_height
+            for item in classes:
+                bbox = item["latest_bbox_xyxy"]
+                color = item["latest_color"]
+                if not isinstance(bbox, list) or not isinstance(color, dict):
+                    continue
+                identity = color.get("identity")
+                color_confidence = color.get("confidence")
+                if identity not in {"red_apple", "orange"} or not isinstance(
+                    color_confidence, (int, float)
+                ):
+                    continue
+                x1, y1, x2, y2 = (float(value) for value in bbox)
+                area_ratio = ((x2 - x1) * (y2 - y1)) / frame_area
+                center_y_ratio = ((y1 + y2) / 2.0) / self._source_height
+                if not 0.0001 <= area_ratio <= 0.02 or center_y_ratio < 0.50:
+                    continue
+                color_candidates.append(
+                    {
+                        "identity": identity,
+                        "color_confidence": float(color_confidence),
+                        "model_label": item["label"],
+                        "model_confidence": item["latest_confidence"],
+                        "bbox_xyxy": bbox,
+                    }
+                )
+        color_candidates.sort(
+            key=lambda item: (
+                float(item["color_confidence"]),
+                float(item["model_confidence"] or 0.0),
+            ),
+            reverse=True,
+        )
         return {
             "enabled": self._enabled,
             "strictly_read_only": True,
@@ -255,6 +290,7 @@ class CocoTester:
                 self._total_inference_ms / frames if frames else None
             ),
             "classes": classes,
+            "color_candidates": color_candidates,
             "error": self._error,
         }
 

@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from media import perception_sidecar
 from media.coco_tester import CocoTester
+from media.fruit_color import classify_bgr_pixels
 from media.model_router import FruitModelRouter
 from media.perception_sidecar import EvidenceFrameBuffer, PerceptionEvidence, create_app
 
@@ -190,6 +191,66 @@ def test_coco_bbox_color_distinguishes_red_apple_from_orange() -> None:
     assert identity([[0, 132, 240]] * 100) == "orange"
     assert identity([[172, 218, 246]] * 100) == "orange"
     assert identity([[105, 110, 115]] * 100) == "unknown"
+
+
+def test_orange_identity_survives_low_and_high_stage_exposure() -> None:
+    # Representative foreground pixels measured from the operator-supplied
+    # low-light and high-light screenshots of the same orange prop.
+    low_light = [[55, 76, 170], [41, 55, 120], [98, 125, 219]] * 40
+    high_light = [[126, 156, 224], [110, 141, 175], [142, 183, 239]] * 40
+    red_apple_control = [[129, 132, 224], [74, 78, 196], [141, 143, 239]] * 40
+
+    assert classify_bgr_pixels(low_light)["identity"] == "orange"
+    assert classify_bgr_pixels(high_light)["identity"] == "orange"
+    assert classify_bgr_pixels(red_apple_control)["identity"] == "red_apple"
+
+
+def test_coco_color_candidates_reject_large_background_boxes() -> None:
+    class Crop:
+        def reshape(self, *_shape):
+            return self
+
+        def tolist(self):
+            return [[172, 218, 246]] * 100
+
+    class Source:
+        shape = (720, 1280, 3)
+
+        def __getitem__(self, _key):
+            return Crop()
+
+    class Boxes:
+        def __init__(self) -> None:
+            self.conf = FakeTensor([0.70, 0.12])
+            self.cls = FakeClasses([57, 45])
+            self.xyxy = [
+                FakeTensor([400, 280, 960, 510]),
+                FakeTensor([735, 492, 778, 520]),
+            ]
+
+        def __len__(self):
+            return 2
+
+    class Model:
+        def __init__(self) -> None:
+            self.names = {57: "couch", 45: "bowl"}
+
+        def predict(self, **_options):
+            return [SimpleNamespace(boxes=Boxes())]
+
+    tester = CocoTester(model_loader=lambda _path: Model(), clock=lambda: 10.0)
+    tester.configure(enabled=True, minimum_confidence=0.01, reset=True)
+    tester.observe(Source(), pts=1, now_s=10.0)
+
+    assert tester.status()["color_candidates"] == [
+        {
+            "identity": "orange",
+            "color_confidence": 1.0,
+            "model_label": "bowl",
+            "model_confidence": 0.12,
+            "bbox_xyxy": [735.0, 492.0, 778.0, 520.0],
+        }
+    ]
 
 
 def test_coco_tester_is_disabled_by_default_and_rate_limits_extra_inference() -> None:

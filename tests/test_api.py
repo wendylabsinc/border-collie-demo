@@ -196,6 +196,8 @@ def test_fruit_test_page_can_select_supported_fruit_without_motion() -> None:
     assert "const frameUrl = '/api/camera/raw.jpg';" in page.text
     assert '<option value="orange" data-model="coco">Orange (COCO)</option>' in page.text
     assert 'id="model-box"' in page.text
+    assert "body.color_candidates" in page.text
+    assert "saturated color confirmed Orange" in page.text
     assert ":8111/api/camera/frame.jpg" not in page.text
     assert "document.hidden" in page.text
     assert "scheduleRefresh(1500)" in page.text

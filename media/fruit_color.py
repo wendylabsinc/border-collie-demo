@@ -66,7 +66,10 @@ def classify_bgr_pixels(pixels: object) -> dict[str, object]:
             continue
         delta = maximum - minimum
         hue_degrees = (60.0 * ((green - blue) / delta)) % 360.0
-        if hue_degrees <= 15.0 or hue_degrees >= 345.0:
+        # A dim orange shifts toward red, but unlike the red apple it does not
+        # wrap around the zero-degree hue boundary. Keep the red band narrow
+        # enough to preserve that exposure-stable distinction.
+        if hue_degrees <= 8.0 or hue_degrees >= 345.0:
             red += 1
         elif hue_degrees <= 80.0:
             orange += 1
