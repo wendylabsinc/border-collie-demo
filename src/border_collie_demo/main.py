@@ -84,6 +84,7 @@ def build_app_from_env() -> FastAPI:
         }
 
     terminal_evidence = TerminalEvidenceClient.from_env()
+    home_tuning = HomeTuning.from_env()
     controller_start_source = (
         Go2ControllerStartSource()
         if env_bool("BORDER_COLLIE_CONTROLLER_START_ENABLED")
@@ -102,7 +103,8 @@ def build_app_from_env() -> FastAPI:
         terminal_evidence=terminal_evidence.capture,
         failure_epilogue=PositionOnlyFailureEpilogue(
             hardware,
-            arrival_tolerance_m=HomeTuning.from_env().arrival_tolerance_m,
+            arrival_tolerance_m=home_tuning.arrival_tolerance_m,
+            stall_timeout_s=home_tuning.stall_timeout_s,
         ),
         black_box=black_box,
         system_audio=system_audio,

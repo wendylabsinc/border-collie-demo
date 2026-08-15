@@ -45,6 +45,7 @@ def test_defaults_keep_target_confidence_and_share_the_search_contract() -> None
     assert pear.arrival.final_push_duration_s == 1.0
     assert pear.home.align_yaw_rps == 0.80
     assert pear.home.arrival_tolerance_m == 0.50
+    assert pear.home.stall_timeout_s == 5.0
     assert pear.home.settle_interval_s == 0.30
     assert pear.home.settled_sample_count == 4
     assert pear.home.settled_maximum_spread_m == 0.03
@@ -128,6 +129,18 @@ def test_home_turn_yaw_default_is_env_backed_without_changing_search(
     assert tuning.home.align_yaw_rps == 0.75
     assert tuning.search.yaw_rps == 0.50
     assert tuning.search.focus_yaw_rps == 0.50
+
+
+def test_home_stall_timeout_is_env_backed_and_frozen_per_run(monkeypatch) -> None:
+    monkeypatch.setenv("BORDER_COLLIE_HOME_STALL_TIMEOUT_S", "4.5")
+
+    from_env = RunTuning.defaults("pear")
+    overridden = RunTuning.from_payload(
+        "pear", {"home": {"stall_timeout_s": 3.0}}
+    )
+
+    assert from_env.home.stall_timeout_s == 4.5
+    assert overridden.home.stall_timeout_s == 3.0
 
 
 @pytest.mark.parametrize(

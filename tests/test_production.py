@@ -809,7 +809,7 @@ def test_return_stages_use_captured_home_and_locked_arrival_rules() -> None:
             "minimum_yaw_rps": 0.50,
             "maximum_yaw_rps": 0.50,
             "minimum_progress_m": 0.03,
-            "stall_timeout_s": 2.0,
+            "stall_timeout_s": 5.0,
             "timeout_s": 30.0,
             "settle_interval_s": 0.30,
             "settled_sample_count": 4,

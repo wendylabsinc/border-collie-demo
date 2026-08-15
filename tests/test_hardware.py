@@ -1937,6 +1937,117 @@ def test_position_only_return_uses_fresh_pose_until_home_then_disarms() -> None:
     asyncio.run(scenario())
 
 
+def test_position_return_progress_budget_starts_after_first_forward_command() -> None:
+    """Replay f8ef0175: slow avoidance arming must not consume stall budget."""
+
+    class SlowArmMotion(FakeMotion):
+        async def arm(self) -> str:
+            await asyncio.sleep(0.12)
+            return await super().arm()
+
+    class ArmBoundaryReplayPose(FakePose):
+        def __init__(self, motion: SlowArmMotion) -> None:
+            super().__init__()
+            self._motion = motion
+            self._distances_after_command = iter((1.20, 0.80, 0.40, 0.09))
+            self._last_distance = 1.384
+            self._captured_at = 10.0
+
+        def status(self) -> PoseStatus:
+            if self._motion.armed and not self._motion.commands:
+                # The first fresh sample after the six-second physical arm
+                # boundary improved by only 1.9 cm. No command has run yet.
+                self._last_distance = 1.365
+            elif self._motion.commands:
+                self._last_distance = next(
+                    self._distances_after_command, self._last_distance
+                )
+            self._captured_at += 0.05
+            return PoseStatus(
+                Pose(
+                    self._last_distance,
+                    0.0,
+                    math.pi,
+                    self._captured_at,
+                ),
+                0.0,
+                self.started,
+                None if self.started else "pose unavailable",
+            )
+
+    async def scenario() -> None:
+        motion = SlowArmMotion()
+        pose = ArmBoundaryReplayPose(motion)
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: pose,
+        )
+        await manager.start()
+
+        result = await manager.return_home_position(
+            {"x_m": 0.0, "y_m": 0.0, "yaw_rad": 0.0},
+            forward_mps=1.0,
+            arrival_tolerance_m=0.10,
+            heading_gate_rad=math.radians(20.0),
+            maximum_yaw_rps=0.50,
+            minimum_progress_m=0.03,
+            stall_timeout_s=0.05,
+            timeout_s=1.0,
+            settle_interval_s=0.0,
+            settled_sample_count=4,
+            settled_maximum_spread_m=0.03,
+            settled_sample_timeout_s=0.25,
+            settled_retry_count=0,
+        )
+
+        assert result["settled_home_verified"] is True
+        assert motion.commands
+        assert motion.commands[0].forward_mps == 1.0
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+def test_position_return_still_stops_after_commanded_motion_makes_no_progress() -> None:
+    async def scenario() -> None:
+        motion = FakeMotion()
+        pose = HomeSettlingReplayPose(
+            (1.0,) * 20,
+            yaw_rad=math.pi,
+        )
+        manager = HardwareManager(
+            live_config(),
+            dds_initializer=lambda _interface: None,
+            motion_factory=lambda _config: motion,
+            pose_factory=lambda _age: pose,
+        )
+        await manager.start()
+
+        with pytest.raises(HardwareUnavailable, match="stalled at 1.000 m"):
+            await manager.return_home_position(
+                {"x_m": 0.0, "y_m": 0.0, "yaw_rad": 0.0},
+                forward_mps=1.0,
+                arrival_tolerance_m=0.10,
+                heading_gate_rad=math.radians(20.0),
+                maximum_yaw_rps=0.50,
+                minimum_progress_m=0.03,
+                stall_timeout_s=0.15,
+                timeout_s=1.0,
+                settle_interval_s=0.0,
+                settled_retry_count=0,
+            )
+
+        assert motion.commands
+        assert all(command.forward_mps == 1.0 for command in motion.commands)
+        assert motion.armed is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize(
     "distances",
     [

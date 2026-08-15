@@ -145,7 +145,7 @@ class HomeTuning:
     return_minimum_yaw_rps: float = 0.50
     return_yaw_rps: float = 0.50
     minimum_progress_m: float = 0.03
-    stall_timeout_s: float = 2.0
+    stall_timeout_s: float = 5.0
     return_timeout_s: float = 30.0
     settle_interval_s: float = 0.30
     settled_sample_count: int = 4
@@ -161,6 +161,9 @@ class HomeTuning:
             ),
             "arrival_tolerance_m": os.environ.get(
                 "BORDER_COLLIE_HOME_ARRIVAL_TOLERANCE_M", "0.50"
+            ),
+            "stall_timeout_s": os.environ.get(
+                "BORDER_COLLIE_HOME_STALL_TIMEOUT_S", "5.0"
             ),
             "settle_interval_s": os.environ.get(
                 "BORDER_COLLIE_HOME_SETTLE_INTERVAL_S", "0.30"
@@ -182,6 +185,9 @@ class HomeTuning:
             align_yaw_rps=_number(values, "align_yaw_rps", 0.80, 0.50, 0.80),
             arrival_tolerance_m=_number(
                 values, "arrival_tolerance_m", 0.50, 0.05, 0.50
+            ),
+            stall_timeout_s=_number(
+                values, "stall_timeout_s", 5.0, 0.5, 5.0
             ),
             settle_interval_s=_number(
                 values, "settle_interval_s", 0.30, 0.0, 2.0

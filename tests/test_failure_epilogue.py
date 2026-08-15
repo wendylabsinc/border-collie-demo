@@ -31,6 +31,7 @@ class RecoveryRobot:
         self.last_command = {"forward_mps": 0.0, "yaw_rps": 0.0}
         self.stop_calls = 0
         self.return_calls = 0
+        self.return_options: dict[str, float] | None = None
         self.turn_calls = 0
         self.posture_calls: list[object] = []
         self.events: list[str] = []
@@ -100,9 +101,10 @@ class RecoveryRobot:
     async def return_home_position(
         self,
         _home: dict[str, object],
-        **_options: float,
+        **options: float,
     ) -> dict[str, object]:
         self.return_calls += 1
+        self.return_options = options
         self.events.append("return_home_position")
         if self.return_error is not None:
             raise RuntimeError(self.return_error)
@@ -142,6 +144,8 @@ def test_failure_after_outbound_motion_gets_one_position_only_return() -> None:
     assert report["exact_stop_confirmed"] is True
     assert report["terminal_home_measurement"]["home_distance_m"] == 0.05
     assert robot.return_calls == 1
+    assert robot.return_options is not None
+    assert robot.return_options["stall_timeout_s"] == 5.0
     assert robot.turn_calls == 1
     assert robot.events == [
         "stand_down",

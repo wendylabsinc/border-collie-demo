@@ -82,7 +82,7 @@ class PositionOnlyFailureEpilogue:
         heading_gate_rad: float = 0.3490658503988659,
         maximum_yaw_rps: float = 0.50,
         minimum_progress_m: float = 0.03,
-        stall_timeout_s: float = 2.0,
+        stall_timeout_s: float = 5.0,
         timeout_s: float = 30.0,
         align_yaw_rps: float = 0.50,
         align_tolerance_rad: float = 0.08726646259971647,

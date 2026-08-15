@@ -1865,7 +1865,9 @@ class HardwareManager:
                         lease: str | None = None
                         release_error: str | None = None
                         best_distance = float(candidate["home_distance_m"])
-                        progress_at = time.monotonic()
+                        commanded_without_progress_s = 0.0
+                        last_forward_command_at: float | None = None
+                        attempt_commands_sent = False
                         try:
                             lease = await self._motion.arm()
                             self._record_home_event(
@@ -1907,13 +1909,27 @@ class HardwareManager:
                                 if step.mode is ReturnMode.COMPLETE:
                                     break
                                 now = time.monotonic()
-                                if (
+                                if last_forward_command_at is not None:
+                                    commanded_without_progress_s += min(
+                                        max(0.0, now - last_forward_command_at),
+                                        self.config.command_watchdog_s,
+                                    )
+                                    last_forward_command_at = None
+                                if not attempt_commands_sent:
+                                    # Establish the progress baseline only after
+                                    # the factory-avoidance arm boundary. Setup
+                                    # time never consumes commanded-motion time.
+                                    best_distance = step.distance_m
+                                elif (
                                     step.distance_m
                                     <= best_distance - minimum_progress_m
                                 ):
                                     best_distance = step.distance_m
-                                    progress_at = now
-                                elif now - progress_at > stall_timeout_s:
+                                    commanded_without_progress_s = 0.0
+                                elif (
+                                    commanded_without_progress_s
+                                    >= stall_timeout_s
+                                ):
                                     raise HardwareUnavailable(
                                         "return Home stalled at "
                                         f"{step.distance_m:.3f} m"
@@ -1933,6 +1949,9 @@ class HardwareManager:
                                     ),
                                 )
                                 commands_sent = True
+                                attempt_commands_sent = True
+                                if step.forward_mps > 0.0:
+                                    last_forward_command_at = time.monotonic()
                                 await asyncio.sleep(
                                     self.config.command_heartbeat_s
                                 )
