@@ -85,6 +85,7 @@
         "CONTINUOUS_TRANSCRIPTION": "0",
         "AUTO_ARM_ACTIONS": "1",
         "AUDIO_DEVICE": "DJI MIC MINI",
+        "MICROPHONE_RETRY_INTERVAL_S": "2.0",
         "WAKE_WORD": "/app/hey_wendy.onnx",
         "WAKE_THRESHOLD": "0.5",
         "COMMAND_WINDOW_S": "8",
