@@ -28,6 +28,7 @@ def test_voice_service_uses_the_stage_default_dog_identity_and_local_boundaries(
     assert voice_env["CONTINUOUS_TRANSCRIPTION"] == "0"
     assert voice_env["AUTO_ARM_ACTIONS"] == "1"
     assert voice_env["AUDIO_DEVICE"] == "DJI MIC MINI"
+    assert voice_env["MICROPHONE_RETRY_INTERVAL_S"] == "2.0"
     assert {item["type"] for item in voice["entitlements"]} == {
         "network",
         "audio",

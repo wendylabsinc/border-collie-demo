@@ -29,6 +29,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from frontend import AudioFrontEnd
 from mcpclient import MultiMCP
+from microphone import run_microphone_session_loop
 from model_cache import ensure_model
 from observe_page import OBSERVE_HTML
 from page import INDEX_HTML
@@ -50,6 +51,9 @@ MODEL_SHA256 = os.environ.get(
 )
 PORT = int(os.environ.get("PORT", "8080"))
 AUDIO_DEVICE = os.environ.get("AUDIO_DEVICE", "auto")
+MICROPHONE_RETRY_INTERVAL_S = float(
+    os.environ.get("MICROPHONE_RETRY_INTERVAL_S", "2.0")
+)
 ACTION_MODE = os.environ.get("ACTION_MODE", "mcp")
 BORDER_COLLIE_URL = os.environ.get("BORDER_COLLIE_URL", "http://127.0.0.1:8110")
 BORDER_COLLIE_EXPECTED_BUILD_LABEL = os.environ.get(
@@ -129,6 +133,9 @@ def build_app() -> FastAPI:
         "ready": False,
         "device": None,
         "error": "microphone initialization has not completed",
+        "attempts": 0,
+        "retry_count": 0,
+        "retry_interval_s": MICROPHONE_RETRY_INTERVAL_S,
     }
     state: dict = {"loop": None}
     collie = (
@@ -176,27 +183,25 @@ def build_app() -> FastAPI:
 
     # -- audio thread -------------------------------------------------------
 
-    def listen() -> None:
-        last_discovery_error = None
-        while True:
-            try:
-                devices = list_input_devices()
-                device = select_input_device(AUDIO_DEVICE, devices)
-                if device is not None:
-                    break
+    def listen_once() -> None:
+        try:
+            devices = list_input_devices()
+            device = select_input_device(AUDIO_DEVICE, devices)
+            if device is None:
                 available = ", ".join(f"[{item.index}] {item.name}" for item in devices)
                 error = (
                     f"no microphone matched {AUDIO_DEVICE!r}; "
                     f"available inputs: {available or 'none'}"
                 )
-            except Exception as exc:  # noqa: BLE001 - hardware discovery boundary
-                device = None
-                error = f"microphone discovery failed: {exc}"
-            audio_state.update(ready=False, device=None, error=error)
-            if error != last_discovery_error:
-                print(f"[audio] waiting: {error}", flush=True)
-                last_discovery_error = error
-            time.sleep(2.0)
+                audio_state.update(ready=False, device=None, error=error)
+                return
+        except Exception as exc:  # noqa: BLE001 - hardware discovery boundary
+            audio_state.update(
+                ready=False,
+                device=None,
+                error=f"microphone discovery failed: {exc}",
+            )
+            return
         print(f"[audio] using [{device.index}] {device.name}", flush=True)
 
         frontend = AudioFrontEnd(target_dbfs=-20.0)
@@ -210,7 +215,7 @@ def build_app() -> FastAPI:
                 device=device.name,
                 error=f"microphone capture failed to start: {exc}",
             )
-            print(f"[audio] FATAL: {audio_state['error']}", flush=True)
+            print(f"[audio] waiting: {audio_state['error']}", flush=True)
             return
         audio_state.update(ready=True, device=device.name, error=None)
         armed_until = 0.0
@@ -330,7 +335,7 @@ def build_app() -> FastAPI:
                 ready=False,
                 error=f"microphone capture stopped unexpectedly: {exc}",
             )
-            print(f"[audio] FATAL: {audio_state['error']}", flush=True)
+            print(f"[audio] waiting: {audio_state['error']}", flush=True)
         finally:
             capture.stop()
             if audio_state["ready"]:
@@ -338,6 +343,27 @@ def build_app() -> FastAPI:
                     ready=False,
                     error="microphone capture stopped",
                 )
+
+    def listen() -> None:
+        last_retry_error: str | None = None
+
+        def report_retry(error: str) -> None:
+            nonlocal last_retry_error
+            if error == last_retry_error:
+                return
+            last_retry_error = error
+            print(
+                f"[audio] retrying in {MICROPHONE_RETRY_INTERVAL_S:.2f}s: {error}",
+                flush=True,
+            )
+
+        run_microphone_session_loop(
+            session=listen_once,
+            state=audio_state,
+            retry_interval_s=MICROPHONE_RETRY_INTERVAL_S,
+            sleep=time.sleep,
+            on_retry=report_retry,
+        )
 
     # -- LLM + MCP worker ---------------------------------------------------
 
