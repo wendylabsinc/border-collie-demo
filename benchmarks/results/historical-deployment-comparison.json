@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "snapshot_date": "2026-08-15",
+  "comparison_rule": "Only compare complete deployments with the same service set and the same BuildKit cached/rebuilt step counts. Keep cache migrations, local builds, and uncontrolled deployments separate.",
+  "equal_warm_deployments": [
+    {
+      "cohort": "old_warm_path",
+      "date": "2026-08-12",
+      "services": ["app", "media"],
+      "source_artifact": "border-collie-demo-stage-camera-v20-continuous-track/benchmarks/results/wendy-profile-v28-baseline-20260812.trace.json",
+      "source_sha256": "ecb15c2bc503559627268d73f2d00b2229ae61a433160834afcfd79b6f1f4a6c",
+      "command_elapsed_s": 146.878434,
+      "cached_buildkit_steps": 15,
+      "rebuilt_buildkit_steps": 2,
+      "status": "success"
+    },
+    {
+      "cohort": "old_warm_path",
+      "date": "2026-08-12",
+      "services": ["app", "media"],
+      "source_artifact": "border-collie-demo-stage-camera-v20-continuous-track/benchmarks/results/wendy-profile-v28-repeat-02-20260812.trace.json",
+      "source_sha256": "1d8d1cdd903687fc83918b6be047252588bc5f72b6b335c487000c208112e0ae",
+      "command_elapsed_s": 140.617754,
+      "cached_buildkit_steps": 15,
+      "rebuilt_buildkit_steps": 2,
+      "status": "success"
+    },
+    {
+      "cohort": "repaired_warm_path",
+      "date": "2026-08-12",
+      "services": ["app", "media"],
+      "source_artifact": "border-collie-demo-stage-camera-v20-continuous-track/benchmarks/results/wendy-profile-v28-pr1689-warm-repeat-02-20260812.trace.json",
+      "source_sha256": "e87ccb177fe54473dcb0952947993061d8c59c704e39f94bb8239bcd56e228b4",
+      "command_elapsed_s": 6.464415,
+      "cached_buildkit_steps": 15,
+      "rebuilt_buildkit_steps": 2,
+      "status": "success"
+    },
+    {
+      "cohort": "repaired_warm_path",
+      "date": "2026-08-12",
+      "services": ["app", "media"],
+      "source_artifact": "border-collie-demo-stage-camera-v20-continuous-track/benchmarks/results/wendy-profile-v28-pr1689-warm-repeat-20260812.trace.json",
+      "source_sha256": "35d26089fcced21e68c0fe0f93d641da2504c2c5f78382d20b0aa0ca0e4ac7fc",
+      "command_elapsed_s": 11.329984,
+      "cached_buildkit_steps": 15,
+      "rebuilt_buildkit_steps": 2,
+      "status": "success"
+    }
+  ],
+  "cache_migration_deployment": {
+    "date": "2026-08-12",
+    "services": ["app", "media"],
+    "source_artifact": "border-collie-demo-stage-camera-v20-continuous-track/benchmarks/results/wendy-profile-v28-pr1689-20260812.trace.json",
+    "source_sha256": "32ae816183aaf9bc0e1739968d5d9869aabc01047d9fbaa552f2330fc590d401",
+    "command_elapsed_s": 239.806019,
+    "cached_buildkit_steps": 2,
+    "rebuilt_buildkit_steps": 15,
+    "status": "success",
+    "comparison_eligible": false,
+    "reason": "First run after the builder/cache change rebuilt nearly the entire app and media graph."
+  },
+  "local_media_build_pair": {
+    "date": "2026-08-10",
+    "source_artifact": "docker-layer-optimizer/benchmarks/results/2026-08-10-border-collie-stagefile-prep-builds.json",
+    "source_sha256": "97551fb394494e581ec8920578754ea0c8677ee2862ae000dd68f016d34a1c06",
+    "cold_restore": {
+      "duration_s": 182.72,
+      "cached_steps": 0,
+      "rebuilt_steps": 7
+    },
+    "immediate_noop": {
+      "duration_s": 0.323,
+      "cached_steps": 7,
+      "rebuilt_steps": 0
+    },
+    "complete_deployment": false,
+    "comparison_eligible_for_deploy_claim": false,
+    "reason": "Local image builds exclude registry export, device transfer, replacement, and readiness."
+  },
+  "uncontrolled_two_service_deployments": {
+    "date": "2026-08-10",
+    "services": ["app", "media"],
+    "source_artifact": "docker-layer-optimizer/benchmarks/results/2026-08-10-border-collie-durability-stagefile-deploy.json",
+    "source_sha256": "c16060cba5a6b586217d33f0128b7872da634c608e11e1b1cda79c6ae56592bd",
+    "command_elapsed_s": [107.66, 98.974, 106.753, 105.356, 145.98],
+    "median_s": 106.753,
+    "comparison_eligible": false,
+    "reason": "Complete deployments, but per-service cache and rebuild counts were unavailable and cache states were uncontrolled."
+  },
+  "excluded_mixed_evidence": [
+    {
+      "date": "2026-08-08",
+      "source_artifact": "docker-layer-optimizer/benchmarks/results/2026-08-08-border-collie-media-stagefile-vs-dockerfile.json",
+      "source_sha256": "e02f1a144f10c3d1a2440c93095947f01956b867cc1e7a8d104e7091c6f36be0",
+      "reason": "Concurrent builds changed lock, builder, and garbage-collection state; the artifact itself marks every full-deploy observation comparison-ineligible."
+    },
+    {
+      "date": "2026-08-07",
+      "source_artifact": "docker-layer-optimizer/benchmarks/results/2026-08-07-border-collie-ten-run-test-deploy.json",
+      "source_sha256": "9ee69611e9c3a5b496203e41fcbb97cb46d39d10191d9b81255e94ccbbfd7815",
+      "reason": "Single-service app deployment with unknown cache state; service scope differs from the app-plus-media warm comparison."
+    }
+  ]
+}

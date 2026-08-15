@@ -15,13 +15,16 @@ import math
 import re
 import statistics
 from collections import Counter
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
-from typing import Any, Callable
-
+from typing import Any
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_LEDGER = REPOSITORY_ROOT / "benchmarks/results/deployment-timings.jsonl"
+DEFAULT_HISTORICAL = (
+    REPOSITORY_ROOT / "benchmarks/results/historical-deployment-comparison.json"
+)
 
 REQUIRED_KEYS = {
     "schema_version",
@@ -159,6 +162,108 @@ def load_ledger(path: Path = DEFAULT_LEDGER) -> list[dict[str, Any]]:
     if not rows:
         raise LedgerValidationError("ledger must contain at least one row")
     return rows
+
+
+def _validate_historical_seconds(value: object, field: str) -> float:
+    if not _is_number(value) or not math.isfinite(value) or value <= 0:
+        raise LedgerValidationError(f"historical {field} must be finite and positive")
+    return float(value)
+
+
+def _validate_sha256(value: object, field: str) -> None:
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
+        raise LedgerValidationError(f"historical {field} must be a lowercase SHA-256")
+
+
+def load_historical(path: Path = DEFAULT_HISTORICAL) -> dict[str, Any]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise LedgerValidationError(f"historical evidence is invalid JSON: {exc.msg}") from exc
+    if not isinstance(data, dict) or data.get("schema_version") != 1:
+        raise LedgerValidationError("historical schema_version must be 1")
+
+    warm = data.get("equal_warm_deployments")
+    if not isinstance(warm, list) or len(warm) != 4:
+        raise LedgerValidationError("historical equal_warm_deployments must have 4 rows")
+    allowed_cohorts = {"old_warm_path", "repaired_warm_path"}
+    for index, row in enumerate(warm, start=1):
+        if not isinstance(row, dict) or row.get("cohort") not in allowed_cohorts:
+            raise LedgerValidationError(f"historical warm row {index} has unknown cohort")
+        if row.get("services") != ["app", "media"] or row.get("status") != "success":
+            raise LedgerValidationError(
+                f"historical warm row {index} must be a successful app+media deploy"
+            )
+        _validate_historical_seconds(
+            row.get("command_elapsed_s"), f"warm row {index} command_elapsed_s"
+        )
+        if row.get("cached_buildkit_steps") != 15:
+            raise LedgerValidationError(
+                f"historical warm row {index} must report 15 cached steps"
+            )
+        if row.get("rebuilt_buildkit_steps") != 2:
+            raise LedgerValidationError(
+                f"historical warm row {index} must report 2 rebuilt steps"
+            )
+        _validate_sha256(row.get("source_sha256"), f"warm row {index} source_sha256")
+    if Counter(row["cohort"] for row in warm) != Counter(
+        {"old_warm_path": 2, "repaired_warm_path": 2}
+    ):
+        raise LedgerValidationError("historical warm comparison requires two rows per cohort")
+
+    migration = data.get("cache_migration_deployment")
+    if not isinstance(migration, dict) or migration.get("comparison_eligible") is not False:
+        raise LedgerValidationError("historical cache migration must be comparison-ineligible")
+    _validate_historical_seconds(
+        migration.get("command_elapsed_s"), "cache migration command_elapsed_s"
+    )
+    _validate_sha256(migration.get("source_sha256"), "cache migration source_sha256")
+
+    local = data.get("local_media_build_pair")
+    if not isinstance(local, dict) or local.get("complete_deployment") is not False:
+        raise LedgerValidationError("historical local media pair must be build-only")
+    for name in ("cold_restore", "immediate_noop"):
+        observation = local.get(name)
+        if not isinstance(observation, dict):
+            raise LedgerValidationError(f"historical local media {name} is missing")
+        _validate_historical_seconds(observation.get("duration_s"), f"local {name}")
+    _validate_sha256(local.get("source_sha256"), "local media source_sha256")
+    return data
+
+
+def summarize_historical(data: dict[str, Any]) -> dict[str, Any]:
+    warm = data["equal_warm_deployments"]
+    old_values = [
+        float(row["command_elapsed_s"])
+        for row in warm
+        if row["cohort"] == "old_warm_path"
+    ]
+    repaired_values = [
+        float(row["command_elapsed_s"])
+        for row in warm
+        if row["cohort"] == "repaired_warm_path"
+    ]
+    old_median = statistics.median(old_values)
+    repaired_median = statistics.median(repaired_values)
+    reduction = old_median - repaired_median
+    return {
+        "old_warm": _series(old_values),
+        "repaired_warm": _series(repaired_values),
+        "same_cache_topology": {"cached_steps": 15, "rebuilt_steps": 2},
+        "median_reduction_s": round(reduction, 4),
+        "median_reduction_percent": round(100 * reduction / old_median, 4),
+        "cache_migration_deploy_s": float(
+            data["cache_migration_deployment"]["command_elapsed_s"]
+        ),
+        "local_media_build_only": {
+            "cold_restore_s": float(
+                data["local_media_build_pair"]["cold_restore"]["duration_s"]
+            ),
+            "immediate_noop_s": float(
+                data["local_media_build_pair"]["immediate_noop"]["duration_s"]
+            ),
+        },
+    }
 
 
 def _scope_class(row: dict[str, Any]) -> str:
@@ -312,9 +417,14 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("ledger", nargs="?", type=Path, default=DEFAULT_LEDGER)
+    parser.add_argument("--historical", type=Path, default=DEFAULT_HISTORICAL)
     args = parser.parse_args()
     rows = load_ledger(args.ledger)
-    print(json.dumps(summarize(rows), indent=2, sort_keys=True))
+    summary = summarize(rows)
+    summary["historical_comparison"] = summarize_historical(
+        load_historical(args.historical)
+    )
+    print(json.dumps(summary, indent=2, sort_keys=True))
     return 0
 
 

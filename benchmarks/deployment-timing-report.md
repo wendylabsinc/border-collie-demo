@@ -24,6 +24,62 @@ Sources: the central
 [`measurement contract`](deployment-timings.md), and the checked-in
 [`deployment wrapper`](../scripts/deploy-stage-default).
 
+## Week-over-week, apples to apples
+
+Yes: the current path is dramatically faster than the old path from last
+week. The defensible comparison is the August 12 v28 app+media workload. All
+four runs were complete successful deployments and had the same BuildKit shape:
+**15 cached steps and 2 rebuilt `FROM` steps**.
+
+| Path | Complete deploys | Median | Range | Cache/build shape |
+| --- | ---: | ---: | ---: | --- |
+| Old warm path | 2 | **143.748 s** | 140.618–146.878 s | app+media; 15 cached, 2 rebuilt |
+| Repaired warm path | 2 | **8.897 s** | 6.464–11.330 s | app+media; 15 cached, 2 rebuilt |
+| Current v11 deployment | 1 | **8.460 s** | — | app+media+voice+recorder; cache-step topology unreported |
+
+The controlled warm median fell by **134.851 s**, or **93.81%**. The old path
+recreated/reconfigured the shared builder and then spent roughly 130 seconds
+in build/export despite a cached graph. The repaired path retained the builder
+state and completed build/export in roughly 1–5 seconds before the same kind of
+device replacement and readiness work.
+
+Today's 8.46-second result is inside the repaired 6.46–11.33-second warm range.
+That is strong confirmation that the repaired fast path is holding, but it is
+not a new controlled A/B: today's release has four services rather than two,
+and its command did not emit BuildKit cache-step counts or a separate readiness
+duration.
+
+The raw trace-derived comparison is pinned in
+[`historical-deployment-comparison.json`](results/historical-deployment-comparison.json),
+including SHA-256 provenance for every source artifact. It is intentionally
+separate from the central native-Wendy ledger because several historical source
+artifacts were captured by older profiling workflows; no current build or
+deployment uses DLO.
+
+## Cold deploys and cache migrations
+
+Cold and warm observations must remain separate:
+
+| Observation | Time | What it proves | Why it is not compared with the warm median |
+| --- | ---: | --- | --- |
+| First v28 run after the builder/cache change | **239.806 s** | Complete app+media deployment with 2 cached and 15 rebuilt steps | Cache migration, almost the inverse of the warm 15/2 topology |
+| Freshly started local media engine restore | **182.720 s** | Local media image build with 0 cached and 7 rebuilt steps | Build only; no export, device transfer, replacement, or readiness |
+| Immediate local media no-op | **0.323 s** | Same local image graph with 7 cached and 0 rebuilt steps | Build only; useful cache-boundary proof, not deployment time |
+| Current recorder dependency rebuild attempt | **14.800 s**, failed | A changed native dependency key forced cold work | Failed before device replacement, so it is not a cold deployment result |
+
+We therefore have a valid **warm-to-warm** week-over-week result, but not yet a
+valid **cold-to-cold complete deployment** comparison. A future cold comparison
+must use the same services, source, CLI, cache reset boundary, network, device,
+and readiness gate, and it must complete successfully on both paths.
+
+Older complete app+media deployments from August 10 took
+98.974–145.980 seconds (median 106.753 seconds), but their per-service cache
+states were uncontrolled. August 8 Stagefile/Dockerfile totals were also
+confounded by a global build lock, builder restarts, and cache garbage
+collection. Those observations support the historical pain, but they are
+excluded from the speedup calculation. A 28.965-second August 7 deployment is
+also excluded because it was app-only and its cache state was unknown.
+
 ## What the ledger contains
 
 The ledger has **43 attempts**: **36 successful** and **7 non-successful**.
@@ -67,9 +123,11 @@ chronological evidence to classify, leaving **39/43 unreported**:
 | Row 42 says the changed recorder Stagefile key cold-rebuilt CycloneDDS. | Explicit cold dependency rebuild | Failed before replacement after 14.80 s; other reported service builds were short, but recorder build was null. |
 | Row 1 is the first ledger entry after commit `1e8465a` made Stagefiles the only deployment builds. | Cache-migration candidate, inferred | App/media/voice builds were 108/210/116 s, command elapsed was not retained, and readiness later timed out. The ledger never labels this cache state, so it is not included in a warm/cold comparison. |
 
-There is therefore no defensible warm-versus-cold speedup ratio in this ledger.
-Future records need an explicit cache-state field before that comparison can be
-made.
+There is therefore no defensible warm-versus-cold speedup ratio **within the
+43-row ledger alone**. The historical comparison above fills the warm-to-warm
+gap with profiler traces that report exact cache-step topology, while still
+declining a cold-to-cold claim. Future ledger records need an explicit
+cache-state field before that comparison can be made directly from the ledger.
 
 ## CLI/source-version outcomes
 
@@ -91,23 +149,28 @@ made.
 
 ## Why the recent loop became fast
 
-The evidence supports four contributing practices, not one universal speedup:
+The evidence supports five contributing practices, not one universal speedup:
 
-1. **Narrow service replacement.** App-only work avoided rebuilding media/CUDA,
+1. **Stable builder/cache identity.** The controlled August 12 comparison
+   changed the warm median from 143.748 seconds to 8.897 seconds with the same
+   15-cached/2-rebuilt graph. Avoiding per-invocation builder reconfiguration
+   removed the dominant build/export delay.
+
+2. **Narrow service replacement.** App-only work avoided rebuilding media/CUDA,
    voice, and the passive recorder. The 15-row low-build-time app cohort had a
    2.060-second command median. The 3.600-second all-fruit example is also
    documented in [`mostly-working-2026-08-13.md`](../docs/mostly-working-2026-08-13.md).
-2. **Stable inputs precede volatile source.** The Stagefiles build native and
+3. **Stable inputs precede volatile source.** The Stagefiles build native and
    Python dependencies before copying app source. The repository's current
    deployment guidance describes generated Dockerfiles as artifacts and keeps
    dependency/model inputs ahead of volatile code in
    [`README.md`](../README.md#historical-docker-optimization-proof).
-3. **Independent build contexts.** `home-recorder` owns a separate Stagefile,
+4. **Independent build contexts.** `home-recorder` owns a separate Stagefile,
    lock, and context, so ordinary app iterations do not rebuild it. The initial
    shared-descriptor rollout remains whole-project by contract; later recorder
    or app-only changes can be scoped. See
    [`settled-home-recording.md`](../docs/settled-home-recording.md#one-recording-interface-two-build-contexts).
-4. **The stable CLI repaired Stagefile inheritance.** Release
+5. **The stable CLI repaired Stagefile inheritance.** Release
    `2026.08.15-001455` succeeded where the prior release failed locally. This
    removed a correctness blocker; it does not by itself explain every timing
    change.
@@ -152,6 +215,7 @@ python3 scripts/deployment_timing_report.py
 pytest -q tests/test_deployment_timing_report.py
 ```
 
-The script validates every JSONL row before emitting the summary. The test pins
-the 43-row outcome, scope, phase-coverage, cache-evidence, median, and range
-calculations used above.
+The script validates every JSONL row plus the historical comparison evidence
+before emitting the summary. The test pins the 43-row outcome, scope,
+phase-coverage, cache evidence, warm medians, reduction, and cold/migration
+separation used above.

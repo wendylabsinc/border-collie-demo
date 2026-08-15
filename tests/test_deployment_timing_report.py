@@ -3,10 +3,13 @@ import json
 import pytest
 
 from scripts.deployment_timing_report import (
+    DEFAULT_HISTORICAL,
     DEFAULT_LEDGER,
     LedgerValidationError,
+    load_historical,
     load_ledger,
     summarize,
+    summarize_historical,
 )
 
 
@@ -151,3 +154,47 @@ def test_invalid_timing_is_rejected(tmp_path):
 
     with pytest.raises(LedgerValidationError, match="row 1: command_elapsed_s"):
         load_ledger(path)
+
+
+def test_historical_comparison_keeps_warm_and_cold_evidence_separate():
+    historical = load_historical()
+    summary = summarize_historical(historical)
+
+    assert summary == {
+        "old_warm": {
+            "count": 2,
+            "median_s": 143.7481,
+            "min_s": 140.6178,
+            "max_s": 146.8784,
+        },
+        "repaired_warm": {
+            "count": 2,
+            "median_s": 8.8972,
+            "min_s": 6.4644,
+            "max_s": 11.33,
+        },
+        "same_cache_topology": {"cached_steps": 15, "rebuilt_steps": 2},
+        "median_reduction_s": 134.8509,
+        "median_reduction_percent": 93.8106,
+        "cache_migration_deploy_s": 239.806019,
+        "local_media_build_only": {
+            "cold_restore_s": 182.72,
+            "immediate_noop_s": 0.323,
+        },
+    }
+
+    assert historical["cache_migration_deployment"]["comparison_eligible"] is False
+    assert historical["local_media_build_pair"]["complete_deployment"] is False
+    assert all(
+        item["reason"] for item in historical["excluded_mixed_evidence"]
+    )
+
+
+def test_invalid_historical_warm_topology_is_rejected(tmp_path):
+    historical = json.loads(DEFAULT_HISTORICAL.read_text(encoding="utf-8"))
+    historical["equal_warm_deployments"][0]["cached_buildkit_steps"] = 14
+    path = tmp_path / "historical.json"
+    path.write_text(json.dumps(historical), encoding="utf-8")
+
+    with pytest.raises(LedgerValidationError, match="must report 15 cached steps"):
+        load_historical(path)
