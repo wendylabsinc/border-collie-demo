@@ -1288,6 +1288,29 @@ class HardwareManager:
                             "guidance_reason": decision.reason,
                             "frame_advanced": decision.frame_advanced,
                             "locked": decision.phase is GuidancePhase.LOCKED,
+                            # Freshness evidence. turn_to_fruit records this
+                            # trace rather than the approach trace, so without
+                            # these a detection_stale or camera_unhealthy stop
+                            # cannot be diagnosed from the run record.
+                            "camera_healthy": status.get("camera_healthy") is True,
+                            "camera_violations": list(
+                                status.get("camera_violations") or ()
+                            ),
+                            "detection_age_s": (
+                                _finite_float(detection.get("age_s"))
+                                if isinstance(detection, dict)
+                                else None
+                            ),
+                            "source_age_s": (
+                                _finite_float(source.get("age_s"))
+                                if isinstance(source, dict)
+                                else None
+                            ),
+                            "source_consecutive_frames": (
+                                source.get("consecutive_frames")
+                                if isinstance(source, dict)
+                                else None
+                            ),
                         }
                         search_trace.append(search_event)
                         self._record_black_box("guidance_decision", search_event)
