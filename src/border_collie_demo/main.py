@@ -18,6 +18,7 @@ from .orchestrator import SimulatedStageExecutor
 from .perception import PerceptionStatusClient
 from .production import ProductionStageExecutor
 from .simulation import SimulatedHardware, simulated_camera_perception
+from .system_audio import create_system_audio_policy
 
 
 def build_app_from_env() -> FastAPI:
@@ -41,10 +42,14 @@ def build_app_from_env() -> FastAPI:
     hardware = HardwareManager(HardwareConfig.from_env(), black_box=black_box)
     perception = PerceptionStatusClient(PerceptionConfig.from_env())
     bark = BarkClient(BarkConfig.from_env())
+    # The Go2 speaker has no other control surface: SetVolume lives only behind
+    # this policy. Without it wired, nothing raises the volume and every bark is
+    # accepted by the sidecar and played inaudibly.
+    system_audio = create_system_audio_policy(bark)
 
     def best_effort_bark_status() -> dict[str, object]:
         try:
-            status = bark.status()
+            status = system_audio.status()
         except Exception as exc:  # noqa: BLE001 - bark cannot block motion readiness
             status = {"ready": False, "detail": str(exc)}
         return {
@@ -70,9 +75,12 @@ def build_app_from_env() -> FastAPI:
         configure_coco_test=perception.configure_coco_test,
         runs_root=runs_root,
         media_status=best_effort_bark_status,
+        # Barks go through the audio policy, not the raw sidecar client, so the
+        # speaker is unmuted for the sound and re-muted afterwards.
         stage_executor=ProductionStageExecutor(
-            hardware, perception.status, bark
+            hardware, perception.status, system_audio
         ),
+        system_audio=system_audio,
         terminal_evidence=terminal_evidence.capture,
         failure_epilogue=PositionOnlyFailureEpilogue(hardware),
         black_box=black_box,

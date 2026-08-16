@@ -637,4 +637,24 @@ def create_app(
     async def stop() -> dict[str, object]:
         return await demo.stop()
 
+    @app.post("/api/thermal/beep")
+    async def thermal_beep() -> dict[str, object]:
+        """Sound the speaker for a thermal alert.
+
+        The thermal monitor is a separate app that posts here on a critical.
+        It previously 404'd, so the alarm has never been audible. Routing it
+        through the audio policy is what unmutes the speaker for the sound.
+        """
+        if system_audio is None:
+            raise HTTPException(
+                status_code=503, detail="speaker policy is not connected"
+            )
+        try:
+            result = await system_audio.bark()
+        except Exception as exc:  # noqa: BLE001 - SDK and sidecar errors are untyped
+            # Report rather than raise: a failed alarm must still be visible,
+            # and this endpoint must never become a way to wedge the monitor.
+            return {"sounded": False, "error": str(exc)[:240]}
+        return {"sounded": True, **result}
+
     return app

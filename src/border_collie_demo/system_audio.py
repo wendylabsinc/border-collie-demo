@@ -271,7 +271,11 @@ def create_system_audio_policy(
     if not resolved.enabled:
         return SystemAudioPolicy(None, bark, resolved)
     if vui_factory is None:
-        from unitree_sdk2py.go2.vui.vui_client import VuiClient
+        # Imported when the client is built, not when the policy is, so the
+        # app can be constructed off-device where the SDK is absent.
+        def vui_factory() -> VuiClientProtocol:
+            from unitree_sdk2py.go2.vui.vui_client import VuiClient
 
-        vui_factory = VuiClient
+            return VuiClient()
+
     return SystemAudioPolicy(None, bark, resolved, vui_factory=vui_factory)

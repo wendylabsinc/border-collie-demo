@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from border_collie_demo.main import build_app_from_env
 from border_collie_demo.orchestrator import SimulatedStageExecutor
 from border_collie_demo.simulation import SimulatedHardware, simulated_camera_perception
+from border_collie_demo.system_audio import SystemAudioPolicy
 
 
 def test_explicit_simulation_runtime_completes_activate_demo(
@@ -117,4 +118,9 @@ def test_production_runtime_wires_the_real_stage_executor(
 
     assert run["outcome"] == "COMPLETED"
     assert created and created[0][0] is hardware
-    assert isinstance(created[0][2], Bark)
+    # The executor must bark through the speaker policy, not the raw sidecar
+    # client. Handing it the bare client leaves the Go2 speaker muted, so every
+    # bark is accepted and played inaudibly.
+    bark_port = created[0][2]
+    assert isinstance(bark_port, SystemAudioPolicy)
+    assert isinstance(bark_port._bark, Bark)
