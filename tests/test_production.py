@@ -574,7 +574,7 @@ def test_return_stages_use_captured_home_and_locked_arrival_rules() -> None:
         ]
         assert all(call[1] == context().home for call in hardware.calls)
         assert hardware.calls[0][2] == {
-            "yaw_rps": 0.50,
+            "yaw_rps": 0.80,
             "tolerance_rad": pytest.approx(0.0872665),
             "response_timeout_s": 0.75,
             "response_min_progress_rad": pytest.approx(0.0349066),

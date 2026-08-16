@@ -118,7 +118,9 @@ class ArrivalTuning:
 
 @dataclass(frozen=True)
 class HomeTuning:
-    align_yaw_rps: float = 0.50
+    # Matches the stepped-yaw cohort that passed 5/5 on Apple and Pear. Home
+    # has no env override, so the default lives here.
+    align_yaw_rps: float = 0.80
     align_tolerance_deg: float = 5.0
     align_timeout_s: float = 30.0
     return_forward_mps: float = 1.0
