@@ -48,6 +48,9 @@ stages:
         paths: [model/banana-specialist.pt]
         dest: /media/banana-specialist.pt
       - from: local
+        paths: [model/apple-pear-mango.pt]
+        dest: /media/apple-pear-mango.pt
+      - from: local
         paths: [__init__.py, coco_tester.py, fruit_color.py, model_router.py, perception_sidecar.py]
         dest: /app/media/
     user: root

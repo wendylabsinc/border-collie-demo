@@ -135,7 +135,7 @@ class HomeTuning:
 _FRUIT_CONFIDENCE_RANGES: dict[str, dict[str, tuple[float, float]]] = {
     "apple": {"focus": (0.40, 0.70), "lock": (0.40, 0.70), "tracking": (0.10, 0.70)},
     "banana": {"focus": (0.20, 0.70), "lock": (0.20, 0.70), "tracking": (0.20, 0.70)},
-    "mango": {"focus": (0.08, 0.20), "lock": (0.08, 0.20), "tracking": (0.08, 0.20)},
+    "mango": {"focus": (0.65, 0.85), "lock": (0.65, 0.85), "tracking": (0.55, 0.85)},
     "pear": {"focus": (0.65, 0.85), "lock": (0.65, 0.85), "tracking": (0.55, 0.85)},
 }
 

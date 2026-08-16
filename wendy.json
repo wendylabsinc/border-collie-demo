@@ -6,7 +6,7 @@
       "context": ".",
       "env": {
         "BORDER_COLLIE_PORT": "8110",
-        "BORDER_COLLIE_BUILD_LABEL": "stage-default-v5-derived-mango",
+        "BORDER_COLLIE_BUILD_LABEL": "stage-default-v6-general-mango",
         "BORDER_COLLIE_RUNTIME_MODE": "production",
         "BORDER_COLLIE_HARDWARE_ENABLED": "1",
         "BORDER_COLLIE_AUTONOMY_ENABLED": "1",
@@ -62,7 +62,8 @@
       "context": "./media",
       "env": {
         "UNITREE_ROBOT_IP": "192.168.123.161",
-        "PEAR_MODEL_PATH": "/media/model.engine",
+        "PEAR_MODEL_PATH": "/media/apple-pear-mango.pt",
+        "PEAR_CROP_CONFIRM_SMALL_AREA_RATIO": "0.000001",
         "BANANA_SPECIALIST_MODEL_PATH": "/media/banana-specialist.pt",
         "BANANA_SPECIALIST_MIN_CONFIDENCE": "0.55",
         "BANANA_SPECIALIST_MIN_IOU": "0.10",
@@ -87,7 +88,7 @@
         "PORT": "8092",
         "ACTION_MODE": "border_collie",
         "BORDER_COLLIE_URL": "http://127.0.0.1:8110",
-        "BORDER_COLLIE_EXPECTED_BUILD_LABEL": "stage-default-v5-derived-mango",
+        "BORDER_COLLIE_EXPECTED_BUILD_LABEL": "stage-default-v6-general-mango",
         "CONTINUOUS_TRANSCRIPTION": "0",
         "AUTO_ARM_ACTIONS": "1",
         "AUDIO_DEVICE": "DJI MIC MINI",

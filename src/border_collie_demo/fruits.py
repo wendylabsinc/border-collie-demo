@@ -29,15 +29,16 @@ FRUIT_POLICIES: dict[str, FruitPolicy] = {
         close_range_tracking_confidence=0.20,
         motion_qualified=False,
     ),
-    # Mango is a derived identity: the sidecar publishes a detection only when
-    # a raw COCO bowl proposal also passes the bounded warm/yellow and
-    # lower-frame identity contract. The raw proposal averaged 0.128 over
-    # 63/63 fresh stage frames (maximum 0.166). Every frame must remain
-    # strictly above the 0.08 raw floor and at or above the 0.80 color floor;
-    # acquisition and tracking never bypass those identity gates.
+    # Mango is a first-class class in the general model, so it carries pear's
+    # thresholds rather than the old derived-route floors. Those 0.08 floors
+    # only held because a COCO bowl proposal plus an 80% orange gate did the
+    # filtering; without them 0.08 admits any blob. Measured on this camera:
+    # mango reads 0.88-0.92 in view, the worst true positive over the frozen
+    # 40-frame MANGO-EVAL-001 clip was 0.8215, and false positives top out at
+    # 0.21. A 0.65 floor leaves daylight on both sides.
     "mango": FruitPolicy(
-        acquisition_confidence=0.08,
-        close_range_tracking_confidence=0.08,
+        acquisition_confidence=0.65,
+        close_range_tracking_confidence=0.55,
         motion_qualified=True,
     ),
     "pear": FruitPolicy(
@@ -59,13 +60,6 @@ def fruit_policy(target_fruit: str) -> FruitPolicy:
         policy = FRUIT_POLICIES[normalized]
     except KeyError as exc:
         raise ValueError(f"unsupported Target Fruit: {target_fruit}") from exc
-    if normalized == "mango":
-        raw_confidence = mango_raw_confidence()
-        return FruitPolicy(
-            acquisition_confidence=raw_confidence,
-            close_range_tracking_confidence=raw_confidence,
-            motion_qualified=policy.motion_qualified,
-        )
     if normalized != "apple":
         return policy
     acquisition = _bounded_confidence_env(

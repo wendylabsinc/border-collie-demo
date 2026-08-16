@@ -311,6 +311,9 @@ def test_audience_ui_exposes_cohort_configuration_and_observation() -> None:
     assert 'id="start-three-fruit"' in page
     assert "runs: 3" in page
     assert "Run Apple + Mango + Pear once" in page
+    # The button's payload must match its label; pinning only the label let
+    # this ship sending banana, which the cohort API rejects as unqualified.
+    assert "fruit_subset: ['apple', 'mango', 'pear']" in page
     assert "Failures stop the cohort by default" in page
     assert "'/api/cohorts'" in page
     assert "'/api/cohorts/active'" in page

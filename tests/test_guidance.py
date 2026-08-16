@@ -113,7 +113,9 @@ def test_mango_guidance_fails_closed_without_derived_identity(
 
 def test_mango_identity_boundary_allows_strictly_above_raw_and_color_at_floor() -> None:
     guidance = FruitGuidance("mango")
-    status = observation(pts=1, now_s=0.0, label="mango", confidence=0.081)
+    # Detection confidence must clear mango's acquisition floor; the raw and
+    # colour floors below are what this test actually pins.
+    status = observation(pts=1, now_s=0.0, label="mango", confidence=0.70)
     status["detection"]["raw_confidence"] = 0.081
     status["detection"]["derived_confidence"] = 0.80
 
@@ -127,12 +129,12 @@ def test_mango_tracking_never_bypasses_raw_or_color_identity_gates() -> None:
     guidance = FruitGuidance("mango")
     for pts, now_s in ((1, 0.0), (2, 0.1), (3, 0.2)):
         guidance.observe(
-            observation(pts=pts, now_s=now_s, label="mango", confidence=0.12),
+            observation(pts=pts, now_s=now_s, label="mango", confidence=0.70),
             now_s=now_s,
         )
     assert guidance.phase is GuidancePhase.LOCKED
 
-    invalid = observation(pts=4, now_s=0.3, label="mango", confidence=0.12)
+    invalid = observation(pts=4, now_s=0.3, label="mango", confidence=0.70)
     invalid["detection"]["raw_confidence"] = 0.08
     stopped = guidance.observe(invalid, now_s=0.3, allow_forward=True)
 

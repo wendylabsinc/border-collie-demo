@@ -547,7 +547,14 @@ class FruitGuidance:
         if not isinstance(label, str) or not label.strip():
             return None, "detection_label_invalid"
         normalized_label = label.casefold().strip()
-        if self.target_fruit == "mango" and normalized_label == "mango":
+        # Only the derived COCO route publishes raw/derived identity evidence,
+        # and it must clear both gates. A mango carried by the general model is
+        # a first-class class like pear, with no derived evidence to verify.
+        derived_route = (
+            detection.get("raw_label") is not None
+            or detection.get("derived_identity") is not None
+        )
+        if self.target_fruit == "mango" and normalized_label == "mango" and derived_route:
             raw_confidence = _finite_float(detection.get("raw_confidence"))
             derived_confidence = _finite_float(detection.get("derived_confidence"))
             if (

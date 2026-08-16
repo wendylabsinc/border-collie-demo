@@ -159,7 +159,9 @@ class FruitModelRouter:
         y_offset: int = 0,
     ) -> RoutedPrediction:
         normalized_target = target_fruit.casefold().strip()
-        if normalized_target == "mango":
+        # The derived COCO route is a fallback for a general model that has no
+        # mango class. Once mango is baked in, mango is served like any fruit.
+        if normalized_target == "mango" and normalized_target not in self._general_class_ids:
             if self._mango_model is None or not self._mango_class_ids:
                 raise ValueError("mango derived route is unavailable")
             raw_results = self._mango_model.predict(

@@ -31,7 +31,7 @@ from media.fruit_color import classify_bbox_color
 from media.model_router import FruitCandidate, FruitModelRouter, RoutedPrediction
 
 SUPPORTED_FRUITS = ("apple", "banana", "mango", "pear")
-GENERAL_MODEL_FRUITS = ("apple", "banana", "pear")
+GENERAL_MODEL_FRUITS = ("apple", "pear", "mango")
 SEARCH_CROP_FRUITS = frozenset({"apple", "banana"})
 
 
@@ -648,14 +648,14 @@ class PerceptionRuntime:
         normalized = target_fruit.casefold().strip()
         if normalized not in SUPPORTED_FRUITS:
             raise ValueError(f"unsupported Target Fruit: {target_fruit}")
-        if normalized == "mango" and self._model is not None and self._mango_model is None:
-            raise RuntimeError("Mango derived model route is unavailable")
-        if (
-            normalized != "mango"
-            and self._fruit_class_ids
-            and normalized not in self._fruit_class_ids
-        ):
-            raise RuntimeError(f"model class is unavailable for {normalized}")
+        # A fruit carried by the general model is served directly. Mango falls
+        # back to the derived COCO route only while the general model lacks it.
+        if not self._fruit_class_ids or normalized not in self._fruit_class_ids:
+            if normalized == "mango":
+                if self._model is not None and self._mango_model is None:
+                    raise RuntimeError("Mango derived model route is unavailable")
+            elif self._fruit_class_ids:
+                raise RuntimeError(f"model class is unavailable for {normalized}")
         with self._target_lock:
             self._target_fruit = normalized
             self.evidence.select_target(normalized)
@@ -824,7 +824,7 @@ class PerceptionRuntime:
                 candidate is not None
                 and not search_crop["attempted"]
                 and not bool(full_frame_prediction.route.get("triggered"))
-                and target_fruit != "mango"
+                and full_frame_prediction.route.get("mode") != "mango_derived"
                 and self._should_crop_confirm(
                     candidate,
                     width=int(bgr.shape[1]),
@@ -919,7 +919,7 @@ class PerceptionRuntime:
                 "derived_identity": full_route.get("derived_identity"),
                 "derived_confidence": full_route.get("derived_confidence"),
             }
-            if target_fruit == "mango"
+            if target_fruit == "mango" and full_route.get("mode") == "mango_derived"
             else {}
         )
         detection = self.evidence.note_detection(

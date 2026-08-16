@@ -970,7 +970,7 @@ def test_http_activation_id_replays_the_same_durable_run(tmp_path) -> None:
     [
         ("apple", 0.52, 0.42),
         ("pear", 0.70, 0.66),
-        ("mango", 0.12, 0.10),
+        ("mango", 0.70, 0.66),
     ],
 )
 def test_run_activation_persists_selected_fruit_search_confidence_tuning(
@@ -1056,8 +1056,8 @@ def test_activation_id_conflicts_when_selected_fruit_tuning_changes(tmp_path) ->
             "target_fruit": "mango",
             "activation_id": "mango-confidence-1",
             "tuning": {
-                "focus_confidence": 0.12,
-                "lock_confidence": 0.10,
+                "focus_confidence": 0.70,
+                "lock_confidence": 0.66,
             },
         }
 
@@ -1068,8 +1068,8 @@ def test_activation_id_conflicts_when_selected_fruit_tuning_changes(tmp_path) ->
             json={
                 **base,
                 "tuning": {
-                    "focus_confidence": 0.13,
-                    "lock_confidence": 0.10,
+                    "focus_confidence": 0.71,
+                    "lock_confidence": 0.66,
                 },
             },
         )
@@ -1230,10 +1230,10 @@ def test_status_exposes_selected_fruit_confidence_defaults_and_ranges(tmp_path) 
             },
         },
         "mango": {
-            "defaults": {"focus_confidence": 0.08, "lock_confidence": 0.08},
+            "defaults": {"focus_confidence": 0.65, "lock_confidence": 0.65},
             "ranges": {
-                "focus_confidence": [0.08, 0.20],
-                "lock_confidence": [0.08, 0.20],
+                "focus_confidence": [0.65, 0.85],
+                "lock_confidence": [0.65, 0.85],
             },
         },
         "pear": {

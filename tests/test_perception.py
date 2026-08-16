@@ -80,7 +80,7 @@ def test_qualified_mango_requires_raw_bowl_and_derived_identity() -> None:
     payload["supported_fruits"] = ["apple", "banana", "mango", "pear"]
     payload["detection"].update(
         label="mango",
-        confidence=0.128,
+        confidence=0.70,
         raw_label="bowl",
         raw_confidence=0.128,
         raw_bbox_xyxy=[480, 360, 800, 700],
