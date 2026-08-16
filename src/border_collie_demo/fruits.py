@@ -27,7 +27,7 @@ FRUIT_POLICIES: dict[str, FruitPolicy] = {
     "banana": FruitPolicy(
         acquisition_confidence=0.20,
         close_range_tracking_confidence=0.20,
-        motion_qualified=True,
+        motion_qualified=False,
     ),
     # Mango is a first-class class in the general model, so it carries pear's
     # thresholds rather than the old derived-route floors. Those 0.08 floors
