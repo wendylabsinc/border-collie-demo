@@ -2053,3 +2053,36 @@ def test_motion_factory_receives_the_validated_limits() -> None:
         await manager.close()
 
     asyncio.run(scenario())
+
+
+def test_approach_trace_carries_the_camera_violation_that_stopped_the_run() -> None:
+    """The violation must reach the run record, not just the guidance reason.
+
+    A camera_unhealthy stop previously recorded only "camera_unhealthy", so
+    the failing source check could not be identified without a live repro.
+    """
+    from border_collie_demo.hardware import _ApproachRecorder
+
+    guidance = FruitGuidance("pear")
+    recorder = _ApproachRecorder(guidance, started_s=0.0)
+    status = {
+        "camera_healthy": False,
+        "camera_violations": ["fewer than 10 consecutive source frames"],
+        "generation": "generation-1",
+        "source": {
+            "pts": 12345,
+            "time_base": "1/90000",
+            "age_s": 0.02,
+            "consecutive_frames": 3,
+        },
+        "detection": {},
+    }
+
+    decision = guidance.observe(status, now_s=0.0)
+    recorder.record(status, decision, now_s=0.0)
+    sample = recorder.evidence()["approach_trace"][-1]
+
+    assert decision.reason == "camera_unhealthy"
+    assert sample["camera_healthy"] is False
+    assert sample["camera_violations"] == ["fewer than 10 consecutive source frames"]
+    assert sample["source_consecutive_frames"] == 3

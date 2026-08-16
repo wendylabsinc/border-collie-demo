@@ -196,10 +196,14 @@ class _ApproachRecorder:
             "elapsed_s": round(now_s - self._started_s, 4),
             "target_fruit": self._guidance.target_fruit,
             "camera_healthy": status.get("camera_healthy") is True,
+            # Which source check failed, so a camera_unhealthy stop is
+            # diagnosable from the run record instead of needing a repro.
+            "camera_violations": list(status.get("camera_violations") or ()),
             "generation": status.get("generation"),
             "source_pts": source_record.get("pts"),
             "source_time_base": source_record.get("time_base"),
             "source_age_s": _finite_float(source_record.get("age_s")),
+            "source_consecutive_frames": source_record.get("consecutive_frames"),
             "detection_age_s": _finite_float(detection_record.get("age_s")),
             "raw_label": detection_record.get("label"),
             "confidence": confidence,

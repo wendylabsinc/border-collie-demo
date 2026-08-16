@@ -289,6 +289,10 @@ def evaluate_perception_evidence(
     return {
         "ready": ready,
         "camera_healthy": camera_healthy,
+        # Published separately from "detail", which mixes camera and target
+        # violations. A camera failure stops the run, so the reason it stopped
+        # has to survive into the run record on its own.
+        "camera_violations": list(camera_violations),
         "target_ready": target_ready,
         "detail": (
             f"camera generation and {target_fruit} detector passed recognition check"

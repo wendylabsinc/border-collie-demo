@@ -225,3 +225,41 @@ def test_malformed_or_unreachable_status_fails_closed() -> None:
     assert status["detail"] == (
         "camera/perception status unavailable: sidecar timed out"
     )
+
+
+def test_camera_violations_name_the_failing_source_check() -> None:
+    """A camera_unhealthy stop must be diagnosable from the record alone.
+
+    Guidance halts a run the moment camera_healthy goes false, but the reason
+    is a source-level check the run record previously discarded, leaving the
+    failure undiagnosable without a live repro.
+    """
+    healthy = client_for(valid_payload()).status()
+    assert healthy["camera_healthy"] is True
+    assert healthy["camera_violations"] == []
+
+    stalled = valid_payload()
+    stalled["source"]["received_monotonic_s"] = 99.0  # 1.0 s old, gate is 0.350
+    status = client_for(stalled).status()
+
+    assert status["camera_healthy"] is False
+    assert status["camera_violations"] == ["source progress is stale"]
+
+    reconnected = valid_payload()
+    reconnected["source"]["consecutive_frames"] = 3
+    status = client_for(reconnected).status()
+
+    assert status["camera_healthy"] is False
+    assert status["camera_violations"] == ["fewer than 10 consecutive source frames"]
+
+
+def test_camera_violations_exclude_target_only_failures() -> None:
+    """A weak detection is not a camera fault and must not be reported as one."""
+    weak = valid_payload()
+    weak["detection"]["confidence"] = 0.01
+
+    status = client_for(weak).status()
+
+    assert status["ready"] is False
+    assert status["camera_healthy"] is True
+    assert status["camera_violations"] == []
