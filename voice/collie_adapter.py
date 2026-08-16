@@ -59,19 +59,163 @@ _FULL_DEMO_PHRASES = frozenset({
 })
 
 #: Accepted spellings of the single Mango Demo Run, matched the same way.
-#: "man go" is included because Parakeet splits the word; it is only safe
-#: because the match is anchored to the entire utterance.
+#: These are written in *canonical* form: every mango-shaped token in the
+#: utterance is rewritten to "mango" by ``_canonical_mango`` first, so
+#: "mangos", "mengo run" and the split "man go" all reach this set as "mango"
+#: / "mango run".
 _MANGO_PHRASES = frozenset({
     "mango",
-    "mangos",
-    "mangoes",
-    "man go",
     "mango run",
     "mango demo",
     "mango demo run",
     "one mango",
     "single mango",
 })
+
+# --- Fuzzy mango recognition -------------------------------------------------
+#
+# Field evidence: every stage utterance lands around -54 dBFS, ~25 dB below
+# close-mic speech.  At that level Parakeet still gets "mango" right most of the
+# time (three captured sentences all matched), but it intermittently degrades
+# the word.  The degradations are phonetically predictable, because the parts of
+# /'mae-ngoh/ that survive a quiet channel are not uniform:
+#
+#   * The /ng-g/ cluster is the loudest, most stable part -> it survives.
+#   * The final /oh/ is unstressed and trails off -> vowel substitution
+#     ("manga", "mangu") and truncation ("mang").
+#   * The initial /m/ is a low-energy nasal murmur -> it is the piece most often
+#     mangled, into /n/ or /b/ ("nango", "bango") or dropped ("ango").
+#   * The word is often split across the syllable boundary ("man go").
+#
+# Technique chosen: bounded Levenshtein distance (<= 1) against "mango",
+# gated on the /m/ onset, with plural stripping and an explicit blocklist of
+# ordinary English words that survive the gate.  Rejected alternatives:
+#
+#   * A longer curated synonym list: unbounded guesswork, and it cannot cover
+#     the vowel-substitution family without becoming a list of nonsense.
+#   * Bare edit distance <= 2: admits "man", "many", "mangle", "bingo" and
+#     "tango".  Bare edit distance <= 1 still admits "tango" and "bango".
+#   * Soundex/Metaphone alone: "mango" keys as M520/MNK, and so does "monkey",
+#     "mink", "manic" and "mange" -- a phonetic key throws away the vowels,
+#     which are precisely what separates "mango" from its neighbours.  The
+#     /m/-onset gate below is the one useful thing Soundex would have given us
+#     (it keeps the first letter), so we take that idea and drop the rest.
+#
+# The /m/ onset gate is what makes edit distance 1 safe: "tango", "bango",
+# "bingo", "banjo", "dingo" and "lingo" are all killed by it, and "many" (2),
+# "man" (2), "mangle" (2) and "manage" (2) are outside the distance budget.
+#
+# Deliberate false negative: onset-substituted forms ("bango", "nango") and the
+# dropped-onset form ("ango") are NOT accepted.  A false negative costs the
+# operator one repeated sentence; a false positive walks a 15 kg robot across a
+# room unprompted.  Accepting b-/n-onsets would open the whole
+# bingo/banjo/bongo/tango neighbourhood for one extra recognised utterance, so
+# we take the repeat.
+_MANGO_WORD = "mango"
+
+#: Never fuzzy-match something shorter than this; "man" and "may" are common
+#: words and are only 2 edits away in any case.
+_MANGO_MIN_LENGTH = 4
+
+#: One edit.  See the note above for why two is unusable.
+_MANGO_MAX_EDITS = 1
+
+#: The literal fruit spellings.  Always accepted, in any position.
+_MANGO_LITERALS = frozenset({"mango", "mangos", "mangoes"})
+
+#: Ordinary English words (and one common given name) that pass the onset +
+#: distance gate.  They are accepted only when they are the *entire* utterance,
+#: where "manga" during a robot demo is almost certainly a botched "mango".
+#: Inside a longer sentence -- where ordinary speech actually lives -- they are
+#: refused, so "go and read the manga", "go look at that mangy dog" and
+#: "go and find Margo" cannot start a run.
+_MANGO_NEIGHBOUR_WORDS = frozenset({"manga", "mange", "mangy", "mongo", "margo"})
+
+# Apple and pear deliberately get NO fuzzy matching.  Two reasons, and both have
+# to hold before a fruit earns a near-miss budget:
+#
+#   1. No evidence.  The reported field failure is mango only.
+#   2. Their neighbourhoods are dense where mango's is sparse.  "pear" is four
+#      letters, so edit distance 1 with a /p/ onset already reaches "pea",
+#      "peas", "peak", "peer", "pearl", "par" and "per" -- all ordinary words.
+#      "apple" reaches "ample" and "apply", both common.  "mango" is the lucky
+#      case: with the /m/ onset held fixed, one edit reaches almost nothing but
+#      nonsense.  Widening apple and pear would multiply the false-positive
+#      surface for a problem nobody has reported.
+#
+# "pear" already accepts the "pair" homophone, which is an existing deliberate
+# widening and is left exactly as it was.
+
+
+def _edit_distance(word: str, target: str, *, budget: int) -> int:
+    """Levenshtein distance, abandoned as soon as it exceeds ``budget``."""
+    if abs(len(word) - len(target)) > budget:
+        return budget + 1
+    previous = list(range(len(target) + 1))
+    for i, left in enumerate(word, start=1):
+        current = [i]
+        for j, right in enumerate(target, start=1):
+            current.append(min(
+                previous[j] + 1,
+                current[j - 1] + 1,
+                previous[j - 1] + (left != right),
+            ))
+        if min(current) > budget:
+            return budget + 1
+        previous = current
+    return previous[-1]
+
+
+def _singular(word: str) -> str:
+    """Strip an ASR plural so "mangos"/"mangoes" score against "mango"."""
+    if len(word) > _MANGO_MIN_LENGTH and word.endswith("s") and not word.endswith("ss"):
+        return word[:-1]
+    return word
+
+
+def _mango_likeness(word: str) -> str | None:
+    """Classify one token: "literal", "near", "word", or None for no match."""
+    if word in _MANGO_LITERALS:
+        return "literal"
+    stem = _singular(word)
+    if len(stem) < _MANGO_MIN_LENGTH or not stem.startswith(_MANGO_WORD[0]):
+        return None
+    if _edit_distance(stem, _MANGO_WORD, budget=_MANGO_MAX_EDITS) > _MANGO_MAX_EDITS:
+        return None
+    return "word" if stem in _MANGO_NEIGHBOUR_WORDS else "near"
+
+
+def _is_mango_token(word: str, *, allow_english_words: bool) -> bool:
+    likeness = _mango_likeness(word)
+    if likeness is None:
+        return False
+    return likeness != "word" or allow_english_words
+
+
+def _canonical_mango(
+    words: list[str],
+    *,
+    join_splits: bool,
+    allow_english_words: bool,
+) -> list[str]:
+    """Rewrite every mango-shaped token to the literal "mango"."""
+    out: list[str] = []
+    index = 0
+    while index < len(words):
+        if join_splits and index + 1 < len(words):
+            joined = words[index] + words[index + 1]
+            if _is_mango_token(joined, allow_english_words=allow_english_words):
+                out.append(_MANGO_WORD)
+                index += 2
+                continue
+        word = words[index]
+        out.append(
+            _MANGO_WORD
+            if _is_mango_token(word, allow_english_words=allow_english_words)
+            else word
+        )
+        index += 1
+    return out
 
 
 @dataclass(frozen=True)
@@ -84,7 +228,7 @@ def _canonical_words(text: str) -> list[str]:
     return re.sub(r"[^a-z0-9]+", " ", text.lower()).split()
 
 
-def _core_phrase(words: list[str]) -> str:
+def _core_words(words: list[str]) -> list[str]:
     """Drop bounded leading/trailing filler and return what is left."""
     start = 0
     while start < len(words) and words[start] in _LEAD_FILLERS:
@@ -92,7 +236,7 @@ def _core_phrase(words: list[str]) -> str:
     end = len(words)
     while end > start and words[end - 1] in _TRAIL_FILLERS:
         end -= 1
-    return " ".join(words[start:end])
+    return words[start:end]
 
 
 def _mentions_full_demo(words: list[str]) -> bool:
@@ -110,11 +254,12 @@ def interpret_command(text: str) -> VoiceIntent | None:
     if normalized in {"stop", "stop demo", "stop the demo"}:
         return VoiceIntent(action="stop_demo")
 
-    core = _core_phrase(words)
+    core_words = _core_words(words)
 
     # The whole-cohort command is resolved first, so a fruit named inside it can
-    # never win the utterance.
-    if core in _FULL_DEMO_PHRASES:
+    # never win the utterance.  It is matched on the *raw* words, before any
+    # mango canonicalisation, so fuzzy mango can never reach across it.
+    if " ".join(core_words) in _FULL_DEMO_PHRASES:
         return VoiceIntent(action="full_demo")
 
     # "full demo" said as part of a longer sentence ("run the full demo and find
@@ -124,11 +269,21 @@ def interpret_command(text: str) -> VoiceIntent | None:
         return None
 
     # Bare "mango" is a Demo Run only as the entire utterance.  Anchoring is what
-    # keeps the word harmless inside ordinary speech ("I like mango").
-    if core in _MANGO_PHRASES:
+    # keeps the word harmless inside ordinary speech ("I like mango"), and it is
+    # also what makes the wider near-miss budget safe here: re-joining split
+    # tokens ("man go") and accepting mango-shaped English words ("manga") are
+    # allowed only when the operator said nothing else.
+    anchored = _canonical_mango(core_words, join_splits=True, allow_english_words=True)
+    if " ".join(anchored) in _MANGO_PHRASES:
         return VoiceIntent(action="activate_demo", target_fruit="mango")
 
-    unique = set(words)
+    # Inside a longer sentence the near-miss budget is narrower: no re-joining
+    # of adjacent tokens, and no mango-shaped English words.  What is left is the
+    # nonsense-string family a quiet channel actually produces ("mengo", "mangoe",
+    # "mang"), which cannot appear in ordinary stage speech.
+    sentence = _canonical_mango(words, join_splits=False, allow_english_words=False)
+
+    unique = set(sentence)
     fruits = set()
     if unique.intersection({"pear", "pears", "pair", "pairs"}):
         fruits.add("pear")

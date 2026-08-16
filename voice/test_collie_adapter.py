@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -10,6 +11,7 @@ from collie_adapter import (
     FULL_DEMO_SEED,
     BorderCollieAdapter,
     VoiceIntent,
+    _edit_distance,
     display_command,
     interpret_command,
 )
@@ -172,6 +174,263 @@ class BareMangoPhraseTests(unittest.TestCase):
 
     def test_an_explicit_verb_still_reaches_mango(self) -> None:
         self.assertEqual(interpret_command("find the mango"), self.MANGO)
+
+
+class FuzzyMangoAcceptanceTests(unittest.TestCase):
+    """Near-misses a -54 dBFS channel produces, which must still start a run."""
+
+    MANGO = VoiceIntent(action="activate_demo", target_fruit="mango")
+
+    def test_accepts_vowel_substitutions_as_the_whole_utterance(self) -> None:
+        # The final /oh/ is unstressed and the first vowel is short; both are the
+        # first things to go when the input is 25 dB down.
+        for text in ("mengo", "mingo", "mangoe", "mangu", "mango."):
+            with self.subTest(text=text):
+                self.assertEqual(interpret_command(text), self.MANGO)
+
+    def test_accepts_truncation_as_the_whole_utterance(self) -> None:
+        self.assertEqual(interpret_command("mang"), self.MANGO)
+        self.assertEqual(interpret_command("start the mang"), self.MANGO)
+
+    def test_accepts_word_splits_only_as_the_whole_utterance(self) -> None:
+        for text in ("man go", "men go", "mang o", "m ango"):
+            with self.subTest(text=text):
+                self.assertEqual(interpret_command(text), self.MANGO)
+
+    def test_accepts_mango_shaped_english_words_only_when_nothing_else_is_said(
+        self,
+    ) -> None:
+        # As a bare utterance during an armed demo these are botched "mango"s.
+        for text in ("manga", "mangy", "mange", "mongo"):
+            with self.subTest(text=text):
+                self.assertEqual(interpret_command(text), self.MANGO)
+
+    def test_near_misses_survive_the_filler_and_qualifier_wrappers(self) -> None:
+        for text in (
+            "mengo run",
+            "mengo demo",
+            "one mengo",
+            "single mangoe",
+            "hey wendy mengo please",
+            "ok run the mengo now",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(interpret_command(text), self.MANGO)
+
+    def test_near_misses_work_inside_the_operators_real_sentences(self) -> None:
+        # These are the captured live phrasings with the word degraded.
+        for text in (
+            "go to the mengo",
+            "can you go find the mengo?",
+            "Can you go to the mangoe?",
+            "find the mang",
+            "please locate the mingo",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(interpret_command(text), self.MANGO)
+
+    def test_the_captured_live_utterances_still_match(self) -> None:
+        for text in (
+            "Go to the mango",
+            "can you go find the mango?",
+            "Can you go to the mango?",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(interpret_command(text), self.MANGO)
+
+
+class FuzzyMangoRejectionTests(unittest.TestCase):
+    """The important half: ordinary speech must never walk the robot."""
+
+    def test_rejects_onset_substituted_forms(self) -> None:
+        # /m/ is the identity-bearing onset.  Accepting b-/n-/t-/d- onsets would
+        # open the whole bingo/banjo/bongo/tango neighbourhood, so a dropped or
+        # mangled onset is a deliberate false negative.
+        for text in ("bango", "nango", "ango", "tango", "bingo", "dingo", "lingo"):
+            with self.subTest(text=text):
+                self.assertIsNone(interpret_command(text))
+
+    def test_rejects_real_words_two_edits_away(self) -> None:
+        for text in ("man", "many", "mangle", "mangled", "manage", "mandarin"):
+            with self.subTest(text=text):
+                self.assertIsNone(interpret_command(text))
+
+    def test_rejects_words_that_only_share_a_phonetic_key(self) -> None:
+        # Why Soundex/Metaphone alone was rejected: all of these key the same as
+        # "mango" once the vowels are discarded.
+        for text in ("monkey", "mink", "manic", "mongoose", "meaning"):
+            with self.subTest(text=text):
+                self.assertIsNone(interpret_command(text))
+
+    def test_mango_shaped_english_words_do_not_fire_inside_a_sentence(self) -> None:
+        for text in (
+            "go and read the manga",
+            "go look at that mangy dog",
+            "can you go and find Margo",
+            "go to the mongo database",
+            "the dog has mange, go check",
+        ):
+            with self.subTest(text=text):
+                self.assertIsNone(interpret_command(text))
+
+    def test_similar_sounding_ordinary_speech_with_a_motion_verb_is_refused(
+        self,
+    ) -> None:
+        for text in (
+            "how many are there, go ahead",
+            "can you go and manage the queue",
+            "lets go play bingo",
+            "go dance the tango",
+            "go find the man",
+            "go to the mangle in the corner",
+            "search for the banjo",
+            "seek out a dingo",
+        ):
+            with self.subTest(text=text):
+                self.assertIsNone(interpret_command(text))
+
+    def test_splits_are_not_rejoined_inside_a_sentence(self) -> None:
+        # "man goes" concatenates to "mangoes"; re-joining is anchored-only so
+        # ordinary sentences about a man going somewhere stay inert.
+        for text in (
+            "the man goes over there",
+            "can you go and see where the man goes",
+            "watch which way the man goes next",
+        ):
+            with self.subTest(text=text):
+                self.assertIsNone(interpret_command(text))
+
+    def test_a_near_miss_without_a_motion_verb_is_still_refused(self) -> None:
+        for text in (
+            "I like mengo",
+            "the mengo is on the left",
+            "put the mangoe down over there",
+            "that mang over there is ours",
+        ):
+            with self.subTest(text=text):
+                self.assertIsNone(interpret_command(text))
+
+    def test_a_near_miss_never_disambiguates_a_two_fruit_utterance(self) -> None:
+        for text in (
+            "find an apple and a mengo",
+            "is that a mangoe or a pear",
+        ):
+            with self.subTest(text=text):
+                self.assertIsNone(interpret_command(text))
+
+    def test_apple_and_pear_get_no_fuzzy_budget(self) -> None:
+        # Deliberate: their edit-distance-1 neighbourhoods are full of ordinary
+        # words ("ample", "apply", "pea", "peak", "peer", "par"), and no field
+        # failure has been reported for either.
+        for text in (
+            "go to the ample space",
+            "can you apply the brake and go",
+            "go find the peer review",
+            "go to the pea",
+            "find the peak",
+            "go over to par",
+            "go and check the peas",
+        ):
+            with self.subTest(text=text):
+                self.assertIsNone(interpret_command(text))
+        # ...while the exact spellings and the existing "pair" homophone stay.
+        self.assertEqual(
+            interpret_command("locate the apple"),
+            VoiceIntent(action="activate_demo", target_fruit="apple"),
+        )
+        self.assertEqual(
+            interpret_command("go find a pair"),
+            VoiceIntent(action="activate_demo", target_fruit="pear"),
+        )
+
+
+class FuzzyMangoDictionarySweepTests(unittest.TestCase):
+    """Sweep a real dictionary so the false-positive surface stays measurable.
+
+    Asserts the *invariant* rather than a fixed word list, so it survives a
+    different dictionary but still fails loudly if the threshold is ever
+    loosened (edit distance 2, or dropping the /m/ onset gate).
+    """
+
+    WORDS = "/usr/share/dict/words"
+
+    def _dictionary(self) -> list[str]:
+        if not os.path.exists(self.WORDS):
+            self.skipTest(f"no dictionary at {self.WORDS}")
+        with open(self.WORDS, encoding="utf-8", errors="ignore") as handle:
+            return sorted({
+                word.strip().lower() for word in handle if word.strip().isalpha()
+            })
+
+    def test_only_mango_shaped_words_can_trigger_a_run_inside_a_sentence(self) -> None:
+        allowed_fruits = {"mango", "mangos", "mangoes", "apple", "apples",
+                          "pear", "pears", "pair", "pairs"}
+        offenders = []
+        for word in self._dictionary():
+            if interpret_command(f"go to the {word}") is None:
+                continue
+            if word in allowed_fruits:
+                continue
+            # Anything else that fires must be an /m/-onset, one-edit near miss.
+            if word.startswith("m") and _edit_distance(word, "mango", budget=1) <= 1:
+                continue
+            offenders.append(word)
+        self.assertEqual(offenders, [])
+
+    def test_the_in_sentence_false_positive_surface_stays_tiny(self) -> None:
+        dictionary = self._dictionary()
+        firing = [
+            word for word in dictionary
+            if interpret_command(f"go to the {word}") is not None
+        ]
+        # 3 fruits + the "pair" homophone + a handful of obscure m-words.  If a
+        # future change makes this balloon, the robot's exposure ballooned too.
+        self.assertLess(len(firing), 20, firing)
+        self.assertGreater(len(dictionary), 50_000, "dictionary looks truncated")
+
+    def test_no_everyday_word_triggers_a_run(self) -> None:
+        for word in (
+            "man", "many", "mangle", "manage", "manager", "monkey", "money",
+            "mink", "manic", "mandarin", "mongoose", "meaning", "morning",
+            "bingo", "tango", "banjo", "dingo", "lingo", "mangled", "mangold",
+            "ample", "apply", "pea", "peas", "peak", "peer", "par", "person",
+        ):
+            with self.subTest(word=word):
+                self.assertIsNone(interpret_command(word))
+                self.assertIsNone(interpret_command(f"go to the {word}"))
+                self.assertIsNone(interpret_command(f"can you go and find the {word}"))
+
+
+class FuzzyMangoDoesNotWeakenOtherCommandsTests(unittest.TestCase):
+    def test_full_demo_still_wins_over_a_fuzzy_mango_in_the_same_utterance(
+        self,
+    ) -> None:
+        for text in (
+            "run the full demo and find the mengo",
+            "full demo starting with mangoe",
+            "after the full demo go to the mang",
+        ):
+            with self.subTest(text=text):
+                self.assertIsNone(interpret_command(text))
+
+    def test_full_demo_is_matched_before_any_mango_canonicalisation(self) -> None:
+        self.assertEqual(interpret_command("full demo"), VoiceIntent("full_demo"))
+        self.assertEqual(interpret_command("fulldemo"), VoiceIntent("full_demo"))
+        self.assertEqual(
+            interpret_command("hey wendy full demo please"), VoiceIntent("full_demo")
+        )
+
+    def test_stop_stays_exact_and_gets_no_fuzzy_budget(self) -> None:
+        for text in ("stop", "stop demo", "stop the demo"):
+            with self.subTest(text=text):
+                self.assertEqual(interpret_command(text), VoiceIntent("stop_demo"))
+        for text in ("stopp", "stap", "stop the mengo", "stop it"):
+            with self.subTest(text=text):
+                self.assertNotEqual(interpret_command(text), VoiceIntent("stop_demo"))
+
+    def test_a_fuzzy_mango_never_hijacks_the_banana_refusal(self) -> None:
+        self.assertIsNone(interpret_command("find the banana"))
+        self.assertIsNone(interpret_command("bananas"))
 
 
 class FullDemoPhraseTests(unittest.TestCase):
@@ -382,6 +641,34 @@ class DispatchTests(unittest.TestCase):
             ],
         )
         self.assertEqual(result["calls"][0]["tool"], "activate_demo")
+
+    def test_a_fuzzy_near_miss_dispatches_a_real_mango_run(self) -> None:
+        self.adapter.arm()
+        result = self.adapter.dispatch(
+            "go to the mengo", activation_id="voice-wake-mango-fuzzy-1"
+        )
+        self.assertEqual(
+            _Handler.requests,
+            [
+                (
+                    "/api/run",
+                    {
+                        "target_fruit": "mango",
+                        "activation_source": "voice",
+                        "activation_id": "voice-wake-mango-fuzzy-1",
+                    },
+                )
+            ],
+        )
+        self.assertEqual(result["calls"][0]["tool"], "activate_demo")
+
+    def test_a_mango_shaped_word_in_a_sentence_never_reaches_the_dog(self) -> None:
+        self.adapter.arm()
+        result = self.adapter.dispatch(
+            "go and read the manga", activation_id="voice-wake-manga-1"
+        )
+        self.assertEqual(_Handler.requests, [])
+        self.assertEqual(result["calls"], [])
 
     def test_full_demo_posts_the_three_fruit_cohort_the_ui_button_sends(self) -> None:
         self.adapter.arm()
