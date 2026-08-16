@@ -492,6 +492,22 @@ def create_app(
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {"result": result, "hardware": robot.status()}
 
+    @app.post("/api/home/recapture")
+    async def recapture_home() -> dict[str, object]:
+        if cohorts.running():
+            raise HTTPException(
+                status_code=409,
+                detail="the active cohort owns Demo Run activation",
+            )
+        try:
+            return await demo.recapture_home()
+        except ActiveRunError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except HardwareUnavailable as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except RestartRequired as exc:
+            raise HTTPException(status_code=423, detail=str(exc)) from exc
+
     @app.post("/api/stop")
     async def stop() -> dict[str, object]:
         return await demo.stop()

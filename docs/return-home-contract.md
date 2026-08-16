@@ -11,9 +11,21 @@ The executable, hardware-free design probe lives in
 
 ## Home and pose authority
 
-- Home is a position and heading captured immediately before the run begins.
+- Home is a position and heading captured once and then persisted as the Stage
+  Home. It is the physical spot the stage is set to, not a per-run reading.
 - Capture requires a stable window of advancing local-pose samples. The sample
   count and permitted position and yaw spread are qualification parameters.
+- Every activation still reads a fresh, disarmed pose before `capture_home`
+  completes, so the disarm and pose-freshness gates are unchanged. That reading
+  becomes Home only when no Stage Home is set yet. Otherwise it is recorded as
+  `home_provenance.activation_offset_m`, the measured drift from Home at the
+  start of that run.
+- A new Demo Run, a new cohort, a failed run, and an application restart all
+  reuse the persisted Stage Home. Home never resets implicitly, so Home error
+  cannot compound from one run into the next.
+- Only the explicit operator control `POST /api/home/recapture` moves the Stage
+  Home. It is refused while a Demo Run or cohort owns activation, and while
+  Remote Takeover is latched.
 - The recorded outbound forward-heartbeat count bounds the return translation:
   after turning toward Home, the return controller replays at most that many
   forward heartbeats at the same 1.0 m/s signal. Heading-only corrections do
@@ -70,11 +82,15 @@ stage soak has a separate operator margin, configured by
 `0.10..1.0`. This margin never changes whether an individual Demo Run passed.
 
 After any terminal Demo Run that captured Home, `/api/status.activation.ready`
-remains false until fresh current pose is within this margin of that exact
-run's Home and the run ended `DISARMED_CONFIRMED`. The soak harness checks the
+remains false until fresh current pose is within this margin of the persisted
+Stage Home and the run ended `DISARMED_CONFIRMED`. The soak harness checks the
 same `activation.inter_run` evidence before issuing another activation. A
 failed return therefore aborts the cohort instead of capturing the fruit-side
 position as a new Home.
+
+The margin is measured against the one persisted Stage Home rather than against
+each run's own reading. A cohort therefore cannot random-walk away from the
+stage by staying inside the margin on every individual hop.
 
 ## Route, progress, and recovery
 
