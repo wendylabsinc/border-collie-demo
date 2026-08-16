@@ -10,7 +10,11 @@ from border_collie_demo.guidance import GuidancePhase
 from border_collie_demo.hardware import CameraFailure, HardwareUnavailable, TargetLost
 from border_collie_demo.models import MissionPhase
 from border_collie_demo.orchestrator import StageContext, StageFailure
-from border_collie_demo.production import ProductionStageExecutor
+from border_collie_demo.production import (
+    ARRIVAL_STOP_SETTLE_S,
+    PRE_SIT_PAUSE_S,
+    ProductionStageExecutor,
+)
 from border_collie_demo.run_tuning import RunTuning
 
 
@@ -503,13 +507,14 @@ def test_audience_action_sits_barks_then_stands_in_separate_stages() -> None:
             ("stand_down",),
             ("stand_up", {"settle_s": 1.0}),
         ]
-        assert holds == [1.0, 5.0]
+        assert holds == [1.0, 1.0, 5.0]
         assert action == {
             "posture": "stand_down",
             "motion_commands_sent": True,
             "bark_played": True,
             "arrival_stop_confirmed": True,
             "arrival_stop_settle_s": 1.0,
+            "pre_sit_pause_s": 1.0,
             "down_hold_s": 5.0,
         }
         assert standing == {
@@ -517,6 +522,47 @@ def test_audience_action_sits_barks_then_stands_in_separate_stages() -> None:
             "motion_commands_sent": True,
             "settle_s": 1.0,
         }
+
+    asyncio.run(scenario())
+
+
+def test_deliberate_pause_follows_the_arrival_stop_settle_before_the_sit() -> None:
+    """The audience-visible beat is its own wait, not the stop settle.
+
+    `emergency_stop()` only awaits the StopMove ack, so the arrival settle is
+    spent decelerating. The deliberate pause has to be a second, separately
+    named wait that lands after it and still before `stand_down()`.
+    """
+
+    async def scenario() -> None:
+        timeline: list[object] = []
+
+        async def hold(duration_s: float) -> None:
+            timeline.append(duration_s)
+
+        class RecordingHardware(FakeProductionHardware):
+            async def emergency_stop(self) -> list[str]:
+                timeline.append("emergency_stop")
+                return await super().emergency_stop()
+
+            async def stand_down(self) -> dict[str, object]:
+                timeline.append("stand_down")
+                return await super().stand_down()
+
+        hardware = RecordingHardware()
+        stages = ProductionStageExecutor(hardware, dict, FakeBark(), sleep=hold)
+
+        action = await stages.execute(MissionPhase.SIT_AND_BARK, context())
+
+        assert timeline[:4] == [
+            "emergency_stop",
+            ARRIVAL_STOP_SETTLE_S,
+            PRE_SIT_PAUSE_S,
+            "stand_down",
+        ]
+        assert PRE_SIT_PAUSE_S == 1.0
+        assert action["pre_sit_pause_s"] == PRE_SIT_PAUSE_S
+        assert action["arrival_stop_settle_s"] == ARRIVAL_STOP_SETTLE_S
 
     asyncio.run(scenario())
 
@@ -540,7 +586,7 @@ def test_bark_failure_is_recorded_but_cannot_skip_hold_stand_or_home() -> None:
         assert action["bark_played"] is False
         assert action["bark_error"] == "bark sidecar timed out"
         assert action["down_hold_s"] == 5.0
-        assert holds == [1.0, 5.0]
+        assert holds == [1.0, 1.0, 5.0]
         assert standing["posture"] == "balance_stand"
         assert turned["home_bearing_error_rad"] == 0.02
         assert returned["home_distance_m"] == 0.08

@@ -25,7 +25,14 @@ class BarkPort(Protocol):
 
 
 DOWN_HOLD_S = 5.0
+# Cover for the physical stop. `emergency_stop()` only awaits the SportClient
+# StopMove ack, not a pose-confirmed halt, and approach hands over while the
+# robot is still walking, so this window is spent decelerating -- it is not a
+# pause an audience can see.
 ARRIVAL_STOP_SETTLE_S = 1.0
+# The deliberate, operator-requested beat between arrival and the sit. It runs
+# after the stop settle so the robot is already at rest for its full duration.
+PRE_SIT_PAUSE_S = 1.0
 STAND_UP_SETTLE_S = 1.0
 
 
@@ -250,6 +257,7 @@ class ProductionStageExecutor:
                     "arrival stop failed: " + "; ".join(stop_errors)
                 )
             await self._sleep(ARRIVAL_STOP_SETTLE_S)
+            await self._sleep(PRE_SIT_PAUSE_S)
             evidence = await self._hardware.stand_down()
             try:
                 bark = await self._bark.bark()
@@ -265,6 +273,7 @@ class ProductionStageExecutor:
                 **bark,
                 "arrival_stop_confirmed": True,
                 "arrival_stop_settle_s": ARRIVAL_STOP_SETTLE_S,
+                "pre_sit_pause_s": PRE_SIT_PAUSE_S,
                 "down_hold_s": DOWN_HOLD_S,
             }
         if phase is MissionPhase.STAND:
