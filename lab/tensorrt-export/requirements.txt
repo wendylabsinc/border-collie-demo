@@ -1,0 +1,4 @@
+onnx>=1.16,<2
+onnxslim>=0.1.48
+pillow>=10,<13
+ultralytics>=8.4,<9

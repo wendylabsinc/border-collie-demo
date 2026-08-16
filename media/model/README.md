@@ -39,8 +39,37 @@ and every floor-level fruit is under the default ratio. At these confidences
 the second pass changed no outcome and doubled inference past the 0.25 s
 detection freshness gate.
 
-This checkpoint runs as PyTorch, not TensorRT. It is fast enough on the Orin
-that the export below is an optimisation rather than a prerequisite.
+This checkpoint runs as PyTorch, not TensorRT, at roughly 100 ms per frame on
+the Orin. It is fast enough that the export below is an optimisation rather
+than a prerequisite.
+
+## Pending optimisation: TensorRT FP16 for apple-pear-mango
+
+Prior art on this exact Orin ran TensorRT 10.7 FP16 in production, so an FP16
+engine for this checkpoint is expected to be substantially faster than the
+100 ms PyTorch pass. Ultralytics loads an engine directly, so this is a path
+change and not a rewrite.
+
+Build it with the one-shot Wendy app in
+[`lab/tensorrt-export`](../../lab/tensorrt-export/README.md). It **must** be
+built on Woof: an engine is specific to the GPU and to the TensorRT version
+that produced it. The app exports from `apple-pear-mango.pt` with `half=True`,
+then qualifies the engine against the `.pt` on the committed reference frame
+`apple-pear-mango-reference.jpg`, where the `.pt` yields pear 0.960, apple
+0.957 and mango 0.901, plus a weak 0.212 mango on a yellow object. The three
+strong detections must reappear within 0.05 confidence and 0.90 box IoU; the
+weak mango is reported but not gated.
+
+`PEAR_MODEL_PATH` stays on the `.pt` until the engine passes. Switching is
+configuration only: add a `model/apple-pear-mango.engine` copy entry to
+`media/build.stagefile.yaml` and point `PEAR_MODEL_PATH` at
+`/media/apple-pear-mango.engine` in `wendy.json`.
+
+`task="segment"` is mandatory on every load of a non-`.pt` artifact. A
+serialized engine loses its task metadata and ultralytics decodes the 39 output
+channels as 4 box + 35 classes instead of 4 box + 3 classes + 32 mask
+coefficients, which surfaces as `KeyError: 23`. `media/perception_sidecar.py`
+already passes it for `PEAR_MODEL_PATH`, so no runtime code change is needed.
 
 ## Previous adapter: TensorRT
 

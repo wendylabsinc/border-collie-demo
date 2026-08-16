@@ -17,6 +17,9 @@ stages:
       MANGO_MODEL_PATH: /models/yolo11n.pt
       BORDER_COLLIE_MANGO_RAW_CONFIDENCE: "0.08"
       BORDER_COLLIE_MANGO_COLOR_CONFIDENCE: "0.80"
+      # auto = vectorised numpy colour band count; set `reference` to fall back
+      # to the pure-Python loop without a rebuild.
+      BORDER_COLLIE_COLOR_BACKEND: auto
       COCO_TEST_INTERVAL_S: "0.5"
       BORDER_COLLIE_MEDIA_PORT: "8111"
       BORDER_COLLIE_BARK_UUID: 161387de-21ab-4f0b-b4e9-97124b000d06
@@ -51,7 +54,7 @@ stages:
         paths: [model/apple-pear-mango.pt]
         dest: /media/apple-pear-mango.pt
       - from: local
-        paths: [__init__.py, coco_tester.py, fruit_color.py, model_router.py, perception_sidecar.py]
+        paths: [__init__.py, coco_tester.py, fruit_color.py, fruit_color_backend.py, fruit_color_benchmark.py, model_router.py, perception_sidecar.py]
         dest: /app/media/
     user: root
     cmd: [uvicorn, media.perception_sidecar:app, --host, 0.0.0.0, --port, "8111"]

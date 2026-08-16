@@ -5,6 +5,8 @@ from __future__ import annotations
 import math
 from typing import Any
 
+from media.fruit_color_backend import accelerated_band_counts
+
 
 def classify_bbox_color(
     source: Any,
@@ -36,7 +38,16 @@ def classify_bbox_color(
         return _unknown()
     stride = max(1, int(math.sqrt(((x2_i - x1_i) * (y2_i - y1_i)) / 4096)))
     try:
-        pixels = source[y1_i:y2_i:stride, x1_i:x2_i:stride].reshape(-1, 3).tolist()
+        region = source[y1_i:y2_i:stride, x1_i:x2_i:stride].reshape(-1, 3)
+    except (AttributeError, IndexError, TypeError, ValueError):
+        return _unknown()
+    # The vectorised backend consumes the array region directly, which also
+    # skips the .tolist() marshalling the reference loop needs.
+    counts = accelerated_band_counts(region)
+    if counts is not None:
+        return summarize_band_counts(*counts)
+    try:
+        pixels = region.tolist()
     except (AttributeError, IndexError, TypeError, ValueError):
         return _unknown()
     return classify_bgr_pixels(pixels)
@@ -45,6 +56,18 @@ def classify_bbox_color(
 def classify_bgr_pixels(pixels: object) -> dict[str, object]:
     if not isinstance(pixels, list) or not pixels:
         return _unknown()
+    counts = accelerated_band_counts(pixels)
+    if counts is None:
+        counts = count_band_pixels(pixels)
+    return summarize_band_counts(*counts)
+
+
+def count_band_pixels(pixels: list) -> tuple[int, int, int]:
+    """Reference hue-band count: returns (valid, red, orange).
+
+    This is the trusted implementation. Any vectorised backend in
+    `media.fruit_color_backend` must reproduce these three integers exactly.
+    """
     red = 0
     orange = 0
     valid = 0
@@ -73,7 +96,15 @@ def classify_bgr_pixels(pixels: object) -> dict[str, object]:
             red += 1
         elif hue_degrees <= 80.0:
             orange += 1
+    return valid, red, orange
 
+
+def summarize_band_counts(valid: int, red: int, orange: int) -> dict[str, object]:
+    """Turn hue-band counts into the colour evidence dictionary.
+
+    Shared by the reference loop and the vectorised backend, so identical
+    counts always produce an identical result.
+    """
     classified = red + orange
     coverage = classified / valid if valid else 0.0
     dominance = max(red, orange) / classified if classified else 0.0
