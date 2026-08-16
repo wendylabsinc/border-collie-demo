@@ -174,17 +174,25 @@ class RunResultStore:
         self,
         run_id: str,
         home: dict[str, Any],
+        *,
+        provenance: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         result = self.get(run_id)
         if result["outcome"] is not None:
             raise ActiveRunError("terminal Demo Runs cannot be changed")
+        source = (provenance or {}).get("source", "CAPTURED")
         self._append_event(
             result,
             phase="capture_home",
             reason="HOME_CAPTURED",
-            message="fresh robot-local position and heading captured as Home",
+            message=(
+                "fresh robot-local position and heading captured as Home"
+                if source == "CAPTURED"
+                else "persisted Stage Home reused without recapture"
+            ),
         )
         result["home"] = deepcopy(home)
+        result["home_provenance"] = deepcopy(provenance) if provenance else None
         result["message"] = result["events"][-1]["message"]
         self._write_result(result)
         return deepcopy(result)

@@ -37,9 +37,16 @@ with the strongest candidate statistics and a downloadable raw-frame evidence
 archive for Fieldmark labeling. Any failed or errored preflight check seals the Demo Run as
 `FAILED` with reason `PREFLIGHT_FAILURE`; only an all-ready report may advance
 to `CAPTURE_HOME`. Home capture then reads a new fresh, disarmed
-`rt/sportmodestate` pose, persists its position and heading, and advances to
-`WAIT_FOR_COMMAND`. If pose freshness is lost before capture completes, the run
-fails closed in `capture_home` without arming motion.
+`rt/sportmodestate` pose and advances to `WAIT_FOR_COMMAND`. If pose freshness
+is lost before capture completes, the run fails closed in `capture_home`
+without arming motion.
+
+That reading becomes Home only on the first run after the Stage Home is set by
+the explicit `POST /api/home/recapture` control. Otherwise the persisted Stage
+Home is reused unchanged and the fresh reading is recorded as the run's
+measured offset from Home. A new run, a new cohort, a failed run, and an
+application restart never reset Home, so Home error cannot compound across a
+cohort. `/api/status.stage_home` reports the Home currently in effect.
 
 A frozen, repeated, disconnected, or otherwise stale camera frame must stop
 motion immediately and terminate the current run as `FAILED`. The run result

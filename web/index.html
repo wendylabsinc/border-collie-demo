@@ -137,6 +137,8 @@
         </details>
         <button id="activate" type="button" disabled>Activate Demo</button>
         <button id="stop" type="button">Stop Woof</button>
+        <button id="recapture-home" type="button">Set Home here</button>
+        <p id="stage-home"></p>
       </div>
       <section class="cohort-panel" aria-labelledby="cohort-title">
         <h2 id="cohort-title">Back-to-back Demo Runs</h2>
@@ -148,7 +150,7 @@
           <fieldset id="cohort-fruit-subset" class="failure-options">
             <legend>Randomized fruit subset (select at least one)</legend>
             <label><input type="checkbox" data-cohort-fruit value="apple" checked> Apple</label>
-            <label><input type="checkbox" data-cohort-fruit value="banana" checked> Banana</label>
+            <label><input type="checkbox" data-cohort-fruit value="mango" checked> Mango</label>
             <label><input type="checkbox" data-cohort-fruit value="pear" checked> Pear</label>
           </fieldset>
           <label for="cohort-fixed-fruit">Fixed Target Fruit</label>
@@ -209,6 +211,8 @@
       const activate = document.querySelector('#activate');
       const targetFruit = document.querySelector('#target-fruit');
       const stop = document.querySelector('#stop');
+      const recaptureHome = document.querySelector('#recapture-home');
+      const stageHome = document.querySelector('#stage-home');
       const status = document.querySelector('#status');
       const runId = document.querySelector('#run-id');
       const runtimeMode = document.querySelector('#runtime-mode');
@@ -380,6 +384,12 @@
           );
           targetFruit.disabled = Boolean(current.active_run_id);
           tuningControls.disabled = Boolean(current.active_run_id);
+          recaptureHome.disabled = Boolean(current.active_run_id || cohortRunning);
+          stageHome.textContent = current.stage_home
+            ? `Home is set at x ${current.stage_home.x_m.toFixed(2)} m, `
+              + `y ${current.stage_home.y_m.toFixed(2)} m. `
+              + 'Every run returns here until you set it again.'
+            : 'Home is not set yet; the next Demo Run captures it where Woof stands.';
           if (current.active_run_id) {
             const detail = await readJson(
               await fetch(`/api/results/${current.active_run_id}`)
@@ -585,6 +595,24 @@
           showCohort(body.cohort);
         } catch (error) {
           cohortOutput.textContent = error.message;
+        }
+      });
+
+      recaptureHome.addEventListener('click', async () => {
+        recaptureHome.disabled = true;
+        status.textContent = 'Setting Home where Woof stands…';
+        try {
+          const body = await readJson(
+            await fetch('/api/home/recapture', {method: 'POST'})
+          );
+          const moved = body.offset_from_previous_m;
+          status.textContent = moved === null || moved === undefined
+            ? 'Home is set where Woof stands.'
+            : `Home moved ${moved.toFixed(2)} m to where Woof stands.`;
+        } catch (error) {
+          status.textContent = error.message;
+        } finally {
+          await refreshStatus();
         }
       });
 

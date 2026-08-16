@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import math
 from collections.abc import Awaitable, Callable
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -140,6 +141,7 @@ class StageDemo:
         self._lifecycle_lock = asyncio.Lock()
         self._run_task: asyncio.Task[dict[str, Any]] | None = None
         self._started = False
+        self._stage_home: dict[str, Any] | None = None
         self._stage_executor = stage_executor
         self._stage_home_margin_m = stage_home_margin_m
         self._orchestrator = None
@@ -158,6 +160,7 @@ class StageDemo:
                 return
             self._results.seal_interrupted_runs()
             await self._hardware.start()
+            self._stage_home = self._latest_recorded_home()
             self._started = True
 
     async def close(self) -> list[str]:
@@ -252,10 +255,14 @@ class StageDemo:
                 run["run_id"],
                 phase=self._mission.phase.value,
                 reason="CAPTURE_HOME_STARTED",
-                message="preflight passed; ready to capture Home",
+                message=(
+                    "preflight passed; ready to capture Home"
+                    if self._stage_home is None
+                    else "preflight passed; reusing the persisted Stage Home"
+                ),
             )
             try:
-                home = self._hardware.capture_home()
+                measured = self._hardware.capture_home()
             except Exception as exc:  # noqa: BLE001 - hardware evidence seam
                 errors = await self._exact_stop()
                 self._mission.fail("fresh Home pose capture failed")
@@ -274,8 +281,19 @@ class StageDemo:
                 )
                 return Activation(run, idempotent_replay=False)
 
-            run = self._results.record_home(run["run_id"], home)
-            self._mission.advance("fresh Home pose captured")
+            source = "REUSED" if self._stage_home is not None else "CAPTURED"
+            if self._stage_home is None:
+                self._stage_home = deepcopy(measured)
+            home = deepcopy(self._stage_home)
+            provenance = self._home_provenance(home, measured, source=source)
+            run = self._results.record_home(
+                run["run_id"], home, provenance=provenance
+            )
+            self._mission.advance(
+                "fresh Home pose captured"
+                if provenance["source"] == "CAPTURED"
+                else "persisted Stage Home reused"
+            )
             run = self._results.enter_phase(
                 run["run_id"],
                 phase=self._mission.phase.value,
@@ -291,6 +309,31 @@ class StageDemo:
                     name=f"fruit-mission-{run['run_id']}",
                 )
             return Activation(run, idempotent_replay=False)
+
+    async def recapture_home(self) -> dict[str, Any]:
+        """Replace the persisted Stage Home on explicit operator intent only.
+
+        Home never resets implicitly. A new Demo Run, a new cohort, or a failed
+        run all reuse the persisted Stage Home; only this control moves it.
+        """
+        async with self._lifecycle_lock:
+            self._require_started()
+            if self._results.active_run_id is not None:
+                raise ActiveRunError(
+                    "a Demo Run is active; Home cannot be recaptured"
+                )
+            if self._mission.takeover_latched:
+                raise RestartRequired(
+                    "physical remote takeover is latched; restart required"
+                )
+            previous = self._stage_home
+            measured = self._hardware.capture_home()
+            self._stage_home = deepcopy(measured)
+            return {
+                "home": deepcopy(self._stage_home),
+                "previous_home": deepcopy(previous),
+                "offset_from_previous_m": self._home_offset_m(previous, measured),
+            }
 
     def result(self, run_id: str) -> dict[str, Any]:
         return self._results.get(run_id)
@@ -379,10 +422,55 @@ class StageDemo:
             "hardware": hardware,
             "active_run_id": self._results.active_run_id,
             "activation": activation,
+            "stage_home": deepcopy(self._stage_home),
         }
 
     def list_results(self) -> list[dict[str, Any]]:
         return self._results.list_results()
+
+    def _latest_recorded_home(self) -> dict[str, Any] | None:
+        """Seed the Stage Home from durable evidence so it survives restart."""
+        recorded = next(
+            (
+                run
+                for run in self._results.list_results()
+                if isinstance(run.get("home"), dict)
+            ),
+            None,
+        )
+        return None if recorded is None else deepcopy(recorded["home"])
+
+    @staticmethod
+    def _home_offset_m(
+        home: dict[str, Any] | None, measured: dict[str, Any]
+    ) -> float | None:
+        if not isinstance(home, dict):
+            return None
+        values = (
+            home.get("x_m"),
+            home.get("y_m"),
+            measured.get("x_m"),
+            measured.get("y_m"),
+        )
+        if not all(
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(float(value))
+            for value in values
+        ):
+            return None
+        return math.hypot(
+            float(values[2]) - float(values[0]), float(values[3]) - float(values[1])
+        )
+
+    def _home_provenance(
+        self, home: dict[str, Any], measured: dict[str, Any], *, source: str
+    ) -> dict[str, Any]:
+        return {
+            "source": source,
+            "measured_pose": deepcopy(measured),
+            "activation_offset_m": self._home_offset_m(home, measured),
+        }
 
     def _inter_run_clearance(
         self, hardware: dict[str, object]
@@ -397,7 +485,9 @@ class StageDemo:
         )
         if prior is None:
             return None
-        home = prior["home"]
+        # The persisted Stage Home is authoritative; a prior run's recorded Home
+        # is only a fallback for a store that predates Home persistence.
+        home = self._stage_home if self._stage_home is not None else prior["home"]
         pose_status = hardware.get("pose")
         current = (
             pose_status.get("pose")

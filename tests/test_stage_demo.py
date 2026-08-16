@@ -18,6 +18,15 @@ class ReadyHardware:
         self.yaw_rps = 0.0
         self.x_m = 1.0
         self.y_m = 2.0
+        self.home_x_m = 1.0
+        self.home_y_m = 2.0
+        self.home_yaw_rad = 0.25
+
+    def drift_to(self, x_m: float, y_m: float, yaw_rad: float = 0.25) -> None:
+        """Stand somewhere new, as a run that ended off-Home would leave Woof."""
+        self.x_m = self.home_x_m = x_m
+        self.y_m = self.home_y_m = y_m
+        self.home_yaw_rad = yaw_rad
 
     async def start(self) -> None:
         self.started = True
@@ -34,9 +43,9 @@ class ReadyHardware:
 
     def capture_home(self) -> dict[str, object]:
         return {
-            "x_m": 1.0,
-            "y_m": 2.0,
-            "yaw_rad": 0.25,
+            "x_m": self.home_x_m,
+            "y_m": self.home_y_m,
+            "yaw_rad": self.home_yaw_rad,
             "captured_monotonic_s": 3.0,
             "age_s": 0.01,
             "source": "test",
@@ -315,6 +324,168 @@ def test_next_activation_waits_for_fresh_return_to_prior_run_home(tmp_path) -> N
         assert ready["activation"]["inter_run"]["returned_home"] is True
         activation = await demo.activate(FruitMission("pear", "soak", "attempt-2"))
         assert activation.run["target_fruit"] == "pear"
+        await demo.stop()
+        await demo.close()
+
+    asyncio.run(scenario())
+
+
+async def _complete_run(
+    demo: StageDemo, mission: FruitMission
+) -> dict[str, object]:
+    activation = await demo.activate(mission)
+    return await demo.wait(activation.run["run_id"], timeout_s=5.0)
+
+
+def _stage_demo(results: RunResultStore, hardware: ReadyHardware) -> StageDemo:
+    return StageDemo(
+        MissionMachine(),
+        results,
+        hardware,
+        ready_camera,
+        stage_executor=SimulatedStageExecutor(),
+    )
+
+
+def test_second_activation_reuses_the_persisted_stage_home(tmp_path) -> None:
+    """Home is captured once; a later run must not adopt where Woof stopped."""
+
+    async def scenario() -> None:
+        hardware = ReadyHardware()
+        demo = _stage_demo(RunResultStore(tmp_path), hardware)
+        await demo.start()
+
+        first = await _complete_run(demo, FruitMission("pear", "soak", "attempt-1"))
+        # Woof finished 0.10 m off Home, inside the stage margin.
+        hardware.drift_to(1.10, 2.0)
+        second = await _complete_run(demo, FruitMission("pear", "soak", "attempt-2"))
+
+        assert first["home"]["x_m"] == 1.0
+        assert second["home"] == first["home"]
+        assert first["home_provenance"]["source"] == "CAPTURED"
+        assert second["home_provenance"]["source"] == "REUSED"
+        assert second["home_provenance"]["activation_offset_m"] == pytest.approx(0.10)
+        assert second["home_provenance"]["measured_pose"]["x_m"] == pytest.approx(1.10)
+        assert demo.status()["stage_home"] == first["home"]
+        await demo.close()
+
+    asyncio.run(scenario())
+
+
+def test_stage_home_does_not_drift_across_a_cohort_of_runs(tmp_path) -> None:
+    """Successive runs share one Home instead of compounding their own error."""
+
+    async def scenario() -> None:
+        hardware = ReadyHardware()
+        demo = _stage_demo(RunResultStore(tmp_path), hardware)
+        await demo.start()
+
+        homes = []
+        for number in range(1, 6):
+            run = await _complete_run(
+                demo, FruitMission("pear", "cohort", f"cohort-run-{number}")
+            )
+            homes.append(run["home"])
+            # Each run ends 0.12 m further out than the last would have.
+            hardware.drift_to(1.0 + 0.12 * number, 2.0)
+
+        assert all(home == homes[0] for home in homes)
+        assert {home["x_m"] for home in homes} == {1.0}
+        await demo.close()
+
+    asyncio.run(scenario())
+
+
+def test_failed_run_does_not_reset_the_stage_home(tmp_path) -> None:
+    """A failure epilogue that leaves Woof rotated must not redefine Home."""
+
+    async def scenario() -> None:
+        hardware = ReadyHardware()
+        demo = StageDemo(
+            MissionMachine(),
+            RunResultStore(tmp_path),
+            hardware,
+            ready_camera,
+            stage_executor=SimulatedStageExecutor(fail_at="approach_fruit"),
+        )
+        await demo.start()
+
+        first = await _complete_run(demo, FruitMission("pear", "soak", "attempt-1"))
+        # The failed run left Woof rotated 2.4 rad and 0.20 m out.
+        hardware.drift_to(1.20, 2.0, yaw_rad=2.65)
+
+        assert first["outcome"] == "FAILED"
+        assert demo.status()["stage_home"] == first["home"]
+
+        second = await _complete_run(demo, FruitMission("pear", "soak", "attempt-2"))
+
+        assert second["outcome"] == "FAILED"
+        assert second["home"] == first["home"]
+        assert second["home"]["yaw_rad"] == pytest.approx(0.25)
+        assert second["home"]["x_m"] == pytest.approx(1.0)
+        assert second["home_provenance"]["source"] == "REUSED"
+        await demo.close()
+
+    asyncio.run(scenario())
+
+
+def test_stage_home_survives_a_process_restart(tmp_path) -> None:
+    async def scenario() -> None:
+        hardware = ReadyHardware()
+        demo = _stage_demo(RunResultStore(tmp_path), hardware)
+        await demo.start()
+        first = await _complete_run(demo, FruitMission("pear", "soak", "attempt-1"))
+        await demo.close()
+
+        hardware.drift_to(1.15, 2.0)
+        restarted = _stage_demo(RunResultStore(tmp_path), hardware)
+        await restarted.start()
+
+        assert restarted.status()["stage_home"] == first["home"]
+        resumed = await _complete_run(
+            restarted, FruitMission("pear", "soak", "attempt-2")
+        )
+
+        assert resumed["home"] == first["home"]
+        assert resumed["home_provenance"]["source"] == "REUSED"
+        await restarted.close()
+
+    asyncio.run(scenario())
+
+
+def test_explicit_recapture_is_the_only_thing_that_moves_home(tmp_path) -> None:
+    async def scenario() -> None:
+        hardware = ReadyHardware()
+        demo = _stage_demo(RunResultStore(tmp_path), hardware)
+        await demo.start()
+
+        first = await _complete_run(demo, FruitMission("pear", "soak", "attempt-1"))
+        hardware.drift_to(1.30, 2.0)
+        moved = await demo.recapture_home()
+
+        assert moved["previous_home"] == first["home"]
+        assert moved["home"]["x_m"] == pytest.approx(1.30)
+        assert moved["offset_from_previous_m"] == pytest.approx(0.30)
+
+        second = await _complete_run(demo, FruitMission("pear", "soak", "attempt-2"))
+
+        assert second["home"]["x_m"] == pytest.approx(1.30)
+        assert second["home_provenance"]["source"] == "REUSED"
+        assert second["home_provenance"]["activation_offset_m"] == pytest.approx(0.0)
+        await demo.close()
+
+    asyncio.run(scenario())
+
+
+def test_recapture_home_is_refused_while_a_demo_run_is_active(tmp_path) -> None:
+    async def scenario() -> None:
+        demo = _stage_demo(RunResultStore(tmp_path), ReadyHardware())
+        await demo.start()
+        await demo.activate(FruitMission("pear", "soak", "attempt-1"))
+
+        with pytest.raises(ActiveRunError, match="Home cannot be recaptured"):
+            await demo.recapture_home()
+
         await demo.stop()
         await demo.close()
 

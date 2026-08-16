@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import re
 import time
 
 from fastapi.testclient import TestClient
 
 from border_collie_demo.api import create_app
+from border_collie_demo.fruits import QUALIFIED_FRUITS
 from border_collie_demo.orchestrator import SimulatedStageExecutor
 
 
@@ -300,9 +302,11 @@ def test_audience_ui_exposes_cohort_configuration_and_observation() -> None:
     assert 'value="5"' in page
     assert 'id="cohort-randomized"' in page
     assert 'id="cohort-fixed-fruit"' in page
-    assert 'data-cohort-fruit value="apple"' in page
-    assert 'data-cohort-fruit value="banana"' in page
-    assert 'data-cohort-fruit value="pear"' in page
+    # The randomized subset must offer exactly the motion-qualified fruits.
+    # Listing an unqualified fruit makes the default selection fail activation
+    # with 409, and omitting a qualified one makes it unreachable from the UI.
+    offered = set(re.findall(r'data-cohort-fruit value="([a-z]+)"', page))
+    assert offered == set(QUALIFIED_FRUITS)
     assert 'id="cohort-search-yaw-rps"' in page
     assert 'id="cohort-home-align-yaw-rps"' in page
     assert "fruit_subset: cohortRandomized.checked ? selectedCohortFruits() : null" in page
@@ -318,3 +322,123 @@ def test_audience_ui_exposes_cohort_configuration_and_observation() -> None:
     assert "'/api/cohorts'" in page
     assert "'/api/cohorts/active'" in page
     assert "'/api/cohorts/active/stop'" in page
+
+
+class DriftingHardware(ReadyHardware):
+    """Woof ends every run a little further out than he started it."""
+
+    DRIFT_PER_RUN_M = 0.12
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.x_m = 1.0
+        self.captures = 0
+
+    def capture_home(self) -> dict[str, object]:
+        self.captures += 1
+        pose = {
+            "x_m": self.x_m,
+            "y_m": 2.0,
+            "yaw_rad": 0.25,
+            "captured_monotonic_s": 3.0,
+            "age_s": 0.01,
+            "source": "test",
+        }
+        self.x_m += self.DRIFT_PER_RUN_M
+        return pose
+
+    def status(self) -> dict[str, object]:
+        current = super().status()
+        current["pose"]["pose"] = {"x_m": self.x_m, "y_m": 2.0}
+        return current
+
+
+def test_cohort_runs_share_one_home_despite_per_run_drift(tmp_path) -> None:
+    hardware = DriftingHardware()
+    app = create_app(
+        runs_root=tmp_path / "runs",
+        cohorts_root=tmp_path / "cohorts",
+        hardware=hardware,
+        camera_perception_status=ready_camera,
+        stage_executor=SimulatedStageExecutor(),
+    )
+
+    with TestClient(app) as client:
+        started = client.post(
+            "/api/cohorts",
+            json={
+                "runs": 3,
+                "randomized": False,
+                "target_fruit": "mango",
+                "seed": 81,
+                "tolerated_failures": [],
+            },
+        )
+        cohort = wait_for_cohort(client)
+        homes = [
+            client.get(f"/api/results/{item['run_id']}").json()["run"]["home"]
+            for item in cohort["runs"]
+        ]
+        sources = [
+            client.get(f"/api/results/{item['run_id']}")
+            .json()["run"]["home_provenance"]["source"]
+            for item in cohort["runs"]
+        ]
+
+    assert started.status_code == 201
+    assert cohort["status"] == "COMPLETED"
+    assert len(homes) == 3
+    # Every run in the cohort returns to the same physical spot.
+    assert all(home == homes[0] for home in homes)
+    assert homes[0]["x_m"] == 1.0
+    assert sources == ["CAPTURED", "REUSED", "REUSED"]
+
+
+def test_recapture_home_moves_home_for_the_next_cohort(tmp_path) -> None:
+    hardware = DriftingHardware()
+    app = create_app(
+        runs_root=tmp_path / "runs",
+        cohorts_root=tmp_path / "cohorts",
+        hardware=hardware,
+        camera_perception_status=ready_camera,
+        stage_executor=SimulatedStageExecutor(),
+    )
+
+    with TestClient(app) as client:
+        first = client.post(
+            "/api/cohorts",
+            json={"runs": 1, "randomized": False, "target_fruit": "mango", "seed": 5},
+        )
+        wait_for_cohort(client)
+        before = client.get("/api/status").json()["stage_home"]
+        moved = client.post("/api/home/recapture")
+        after = client.get("/api/status").json()["stage_home"]
+
+    assert first.status_code == 201
+    assert moved.status_code == 200
+    assert before["x_m"] == 1.0
+    assert moved.json()["previous_home"] == before
+    assert after["x_m"] > before["x_m"]
+    assert moved.json()["home"] == after
+
+
+def test_recapture_home_is_refused_while_a_cohort_owns_activation(tmp_path) -> None:
+    app = create_app(
+        runs_root=tmp_path / "runs",
+        cohorts_root=tmp_path / "cohorts",
+        hardware=ReadyHardware(),
+        camera_perception_status=ready_camera,
+        stage_executor=SimulatedStageExecutor(delay_at="turn_to_fruit", delay_s=0.5),
+    )
+
+    with TestClient(app) as client:
+        started = client.post(
+            "/api/cohorts",
+            json={"runs": 2, "randomized": False, "target_fruit": "mango", "seed": 7},
+        )
+        blocked = client.post("/api/home/recapture")
+        client.post("/api/cohorts/active/stop")
+
+    assert started.status_code == 201
+    assert blocked.status_code == 409
+    assert blocked.json()["detail"] == "the active cohort owns Demo Run activation"
