@@ -1,13 +1,22 @@
-"""Physical Go2 Start-button activation behind one evidence-rich seam.
+"""Physical Go2 controller input behind one evidence-rich seam.
 
-Pressing Start on the Go2 controller requests exactly one three-fruit cohort:
-one Apple, one Mango and one Pear Demo Run, in a seeded random order.  The
-adapter owns decoding, neutral-before-arm behavior, rising-edge deduplication
-and black-box attribution.  It never sends a robot command and never builds a
-cohort policy of its own: the injected ``start_cohort`` callable is the same
-``CohortController.start`` path the "Run Apple + Mango + Pear once" UI button
-drives through ``POST /api/cohorts``, so preflight, exact-zero disarm, the
-Remote Takeover latch and the per-run Home clearance gate all still apply.
+The adapter turns raw ``LowState_.wireless_remote`` frames into exactly two
+operator intents, and never sends a robot command of its own:
+
+* **Idle** -- three deliberate Start presses inside a bounded window request
+  one three-fruit cohort: one Apple, one Mango and one Pear Demo Run, in a
+  seeded random order.  The injected ``start_cohort`` callable is the same
+  ``CohortController.start`` path the "Run Apple + Mango + Pear once" UI button
+  drives through ``POST /api/cohorts``, so preflight, exact-zero disarm, the
+  Remote Takeover latch and the per-run Home clearance gate all still apply.
+* **Run or cohort active** -- *any* freshly touched control, button or stick,
+  stops immediately through the injected ``stop_active`` callable, which is the
+  same safe path ``POST /api/stop`` uses.  Stopping is never rate-limited,
+  never counted and never debounced: one input, one stop.
+
+The adapter owns decoding, neutral-before-arm behavior, rising-edge
+deduplication, the press counter and black-box attribution.  It owns no motion
+client and no writer.
 """
 
 from __future__ import annotations
@@ -15,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import math
+import struct
 import time
 from collections import deque
 from collections.abc import Awaitable, Callable
@@ -22,10 +32,136 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from .black_box import RunBlackBox
+from .models import RemoteInput
 
+
+# ---------------------------------------------------------------------------
+# wireless_remote frame layout
+#
+# Verified against the pinned SDK (unitree_sdk2_python @ e4cd91f, see
+# build.stagefile.yaml) and Unitree's own xRockerBtnDataStruct:
+#
+#     uint8_t head[2];      // bytes  0..1
+#     uint16  btn;          // bytes  2..3   little-endian button bitfield
+#     float   lx;           // bytes  4..7
+#     float   rx;           // bytes  8..11
+#     float   ry;           // bytes 12..15
+#     float   L2;           // bytes 16..19  analog trigger, SDK marks unused
+#     float   ly;           // bytes 20..23
+#     uint8_t idle[16];     // bytes 24..39
+#
+# Note ``ly`` is at offset 20, not 16: the analog L2 float sits between ry and
+# ly. The L2 *button* bit is still watched, so squeezing L2 is not missed; only
+# its analog channel is skipped, because the SDK itself labels that channel a
+# placeholder and its resting value is not guaranteed to be zero.
+# ---------------------------------------------------------------------------
+BUTTON_WORD_OFFSET = 2
+DECODABLE_FRAME_BYTES = 24
+WIRELESS_REMOTE_BYTES = 40
+
+BUTTON_NAMES: tuple[str, ...] = (
+    "R1", "L1", "start", "select", "R2", "L2", "F1", "F2",
+    "A", "B", "X", "Y", "up", "right", "down", "left",
+)
+STICK_AXES: tuple[tuple[str, int], ...] = (
+    ("left_stick_x", 4),
+    ("right_stick_x", 8),
+    ("right_stick_y", 12),
+    ("left_stick_y", 20),
+)
 
 START_BUTTON_MASK = 1 << 2
 START_BUTTON_NAME = "start"
+
+# Stick displacement that counts as a deliberate touch, in normalized units
+# where full deflection is 1.0.
+#
+# Unitree's own SDK applies a 0.01 dead zone to these axes, which is its
+# implied noise floor, and a sibling project tuned a 0.12 resting band against
+# real handheld-controller hardware. 0.15 sits above the largest measured
+# resting drift with margin, so a controller lying on a table never stops a
+# run, while a deliberate nudge -- which drives an axis to 0.5..1.0 almost
+# immediately -- crosses it on the first sample. That margin is what lets the
+# stop stay single-sample and instant instead of needing a debounce that would
+# delay it.
+STICK_DEADZONE = 0.15
+
+# Deliberate presses required to launch a cohort. One press was too easy to
+# trigger by brushing the controller.
+START_PRESS_COUNT = 3
+
+# All the presses must land inside this window, measured from the first one.
+# Three deliberate presses take roughly one to two seconds, so 5.0 s tolerates
+# a hesitant operator and a dropped DDS sample without letting stale presses
+# accumulate: a press now and a press an hour later can never combine, and two
+# accidental brushes minutes apart cannot arm the demo.
+START_SEQUENCE_WINDOW_S = 5.0
+
+# Continuous neutral required before a latched Remote Takeover is released.
+# A stick swept between extremes passes through center in far less than this,
+# so mid-takeover transits never clear the latch, while an operator who has
+# actually put the controller down waits only a beat.
+TAKEOVER_RELEASE_HOLD_S = 2.0
+
+
+@dataclass(frozen=True)
+class ControllerFrame:
+    """One decoded controller frame: which controls the operator is touching."""
+
+    button_word: int
+    buttons: tuple[str, ...]
+    axes: tuple[tuple[str, float], ...]
+    displaced_axes: tuple[str, ...]
+
+    @property
+    def controls(self) -> frozenset[str]:
+        return frozenset(self.buttons) | frozenset(self.displaced_axes)
+
+    @property
+    def neutral(self) -> bool:
+        return not self.buttons and not self.displaced_axes
+
+    def to_evidence(self) -> dict[str, Any]:
+        return {
+            "button_word": self.button_word,
+            "buttons_pressed": list(self.buttons),
+            "axes": {name: value for name, value in self.axes},
+            "axes_displaced": list(self.displaced_axes),
+            "neutral": self.neutral,
+        }
+
+
+def decode_frame(
+    wireless_remote: bytes, *, deadzone: float = STICK_DEADZONE
+) -> ControllerFrame:
+    """Decode buttons and stick axes from one wireless_remote payload."""
+
+    button_word = int.from_bytes(
+        wireless_remote[BUTTON_WORD_OFFSET : BUTTON_WORD_OFFSET + 2], "little"
+    )
+    buttons = tuple(
+        name for index, name in enumerate(BUTTON_NAMES) if button_word & (1 << index)
+    )
+    axes: list[tuple[str, float]] = []
+    displaced: list[str] = []
+    for name, offset in STICK_AXES:
+        (value,) = struct.unpack_from("<f", wireless_remote, offset)
+        value = float(value)
+        if not math.isfinite(value):
+            # A corrupt float is evidence, not an operator input. Reporting it
+            # as a displacement would stop every run the moment the link
+            # glitched, so it is recorded and treated as centered.
+            axes.append((name, 0.0))
+            continue
+        axes.append((name, value))
+        if abs(value) > deadzone:
+            displaced.append(name)
+    return ControllerFrame(
+        button_word=button_word,
+        buttons=buttons,
+        axes=tuple(axes),
+        displaced_axes=tuple(displaced),
+    )
 
 
 class ControllerStartRefused(RuntimeError):
@@ -61,8 +197,14 @@ class ControllerSample:
         if not math.isfinite(received) or received < 0.0:
             raise ValueError("controller receive time must be finite and non-negative")
         remote = bytes(self.wireless_remote)
-        if len(remote) < 4:
-            raise ValueError("wireless_remote must contain at least four bytes")
+        if len(remote) < DECODABLE_FRAME_BYTES:
+            # Buttons alone need four bytes, but the stick axes run to offset
+            # 24. A short frame cannot prove the sticks are centered, so it is
+            # rejected rather than decoded as neutral.
+            raise ValueError(
+                "wireless_remote must contain at least "
+                f"{DECODABLE_FRAME_BYTES} bytes"
+            )
         object.__setattr__(self, "source", source)
         object.__setattr__(self, "received_monotonic_s", received)
         object.__setattr__(self, "wireless_remote", remote)
@@ -79,7 +221,11 @@ class ControllerDecision:
 
 
 StartCohort = Callable[[], Awaitable[dict[str, Any]]]
+StopActive = Callable[[RemoteInput], Awaitable[dict[str, Any]]]
 ActiveRunId = Callable[[], str | None]
+IsBusy = Callable[[], bool]
+IsTakeoverLatched = Callable[[], bool]
+ReleaseTakeover = Callable[[], None]
 ControllerObserver = Callable[[ControllerSample], Awaitable[object] | object]
 
 
@@ -92,13 +238,22 @@ class ControllerStartSource(Protocol):
 
 
 class ControllerStartAdapter:
-    """Turn one verified Start rising edge into at most one three-fruit cohort.
+    """Turn physical controller input into a cohort request or an instant stop.
 
-    The first observed state must be released.  Consequently a controller held
-    across process or robot boot cannot cause motion when Wendy restores the
-    app.  Repeated DDS delivery and a held button cannot submit a second
-    cohort; a release followed by a fresh press is a new request, but it is
-    still refused while a cohort or Demo Run owns activation.
+    Two intents, kept unambiguous by what the robot is doing at the time:
+
+    * **Idle** -- ``START_PRESS_COUNT`` distinct Start rising edges inside
+      ``START_SEQUENCE_WINDOW_S`` request one three-fruit cohort. A held button
+      is one press, not many. The counter resets when the window lapses, when
+      any other control is touched, on a stop, and after a launch.
+    * **Run or cohort active** -- any freshly touched control stops the run at
+      once through the safe stop path. Start has no special status here: while
+      something is running it stops, and it never counts toward a new sequence.
+
+    The first observed state must be fully neutral -- every button released and
+    every stick centered. Consequently a controller held, or a stick leaned on,
+    across process or robot boot cannot cause motion or a spurious stop when
+    Wendy restores the app.
     """
 
     def __init__(
@@ -107,6 +262,14 @@ class ControllerStartAdapter:
         start_cohort: StartCohort,
         black_box: RunBlackBox,
         active_run_id: ActiveRunId,
+        stop_active: StopActive | None = None,
+        is_busy: IsBusy | None = None,
+        takeover_latched: IsTakeoverLatched | None = None,
+        release_takeover: ReleaseTakeover | None = None,
+        stick_deadzone: float = STICK_DEADZONE,
+        start_press_count: int = START_PRESS_COUNT,
+        start_sequence_window_s: float = START_SEQUENCE_WINDOW_S,
+        takeover_release_hold_s: float = TAKEOVER_RELEASE_HOLD_S,
         dedupe_window: int = 128,
         event_history: int = 16,
     ) -> None:
@@ -114,18 +277,44 @@ class ControllerStartAdapter:
             raise ValueError("controller dedupe window must be at least two samples")
         if event_history < 1:
             raise ValueError("controller event history must retain at least one edge")
+        if not 0.0 < stick_deadzone < 1.0:
+            raise ValueError("stick deadzone must be within 0..1 exclusive")
+        if start_press_count < 1:
+            raise ValueError("at least one Start press is required")
+        if start_sequence_window_s <= 0.0:
+            raise ValueError("the Start sequence window must be positive")
+        if takeover_release_hold_s < 0.0:
+            raise ValueError("the takeover release hold must not be negative")
         self._start_cohort = start_cohort
+        self._stop_active = stop_active
         self._black_box = black_box
         self._active_run_id = active_run_id
+        self._is_busy = (
+            is_busy if is_busy is not None else (lambda: active_run_id() is not None)
+        )
+        self._takeover_latched = takeover_latched or (lambda: False)
+        self._release_takeover = release_takeover
+        self._stick_deadzone = stick_deadzone
+        self._start_press_count = start_press_count
+        self._start_sequence_window_s = start_sequence_window_s
+        self._takeover_release_hold_s = takeover_release_hold_s
         self._lock = asyncio.Lock()
+        # Dropped rather than queued: LowState arrives far faster than a stop
+        # completes, so waiting on the lock would pile up thousands of tasks
+        # behind one stop. The stop is already under way; the samples add
+        # nothing.
+        self._in_flight = False
         self._armed_after_release = False
-        self._pressed = False
+        self._active_controls: frozenset[str] = frozenset()
+        self._press_times: list[float] = []
+        self._neutral_since: float | None = None
         self._seen_order: deque[tuple[str, int]] = deque()
         self._seen: set[tuple[str, int]] = set()
         self._dedupe_window = dedupe_window
         self._last_decision = "waiting_for_release"
         self._last_source_sequence: int | None = None
         self._accepted_edges = 0
+        self._takeover_stops = 0
         self._last_cohort_id: str | None = None
         self._last_error: str | None = None
         # Accepted cohorts have no Run Result yet, so the black box cannot own
@@ -133,8 +322,10 @@ class ControllerStartAdapter:
         self._events: deque[dict[str, Any]] = deque(maxlen=event_history)
 
     async def observe(self, sample: ControllerSample) -> ControllerDecision:
-        """Consume one sample; only a neutral-armed Start edge can activate."""
+        """Consume one sample and take at most one action."""
 
+        if self._in_flight:
+            return self._decision("busy")
         async with self._lock:
             identity = (sample.source, sample.source_sequence)
             if identity in self._seen:
@@ -142,72 +333,247 @@ class ControllerStartAdapter:
             self._remember(identity)
             self._last_source_sequence = sample.source_sequence
 
-            button_word = int.from_bytes(sample.wireless_remote[2:4], "little")
-            pressed = bool(button_word & START_BUTTON_MASK)
-            evidence: dict[str, Any] = {
-                "button": START_BUTTON_NAME,
-                "button_mask": START_BUTTON_MASK,
-                "button_word": button_word,
-                "received_monotonic_s": sample.received_monotonic_s,
-                "source": sample.source,
-                "source_sequence": sample.source_sequence,
-                "start_pressed": pressed,
-            }
+            frame = decode_frame(
+                sample.wireless_remote, deadzone=self._stick_deadzone
+            )
+            previous, controls = self._active_controls, frame.controls
+            self._active_controls = controls
+            newly_touched = controls - previous
+            now = sample.received_monotonic_s
 
+            # 1. Neutral before arm. Anything held as the app boots is inert:
+            #    it can neither start a demo nor be mistaken for a takeover.
             if not self._armed_after_release:
-                self._pressed = pressed
-                if pressed:
+                if not frame.neutral:
                     return self._decision("startup_held")
                 self._armed_after_release = True
+                self._neutral_since = now
                 return self._decision("armed")
 
-            if not pressed:
-                self._pressed = False
-                return self._decision("released")
-            if self._pressed:
-                return self._decision("held")
+            # 2. A latched takeover owns the robot until the operator lets go.
+            if self._takeover_latched():
+                return self._observe_while_latched(frame, now)
 
-            self._pressed = True
-            activation_id = (
-                f"go2-controller-start:{sample.source}:{sample.source_sequence}"
-            )
-            try:
-                cohort = await self._start_cohort()
-            except ControllerStartRefused as exc:
-                return self._refuse(
-                    evidence, activation_id, exc.disposition, exc.detail
-                )
-            except Exception as exc:  # noqa: BLE001 - refuse, never crash the app
-                return self._refuse(evidence, activation_id, "rejected", str(exc))
+            # 3. Something is running: any fresh touch stops it, instantly.
+            if self._is_busy():
+                self._press_times.clear()
+                if newly_touched:
+                    return await self._stop_for_input(sample, frame, newly_touched)
+                return self._decision("held" if controls else "idle")
 
-            cohort_id = str(cohort.get("cohort_id"))
-            payload = {
-                **evidence,
-                "activation_id": activation_id,
-                "cohort_id": cohort_id,
-                "disposition": "accepted",
-                "fruit_sequence": list(cohort.get("fruit_sequence") or []),
-                "runs": (cohort.get("policy") or {}).get("runs"),
-                "seed": (cohort.get("policy") or {}).get("seed"),
+            # 4. Idle: only Start, pressed alone, counts toward a launch.
+            return await self._observe_while_idle(sample, frame, previous, now)
+
+    def _observe_while_latched(
+        self, frame: ControllerFrame, now: float
+    ) -> ControllerDecision:
+        """Hold everything until the controller has been released and settled."""
+
+        if not frame.neutral:
+            self._neutral_since = None
+            return self._decision("takeover_latched")
+        if self._neutral_since is None:
+            self._neutral_since = now
+            return self._decision("takeover_latched")
+        if now - self._neutral_since < self._takeover_release_hold_s:
+            return self._decision("takeover_latched")
+        if self._release_takeover is None:
+            return self._decision("takeover_latched")
+        try:
+            self._release_takeover()
+        except Exception as exc:  # noqa: BLE001 - never crash on the input path
+            self._last_error = f"remote takeover release failed: {exc}"
+            return self._decision("takeover_latched")
+        self._press_times.clear()
+        self._last_error = None
+        self._events.append(
+            {
+                **frame.to_evidence(),
+                "disposition": "takeover_released",
+                "neutral_hold_s": self._takeover_release_hold_s,
+                "received_monotonic_s": now,
             }
-            self._accepted_edges += 1
-            self._last_cohort_id = cohort_id
-            self._last_error = None
-            self._events.append(payload)
-            return self._decision(
-                "accepted", activation_id=activation_id, cohort_id=cohort_id
-            )
+        )
+        return self._decision("takeover_released")
 
-    def status(self) -> dict[str, object]:
-        return {
-            "ready": self._armed_after_release,
-            "detail": (
-                "waiting for Start release before controller activation"
-                if not self._armed_after_release
-                else "Start rising edge is armed for one Apple + Mango + Pear cohort"
-            ),
+    async def _observe_while_idle(
+        self,
+        sample: ControllerSample,
+        frame: ControllerFrame,
+        previous: frozenset[str],
+        now: float,
+    ) -> ControllerDecision:
+        expired = self._expire_start_sequence(now)
+        controls = frame.controls
+
+        if frame.neutral:
+            if expired:
+                return self._decision("start_sequence_expired")
+            return self._decision("released" if previous else "idle")
+
+        # A stick leaned on, or any other button, is not a Start press. It
+        # clears the sequence so a half-counted launch cannot hide behind it.
+        if controls != frozenset({START_BUTTON_NAME}):
+            self._press_times.clear()
+            return self._decision("other_input")
+
+        if START_BUTTON_NAME in previous:
+            return self._decision("held")
+
+        self._press_times.append(now)
+        if len(self._press_times) < self._start_press_count:
+            return self._decision("start_press_recorded")
+        return await self._launch_cohort(sample, frame)
+
+    async def _launch_cohort(
+        self, sample: ControllerSample, frame: ControllerFrame
+    ) -> ControllerDecision:
+        self._press_times.clear()
+        activation_id = f"go2-controller-start:{sample.source}:{sample.source_sequence}"
+        evidence: dict[str, Any] = {
+            **frame.to_evidence(),
             "button": START_BUTTON_NAME,
             "button_mask": START_BUTTON_MASK,
+            "presses_required": self._start_press_count,
+            "received_monotonic_s": sample.received_monotonic_s,
+            "source": sample.source,
+            "source_sequence": sample.source_sequence,
+            "start_pressed": True,
+        }
+        self._in_flight = True
+        try:
+            cohort = await self._start_cohort()
+        except ControllerStartRefused as exc:
+            return self._refuse(evidence, activation_id, exc.disposition, exc.detail)
+        except Exception as exc:  # noqa: BLE001 - refuse, never crash the app
+            return self._refuse(evidence, activation_id, "rejected", str(exc))
+        finally:
+            self._in_flight = False
+
+        cohort_id = str(cohort.get("cohort_id"))
+        payload = {
+            **evidence,
+            "activation_id": activation_id,
+            "cohort_id": cohort_id,
+            "disposition": "accepted",
+            "fruit_sequence": list(cohort.get("fruit_sequence") or []),
+            "runs": (cohort.get("policy") or {}).get("runs"),
+            "seed": (cohort.get("policy") or {}).get("seed"),
+        }
+        self._accepted_edges += 1
+        self._last_cohort_id = cohort_id
+        self._last_error = None
+        self._events.append(payload)
+        return self._decision(
+            "accepted", activation_id=activation_id, cohort_id=cohort_id
+        )
+
+    async def _stop_for_input(
+        self,
+        sample: ControllerSample,
+        frame: ControllerFrame,
+        newly_touched: frozenset[str],
+    ) -> ControllerDecision:
+        """Stop the active run through the injected safe path. No motion here."""
+
+        control = ",".join(sorted(newly_touched))
+        remote_input = RemoteInput(
+            source=sample.source,
+            control=control,
+            received_monotonic_s=sample.received_monotonic_s,
+        )
+        payload = {
+            **frame.to_evidence(),
+            "control": control,
+            "disposition": "takeover_stop",
+            "received_monotonic_s": sample.received_monotonic_s,
+            "source": sample.source,
+            "source_sequence": sample.source_sequence,
+        }
+        # Attributed before the stop runs, because the stop seals the Run
+        # Result this belongs to.
+        run_id = self._active_run_id()
+        if run_id is not None:
+            try:
+                self._black_box.record(
+                    run_id,
+                    "controller_input",
+                    phase="remote_takeover",
+                    payload=payload,
+                )
+            except Exception as exc:  # noqa: BLE001 - attribution is best effort
+                self._last_error = f"black-box attribution failed: {exc}"
+
+        if self._stop_active is None:
+            self._last_error = "controller stop path is not connected"
+            self._events.append({**payload, "disposition": "takeover_unavailable"})
+            return self._decision(
+                "takeover_unavailable", detail=self._last_error
+            )
+
+        self._in_flight = True
+        try:
+            await self._stop_active(remote_input)
+        except Exception as exc:  # noqa: BLE001 - a failed stop must stay visible
+            self._last_error = f"controller stop failed: {exc}"
+            self._events.append(
+                {**payload, "disposition": "takeover_stop_failed", "error": str(exc)}
+            )
+            return self._decision("takeover_stop_failed", detail=str(exc))
+        finally:
+            self._in_flight = False
+            self._neutral_since = None
+
+        self._takeover_stops += 1
+        self._last_error = None
+        self._events.append(payload)
+        return self._decision("takeover_stop", detail=control)
+
+    def _expire_start_sequence(self, now: float) -> bool:
+        """Drop a partial press sequence once its window has lapsed."""
+        if not self._press_times:
+            return False
+        if now - self._press_times[0] <= self._start_sequence_window_s:
+            return False
+        self._press_times.clear()
+        return True
+
+    def status(self) -> dict[str, object]:
+        recorded = len(self._press_times)
+        latched = bool(self._takeover_latched())
+        if not self._armed_after_release:
+            detail = "waiting for a neutral controller before activation"
+        elif latched:
+            detail = (
+                "physical remote takeover is latched; release the controller "
+                f"for {self._takeover_release_hold_s:g} s to hand control back"
+            )
+        elif self._is_busy():
+            detail = "a run is active; any controller input stops it immediately"
+        else:
+            detail = (
+                f"{recorded} of {self._start_press_count} Start presses recorded; "
+                f"press Start {self._start_press_count - recorded} more time(s) "
+                "for one Apple + Mango + Pear cohort"
+            )
+        return {
+            "ready": self._armed_after_release,
+            "detail": detail,
+            "button": START_BUTTON_NAME,
+            "button_mask": START_BUTTON_MASK,
+            "start_presses_required": self._start_press_count,
+            "start_presses_recorded": recorded,
+            "start_press_progress": f"{recorded} of {self._start_press_count}",
+            "start_sequence_window_s": self._start_sequence_window_s,
+            "stick_deadzone": self._stick_deadzone,
+            "watched_axes": [name for name, _ in STICK_AXES],
+            "takeover": {
+                "latched": latched,
+                "stops": self._takeover_stops,
+                "release_hold_s": self._takeover_release_hold_s,
+                "stop_path_connected": self._stop_active is not None,
+            },
+            "active_controls": sorted(self._active_controls),
             "last_disposition": self._last_decision,
             "last_source_sequence": self._last_source_sequence,
             "accepted_edges": self._accepted_edges,

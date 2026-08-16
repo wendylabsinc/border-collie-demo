@@ -21,6 +21,16 @@ from .run_tuning import RunTuning
 from .stage_demo import FruitMission, StageDemo
 
 
+# The deliberate beat between back-to-back cohort runs. Measured before it was
+# added, the existing inter-run clearance and disarm confirmation left only
+# ~7 ms between one run's last stage and the next run's first search, so this
+# is a real pause and not a second one stacked on existing dead time. It is
+# held inside the next run, after its activation gates have passed and
+# immediately before its first search command, so the cycle reads
+# go home -> wait -> continue without delaying any safety decision.
+INTER_RUN_PAUSE_S = 1.0
+
+
 class CohortConflict(RuntimeError):
     """A new cohort cannot start while another cohort owns activation."""
 
@@ -32,9 +42,18 @@ def _utc_now() -> str:
 class CohortController:
     """Start, observe, and stop one durable cohort without bypassing StageDemo."""
 
-    def __init__(self, demo: StageDemo, root: Path) -> None:
+    def __init__(
+        self,
+        demo: StageDemo,
+        root: Path,
+        *,
+        inter_run_pause_s: float = INTER_RUN_PAUSE_S,
+    ) -> None:
+        if inter_run_pause_s < 0.0:
+            raise ValueError("inter-run pause must not be negative")
         self._demo = demo
         self._root = root
+        self._inter_run_pause_s = inter_run_pause_s
         self._lock = asyncio.Lock()
         self._task: asyncio.Task[None] | None = None
         self._current: dict[str, Any] | None = self._load_latest()
@@ -94,6 +113,7 @@ class CohortController:
                 "selected_fruits": selected_fruits,
                 "fruit_sequence": sequence,
                 "tuning_template": template,
+                "inter_run_pause_s": self._inter_run_pause_s,
                 "run_tuning_sequence": run_tuning_sequence,
                 "runs": [],
                 "current_run_id": None,
@@ -163,6 +183,10 @@ class CohortController:
                     self._finish("STOPPED", "operator stopped the cohort")
                     return
                 activation_id = f"cohort:{cohort['cohort_id']}:run:{number}"
+                # Only a back-to-back run waits. The first run of a cohort has
+                # nothing before it, and a standalone Demo Run never comes
+                # through here at all, so neither is delayed.
+                pause_s = self._inter_run_pause_s if number > 1 else 0.0
                 try:
                     activation = await self._demo.activate(
                         FruitMission(
@@ -174,6 +198,7 @@ class CohortController:
                         # The cohort captures Home once on its first run; every
                         # back-to-back run after that shares it.
                         reuse_home=number > 1,
+                        pre_search_pause_s=pause_s,
                     )
                 except Exception as exc:  # noqa: BLE001 - activation is ambiguous
                     self._finish(
@@ -215,6 +240,7 @@ class CohortController:
                     "failed_phase": run.get("failed_phase"),
                     "final_safety_state": run.get("final_safety_state"),
                     "run_tuning": deepcopy(tuning_record["run_tuning"]),
+                    "pre_search_pause_s": pause_s,
                     "cohort_decision": decision,
                 }
                 cohort["runs"].append(record)

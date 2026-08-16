@@ -194,7 +194,11 @@ class StageDemo:
         return errors
 
     async def activate(
-        self, mission: FruitMission, *, reuse_home: bool = False
+        self,
+        mission: FruitMission,
+        *,
+        reuse_home: bool = False,
+        pre_search_pause_s: float = 0.0,
     ) -> Activation:
         """Activate one Demo Run.
 
@@ -203,6 +207,11 @@ class StageDemo:
         back-to-back runs inside one cohort pass reuse_home=True and share the
         Home the cohort started from, which is what makes drift across a
         cohort measurable instead of accumulating silently.
+
+        ``pre_search_pause_s`` is held inside the run, after every activation
+        gate has passed and immediately before the first search command. Only a
+        back-to-back cohort run asks for one, so a standalone Demo Run keeps
+        starting its search as soon as it is activated.
         """
         async with self._lifecycle_lock:
             self._require_started()
@@ -324,7 +333,10 @@ class StageDemo:
             )
             if self._orchestrator is not None:
                 self._run_task = asyncio.create_task(
-                    self._orchestrator.run(run["run_id"]),
+                    self._orchestrator.run(
+                        run["run_id"],
+                        pre_search_pause_s=pre_search_pause_s,
+                    ),
                     name=f"fruit-mission-{run['run_id']}",
                 )
             return Activation(run, idempotent_replay=False)

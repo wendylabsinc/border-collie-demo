@@ -141,7 +141,19 @@ class DemoOrchestrator:
                 f"terminal evidence capture failed: {exc}",
             )
 
-    async def run(self, run_id: str) -> dict[str, Any]:
+    async def run(
+        self,
+        run_id: str,
+        *,
+        pre_search_pause_s: float = 0.0,
+    ) -> dict[str, Any]:
+        """Execute the eight Demo Run stages.
+
+        ``pre_search_pause_s`` is a deliberate beat held immediately before the
+        first search command of this run and after every activation gate has
+        already passed, so it can never delay a safety decision. Only a
+        back-to-back cohort run asks for one; a standalone run passes zero.
+        """
         run = self._results.get(run_id)
         context = StageContext(
             run_id=run_id,
@@ -151,6 +163,8 @@ class DemoOrchestrator:
         )
         try:
             for phase in EXECUTED_STAGES:
+                if phase is MissionPhase.TURN_TO_FRUIT and pre_search_pause_s > 0.0:
+                    await asyncio.sleep(pre_search_pause_s)
                 self._mission.advance(f"starting {phase.value}")
                 self._results.enter_phase(
                     run_id,
@@ -159,6 +173,11 @@ class DemoOrchestrator:
                     message=f"{phase.value} started",
                 )
                 evidence = await self._stages.execute(phase, context)
+                if phase is MissionPhase.TURN_TO_FRUIT:
+                    evidence = {
+                        **evidence,
+                        "pre_search_pause_s": pre_search_pause_s,
+                    }
                 self._results.record_stage(run_id, phase.value, evidence)
                 if phase is MissionPhase.APPROACH_FRUIT:
                     pulse_count = evidence.get("forward_pulse_count")
