@@ -29,16 +29,23 @@ FRUIT_POLICIES: dict[str, FruitPolicy] = {
         close_range_tracking_confidence=0.20,
         motion_qualified=False,
     ),
-    # Mango is a first-class class in the general model, so it carries pear's
-    # thresholds rather than the old derived-route floors. Those 0.08 floors
-    # only held because a COCO bowl proposal plus an 80% orange gate did the
-    # filtering; without them 0.08 admits any blob. Measured on this camera:
-    # mango reads 0.88-0.92 in view, the worst true positive over the frozen
-    # 40-frame MANGO-EVAL-001 clip was 0.8215, and false positives top out at
-    # 0.21. A 0.65 floor leaves daylight on both sides.
+    # Mango is a first-class class in the general model, so it carries its own
+    # measured thresholds rather than the old derived-route floors.
+    #
+    # 0.65 was copied from pear on the strength of mango reading 0.88-0.92 when
+    # well presented. Three physical runs then failed TARGET_RECOGNITION_FAILURE
+    # with the mango plainly in frame: 45482f40, 049481c6 and a397090b each swept
+    # a full 2pi, produced 23-37 detections, and scored a median of 0.26-0.50
+    # with a peak of 0.69. So the weak-presentation regime sits at 0.25-0.60 and
+    # 0.65 cut through the middle of the real distribution instead of below it.
+    #
+    # 0.45 clears all three. The frozen 40-frame MANGO-EVAL-001 clip puts the
+    # worst false positive at 0.209, so this still keeps better than 2x headroom
+    # over measured noise. Tracking stays 0.10 below acquisition, matching pear's
+    # spacing, so a lock is easier to keep than to win.
     "mango": FruitPolicy(
-        acquisition_confidence=0.65,
-        close_range_tracking_confidence=0.55,
+        acquisition_confidence=0.45,
+        close_range_tracking_confidence=0.35,
         motion_qualified=True,
     ),
     "pear": FruitPolicy(

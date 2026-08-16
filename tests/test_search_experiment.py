@@ -14,7 +14,7 @@ from border_collie_demo.search_experiment import (
         ("apple", 0.40, 0.40),
         ("pear", None, 0.65),
         ("banana", None, 0.20),
-        ("mango", None, 0.65),
+        ("mango", None, 0.45),
     ],
 )
 def test_search_experiment_tuning_preserves_each_fruits_baseline_policy(

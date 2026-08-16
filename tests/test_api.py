@@ -1230,10 +1230,10 @@ def test_status_exposes_selected_fruit_confidence_defaults_and_ranges(tmp_path) 
             },
         },
         "mango": {
-            "defaults": {"focus_confidence": 0.65, "lock_confidence": 0.65},
+            "defaults": {"focus_confidence": 0.45, "lock_confidence": 0.45},
             "ranges": {
-                "focus_confidence": [0.65, 0.85],
-                "lock_confidence": [0.65, 0.85],
+                "focus_confidence": [0.45, 0.85],
+                "lock_confidence": [0.45, 0.85],
             },
         },
         "pear": {

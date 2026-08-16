@@ -31,8 +31,8 @@ def test_defaults_preserve_kinda_good_behavior_for_every_fruit() -> None:
     assert banana.recognition.focus_confidence is None
     assert banana.recognition.lock_confidence == 0.20
     assert mango.recognition.focus_confidence is None
-    assert mango.recognition.lock_confidence == 0.65
-    assert mango.recognition.tracking_confidence == 0.55
+    assert mango.recognition.lock_confidence == 0.45
+    assert mango.recognition.tracking_confidence == 0.35
     assert mango.centering == pear.centering
     assert mango.approach == pear.approach
     assert mango.arrival == pear.arrival
