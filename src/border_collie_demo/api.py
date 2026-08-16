@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .black_box import RunBlackBox
 from .cohort_policy import CohortPolicy, FailureSelector
-from .cohorts import CohortConflict, CohortController
+from .cohorts import INTER_RUN_PAUSE_S, CohortConflict, CohortController
 from .controller_start import (
     ControllerStartAdapter,
     ControllerStartRefused,
@@ -24,6 +24,7 @@ from .evidence import EvidenceArtifact
 from .fruits import QUALIFIED_FRUITS, SUPPORTED_FRUITS
 from .hardware import HardwareManager, HardwareUnavailable
 from .mission import MissionMachine, RestartRequired
+from .models import RemoteInput
 from .orchestrator import EXECUTED_STAGES, FailureEpilogue, StageExecutor
 from .run_results import ActiveRunError, RunResultNotFound, RunResultStore
 from .run_tuning import RunTuning
@@ -169,6 +170,7 @@ def create_app(
     stage_home_margin_m: float | None = None,
     cohorts_root: Path | None = None,
     controller_start_source: ControllerStartSource | None = None,
+    inter_run_pause_s: float | None = None,
 ) -> FastAPI:
     machine = mission or MissionMachine()
     robot = hardware or HardwareManager()
@@ -208,6 +210,15 @@ def create_app(
             os.environ.get(
                 "BORDER_COLLIE_COHORTS_DIR",
                 str(run_storage_root.parent / "cohorts"),
+            )
+        ),
+        inter_run_pause_s=(
+            inter_run_pause_s
+            if inter_run_pause_s is not None
+            else float(
+                os.environ.get(
+                    "BORDER_COLLIE_INTER_RUN_PAUSE_S", str(INTER_RUN_PAUSE_S)
+                )
             )
         ),
     )
@@ -271,13 +282,41 @@ def create_app(
             three_fruit_cohort_request(controller_start_seed())
         )
 
+    def controller_owns_activation() -> bool:
+        """True while a cohort or a Demo Run is the thing an input would stop."""
+        return cohorts.running() or results.active_run_id is not None
+
+    async def stop_for_controller_input(
+        remote_input: RemoteInput,
+    ) -> dict[str, object]:
+        """Stop whatever the operator interrupted, down the existing safe path.
+
+        The latch goes on first so nothing can activate in the gap, then the
+        stop runs through exactly the calls ``POST /api/cohorts/active/stop``
+        and ``POST /api/stop`` already make: exact-zero disarm and a sealed Run
+        Result. Nothing here talks to a motion client.
+        """
+        machine.remote_takeover(remote_input)
+        if cohorts.running():
+            return {"cohort": await cohorts.stop()}
+        return {"stop": await demo.stop()}
+
+    def release_controller_takeover() -> None:
+        machine.release_remote_takeover(
+            "physical remote released; the application may be started again"
+        )
+
     controller_start_adapter = (
         None
         if controller_start_source is None
         else ControllerStartAdapter(
             start_cohort=start_controller_cohort,
+            stop_active=stop_for_controller_input,
             black_box=results.black_box,
             active_run_id=lambda: results.active_run_id,
+            is_busy=controller_owns_activation,
+            takeover_latched=lambda: machine.takeover_latched,
+            release_takeover=release_controller_takeover,
         )
     )
 

@@ -6,6 +6,7 @@ import time
 from fastapi.testclient import TestClient
 
 from border_collie_demo.api import create_app
+from border_collie_demo.cohorts import INTER_RUN_PAUSE_S
 from border_collie_demo.fruits import QUALIFIED_FRUITS
 from border_collie_demo.orchestrator import SimulatedStageExecutor
 
@@ -73,6 +74,7 @@ def test_api_runs_exact_fixed_fruit_cohort_and_persists_decisions(tmp_path) -> N
         cohorts_root=tmp_path / "cohorts",
         hardware=ReadyHardware(),
         camera_perception_status=ready_camera,
+        inter_run_pause_s=0.0,
         stage_executor=SimulatedStageExecutor(),
     )
 
@@ -112,6 +114,7 @@ def test_api_random_cohort_persists_seeded_sequence(tmp_path) -> None:
             cohorts_root=tmp_path / directory / "cohorts",
             hardware=ReadyHardware(),
             camera_perception_status=ready_camera,
+            inter_run_pause_s=0.0,
             stage_executor=SimulatedStageExecutor(),
         )
         with TestClient(app) as client:
@@ -132,6 +135,7 @@ def test_api_random_cohort_persists_subset_sequence_and_frozen_yaw_tuning(
         cohorts_root=tmp_path / "cohorts",
         hardware=ReadyHardware(),
         camera_perception_status=ready_camera,
+        inter_run_pause_s=0.0,
         stage_executor=SimulatedStageExecutor(),
     )
     request = {
@@ -177,6 +181,7 @@ def test_api_rejects_empty_or_unknown_randomized_subset_before_activation(
         cohorts_root=tmp_path / "cohorts",
         hardware=ReadyHardware(),
         camera_perception_status=ready_camera,
+        inter_run_pause_s=0.0,
         stage_executor=SimulatedStageExecutor(),
     )
     with TestClient(app) as client:
@@ -206,6 +211,7 @@ def test_terminal_failure_policy_is_applied_before_home_clearance(tmp_path) -> N
         cohorts_root=tmp_path / "cohorts",
         hardware=ReadyHardware(),
         camera_perception_status=ready_camera,
+        inter_run_pause_s=0.0,
         stage_executor=SimulatedStageExecutor(
             fail_at="sit_and_bark",
             failure_reason="ACTION_FAILURE",
@@ -245,6 +251,7 @@ def test_second_start_is_rejected_and_stop_is_observable(tmp_path) -> None:
         cohorts_root=tmp_path / "cohorts",
         hardware=ReadyHardware(),
         camera_perception_status=ready_camera,
+        inter_run_pause_s=0.0,
         stage_executor=SimulatedStageExecutor(
             delay_at="turn_to_fruit", delay_s=0.5
         ),
@@ -272,6 +279,7 @@ def test_cohort_request_defaults_are_explicit_and_validation_is_closed(tmp_path)
         cohorts_root=tmp_path / "cohorts",
         hardware=ReadyHardware(),
         camera_perception_status=ready_camera,
+        inter_run_pause_s=0.0,
         stage_executor=SimulatedStageExecutor(
             delay_at="turn_to_fruit", delay_s=0.5
         ),
@@ -360,6 +368,7 @@ def test_cohort_runs_share_one_home_despite_per_run_drift(tmp_path) -> None:
         cohorts_root=tmp_path / "cohorts",
         hardware=hardware,
         camera_perception_status=ready_camera,
+        inter_run_pause_s=0.0,
         stage_executor=SimulatedStageExecutor(),
     )
 
@@ -401,6 +410,7 @@ def test_recapture_home_moves_home_for_the_next_cohort(tmp_path) -> None:
         cohorts_root=tmp_path / "cohorts",
         hardware=hardware,
         camera_perception_status=ready_camera,
+        inter_run_pause_s=0.0,
         stage_executor=SimulatedStageExecutor(),
     )
 
@@ -428,6 +438,7 @@ def test_recapture_home_is_refused_while_a_cohort_owns_activation(tmp_path) -> N
         cohorts_root=tmp_path / "cohorts",
         hardware=ReadyHardware(),
         camera_perception_status=ready_camera,
+        inter_run_pause_s=0.0,
         stage_executor=SimulatedStageExecutor(delay_at="turn_to_fruit", delay_s=0.5),
     )
 
@@ -442,3 +453,108 @@ def test_recapture_home_is_refused_while_a_cohort_owns_activation(tmp_path) -> N
     assert started.status_code == 201
     assert blocked.status_code == 409
     assert blocked.json()["detail"] == "the active cohort owns Demo Run activation"
+
+
+def test_only_back_to_back_cohort_runs_wait_before_their_search(tmp_path) -> None:
+    """The cycle is go home -> wait -> continue, and only inside a cohort."""
+    app = create_app(
+        runs_root=tmp_path / "runs",
+        cohorts_root=tmp_path / "cohorts",
+        hardware=ReadyHardware(),
+        camera_perception_status=ready_camera,
+        stage_executor=SimulatedStageExecutor(),
+        inter_run_pause_s=0.25,
+    )
+
+    with TestClient(app) as client:
+        started = client.post(
+            "/api/cohorts",
+            json={
+                "runs": 3,
+                "randomized": True,
+                "fruit_subset": ["apple", "mango", "pear"],
+                "seed": 7,
+            },
+        )
+        assert started.status_code == 201
+        cohort = wait_for_cohort(client, timeout_s=10.0)
+
+        assert cohort["status"] == "COMPLETED"
+        assert cohort["inter_run_pause_s"] == 0.25
+        # The first run has nothing before it and never waits; every
+        # back-to-back run after it does.
+        assert [record["pre_search_pause_s"] for record in cohort["runs"]] == [
+            0.0,
+            0.25,
+            0.25,
+        ]
+
+        # The pause is visible in the Run Result too, on the search it delayed.
+        pauses = [
+            client.get(f"/api/results/{record['run_id']}").json()["run"][
+                "stage_results"
+            ]["turn_to_fruit"]["pre_search_pause_s"]
+            for record in cohort["runs"]
+        ]
+        assert pauses == [0.0, 0.25, 0.25]
+
+
+def test_a_standalone_demo_run_never_waits_before_its_search(tmp_path) -> None:
+    app = create_app(
+        runs_root=tmp_path / "runs",
+        cohorts_root=tmp_path / "cohorts",
+        hardware=ReadyHardware(),
+        camera_perception_status=ready_camera,
+        stage_executor=SimulatedStageExecutor(),
+    )
+
+    with TestClient(app) as client:
+        started = time.monotonic()
+        run_id = client.post("/api/run", json={"target_fruit": "pear"}).json()["run"][
+            "run_id"
+        ]
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            run = client.get(f"/api/results/{run_id}").json()["run"]
+            if run["outcome"] is not None:
+                break
+            time.sleep(0.01)
+
+        assert run["outcome"] == "COMPLETED"
+        assert run["stage_results"]["turn_to_fruit"]["pre_search_pause_s"] == 0.0
+        # A single run has nothing after it, so the deployed one-second cohort
+        # pause must not have leaked into it.
+        assert time.monotonic() - started < INTER_RUN_PAUSE_S
+
+
+def test_the_cohort_pause_is_really_spent_between_runs(tmp_path) -> None:
+    pause_s = 0.4
+    app = create_app(
+        runs_root=tmp_path / "runs",
+        cohorts_root=tmp_path / "cohorts",
+        hardware=ReadyHardware(),
+        camera_perception_status=ready_camera,
+        stage_executor=SimulatedStageExecutor(),
+        inter_run_pause_s=pause_s,
+    )
+
+    with TestClient(app) as client:
+        started = time.monotonic()
+        client.post(
+            "/api/cohorts",
+            json={"runs": 3, "randomized": False, "target_fruit": "pear"},
+        )
+        cohort = wait_for_cohort(client, timeout_s=10.0)
+        elapsed = time.monotonic() - started
+
+        assert cohort["status"] == "COMPLETED"
+        # Three runs means two back-to-back boundaries, so two pauses.
+        assert elapsed >= 2 * pause_s
+
+
+def test_the_deployed_inter_run_pause_is_one_second() -> None:
+    # Deployed stage default; the operator asked for a one second beat between
+    # back-to-back runs. Measured before it was added, the existing clearance
+    # and disarm checks left only ~7 ms here, so this is not stacked on top of
+    # an existing wait.
+    assert INTER_RUN_PAUSE_S == 1.0
