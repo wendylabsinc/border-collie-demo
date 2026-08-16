@@ -12,6 +12,7 @@ import json
 import logging
 import math
 import os
+import re
 import time
 import zipfile
 from collections import deque
@@ -29,6 +30,8 @@ from pydantic import BaseModel
 from media.coco_tester import CocoTester
 from media.fruit_color import classify_bbox_color
 from media.model_router import FruitCandidate, FruitModelRouter, RoutedPrediction
+
+_UUID_PATTERN = re.compile(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}")
 
 SUPPORTED_FRUITS = ("apple", "banana", "mango", "pear")
 GENERAL_MODEL_FRUITS = ("apple", "pear", "mango")
@@ -117,6 +120,46 @@ class CropConfirmConfig:
                 os.environ.get("PEAR_CROP_CONFIRM_MIN_IOU", "0.10")
             ),
         )
+
+
+def _audio_uuids_from_listing(listing: Any) -> set[str]:
+    """Pull uuids out of an AudioHub listing without assuming its shape.
+
+    The response is a nested request/response envelope whose exact layout is
+    not contractual, and the payload may arrive as a JSON string. Walk it and
+    collect anything uuid-shaped rather than depending on one nesting.
+    """
+    found: set[str] = set()
+
+    def walk(node: Any, depth: int = 0) -> None:
+        if depth > 8:
+            return
+        if isinstance(node, str):
+            text = node.strip()
+            if _UUID_PATTERN.fullmatch(text):
+                found.add(text)
+                return
+            if text.startswith(("{", "[")):
+                try:
+                    walk(json.loads(text), depth + 1)
+                except (ValueError, TypeError):
+                    return
+            return
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key in {"unique_id", "uuid", "id"} and isinstance(value, str):
+                    candidate = value.strip()
+                    if _UUID_PATTERN.fullmatch(candidate):
+                        found.add(candidate)
+                        continue
+                walk(value, depth + 1)
+            return
+        if isinstance(node, (list, tuple)):
+            for value in node:
+                walk(value, depth + 1)
+
+    walk(listing)
+    return found
 
 
 def configure_media_logging() -> None:
@@ -614,6 +657,8 @@ class PerceptionRuntime:
             "BORDER_COLLIE_BARK_UUID",
             "161387de-21ab-4f0b-b4e9-97124b000d06",
         )
+        self._audio_uuids: set[str] | None = None
+        self._audio_catalogue_error: str | None = None
         self.evidence = PerceptionEvidence(generation=uuid4().hex)
         self._frames: asyncio.Queue[tuple[Any, float, int, str]] = asyncio.Queue(
             maxsize=1
@@ -757,6 +802,7 @@ class PerceptionRuntime:
         )
         await self._connection.connect()
         self._audiohub = WebRTCAudioHub(self._connection)
+        await self._refresh_audio_catalogue()
         self._connection.video.add_track_callback(self._consume_camera)
         self._connection.video.switchVideoChannel(True)
         self._detector_task = asyncio.create_task(self._detect())
@@ -775,11 +821,53 @@ class PerceptionRuntime:
             )
             self._inference_executor_closed = True
 
+    async def _refresh_audio_catalogue(self) -> None:
+        """Record which audio the Go2 actually holds.
+
+        AudioHub's play_by_uuid discards its response, so a request naming a
+        uuid the robot does not have looks identical to one that played. This
+        is the only way to tell the difference, and it is why a bark could
+        report bark_played true all day while nothing was audible.
+
+        Best effort by contract: bark must never block the demo, so a failure
+        here is recorded and ignored rather than raised.
+        """
+        self._audio_catalogue_error = None
+        self._audio_uuids = None
+        if self._audiohub is None:
+            return
+        try:
+            listing = await self._audiohub.get_audio_list()
+            self._audio_uuids = _audio_uuids_from_listing(listing)
+        except Exception as exc:  # noqa: BLE001 - audio is never load-bearing
+            self._audio_catalogue_error = str(exc)[:200]
+
+    @property
+    def bark_uuid_present(self) -> bool | None:
+        """True/False once the catalogue is known, None while it is not."""
+        if self._audio_uuids is None:
+            return None
+        return self.bark_uuid in self._audio_uuids
+
     async def bark(self) -> dict[str, object]:
         if self._audiohub is None:
             raise RuntimeError("Go2 AudioHub is not connected")
+        present = self.bark_uuid_present
+        if present is False:
+            # Fail loudly rather than returning ok for a sound that cannot
+            # play. The caller still treats a bark failure as non-terminal.
+            raise RuntimeError(
+                f"bark uuid {self.bark_uuid} is not in the Go2 AudioHub; "
+                f"available: {sorted(self._audio_uuids or ())}"
+            )
         await self._audiohub.play_by_uuid(self.bark_uuid)
-        return {"ok": True, "uuid": self.bark_uuid}
+        return {
+            "ok": True,
+            "uuid": self.bark_uuid,
+            # Unverified when the catalogue is unknown: AudioHub does not
+            # acknowledge playback, so this is a request, not a confirmation.
+            "uuid_present": present,
+        }
 
     def hold_inference(
         self, reason: str, hold_s: float | None = None
@@ -796,7 +884,15 @@ class PerceptionRuntime:
         return {
             **self.evidence.status(),
             "inference": self._inference_gate.status(),
-            "bark_ready": self._audiohub is not None and bool(self.bark_uuid),
+            # bark_ready stays advisory: main.py reports it without gating
+            # readiness, because a silent robot must never block a Demo Run.
+            "bark_ready": self._audiohub is not None
+            and bool(self.bark_uuid)
+            and self.bark_uuid_present is not False,
+            "bark_uuid": self.bark_uuid,
+            "bark_uuid_present": self.bark_uuid_present,
+            "audio_uuids": sorted(self._audio_uuids or ()),
+            "audio_catalogue_error": self._audio_catalogue_error,
             "crop_confirm": asdict(self._crop_confirm),
             "coco_test": self._coco_tester.status(),
             "model_router": (

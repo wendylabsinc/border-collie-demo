@@ -1131,3 +1131,45 @@ def test_sidecar_publishes_sub_floor_detections_by_contract() -> None:
 
     assert detection["label"] == "pear"
     assert detection["confidence"] == 0.01
+
+
+def test_bark_uuid_absent_from_audiohub_is_visible_and_never_gates_a_run() -> None:
+    """A bark that cannot play must say so instead of reporting ok.
+
+    AudioHub's play_by_uuid discards its response, so naming a uuid the robot
+    does not hold looked identical to a bark that played. That is how
+    bark_played could read true all day with nothing audible.
+    """
+    from media.perception_sidecar import _audio_uuids_from_listing
+
+    listing = {
+        "data": {
+            "parameter": json.dumps(
+                {
+                    "audio_list": [
+                        {"unique_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"},
+                    ]
+                }
+            )
+        }
+    }
+
+    uuids = _audio_uuids_from_listing(listing)
+
+    assert uuids == {"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}
+    assert "161387de-21ab-4f0b-b4e9-97124b000d06" not in uuids
+
+
+def test_audio_listing_parser_tolerates_shapes_and_junk() -> None:
+    """The envelope layout is not contractual, so parsing must not assume one."""
+    from media.perception_sidecar import _audio_uuids_from_listing
+
+    bark = "161387de-21ab-4f0b-b4e9-97124b000d06"
+
+    assert _audio_uuids_from_listing([{"uuid": bark}]) == {bark}
+    assert _audio_uuids_from_listing({"a": {"b": [bark]}}) == {bark}
+    assert _audio_uuids_from_listing(json.dumps({"unique_id": bark})) == {bark}
+    # Non-uuid identifiers must not be mistaken for audio records.
+    assert _audio_uuids_from_listing({"id": "bark", "name": "not-a-uuid"}) == set()
+    assert _audio_uuids_from_listing(None) == set()
+    assert _audio_uuids_from_listing("{broken json") == set()
