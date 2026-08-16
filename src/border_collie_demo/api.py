@@ -15,6 +15,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from .black_box import RunBlackBox
 from .cohort_policy import CohortPolicy, FailureSelector
 from .cohorts import CohortConflict, CohortController
+from .controller_start import (
+    ControllerStartAdapter,
+    ControllerStartRefused,
+    ControllerStartSource,
+)
 from .evidence import EvidenceArtifact
 from .fruits import QUALIFIED_FRUITS, SUPPORTED_FRUITS
 from .hardware import HardwareManager, HardwareUnavailable
@@ -84,6 +89,63 @@ class CohortRequest(BaseModel):
     tuning: dict[str, object] | None = None
 
 
+# The physical Go2 Start button carries no fruit, seed or tuning fields, so it
+# reuses the exact payload the "Run Apple + Mango + Pear once" UI button posts
+# to /api/cohorts. Banana is not motion-qualified and is deliberately absent.
+CONTROLLER_START_COHORT_RUNS = 3
+CONTROLLER_START_COHORT_FRUITS: tuple[str, ...] = ("apple", "mango", "pear")
+# Deployed stage defaults; do not drift these without re-qualifying on Woof.
+CONTROLLER_START_SEARCH_YAW_RPS = 0.80
+CONTROLLER_START_HOME_ALIGN_YAW_RPS = 0.80
+CONTROLLER_START_TOLERATED_FAILURES: tuple[dict[str, str], ...] = (
+    {"reason": "TARGET_RECOGNITION_FAILURE"},
+    {"reason": "TARGET_LOST"},
+    {"reason": "ARRIVAL_FAILURE"},
+    {"reason": "ACTION_FAILURE"},
+    {"failed_phase": "turn_to_fruit"},
+    {"failed_phase": "find_fruit"},
+    {"failed_phase": "approach_fruit"},
+    {"failed_phase": "arrived"},
+    {"failed_phase": "sit_and_bark"},
+    {"failed_phase": "stand"},
+)
+
+
+def three_fruit_cohort_request(seed: int | None = None) -> CohortRequest:
+    """Return the canonical one-Apple, one-Mango, one-Pear cohort request.
+
+    ``seed`` only permutes the order; three qualified fruits over three runs
+    always yields exactly one Demo Run each.
+    """
+    return CohortRequest(
+        runs=CONTROLLER_START_COHORT_RUNS,
+        randomized=True,
+        target_fruit=None,
+        fruit_subset=list(CONTROLLER_START_COHORT_FRUITS),
+        seed=seed,
+        tolerated_failures=[
+            FailureSelectorRequest(**item)
+            for item in CONTROLLER_START_TOLERATED_FAILURES
+        ],
+        tuning={
+            "search": {"yaw_rps": CONTROLLER_START_SEARCH_YAW_RPS},
+            "home": {"align_yaw_rps": CONTROLLER_START_HOME_ALIGN_YAW_RPS},
+        },
+    )
+
+
+def controller_start_seed() -> int | None:
+    """Read the optional fixed controller seed; ``None`` means fresh per press."""
+    raw = os.environ.get("BORDER_COLLIE_CONTROLLER_START_SEED", "").strip()
+    if not raw:
+        return None
+    try:
+        seed = int(raw)
+    except ValueError:
+        return None
+    return seed if seed >= 0 else None
+
+
 def create_app(
     mission: MissionMachine | None = None,
     hardware: HardwareManager | None = None,
@@ -106,6 +168,7 @@ def create_app(
     runtime_mode: Literal["production", "simulation"] = "production",
     stage_home_margin_m: float | None = None,
     cohorts_root: Path | None = None,
+    controller_start_source: ControllerStartSource | None = None,
 ) -> FastAPI:
     machine = mission or MissionMachine()
     robot = hardware or HardwareManager()
@@ -149,14 +212,87 @@ def create_app(
         ),
     )
 
+    async def start_cohort_from_request(request: CohortRequest) -> dict[str, object]:
+        """Own the single cohort-start path shared by HTTP and the Start button.
+
+        Raises ``CohortConflict`` or ``ValueError``; callers decide how to
+        surface them.
+        """
+        policy = CohortPolicy(
+            runs=request.runs,
+            randomized=request.randomized,
+            target_fruit=request.target_fruit,
+            fruit_subset=(
+                None if request.fruit_subset is None else tuple(request.fruit_subset)
+            ),
+            seed=(
+                request.seed
+                if request.seed is not None
+                else int.from_bytes(os.urandom(8), "big")
+            ),
+            tolerated_failures=tuple(
+                FailureSelector(
+                    failed_phase=item.failed_phase,
+                    reason=item.reason,
+                )
+                for item in request.tolerated_failures
+            ),
+        )
+        return await cohorts.start(
+            policy,
+            list(QUALIFIED_FRUITS),
+            tuning_template=request.tuning,
+        )
+
+    async def start_controller_cohort() -> dict[str, object]:
+        """Start one three-fruit cohort for one physical Start rising edge.
+
+        The guards mirror the HTTP contract exactly: a latched Remote Takeover
+        is the 423 case and must never be overridden from the controller, and
+        an already-active cohort or Demo Run is the 409 case.  Refusing here
+        rather than queueing keeps one press from stacking activations.
+        """
+        if machine.takeover_latched:
+            raise ControllerStartRefused(
+                "takeover_latched",
+                "physical remote takeover is latched; restart required",
+            )
+        if cohorts.running():
+            raise ControllerStartRefused(
+                "active_cohort",
+                "the active cohort owns Demo Run activation",
+            )
+        if results.active_run_id is not None:
+            raise ControllerStartRefused(
+                "active_run",
+                "a Demo Run is already active",
+            )
+        return await start_cohort_from_request(
+            three_fruit_cohort_request(controller_start_seed())
+        )
+
+    controller_start_adapter = (
+        None
+        if controller_start_source is None
+        else ControllerStartAdapter(
+            start_cohort=start_controller_cohort,
+            black_box=results.black_box,
+            active_run_id=lambda: results.active_run_id,
+        )
+    )
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         await demo.start()
         if system_audio is not None:
             await system_audio.start_muted()
+        if controller_start_source is not None and controller_start_adapter is not None:
+            await controller_start_source.start(controller_start_adapter.observe)
         try:
             yield
         finally:
+            if controller_start_source is not None:
+                await controller_start_source.close()
             await cohorts.close()
             await demo.close()
             if system_audio is not None:
@@ -302,6 +438,21 @@ def create_app(
             "run_tuning": RunTuning.contract(),
             "cohort": cohorts.current(),
             "search_experiment": search_experiment_contract(),
+            "controller_start": (
+                {
+                    "enabled": False,
+                    "detail": "physical Start activation is disabled",
+                }
+                if controller_start_source is None or controller_start_adapter is None
+                else {
+                    "enabled": True,
+                    "cohort_request": three_fruit_cohort_request(
+                        controller_start_seed()
+                    ).model_dump(),
+                    "source": controller_start_source.status(),
+                    "adapter": controller_start_adapter.status(),
+                }
+            ),
         }
 
     @app.post("/api/cohorts", status_code=201)
@@ -315,33 +466,7 @@ def create_app(
                 ),
             )
         try:
-            policy = CohortPolicy(
-                runs=request.runs,
-                randomized=request.randomized,
-                target_fruit=request.target_fruit,
-                fruit_subset=(
-                    None
-                    if request.fruit_subset is None
-                    else tuple(request.fruit_subset)
-                ),
-                seed=(
-                    request.seed
-                    if request.seed is not None
-                    else int.from_bytes(os.urandom(8), "big")
-                ),
-                tolerated_failures=tuple(
-                    FailureSelector(
-                        failed_phase=item.failed_phase,
-                        reason=item.reason,
-                    )
-                    for item in request.tolerated_failures
-                ),
-            )
-            cohort = await cohorts.start(
-                policy,
-                list(QUALIFIED_FRUITS),
-                tuning_template=request.tuning,
-            )
+            cohort = await start_cohort_from_request(request)
         except (CohortConflict, ValueError) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {"cohort": cohort}
