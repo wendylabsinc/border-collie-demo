@@ -159,14 +159,14 @@ def test_seeded_random_sequence_is_restricted_to_the_persisted_fruit_subset() ->
         runs=5,
         randomized=True,
         seed=919,
-        fruit_subset=("pear", "apple"),
+        fruit_subset=("pear", "mango"),
     )
 
-    sequence = choose_fruit_sequence(policy, ["apple", "banana", "pear"])
+    sequence = choose_fruit_sequence(policy, ["apple", "mango", "pear"])
 
-    assert policy.to_dict()["fruit_subset"] == ["apple", "pear"]
-    assert sequence == ["pear", "apple", "pear", "pear", "apple"]
-    assert set(sequence) == {"apple", "pear"}
+    assert policy.to_dict()["fruit_subset"] == ["mango", "pear"]
+    assert sequence == ["pear", "mango", "pear", "pear", "mango"]
+    assert set(sequence) == {"mango", "pear"}
 
 
 def test_randomized_fruit_subset_rejects_empty_and_unqualified_values() -> None:
@@ -177,10 +177,19 @@ def test_randomized_fruit_subset_rejects_empty_and_unqualified_values() -> None:
         runs=2,
         randomized=True,
         seed=1,
-        fruit_subset=("apple", "mango"),
+        fruit_subset=("apple", "banana"),
     )
     with pytest.raises(ValueError, match="not qualified"):
-        choose_fruit_sequence(policy, ["apple", "banana", "pear"])
+        choose_fruit_sequence(policy, ["apple", "mango", "pear"])
+
+
+def test_current_random_cohort_includes_mango_and_excludes_banana() -> None:
+    policy = CohortPolicy(runs=9, randomized=True, seed=20260815)
+
+    sequence = choose_fruit_sequence(policy, ["apple", "mango", "pear"])
+
+    assert set(sequence) == {"apple", "mango", "pear"}
+    assert "banana" not in sequence
 
 
 def test_fixed_policy_requires_a_qualified_target() -> None:

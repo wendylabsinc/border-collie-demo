@@ -47,14 +47,14 @@ class ForwardPulseRequest(BaseModel):
 class RunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    target_fruit: Literal["apple", "banana", "pear"] = "pear"
+    target_fruit: Literal["apple", "banana", "mango", "pear"] = "pear"
     activation_source: Literal["audience_ui", "voice", "soak"] = "audience_ui"
     activation_id: str | None = None
     tuning: dict[str, object] | None = None
 
 
 class FruitPreviewRequest(BaseModel):
-    target_fruit: Literal["apple", "banana", "pear"]
+    target_fruit: Literal["apple", "banana", "mango", "pear"]
 
 
 class CocoTestRequest(BaseModel):
@@ -77,8 +77,8 @@ class CohortRequest(BaseModel):
 
     runs: int = Field(default=5, ge=1, le=100)
     randomized: bool = True
-    target_fruit: Literal["apple", "banana", "pear"] | None = None
-    fruit_subset: list[Literal["apple", "banana", "pear"]] | None = None
+    target_fruit: Literal["apple", "banana", "mango", "pear"] | None = None
+    fruit_subset: list[Literal["apple", "banana", "mango", "pear"]] | None = None
     seed: int | None = Field(default=None, ge=0)
     tolerated_failures: list[FailureSelectorRequest] = Field(default_factory=list)
     tuning: dict[str, object] | None = None
@@ -306,6 +306,14 @@ def create_app(
 
     @app.post("/api/cohorts", status_code=201)
     async def start_cohort(request: CohortRequest) -> dict[str, object]:
+        if request.target_fruit == "banana":
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Banana Demo Runs are temporarily disabled; choose Apple, "
+                    "Mango, or Pear"
+                ),
+            )
         try:
             policy = CohortPolicy(
                 runs=request.runs,
@@ -355,6 +363,14 @@ def create_app(
 
     @app.post("/api/run", status_code=201)
     async def activate_run(request: RunRequest) -> dict[str, object]:
+        if request.target_fruit == "banana":
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Banana Demo Runs are temporarily disabled; choose Apple, "
+                    "Mango, or Pear"
+                ),
+            )
         if cohorts.running():
             raise HTTPException(
                 status_code=409,

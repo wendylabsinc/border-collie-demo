@@ -18,9 +18,10 @@ class FakeTensor:
 
 
 class FakeBoxes:
-    def __init__(self, confidences, boxes):
+    def __init__(self, confidences, boxes, class_ids=None):
         self.conf = FakeTensor(confidences)
         self.xyxy = [FakeTensor(box) for box in boxes]
+        self.cls = FakeTensor(class_ids or [45] * len(confidences))
 
     def __len__(self):
         return len(self.conf.value)
@@ -33,8 +34,142 @@ class FakeModel:
 
     def predict(self, **options):
         self.calls.append(options)
-        confidences, boxes = self.predictions.pop(0)
-        return [SimpleNamespace(boxes=FakeBoxes(confidences, boxes))]
+        prediction = self.predictions.pop(0)
+        confidences, boxes, *class_ids = prediction
+        return [
+            SimpleNamespace(
+                boxes=FakeBoxes(
+                    confidences,
+                    boxes,
+                    class_ids[0] if class_ids else None,
+                )
+            )
+        ]
+
+
+class ColorCrop:
+    def __init__(self, pixels) -> None:
+        self.pixels = pixels
+
+    def reshape(self, *_shape):
+        return self
+
+    def tolist(self):
+        return self.pixels
+
+
+class ColorSource:
+    shape = (720, 1280, 3)
+
+    def __init__(self, pixels) -> None:
+        self.pixels = pixels
+
+    def __getitem__(self, _key):
+        return ColorCrop(self.pixels)
+
+
+def test_raw_bowl_and_bounded_color_derive_a_mango_motion_candidate() -> None:
+    general = FakeModel([])
+    mango = FakeModel([([0.128], [[737, 496, 775, 515]])])
+    router = FruitModelRouter(
+        general_model=general,
+        general_class_ids={"apple": 1, "banana": 2, "pear": 3},
+        mango_model=mango,
+        mango_class_ids={"sports ball": 32, "bowl": 45},
+    )
+
+    result = router.predict(
+        source=ColorSource([[172, 218, 246]] * 100),
+        target_fruit="mango",
+        device=0,
+    )
+
+    assert result.candidate is not None
+    assert result.candidate.confidence == 0.128
+    assert result.candidate.bbox_xyxy == (737, 496, 775, 515)
+    assert result.route == {
+        "mode": "mango_derived",
+        "triggered": True,
+        "confirmed": True,
+        "raw_label": "bowl",
+        "raw_confidence": 0.128,
+        "raw_bbox_xyxy": [737, 496, 775, 515],
+        "derived_identity": "mango",
+        "derived_confidence": 1.0,
+    }
+    assert mango.calls[0]["classes"] == [32, 45]
+    assert mango.calls[0]["conf"] == 0.01
+    assert general.calls == []
+
+
+def test_mango_route_accepts_orange_sports_ball_but_rejects_green_one() -> None:
+    general = FakeModel([])
+    mango = FakeModel(
+        [
+            ([0.15], [[737, 496, 775, 515]], [32]),
+            ([0.15], [[737, 496, 775, 515]], [32]),
+        ]
+    )
+    router = FruitModelRouter(
+        general_model=general,
+        general_class_ids={"apple": 1, "banana": 2, "pear": 3},
+        mango_model=mango,
+        mango_class_ids={"sports ball": 32, "bowl": 45},
+    )
+
+    orange_mango = router.predict(
+        source=ColorSource([[172, 218, 246]] * 100),
+        target_fruit="mango",
+        device=0,
+    )
+    green_pear = router.predict(
+        source=ColorSource([[0, 180, 50]] * 100),
+        target_fruit="mango",
+        device=0,
+    )
+
+    assert orange_mango.candidate is not None
+    assert orange_mango.route["raw_label"] == "sports ball"
+    assert orange_mango.route["derived_identity"] == "mango"
+    assert green_pear.candidate is None
+    assert green_pear.route["raw_label"] == "sports ball"
+    assert green_pear.route["derived_identity"] == "unknown"
+    assert all(call["classes"] == [32, 45] for call in mango.calls)
+
+
+def test_mango_raw_and_color_threshold_boundaries_are_fail_closed() -> None:
+    general = FakeModel([])
+    mango = FakeModel(
+        [
+            ([0.08], [[737, 496, 775, 515]]),
+            ([0.081], [[737, 496, 775, 515]]),
+        ]
+    )
+    router = FruitModelRouter(
+        general_model=general,
+        general_class_ids={"apple": 1, "banana": 2, "pear": 3},
+        mango_model=mango,
+        mango_class_ids={"sports ball": 32, "bowl": 45},
+        mango_minimum_raw_confidence=0.08,
+        mango_minimum_color_confidence=0.80,
+    )
+
+    exact_floor = router.predict(
+        source=ColorSource([[172, 218, 246]] * 100),
+        target_fruit="mango",
+        device=0,
+    )
+    above_floor = router.predict(
+        source=ColorSource([[172, 218, 246]] * 100),
+        target_fruit="mango",
+        device=0,
+    )
+
+    assert exact_floor.candidate is None
+    assert exact_floor.route["raw_confidence"] == 0.08
+    assert above_floor.candidate is not None
+    assert above_floor.route["raw_confidence"] == 0.081
+    assert above_floor.route["derived_confidence"] >= 0.80
 
 
 def test_general_banana_proposal_is_confirmed_by_resident_specialist() -> None:

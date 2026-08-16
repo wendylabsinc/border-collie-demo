@@ -74,6 +74,42 @@ def test_qualified_apple_evidence_uses_its_own_threshold() -> None:
     assert status["thresholds"]["target_minimum_confidence"] == 0.40
 
 
+def test_qualified_mango_requires_raw_bowl_and_derived_identity() -> None:
+    payload = valid_payload()
+    payload["target_fruit"] = "mango"
+    payload["supported_fruits"] = ["apple", "banana", "mango", "pear"]
+    payload["detection"].update(
+        label="mango",
+        confidence=0.128,
+        raw_label="bowl",
+        raw_confidence=0.128,
+        raw_bbox_xyxy=[480, 360, 800, 700],
+        derived_identity="mango",
+        derived_confidence=1.0,
+    )
+
+    ready = client_for(payload).status()
+
+    assert ready["target_ready"] is True
+    assert ready["detection"]["raw_label"] == "bowl"
+    assert ready["detection"]["derived_identity"] == "mango"
+
+    for field, value in (
+        ("raw_label", "sports ball"),
+        ("raw_confidence", 0.08),
+        ("derived_identity", "unknown"),
+        ("derived_confidence", 0.79),
+        ("derived_confidence", None),
+    ):
+        invalid = valid_payload()
+        invalid["target_fruit"] = "mango"
+        invalid["detection"].update(payload["detection"])
+        invalid["detection"][field] = value
+        status = client_for(invalid).status()
+        assert status["target_ready"] is False
+        assert "derived Mango identity" in status["detail"]
+
+
 def test_perception_client_selects_target_through_the_read_only_sidecar() -> None:
     calls: list[tuple[str, str, float]] = []
     client = PerceptionStatusClient(

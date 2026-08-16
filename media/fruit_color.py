@@ -100,7 +100,9 @@ def classify_replacement_candidate(
 ) -> dict[str, object]:
     """Confirm the staged warm/yellow Mango proposal, or remain unknown."""
     unknown = {"identity": "unknown", "confidence": 0.0}
-    if model_label.casefold().strip() != "bowl" or not isinstance(color, dict):
+    if model_label.casefold().strip() not in {"bowl", "sports ball"} or not isinstance(
+        color, dict
+    ):
         return unknown
     if not isinstance(bbox_xyxy, (list, tuple)) or len(bbox_xyxy) != 4:
         return unknown
@@ -131,11 +133,14 @@ def classify_replacement_candidate(
     height_ratio = (y2 - y1) / source_height
     center_y_ratio = ((y1 + y2) / 2.0) / source_height
     bottom_ratio = y2 / source_height
+    # The proposal begins as a small lower-frame box and grows during the
+    # existing approach controller. Keep a bounded lower-frame identity gate,
+    # but do not impose the test scene's initial size as an Arrival ceiling.
     if not (
-        0.01 <= width_ratio <= 0.08
-        and 0.01 <= height_ratio <= 0.08
-        and 0.60 <= center_y_ratio <= 0.82
-        and bottom_ratio <= 0.85
+        0.005 <= width_ratio <= 0.50
+        and 0.005 <= height_ratio <= 0.50
+        and 0.50 <= center_y_ratio <= 1.0
+        and bottom_ratio <= 1.0
     ):
         return unknown
     return {"identity": "mango", "confidence": confidence}

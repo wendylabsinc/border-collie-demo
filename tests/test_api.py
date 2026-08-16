@@ -118,6 +118,9 @@ def test_audience_page_includes_the_annotated_camera_feed() -> None:
     assert "YOLO fruit model overlay" in response.text
     assert 'id="target-fruit"' in response.text
     assert '<option value="apple">Red apple</option>' in response.text
+    assert '<option value="mango">Mango</option>' in response.text
+    assert '<option value="banana">Banana</option>' not in response.text
+    assert "Run Apple + Mango + Pear once" in response.text
     assert "target_fruit: targetFruit.value" in response.text
 
 
@@ -266,13 +269,13 @@ def test_fruit_test_page_controls_read_only_full_coco_confidence_test() -> None:
     ]
 
 
-def test_fruit_list_qualifies_red_apple_pear_and_specialist_banana() -> None:
+def test_fruit_list_temporarily_replaces_banana_with_mango() -> None:
     response = TestClient(create_app()).get("/api/fruits")
 
     assert response.status_code == 200
     assert response.json() == {
-        "supported_fruits": ["apple", "banana", "pear"],
-        "qualified_fruits": ["apple", "banana", "pear"],
+        "supported_fruits": ["apple", "banana", "mango", "pear"],
+        "qualified_fruits": ["apple", "mango", "pear"],
     }
 
 
@@ -967,7 +970,7 @@ def test_http_activation_id_replays_the_same_durable_run(tmp_path) -> None:
     [
         ("apple", 0.52, 0.42),
         ("pear", 0.70, 0.66),
-        ("banana", 0.30, 0.25),
+        ("mango", 0.12, 0.10),
     ],
 )
 def test_run_activation_persists_selected_fruit_search_confidence_tuning(
@@ -1027,11 +1030,7 @@ def test_run_activation_rejects_search_experiment_outside_safety_bounds(
             {"focus_confidence": 0.70, "lock_confidence": 0.64},
             "lock_confidence",
         ),
-        (
-            "banana",
-            {"focus_confidence": 0.25, "lock_confidence": 0.30},
-            "focus confidence",
-        ),
+        ("mango", {"focus_confidence": 0.07}, "focus_confidence"),
     ],
 )
 def test_run_activation_rejects_per_fruit_or_inverted_confidence_before_motion(
@@ -1054,11 +1053,11 @@ def test_run_activation_rejects_per_fruit_or_inverted_confidence_before_motion(
 def test_activation_id_conflicts_when_selected_fruit_tuning_changes(tmp_path) -> None:
     with TestClient(ready_app(tmp_path)) as client:
         base = {
-            "target_fruit": "banana",
-            "activation_id": "banana-confidence-1",
+            "target_fruit": "mango",
+            "activation_id": "mango-confidence-1",
             "tuning": {
-                "focus_confidence": 0.30,
-                "lock_confidence": 0.25,
+                "focus_confidence": 0.12,
+                "lock_confidence": 0.10,
             },
         }
 
@@ -1069,8 +1068,8 @@ def test_activation_id_conflicts_when_selected_fruit_tuning_changes(tmp_path) ->
             json={
                 **base,
                 "tuning": {
-                    "focus_confidence": 0.31,
-                    "lock_confidence": 0.25,
+                    "focus_confidence": 0.13,
+                    "lock_confidence": 0.10,
                 },
             },
         )
@@ -1230,6 +1229,13 @@ def test_status_exposes_selected_fruit_confidence_defaults_and_ranges(tmp_path) 
                 "lock_confidence": [0.20, 0.70],
             },
         },
+        "mango": {
+            "defaults": {"focus_confidence": 0.08, "lock_confidence": 0.08},
+            "ranges": {
+                "focus_confidence": [0.08, 0.20],
+                "lock_confidence": [0.08, 0.20],
+            },
+        },
         "pear": {
             "defaults": {"focus_confidence": 0.65, "lock_confidence": 0.65},
             "ranges": {
@@ -1251,12 +1257,25 @@ def test_activate_records_voice_as_the_activation_source(tmp_path) -> None:
         assert response.json()["run"]["activation_source"] == "voice"
 
 
-def test_activate_accepts_specialist_gated_banana(tmp_path) -> None:
+def test_activate_accepts_derived_mango_target(tmp_path) -> None:
+    with TestClient(create_app(runs_root=tmp_path)) as client:
+        response = client.post("/api/run", json={"target_fruit": "mango"})
+
+        assert response.status_code == 201
+        assert response.json()["run"]["target_fruit"] == "mango"
+
+
+def test_activate_rejects_temporarily_disabled_banana_before_a_run_exists(
+    tmp_path,
+) -> None:
     with TestClient(create_app(runs_root=tmp_path)) as client:
         response = client.post("/api/run", json={"target_fruit": "banana"})
 
-        assert response.status_code == 201
-        assert response.json()["run"]["target_fruit"] == "banana"
+        assert response.status_code == 409
+        assert response.json()["detail"] == (
+            "Banana Demo Runs are temporarily disabled; choose Apple, Mango, or Pear"
+        )
+        assert client.get("/api/results").json()["runs"] == []
 
 
 def test_activate_rejects_an_unsupported_target_fruit(tmp_path) -> None:

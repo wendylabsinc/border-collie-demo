@@ -2,7 +2,7 @@
 
 This service is part of the `border-collie-demo` deployment. The bundled custom
 `hey_wendy.onnx` acoustic model continuously gates local Parakeet ASR. After a
-wake, a phrase containing exactly one of `apple`, `banana`, or `pear` creates a
+wake, a phrase containing exactly one of `apple`, `mango`, or `pear` creates a
 Demo Run through the main app's existing `/api/run` safety boundary. `stop`,
 `stop demo`, and `stop the demo` call the existing `/api/stop` boundary.
 

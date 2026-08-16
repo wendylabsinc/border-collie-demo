@@ -28,8 +28,8 @@ def interpret_command(text: str) -> VoiceIntent | None:
         fruits.add("pear")
     if words.intersection({"apple", "apples"}):
         fruits.add("apple")
-    if words.intersection({"banana", "bananas"}):
-        fruits.add("banana")
+    if words.intersection({"mango", "mangoes", "mangos"}):
+        fruits.add("mango")
     if len(fruits) != 1:
         return None
 

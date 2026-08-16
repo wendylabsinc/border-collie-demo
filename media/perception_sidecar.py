@@ -30,12 +30,13 @@ from media.coco_tester import CocoTester
 from media.fruit_color import classify_bbox_color
 from media.model_router import FruitCandidate, FruitModelRouter, RoutedPrediction
 
-SUPPORTED_FRUITS = ("apple", "banana", "pear")
+SUPPORTED_FRUITS = ("apple", "banana", "mango", "pear")
+GENERAL_MODEL_FRUITS = ("apple", "banana", "pear")
 SEARCH_CROP_FRUITS = frozenset({"apple", "banana"})
 
 
 class TargetFruitRequest(BaseModel):
-    target_fruit: Literal["apple", "banana", "pear"]
+    target_fruit: Literal["apple", "banana", "mango", "pear"]
 
 
 class CocoTestRequest(BaseModel):
@@ -447,6 +448,15 @@ class PerceptionRuntime:
         self.banana_specialist_minimum_agreement_iou = float(
             os.environ.get("BANANA_SPECIALIST_MIN_IOU", "0.10")
         )
+        self.mango_model_path = os.environ.get(
+            "MANGO_MODEL_PATH", "/models/yolo11n.pt"
+        ).strip()
+        self.mango_minimum_raw_confidence = float(
+            os.environ.get("BORDER_COLLIE_MANGO_RAW_CONFIDENCE", "0.08")
+        )
+        self.mango_minimum_color_confidence = float(
+            os.environ.get("BORDER_COLLIE_MANGO_COLOR_CONFIDENCE", "0.80")
+        )
         self.bark_uuid = os.environ.get(
             "BORDER_COLLIE_BARK_UUID",
             "161387de-21ab-4f0b-b4e9-97124b000d06",
@@ -475,6 +485,8 @@ class PerceptionRuntime:
         self._detector_task: asyncio.Task[None] | None = None
         self._model: Any | None = None
         self._banana_specialist_model: Any | None = None
+        self._mango_model: Any | None = None
+        self._mango_class_ids: dict[str, int] = {}
         self._model_router: FruitModelRouter | None = None
         self._fruit_class_ids: dict[str, int] = {}
         self._target_lock = Lock()
@@ -507,9 +519,11 @@ class PerceptionRuntime:
             str(label).casefold().strip(): int(class_id) for class_id, label in items
         }
         self._fruit_class_ids = {
-            fruit: available[fruit] for fruit in SUPPORTED_FRUITS if fruit in available
+            fruit: available[fruit]
+            for fruit in GENERAL_MODEL_FRUITS
+            if fruit in available
         }
-        missing = sorted(set(SUPPORTED_FRUITS) - set(self._fruit_class_ids))
+        missing = sorted(set(GENERAL_MODEL_FRUITS) - set(self._fruit_class_ids))
         if missing:
             raise RuntimeError(
                 "fruit model is missing required classes: " + ", ".join(missing)
@@ -536,6 +550,32 @@ class PerceptionRuntime:
                 raise RuntimeError(
                     "banana specialist model is missing required banana class"
                 ) from exc
+        self._mango_model = await loop.run_in_executor(
+            self._inference_executor,
+            partial(YOLO, self.mango_model_path, task="detect"),
+        )
+        mango_names = getattr(self._mango_model, "names", {})
+        mango_items = (
+            mango_names.items()
+            if isinstance(mango_names, dict)
+            else enumerate(mango_names)
+        )
+        mango_classes = {
+            str(label).casefold().strip(): int(class_id)
+            for class_id, label in mango_items
+        }
+        required_mango_labels = ("sports ball", "bowl")
+        missing_mango_labels = [
+            label for label in required_mango_labels if label not in mango_classes
+        ]
+        if missing_mango_labels:
+            raise RuntimeError(
+                "Mango COCO model is missing required classes: "
+                + ", ".join(missing_mango_labels)
+            )
+        self._mango_class_ids = {
+            label: mango_classes[label] for label in required_mango_labels
+        }
         self._model_router = FruitModelRouter(
             general_model=self._model,
             general_class_ids=self._fruit_class_ids,
@@ -545,6 +585,10 @@ class PerceptionRuntime:
             banana_minimum_agreement_iou=(
                 self.banana_specialist_minimum_agreement_iou
             ),
+            mango_model=self._mango_model,
+            mango_class_ids=self._mango_class_ids,
+            mango_minimum_raw_confidence=self.mango_minimum_raw_confidence,
+            mango_minimum_color_confidence=self.mango_minimum_color_confidence,
         )
         self._connection = UnitreeWebRTCConnection(
             WebRTCConnectionMethod.LocalSTA,
@@ -604,7 +648,13 @@ class PerceptionRuntime:
         normalized = target_fruit.casefold().strip()
         if normalized not in SUPPORTED_FRUITS:
             raise ValueError(f"unsupported Target Fruit: {target_fruit}")
-        if self._fruit_class_ids and normalized not in self._fruit_class_ids:
+        if normalized == "mango" and self._model is not None and self._mango_model is None:
+            raise RuntimeError("Mango derived model route is unavailable")
+        if (
+            normalized != "mango"
+            and self._fruit_class_ids
+            and normalized not in self._fruit_class_ids
+        ):
             raise RuntimeError(f"model class is unavailable for {normalized}")
         with self._target_lock:
             self._target_fruit = normalized
@@ -774,6 +824,7 @@ class PerceptionRuntime:
                 candidate is not None
                 and not search_crop["attempted"]
                 and not bool(full_frame_prediction.route.get("triggered"))
+                and target_fruit != "mango"
                 and self._should_crop_confirm(
                     candidate,
                     width=int(bgr.shape[1]),
@@ -859,6 +910,18 @@ class PerceptionRuntime:
         confidence = candidate.confidence
         bbox = candidate.bbox_xyxy
         color = classify_bbox_color(bgr, bbox)
+        full_route = full_frame_prediction.route
+        mango_details = (
+            {
+                "raw_label": full_route.get("raw_label"),
+                "raw_confidence": full_route.get("raw_confidence"),
+                "raw_bbox_xyxy": full_route.get("raw_bbox_xyxy"),
+                "derived_identity": full_route.get("derived_identity"),
+                "derived_confidence": full_route.get("derived_confidence"),
+            }
+            if target_fruit == "mango"
+            else {}
+        )
         detection = self.evidence.note_detection(
             pts=pts,
             label=target_fruit,
@@ -874,6 +937,7 @@ class PerceptionRuntime:
                 "color_identity": color["identity"],
                 "color_confidence": color["confidence"],
                 "color_evidence": color,
+                **mango_details,
             },
         )
         if detection is None:

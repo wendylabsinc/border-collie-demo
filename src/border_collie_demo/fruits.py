@@ -27,6 +27,17 @@ FRUIT_POLICIES: dict[str, FruitPolicy] = {
     "banana": FruitPolicy(
         acquisition_confidence=0.20,
         close_range_tracking_confidence=0.20,
+        motion_qualified=False,
+    ),
+    # Mango is a derived identity: the sidecar publishes a detection only when
+    # a raw COCO bowl proposal also passes the bounded warm/yellow and
+    # lower-frame identity contract. The raw proposal averaged 0.128 over
+    # 63/63 fresh stage frames (maximum 0.166). Every frame must remain
+    # strictly above the 0.08 raw floor and at or above the 0.80 color floor;
+    # acquisition and tracking never bypass those identity gates.
+    "mango": FruitPolicy(
+        acquisition_confidence=0.08,
+        close_range_tracking_confidence=0.08,
         motion_qualified=True,
     ),
     "pear": FruitPolicy(
@@ -48,6 +59,13 @@ def fruit_policy(target_fruit: str) -> FruitPolicy:
         policy = FRUIT_POLICIES[normalized]
     except KeyError as exc:
         raise ValueError(f"unsupported Target Fruit: {target_fruit}") from exc
+    if normalized == "mango":
+        raw_confidence = mango_raw_confidence()
+        return FruitPolicy(
+            acquisition_confidence=raw_confidence,
+            close_range_tracking_confidence=raw_confidence,
+            motion_qualified=policy.motion_qualified,
+        )
     if normalized != "apple":
         return policy
     acquisition = _bounded_confidence_env(
@@ -73,6 +91,26 @@ def fruit_policy(target_fruit: str) -> FruitPolicy:
         close_range_tracking_confidence=policy.close_range_tracking_confidence,
         motion_qualified=policy.motion_qualified,
         focus_confidence=focus,
+    )
+
+
+def mango_color_confidence() -> float:
+    """Return the defense-in-depth floor for derived Mango identity evidence."""
+    return _bounded_confidence_env(
+        "BORDER_COLLIE_MANGO_COLOR_CONFIDENCE",
+        0.80,
+        minimum=0.65,
+        maximum=1.0,
+    )
+
+
+def mango_raw_confidence() -> float:
+    """Return the strict raw COCO bowl floor for every Mango observation."""
+    return _bounded_confidence_env(
+        "BORDER_COLLIE_MANGO_RAW_CONFIDENCE",
+        0.08,
+        minimum=0.01,
+        maximum=0.20,
     )
 
 

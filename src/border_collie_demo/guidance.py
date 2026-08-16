@@ -13,7 +13,12 @@ import os
 from dataclasses import dataclass, replace
 from enum import Enum
 
-from .fruits import FruitPolicy, fruit_policy
+from .fruits import (
+    FruitPolicy,
+    fruit_policy,
+    mango_color_confidence,
+    mango_raw_confidence,
+)
 from .models import VelocityCommand
 
 
@@ -541,6 +546,19 @@ class FruitGuidance:
             )
         if not isinstance(label, str) or not label.strip():
             return None, "detection_label_invalid"
+        normalized_label = label.casefold().strip()
+        if self.target_fruit == "mango" and normalized_label == "mango":
+            raw_confidence = _finite_float(detection.get("raw_confidence"))
+            derived_confidence = _finite_float(detection.get("derived_confidence"))
+            if (
+                detection.get("raw_label") != "bowl"
+                or raw_confidence is None
+                or raw_confidence <= mango_raw_confidence()
+                or detection.get("derived_identity") != "mango"
+                or derived_confidence is None
+                or derived_confidence < mango_color_confidence()
+            ):
+                return None, "mango_identity_unverified"
         detection_generation = detection.get("generation")
         detection_pts = detection.get("source_pts")
         detection_time_base = detection.get("source_time_base")
@@ -566,7 +584,7 @@ class FruitGuidance:
                 generation,
                 source_pts,
                 source_time_base,
-                label.casefold().strip(),
+                normalized_label,
                 confidence,
                 _finite_float(detection.get("center_x_ratio")),
                 _finite_float(detection.get("center_y_ratio")),

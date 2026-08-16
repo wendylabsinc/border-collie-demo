@@ -80,7 +80,7 @@ def test_api_runs_exact_fixed_fruit_cohort_and_persists_decisions(tmp_path) -> N
             json={
                 "runs": 3,
                 "randomized": False,
-                "target_fruit": "banana",
+                "target_fruit": "mango",
                 "seed": 81,
                 "tolerated_failures": [],
             },
@@ -91,11 +91,11 @@ def test_api_runs_exact_fixed_fruit_cohort_and_persists_decisions(tmp_path) -> N
     assert started.status_code == 201
     assert cohort["status"] == "COMPLETED"
     assert cohort["policy"]["runs"] == 3
-    assert cohort["fruit_sequence"] == ["banana", "banana", "banana"]
+    assert cohort["fruit_sequence"] == ["mango", "mango", "mango"]
     assert [item["target_fruit"] for item in cohort["runs"]] == [
-        "banana",
-        "banana",
-        "banana",
+        "mango",
+        "mango",
+        "mango",
     ]
     assert len({item["activation_id"] for item in cohort["runs"]}) == 3
     assert all(item["cohort_decision"] for item in cohort["runs"])
@@ -310,7 +310,7 @@ def test_audience_ui_exposes_cohort_configuration_and_observation() -> None:
     assert "home: {align_yaw_rps: Number(cohortHomeAlignYaw.value)}" in page
     assert 'id="start-three-fruit"' in page
     assert "runs: 3" in page
-    assert "Run Apple + Banana + Pear once" in page
+    assert "Run Apple + Mango + Pear once" in page
     assert "Failures stop the cohort by default" in page
     assert "'/api/cohorts'" in page
     assert "'/api/cohorts/active'" in page

@@ -70,13 +70,14 @@ class InterpretCommandTests(unittest.TestCase):
             VoiceIntent(action="activate_demo", target_fruit="apple"),
         )
         self.assertEqual(
-            interpret_command("find the banana"),
-            VoiceIntent(action="activate_demo", target_fruit="banana"),
+            interpret_command("find the mango"),
+            VoiceIntent(action="activate_demo", target_fruit="mango"),
         )
         self.assertEqual(
-            interpret_command("find bananas"),
-            VoiceIntent(action="activate_demo", target_fruit="banana"),
+            interpret_command("find mangoes"),
+            VoiceIntent(action="activate_demo", target_fruit="mango"),
         )
+        self.assertIsNone(interpret_command("find the banana"))
         self.assertIsNone(interpret_command("go forward"))
 
     def test_accepts_natural_find_requests_and_the_pear_homophone(self) -> None:
@@ -101,7 +102,10 @@ class InterpretCommandTests(unittest.TestCase):
     def test_rejects_no_fruit_or_multiple_different_fruits(self) -> None:
         self.assertIsNone(interpret_command("go forward"))
         self.assertIsNone(interpret_command("find an apple and a pear"))
-        self.assertIsNone(interpret_command("find bananas and apples"))
+        self.assertEqual(
+            interpret_command("find bananas and apples"),
+            VoiceIntent(action="activate_demo", target_fruit="apple"),
+        )
 
     def test_accepts_a_narrow_stop_vocabulary(self) -> None:
         self.assertEqual(interpret_command("stop the demo"), VoiceIntent("stop_demo"))
@@ -197,25 +201,13 @@ class DispatchTests(unittest.TestCase):
             "32fd8de4-2d08-4f29-8304-f07413ad9a8f",
         )
 
-    def test_plural_banana_dispatches_the_canonical_target(self) -> None:
+    def test_disabled_banana_does_not_dispatch(self) -> None:
         self.adapter.arm()
         result = self.adapter.dispatch(
             "find bananas", activation_id="voice-wake-banana-1"
         )
-        self.assertEqual(
-            _Handler.requests,
-            [
-                (
-                    "/api/run",
-                    {
-                        "target_fruit": "banana",
-                        "activation_source": "voice",
-                        "activation_id": "voice-wake-banana-1",
-                    },
-                )
-            ],
-        )
-        self.assertEqual(result["calls"][0]["tool"], "activate_demo")
+        self.assertEqual(_Handler.requests, [])
+        self.assertEqual(result["calls"], [])
 
     def test_activation_requires_a_durable_voice_idempotency_key(self) -> None:
         self.adapter.arm()

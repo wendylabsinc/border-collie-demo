@@ -19,6 +19,10 @@ _CONFIDENCE_RANGES: dict[str, dict[str, tuple[float, float]]] = {
         "focus_confidence": (0.20, 0.70),
         "lock_confidence": (0.20, 0.70),
     },
+    "mango": {
+        "focus_confidence": (0.08, 0.20),
+        "lock_confidence": (0.08, 0.20),
+    },
     "pear": {
         "focus_confidence": (0.65, 0.85),
         "lock_confidence": (0.65, 0.85),

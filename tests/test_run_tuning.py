@@ -20,6 +20,7 @@ def test_defaults_preserve_kinda_good_behavior_for_every_fruit() -> None:
     apple = RunTuning.defaults("apple")
     pear = RunTuning.defaults("pear")
     banana = RunTuning.defaults("banana")
+    mango = RunTuning.defaults("mango")
 
     assert apple.recognition.focus_confidence == 0.40
     assert apple.recognition.lock_confidence == 0.40
@@ -29,6 +30,12 @@ def test_defaults_preserve_kinda_good_behavior_for_every_fruit() -> None:
     assert pear.recognition.tracking_confidence == 0.55
     assert banana.recognition.focus_confidence is None
     assert banana.recognition.lock_confidence == 0.20
+    assert mango.recognition.focus_confidence is None
+    assert mango.recognition.lock_confidence == 0.08
+    assert mango.recognition.tracking_confidence == 0.08
+    assert mango.centering == pear.centering
+    assert mango.approach == pear.approach
+    assert mango.arrival == pear.arrival
     assert pear.search.yaw_rps == 0.40
     assert pear.centering.lock_tolerance_ratio == 0.08
     assert pear.approach.forward_mps == 1.0

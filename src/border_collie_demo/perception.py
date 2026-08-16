@@ -10,7 +10,12 @@ from typing import Any
 from urllib.request import Request, urlopen
 
 from .config import PerceptionConfig
-from .fruits import SUPPORTED_FRUITS, fruit_policy
+from .fruits import (
+    SUPPORTED_FRUITS,
+    fruit_policy,
+    mango_color_confidence,
+    mango_raw_confidence,
+)
 
 SOURCE_MAXIMUM_AGE_S = 0.350
 SOURCE_MINIMUM_CONSECUTIVE_FRAMES = 10
@@ -188,6 +193,13 @@ def evaluate_perception_evidence(
     if color_identity not in {"red_apple", "orange", "unknown"}:
         color_identity = "unknown"
     color_confidence = _finite_number(detection.get("color_confidence"))
+    raw_label = detection.get("raw_label")
+    raw_confidence = _finite_number(detection.get("raw_confidence"))
+    raw_bbox = _bounding_box(
+        detection.get("raw_bbox_xyxy"), source_width, source_height
+    )
+    derived_identity = detection.get("derived_identity")
+    derived_confidence = _finite_number(detection.get("derived_confidence"))
     raw_crop_confirmation = detection.get("crop_confirmation")
     if isinstance(raw_crop_confirmation, dict):
         crop_confirmation: dict[str, object] | None = {
@@ -217,6 +229,16 @@ def evaluate_perception_evidence(
         crop_confirmation = None
     if not isinstance(label, str) or label.casefold().strip() != target_fruit:
         violations.append(f"qualifying {target_fruit} detection is missing")
+    if target_fruit == "mango" and (
+        raw_label != "bowl"
+        or raw_confidence is None
+        or raw_confidence <= mango_raw_confidence()
+        or raw_bbox is None
+        or derived_identity != "mango"
+        or derived_confidence is None
+        or derived_confidence < mango_color_confidence()
+    ):
+        violations.append("derived Mango identity evidence is missing or unqualified")
     if detection_generation != generation:
         violations.append(
             f"{target_fruit} detection generation does not match camera generation"
@@ -297,6 +319,11 @@ def evaluate_perception_evidence(
             "inference_passes": inference_passes,
             "color_identity": color_identity,
             "color_confidence": color_confidence,
+            "raw_label": raw_label,
+            "raw_confidence": raw_confidence,
+            "raw_bbox_xyxy": None if raw_bbox is None else list(raw_bbox),
+            "derived_identity": derived_identity,
+            "derived_confidence": derived_confidence,
             "crop_confirmation": crop_confirmation,
             "completed_monotonic_s": detection_completed_s,
             "age_s": detection_age_s,

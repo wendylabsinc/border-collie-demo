@@ -37,6 +37,13 @@ def observation(
             "center_y_ratio": center_y,
             "bottom_ratio": bottom,
         }
+        if label == "mango":
+            detection.update(
+                raw_label="bowl",
+                raw_confidence=confidence,
+                derived_identity="mango",
+                derived_confidence=1.0,
+            )
     return {
         "camera_healthy": camera_healthy,
         "generation": generation,
@@ -76,6 +83,61 @@ def test_search_identity_is_kept_when_approach_is_enabled() -> None:
     assert moving.command.forward_mps == 1.0
     assert moving.command.yaw_rps < 0.0
     assert guidance.acquisition_epoch == 1
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "reason"),
+    [
+        ("raw_label", "sports ball", "mango_identity_unverified"),
+        ("raw_confidence", 0.08, "mango_identity_unverified"),
+        ("derived_identity", "unknown", "mango_identity_unverified"),
+        ("derived_confidence", 0.79, "mango_identity_unverified"),
+        ("derived_confidence", None, "mango_identity_unverified"),
+    ],
+)
+def test_mango_guidance_fails_closed_without_derived_identity(
+    field: str,
+    value: object,
+    reason: str,
+) -> None:
+    guidance = FruitGuidance("mango")
+    status = observation(pts=1, now_s=0.0, label="mango")
+    status["detection"][field] = value
+
+    stopped = guidance.observe(status, now_s=0.0)
+
+    assert stopped.action is GuidanceAction.STOP
+    assert stopped.terminal is True
+    assert stopped.reason == reason
+
+
+def test_mango_identity_boundary_allows_strictly_above_raw_and_color_at_floor() -> None:
+    guidance = FruitGuidance("mango")
+    status = observation(pts=1, now_s=0.0, label="mango", confidence=0.081)
+    status["detection"]["raw_confidence"] = 0.081
+    status["detection"]["derived_confidence"] = 0.80
+
+    decision = guidance.observe(status, now_s=0.0)
+
+    assert decision.action is GuidanceAction.HOLD
+    assert decision.terminal is False
+
+
+def test_mango_tracking_never_bypasses_raw_or_color_identity_gates() -> None:
+    guidance = FruitGuidance("mango")
+    for pts, now_s in ((1, 0.0), (2, 0.1), (3, 0.2)):
+        guidance.observe(
+            observation(pts=pts, now_s=now_s, label="mango", confidence=0.12),
+            now_s=now_s,
+        )
+    assert guidance.phase is GuidancePhase.LOCKED
+
+    invalid = observation(pts=4, now_s=0.3, label="mango", confidence=0.12)
+    invalid["detection"]["raw_confidence"] = 0.08
+    stopped = guidance.observe(invalid, now_s=0.3, allow_forward=True)
+
+    assert stopped.action is GuidanceAction.STOP
+    assert stopped.reason == "mango_identity_unverified"
 
 
 @pytest.mark.parametrize("source_fps", [4, 5, 8])
@@ -823,7 +885,7 @@ def test_one_weak_close_frame_declares_stopped_arrival() -> None:
     assert recovered.action is GuidanceAction.ARRIVED
 
 
-@pytest.mark.parametrize("fruit", ["apple", "banana", "pear"])
+@pytest.mark.parametrize("fruit", ["apple", "banana", "mango", "pear"])
 def test_first_lower_edge_frame_ignores_tracking_confidence_after_lock(
     fruit: str,
 ) -> None:

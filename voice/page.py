@@ -75,7 +75,7 @@ INDEX_HTML = """<!doctype html>
     <section id="commandPanel" class="event-panel">
       <div class="step">2 &middot; Command</div>
       <div id="commandValue" class="event-value">WAITING</div>
-      <div id="commandDetail" class="event-detail">Say apple, banana, or pear after the wake phrase</div>
+      <div id="commandDetail" class="event-detail">Say apple, mango, or pear after the wake phrase</div>
     </section>
   </div>
   <div id="actionControls">
@@ -114,7 +114,7 @@ INDEX_HTML = """<!doctype html>
     currentCommandId = null;
     commandPanel.className = 'event-panel';
     commandValue.textContent = 'WAITING';
-    commandDetail.textContent = 'Wake phrase heard — listening for apple, banana, or pear';
+    commandDetail.textContent = 'Wake phrase heard — listening for apple, mango, or pear';
   }
 
   function resetWake() {
