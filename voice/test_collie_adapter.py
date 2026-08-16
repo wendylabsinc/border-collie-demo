@@ -6,13 +6,21 @@ import unittest
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import ClassVar
 
-from collie_adapter import BorderCollieAdapter, VoiceIntent, interpret_command
+from collie_adapter import (
+    FULL_DEMO_SEED,
+    BorderCollieAdapter,
+    VoiceIntent,
+    display_command,
+    interpret_command,
+)
 from page import INDEX_HTML
 
 
 class _Handler(BaseHTTPRequestHandler):
     requests: ClassVar[list[tuple[str, dict[str, object]]]] = []
     status_payload: ClassVar[dict[str, object]] = {}
+    #: ``{path: (status_code, detail)}`` forces a refusal for one endpoint.
+    refusals: ClassVar[dict[str, tuple[int, str]]] = {}
 
     def do_GET(self) -> None:
         if self.path != "/api/status":
@@ -29,7 +37,26 @@ class _Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", "0"))
         payload = json.loads(self.rfile.read(length) or b"{}")
         self.__class__.requests.append((self.path, payload))
-        if self.path == "/api/run":
+        refusal = self.__class__.refusals.get(self.path)
+        if refusal is not None:
+            code, detail = refusal
+            body = json.dumps({"detail": detail}).encode("utf-8")
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.path == "/api/cohorts":
+            response = {
+                "cohort": {
+                    "cohort_id": "c0f0a1b2-0000-4000-8000-abcdefabcdef",
+                    "status": "RUNNING",
+                    "fruit_sequence": ["pear", "apple", "mango"],
+                }
+            }
+            status = 201
+        elif self.path == "/api/run":
             response = {
                 "run": {
                     "run_id": "32fd8de4-2d08-4f29-8304-f07413ad9a8f",
@@ -111,6 +138,85 @@ class InterpretCommandTests(unittest.TestCase):
         self.assertEqual(interpret_command("stop the demo"), VoiceIntent("stop_demo"))
 
 
+class BareMangoPhraseTests(unittest.TestCase):
+    MANGO = VoiceIntent(action="activate_demo", target_fruit="mango")
+
+    def test_accepts_the_bare_word_and_its_asr_near_misses(self) -> None:
+        for text in (
+            "mango",
+            "Mango.",
+            "mangos",
+            "mangoes",
+            "man go",
+            "Man Go",
+            "mango run",
+            "mango demo",
+            "run mango",
+            "start the mango",
+            "hey wendy mango please",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(interpret_command(text), self.MANGO)
+
+    def test_mango_inside_ordinary_speech_does_not_activate(self) -> None:
+        for text in (
+            "I like mango",
+            "the mango is on the left",
+            "is that a mango or a pear",
+            "so the mango",
+            "put the mango down over there",
+            "mango is my favourite fruit",
+        ):
+            with self.subTest(text=text):
+                self.assertIsNone(interpret_command(text))
+
+    def test_an_explicit_verb_still_reaches_mango(self) -> None:
+        self.assertEqual(interpret_command("find the mango"), self.MANGO)
+
+
+class FullDemoPhraseTests(unittest.TestCase):
+    FULL_DEMO = VoiceIntent(action="full_demo")
+
+    def test_accepts_the_phrase_and_its_asr_near_misses(self) -> None:
+        for text in (
+            "full demo",
+            "Full demo.",
+            "fulldemo",
+            "full demos",
+            "full demo run",
+            "run the full demo",
+            "start full demo",
+            "hey wendy full demo please",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(interpret_command(text), self.FULL_DEMO)
+
+    def test_full_demo_wins_over_a_fruit_named_in_the_same_breath(self) -> None:
+        # Ambiguous: refuse rather than start the wrong thing on a real robot.
+        for text in (
+            "run the full demo and find the mango",
+            "full demo starting with mango",
+            "after the full demo go to the pear",
+        ):
+            with self.subTest(text=text):
+                self.assertIsNone(interpret_command(text))
+
+    def test_conversation_about_a_full_demo_does_not_activate(self) -> None:
+        for text in (
+            "we should do the full demo later",
+            "that was a full demo of the system",
+            "demo",
+            "full",
+        ):
+            with self.subTest(text=text):
+                self.assertIsNone(interpret_command(text))
+
+    def test_display_labels_do_not_mislabel_the_cohort_as_stop(self) -> None:
+        self.assertEqual(display_command(self.FULL_DEMO), "full demo")
+        self.assertEqual(display_command(BareMangoPhraseTests.MANGO), "mango")
+        self.assertEqual(display_command(VoiceIntent("stop_demo")), "stop")
+
+
 class VoicePageTests(unittest.TestCase):
     def test_missing_microphone_is_rendered_as_a_loud_blocker(self) -> None:
         self.assertIn("MIC ERROR", INDEX_HTML)
@@ -146,6 +252,7 @@ class VoicePageTests(unittest.TestCase):
 class DispatchTests(unittest.TestCase):
     def setUp(self) -> None:
         _Handler.requests = []
+        _Handler.refusals = {}
         _Handler.status_payload = {
             "build_label": "stage camera test build",
             "release": {
@@ -257,6 +364,98 @@ class DispatchTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "runtime must be 'production'"):
             self.adapter.arm()
         self.assertFalse(self.adapter.armed)
+
+    def test_bare_mango_starts_a_single_voice_demo_run(self) -> None:
+        self.adapter.arm()
+        result = self.adapter.dispatch("mango", activation_id="voice-wake-mango-1")
+        self.assertEqual(
+            _Handler.requests,
+            [
+                (
+                    "/api/run",
+                    {
+                        "target_fruit": "mango",
+                        "activation_source": "voice",
+                        "activation_id": "voice-wake-mango-1",
+                    },
+                )
+            ],
+        )
+        self.assertEqual(result["calls"][0]["tool"], "activate_demo")
+
+    def test_full_demo_posts_the_three_fruit_cohort_the_ui_button_sends(self) -> None:
+        self.adapter.arm()
+        result = self.adapter.dispatch("full demo", activation_id="voice-wake-full-1")
+
+        self.assertEqual(len(_Handler.requests), 1)
+        path, payload = _Handler.requests[0]
+        self.assertEqual(path, "/api/cohorts")
+        self.assertEqual(payload["runs"], 3)
+        self.assertIs(payload["randomized"], True)
+        self.assertIsNone(payload["target_fruit"])
+        self.assertEqual(payload["fruit_subset"], ["apple", "mango", "pear"])
+        self.assertEqual(payload["seed"], FULL_DEMO_SEED)
+        self.assertEqual(
+            payload["tuning"],
+            {"search": {"yaw_rps": 0.8}, "home": {"align_yaw_rps": 0.8}},
+        )
+        self.assertIn({"reason": "TARGET_LOST"}, payload["tolerated_failures"])
+        self.assertIn({"failed_phase": "sit_and_bark"}, payload["tolerated_failures"])
+        self.assertEqual(len(payload["tolerated_failures"]), 10)
+
+        call = result["calls"][0]
+        self.assertEqual(call["tool"], "start_full_demo")
+        self.assertEqual(call["cohort_id"], "c0f0a1b2-0000-4000-8000-abcdefabcdef")
+        self.assertIn("RUNNING", call["result"])
+
+    def test_full_demo_never_falls_back_to_a_single_run(self) -> None:
+        self.adapter.arm()
+        result = self.adapter.dispatch(
+            "run the full demo and find the mango",
+            activation_id="voice-wake-ambiguous-1",
+        )
+        self.assertEqual(_Handler.requests, [])
+        self.assertEqual(result["calls"], [])
+
+    def test_full_demo_is_blocked_before_dispatch_when_a_run_is_active(self) -> None:
+        self.adapter.arm()
+        _Handler.status_payload["active_run_id"] = "run-in-flight"
+        result = self.adapter.dispatch("full demo")
+        self.assertEqual(_Handler.requests, [])
+        self.assertIn("already active", result["error"])
+
+    def test_cohort_conflict_409_reaches_the_operator_with_the_api_detail(self) -> None:
+        self.adapter.arm()
+        _Handler.refusals = {
+            "/api/cohorts": (409, "a Demo Run is already active"),
+        }
+
+        with self.assertRaises(RuntimeError) as caught:
+            self.adapter.dispatch("full demo")
+
+        message = str(caught.exception)
+        self.assertIn("409", message)
+        self.assertIn("a Demo Run is already active", message)
+        self.assertNotIn("{", message)
+
+    def test_takeover_latch_423_reaches_the_operator_with_the_api_detail(self) -> None:
+        self.adapter.arm()
+        _Handler.refusals = {
+            "/api/run": (423, "physical remote takeover latched"),
+        }
+
+        with self.assertRaises(RuntimeError) as caught:
+            self.adapter.dispatch("mango", activation_id="voice-wake-mango-2")
+
+        message = str(caught.exception)
+        self.assertIn("423", message)
+        self.assertIn("physical remote takeover latched", message)
+        self.assertIn("restart the demo", message)
+
+    def test_full_demo_requires_arming_like_every_other_motion_command(self) -> None:
+        result = self.adapter.dispatch("full demo")
+        self.assertIn("disarmed", result["error"])
+        self.assertEqual(_Handler.requests, [])
 
     def test_cannot_arm_an_unready_dog_without_named_blockers(self) -> None:
         _Handler.status_payload["activation"] = {"ready": False, "blockers": []}

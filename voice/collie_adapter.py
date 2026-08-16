@@ -10,35 +10,150 @@ import urllib.request
 from dataclasses import dataclass
 
 
+#: Motion-qualified fruits.  Banana is deliberately excluded; the demo API
+#: answers 409 for it.
+QUALIFIED_FRUITS = ("apple", "mango", "pear")
+
+#: The "full demo" cohort mirrors the web UI's "Run Apple + Mango + Pear once"
+#: button (``id="start-three-fruit"`` in ``web/index.html``).  Keep these values
+#: in step with that handler so the voice path and the button stay identical.
+FULL_DEMO_RUNS = 3
+FULL_DEMO_FRUIT_SUBSET = ("apple", "mango", "pear")
+FULL_DEMO_SEED = 20260813
+FULL_DEMO_TOLERATED_FAILURES = (
+    {"reason": "TARGET_RECOGNITION_FAILURE"},
+    {"reason": "TARGET_LOST"},
+    {"reason": "ARRIVAL_FAILURE"},
+    {"reason": "ACTION_FAILURE"},
+    {"failed_phase": "turn_to_fruit"},
+    {"failed_phase": "find_fruit"},
+    {"failed_phase": "approach_fruit"},
+    {"failed_phase": "arrived"},
+    {"failed_phase": "sit_and_bark"},
+    {"failed_phase": "stand"},
+)
+FULL_DEMO_TUNING = {
+    "search": {"yaw_rps": 0.8},
+    "home": {"align_yaw_rps": 0.8},
+}
+
+#: Words an operator naturally puts in front of a stage command.  Stripping
+#: stops at the first non-filler, so "ok so the mango" never reduces to "mango".
+_LEAD_FILLERS = frozenset({
+    "hey", "wendy", "ok", "okay", "please", "now",
+    "start", "run", "do", "let", "lets", "s", "the", "a",
+})
+_TRAIL_FILLERS = frozenset({"please", "now", "thanks", "thank", "you"})
+
+#: Accepted spellings of the 3-run cohort command, matched against the *whole*
+#: utterance (after filler stripping) rather than searched for inside it.
+_FULL_DEMO_PHRASES = frozenset({
+    "full demo",
+    "fulldemo",
+    "full demos",
+    "full demo run",
+    "full demo runs",
+    "full demo cohort",
+    "full fruit demo",
+    "full three fruit demo",
+})
+
+#: Accepted spellings of the single Mango Demo Run, matched the same way.
+#: "man go" is included because Parakeet splits the word; it is only safe
+#: because the match is anchored to the entire utterance.
+_MANGO_PHRASES = frozenset({
+    "mango",
+    "mangos",
+    "mangoes",
+    "man go",
+    "mango run",
+    "mango demo",
+    "mango demo run",
+    "one mango",
+    "single mango",
+})
+
+
 @dataclass(frozen=True)
 class VoiceIntent:
     action: str
     target_fruit: str | None = None
 
 
+def _canonical_words(text: str) -> list[str]:
+    return re.sub(r"[^a-z0-9]+", " ", text.lower()).split()
+
+
+def _core_phrase(words: list[str]) -> str:
+    """Drop bounded leading/trailing filler and return what is left."""
+    start = 0
+    while start < len(words) and words[start] in _LEAD_FILLERS:
+        start += 1
+    end = len(words)
+    while end > start and words[end - 1] in _TRAIL_FILLERS:
+        end -= 1
+    return " ".join(words[start:end])
+
+
+def _mentions_full_demo(words: list[str]) -> bool:
+    """True when the operator said "full demo" anywhere in the utterance."""
+    if "fulldemo" in words:
+        return True
+    return any(first == "full" and second == "demo"
+               for first, second in zip(words, words[1:]))
+
+
 def interpret_command(text: str) -> VoiceIntent | None:
     """Interpret only the deliberately supported stage phrases."""
-    normalized = re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+    words = _canonical_words(text)
+    normalized = " ".join(words)
     if normalized in {"stop", "stop demo", "stop the demo"}:
         return VoiceIntent(action="stop_demo")
 
-    words = set(normalized.split())
+    core = _core_phrase(words)
+
+    # The whole-cohort command is resolved first, so a fruit named inside it can
+    # never win the utterance.
+    if core in _FULL_DEMO_PHRASES:
+        return VoiceIntent(action="full_demo")
+
+    # "full demo" said as part of a longer sentence ("run the full demo and find
+    # the mango") is ambiguous.  Refuse it outright rather than falling through
+    # to the single-fruit rules and starting the wrong thing on a real robot.
+    if _mentions_full_demo(words):
+        return None
+
+    # Bare "mango" is a Demo Run only as the entire utterance.  Anchoring is what
+    # keeps the word harmless inside ordinary speech ("I like mango").
+    if core in _MANGO_PHRASES:
+        return VoiceIntent(action="activate_demo", target_fruit="mango")
+
+    unique = set(words)
     fruits = set()
-    if words.intersection({"pear", "pears", "pair", "pairs"}):
+    if unique.intersection({"pear", "pears", "pair", "pairs"}):
         fruits.add("pear")
-    if words.intersection({"apple", "apples"}):
+    if unique.intersection({"apple", "apples"}):
         fruits.add("apple")
-    if words.intersection({"mango", "mangoes", "mangos"}):
+    if unique.intersection({"mango", "mangoes", "mangos"}):
         fruits.add("mango")
     if len(fruits) != 1:
         return None
 
     # A fruit name alone is not motion intent.  Keep this allowlist deliberately
     # small so ordinary stage conversation about fruit cannot activate Woof.
-    if not words.intersection({"find", "follow", "locate", "search", "seek", "go"}):
+    if not unique.intersection({"find", "follow", "locate", "search", "seek", "go"}):
         return None
 
     return VoiceIntent(action="activate_demo", target_fruit=fruits.pop())
+
+
+def display_command(intent: VoiceIntent) -> str:
+    """Short operator-facing label for a recognised intent."""
+    if intent.action == "activate_demo":
+        return intent.target_fruit or "run"
+    if intent.action == "full_demo":
+        return "full demo"
+    return "stop"
 
 
 class BorderCollieAdapter:
@@ -188,6 +303,33 @@ class BorderCollieAdapter:
                 }]
             }
 
+        if intent.action == "full_demo":
+            readiness = self.readiness()
+            if not readiness["ready"]:
+                return {"calls": [], "error": readiness["detail"]}
+            payload = {
+                "runs": FULL_DEMO_RUNS,
+                "randomized": True,
+                "target_fruit": None,
+                "fruit_subset": list(FULL_DEMO_FRUIT_SUBSET),
+                "seed": FULL_DEMO_SEED,
+                "tolerated_failures": [dict(item) for item in FULL_DEMO_TOLERATED_FAILURES],
+                "tuning": {group: dict(values) for group, values in FULL_DEMO_TUNING.items()},
+            }
+            response = self._post("/api/cohorts", payload)
+            cohort = response.get("cohort") or {}
+            if not cohort.get("cohort_id"):
+                raise RuntimeError("Border Collie returned an invalid cohort response")
+            return {
+                "calls": [{
+                    "tool": "start_full_demo",
+                    "args": payload,
+                    "result": _response_summary(response),
+                    "cohort_id": cohort["cohort_id"],
+                    "fruit_sequence": cohort.get("fruit_sequence"),
+                }]
+            }
+
         response = self._post("/api/stop", {})
         return {
             "calls": [{
@@ -208,8 +350,7 @@ class BorderCollieAdapter:
             with urllib.request.urlopen(request, timeout=self.timeout_s) as response:
                 body = response.read()
         except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"Border Collie rejected the command ({exc.code}): {detail}") from exc
+            raise RuntimeError(_http_error_message(exc)) from exc
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             reason = getattr(exc, "reason", exc)
             raise RuntimeError(f"Border Collie API is unavailable: {reason}") from exc
@@ -249,7 +390,40 @@ class BorderCollieAdapter:
         return payload
 
 
+#: Operator-facing prefixes for the two refusals the demo API can return.  These
+#: reach the page as ``BLOCKED — <message>`` via the adapter's existing error
+#: path, so a refused command is never silently dropped.
+_STATUS_PREFIXES = {
+    409: "Border Collie refused the command (409 conflict)",
+    423: (
+        "Border Collie is locked (423; physical remote takeover is latched, "
+        "restart the demo)"
+    ),
+}
+
+
+def _http_error_message(exc: urllib.error.HTTPError) -> str:
+    raw = exc.read().decode("utf-8", errors="replace")
+    detail = raw
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        parsed = None
+    if isinstance(parsed, dict) and parsed.get("detail"):
+        detail = str(parsed["detail"])
+    prefix = _STATUS_PREFIXES.get(
+        exc.code, f"Border Collie rejected the command ({exc.code})"
+    )
+    return f"{prefix}: {detail.strip()}"
+
+
 def _response_summary(response: dict) -> str:
+    cohort = response.get("cohort")
+    if isinstance(cohort, dict) and cohort.get("cohort_id"):
+        sequence = ", ".join(cohort.get("fruit_sequence") or []) or "no sequence"
+        status = cohort.get("status") or "accepted"
+        return f"cohort {cohort['cohort_id']}: {status} ({sequence})"
+
     run = response.get("run")
     if isinstance(run, dict) and run.get("run_id"):
         outcome = run.get("outcome")

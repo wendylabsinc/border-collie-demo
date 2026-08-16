@@ -23,7 +23,7 @@ import httpx
 import uvicorn
 from asr import SherpaTranscriber
 from capture import Capture
-from collie_adapter import BorderCollieAdapter, interpret_command
+from collie_adapter import BorderCollieAdapter, display_command, interpret_command
 from devices import list_input_devices, select_input_device
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
@@ -323,11 +323,7 @@ def build_app() -> FastAPI:
                     intent = interpret_command(command)
                     event["valid_dog_command"] = intent is not None
                     if intent is not None:
-                        event["display_command"] = (
-                            intent.target_fruit
-                            if intent.action == "activate_demo"
-                            else "stop"
-                        )
+                        event["display_command"] = display_command(intent)
                 active_wake_id = None
                 asyncio.run_coroutine_threadsafe(publish(event), loop)
                 if not CONTINUOUS_TRANSCRIPTION and ready["ready"]:
