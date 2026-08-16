@@ -422,7 +422,7 @@ class RunTuning:
                     "source_maximum_age_s",
                     defaults.approach.source_maximum_age_s,
                     0.05,
-                    0.350,
+                    1.000,
                 ),
                 detection_maximum_age_s=_number(
                     approach,

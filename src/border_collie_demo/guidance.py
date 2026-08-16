@@ -106,12 +106,12 @@ class GuidanceConfig:
             raise ValueError("recenter_yaw_rps must stay within 0.50..0.80 rad/s")
         if not 0.0 < self.duplicate_hold_s <= 0.250:
             raise ValueError("duplicate_hold_s must stay within 0.0..0.250 seconds")
-        if not 0.0 < self.detection_maximum_age_s <= 0.250:
+        if not 0.0 < self.detection_maximum_age_s <= 1.000:
             raise ValueError(
-                "detection_maximum_age_s must stay within 0.0..0.250 seconds"
+                "detection_maximum_age_s must stay within 0.0..1.000 seconds"
             )
-        if not 0.0 < self.source_maximum_age_s <= 0.350:
-            raise ValueError("source_maximum_age_s must stay within 0.0..0.350 seconds")
+        if not 0.0 < self.source_maximum_age_s <= 1.000:
+            raise ValueError("source_maximum_age_s must stay within 0.0..1.000 seconds")
         if not 0.0 < self.near_bottom_ratio <= 1.0:
             raise ValueError("near_bottom_ratio must be within 0.0..1.0")
         if not 0.0 < self.disappearance_bottom_ratio < self.near_bottom_ratio:
