@@ -1,5 +1,11 @@
 # Border Collie Demo
 
+This branch includes an on-device **Hey Wendy** voice service. Open
+`http://woof.local:8092`, say “Hey Wendy,” then say an allowlisted request such
+as “find the pear” or “follow the apple.” The custom wake model gates local
+Parakeet ASR; the service calls the same idempotent `/api/run` safety boundary
+as the audience UI and never owns a separate motion path.
+
 A clean-room implementation of the Wendy Labs Border Collie routine for the
 Unitree Go2.
 
@@ -33,11 +39,13 @@ reference, but it is not a runtime dependency.
    edge may Woof send the single bounded final movement.
 8. First turn at a fixed 0.50 rad/s until the Target Fruit is within the middle
    16% of the camera, then hold zero yaw for three fresh centered samples. After
-   qualified lower-edge disappearance, send one 0.3 m/s by
-   1.0-second final push, stop, lie down, bark, and remain down for 5 seconds.
-9. Stand, turn toward Home, replay the recorded number of outbound forward
-   heartbeats at 1.0 m/s, and restore the original heading. Fresh pose remains
-   the authority for the 10 cm Home success gate and recorded Home Distance.
+   qualified lower-edge disappearance, send the one-run bounded final push
+   (default 0.60 m/s by 1.0 second), stop, lie down, attempt the best-effort
+   bark, and remain down for 5 seconds.
+9. Stand, align toward Home through regular Sports yaw, then replay the recorded
+   number of outbound forward heartbeats through factory obstacle avoidance at
+   1.0 m/s with bounded moving yaw. Fresh pose remains the authority for the
+   10 cm position-only Home success gate and recorded Home Distance.
 10. Stop all motion, record the result, and report completion.
 
 Arbitrary typed commands remain on the separate debug surface. The supervised
@@ -149,8 +157,8 @@ evidence before sealing success. Loss of pose freshness during capture also fail
 **Stop Woof** seals an active run and permits another activation, while process
 restart seals unfinished work as `PROCESS_INTERRUPTED`. The production executor
 uses measured pose turns, bounded camera-guided search, geometry-gated approach,
-one 0.3 m/s by 1.0 s off-screen final push, Unitree posture actions, bark, and
-closed-loop odometry return through factory obstacle avoidance.
+one bounded per-run off-screen final push, Unitree posture actions, best-effort
+bark, and closed-loop odometry return through factory obstacle avoidance.
 The initial turn/search is explicitly **conditional**, not an unconditional
 part of every run. Target Fruit qualification may already be present when
 `TURN_TO_FRUIT` begins. Fresh qualified evidence for the selected Target Fruit
@@ -244,8 +252,9 @@ Two independent environment gates are required:
   perception status adapter. It independently enforces the qualified source and
   pear thresholds against the configured sidecar evidence and fails closed when
   that evidence is missing, stale, malformed, or unreachable.
-- `BORDER_COLLIE_BARK_ENABLED=1` requires the media sidecar to prove AudioHub
-  bark readiness during preflight and permits the arrival bark request.
+- `BORDER_COLLIE_BARK_ENABLED=1` enables the direct best-effort AudioHub bark
+  request after Woof lies down. Bark readiness is observable but never blocks
+  activation or motion, and bark failure never skips the five-second down hold.
 
 The production media process is `media.perception_sidecar:app` on port `8111`.
 It owns one Go2 WebRTC connection, advances PTS/time-base evidence, binds every
@@ -296,6 +305,69 @@ legacy app on `8096` without replacing it.
 Run Results default to `artifacts/runs/`. A deployment must set
 `BORDER_COLLIE_RUNS_DIR` to durable mounted storage before stage use.
 
+## Configurable Demo Run cohorts
+
+The audience UI and supervised soak harness both use the typed policy described
+in [`docs/cohort-policy.md`](docs/cohort-policy.md). The default is five Demo
+Runs in a seeded, randomized order with every failure stopping the cohort. A
+fixed Target Fruit and explicitly tolerated terminal reasons or phases can be
+selected. Tolerance never bypasses exact-zero disarm, fresh exact-run Home
+clearance, or a camera, pose, motion, takeover, restart, or return safety stop.
+
+The harness reads the deployed build's qualified fruits and balances randomized
+schedules before shuffling them.
+The result JSON is replaced atomically after every run and includes the exact
+policy and sequence, per-run cohort decision, Home-clearance evidence,
+per-stage telemetry, lighting frames, network observations, device temperatures,
+dongle checks, terminal measurements, and the records-only scorecard.
+
+Use an exact expected build label so an old or experimental deployment cannot
+be activated accidentally:
+
+```bash
+python3 scripts/fruit_soak.py \
+  --host 192.168.0.107 \
+  --agent 192.168.0.107:50052 \
+  --runs 10 \
+  --seed 20260810 \
+  --expected-build-label "base-soak-v1 (demo/base)" \
+  --expected-fruits apple banana pear \
+  --device-probes \
+  --dongle-match "DJI MIC MINI" \
+  --note "<fruit placements, lighting, and microphone setup>"
+```
+
+The build label and qualified-fruit set are checked before the first activation.
+An activation request with an ambiguous response aborts the session without an
+automatic retry. A restart-required application state also aborts immediately.
+Individual terminal run failures are recorded and the supervised soak continues
+unless the deployed application's safety state prevents another activation.
+The root app, `media`, and `voice` services each have a committed
+`build.stagefile.yaml` and digest-pinned lockfile. A Stagefile-capable Wendy CLI
+selects all three automatically for a whole-project deployment; generated
+Dockerfiles are build artifacts and are not committed. Deploy with
+`wendy run --detach` and do not pass a Dockerfile override.
+
+### Audience bark
+
+Production uses the direct bark sidecar and does not own or change the Go2's
+device-global VUI volume. Onboard prompts such as "I'm here" and obstacle-mode
+announcements may therefore remain audible. Bark is audience polish, not a
+motion or posture safety gate: a bark timeout or playback error is persisted as
+`bark_played: false`, the five-second down hold still completes, and Stand and
+Return Home continue. Stop, StandDown, hold, Stand, and Home failures remain
+terminal.
+
+### Per-run black box
+
+Every Demo Run has an append-only, fsynced `black-box.ndjson` timeline beside
+its materialized `result.json`. It records mission lifecycle events, stage
+results, each camera-guidance decision, every resulting motion command, failure
+epilogue evidence, and the final outcome/safety state. It contains numeric and
+categorical evidence but no camera images. Download it at
+`/api/results/{run_id}/black-box.ndjson`; terminal image/clip evidence remains
+separate.
+
 ## Local validation
 
 ```bash
@@ -309,12 +381,12 @@ the physical adapter boundaries with deterministic pose/perception replays, the
 complete zero-motion HTTP run, all default failure reasons, and diagnostic
 stage classification.
 
-## Docker optimization proof
+## Historical Docker optimization proof
 
-Docker build changes are measured with DLO using the repository contract in
-`.dlo.yml`. The current Dockerfile keeps dependency installation in the stable
-builder layer and copies application source directly into the final image, so a
-source-only edit does not reinstall the project package.
+The repository retains an older Docker/DLO benchmark as historical evidence,
+but Dockerfiles and DLO are not part of the current deployment path. The
+committed Stagefiles declare stable dependency and model inputs before volatile
+application source, and Wendy compiles them into ignored generated Dockerfiles.
 
 The first controlled proof used three paired source-only trials plus no-op and
 dependency-change controls. It reduced the source-edit median from 8.743 s to

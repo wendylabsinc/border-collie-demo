@@ -1,12 +1,12 @@
 {
   "appId": "border-collie-demo",
-  "version": "1.0.0-base",
+  "version": "1.2.2-stage-default",
   "services": {
     "app": {
       "context": ".",
       "env": {
         "BORDER_COLLIE_PORT": "8110",
-        "BORDER_COLLIE_BUILD_LABEL": "base (demo/base)",
+        "BORDER_COLLIE_BUILD_LABEL": "stage-default-v6-general-mango",
         "BORDER_COLLIE_RUNTIME_MODE": "production",
         "BORDER_COLLIE_HARDWARE_ENABLED": "1",
         "BORDER_COLLIE_AUTONOMY_ENABLED": "1",
@@ -15,15 +15,42 @@
         "BORDER_COLLIE_PERCEPTION_STATUS_URL": "http://127.0.0.1:8111/status",
         "BORDER_COLLIE_PERCEPTION_TARGET_URL": "http://127.0.0.1:8111/api/target",
         "BORDER_COLLIE_PERCEPTION_FRAME_URL": "http://127.0.0.1:8111/api/camera/frame.jpg",
+        "BORDER_COLLIE_PERCEPTION_RAW_FRAME_URL": "http://127.0.0.1:8111/api/camera/raw.jpg",
+        "BORDER_COLLIE_COCO_TEST_URL": "http://127.0.0.1:8111/api/coco-test",
         "BORDER_COLLIE_PERCEPTION_TIMEOUT_S": "0.25",
         "BORDER_COLLIE_BARK_ENABLED": "1",
         "BORDER_COLLIE_BARK_URL": "http://127.0.0.1:8111/api/bark",
         "BORDER_COLLIE_BARK_STATUS_URL": "http://127.0.0.1:8111/status",
         "BORDER_COLLIE_EVIDENCE_BASE_URL": "http://127.0.0.1:8111/",
         "BORDER_COLLIE_EVIDENCE_TIMEOUT_S": "3.0",
+        "BORDER_COLLIE_STAGE_HOME_MARGIN_M": "0.50",
         "BORDER_COLLIE_FORWARD_PULSE_MPS": "0.50",
         "BORDER_COLLIE_FORWARD_PULSE_DURATION_S": "0.40",
         "BORDER_COLLIE_MAX_FORWARD_MPS": "1.0",
+        "BORDER_COLLIE_GUIDANCE_SEARCH_YAW_RPS": "0.40",
+        "BORDER_COLLIE_GUIDANCE_FOCUS_YAW_RPS": "0.40",
+        "BORDER_COLLIE_APPLE_FOCUS_CONFIDENCE": "0.40",
+        "BORDER_COLLIE_APPLE_ACQUISITION_CONFIDENCE": "0.40",
+        "BORDER_COLLIE_MANGO_RAW_CONFIDENCE": "0.08",
+        "BORDER_COLLIE_MANGO_COLOR_CONFIDENCE": "0.80",
+        "BORDER_COLLIE_GUIDANCE_SEARCH_SWEEP_RAD": "6.283185307179586",
+        "BORDER_COLLIE_GUIDANCE_CENTER_TOLERANCE_RATIO": "0.08",
+        "BORDER_COLLIE_GUIDANCE_CENTER_CONFIRMATIONS": "3",
+        "BORDER_COLLIE_GUIDANCE_APPROACH_FORWARD_MPS": "1.0",
+        "BORDER_COLLIE_GUIDANCE_APPROACH_YAW_RPS": "0.30",
+        "BORDER_COLLIE_GUIDANCE_OUTER_CORRIDOR_RATIO": "0.20",
+        "BORDER_COLLIE_GUIDANCE_RECENTER_YAW_RPS": "0.50",
+        "BORDER_COLLIE_GUIDANCE_DUPLICATE_HOLD_S": "0.250",
+        "BORDER_COLLIE_GUIDANCE_SOURCE_MAXIMUM_AGE_S": "0.350",
+        "BORDER_COLLIE_GUIDANCE_DETECTION_MAXIMUM_AGE_S": "0.250",
+        "BORDER_COLLIE_GUIDANCE_NEAR_BOTTOM_RATIO": "0.90",
+        "BORDER_COLLIE_GUIDANCE_DISAPPEARANCE_BOTTOM_RATIO": "0.80",
+        "BORDER_COLLIE_GUIDANCE_NEAR_CENTER_RATIO": "0.72",
+        "BORDER_COLLIE_GUIDANCE_NEAR_CONFIRMATIONS": "3",
+        "BORDER_COLLIE_GUIDANCE_NEAR_LOSS_CONFIRMATIONS": "2",
+        "BORDER_COLLIE_GUIDANCE_NEAR_LOSS_GRACE_S": "0.75",
+        "BORDER_COLLIE_GUIDANCE_FINAL_PUSH_MPS": "0.60",
+        "BORDER_COLLIE_GUIDANCE_FINAL_PUSH_DURATION_S": "1.0",
         "BORDER_COLLIE_COMMAND_WATCHDOG_S": "0.35",
         "GO2_NETWORK_INTERFACE": "enP8p1s0"
       },
@@ -35,10 +62,16 @@
       "context": "./media",
       "env": {
         "UNITREE_ROBOT_IP": "192.168.123.161",
-        "PEAR_MODEL_PATH": "/media/model.engine",
+        "PEAR_MODEL_PATH": "/media/apple-pear-mango.pt",
+        "PEAR_CROP_CONFIRM_SMALL_AREA_RATIO": "0.000001",
         "BANANA_SPECIALIST_MODEL_PATH": "/media/banana-specialist.pt",
         "BANANA_SPECIALIST_MIN_CONFIDENCE": "0.55",
         "BANANA_SPECIALIST_MIN_IOU": "0.10",
+        "COCO_TEST_MODEL_PATH": "/models/yolo11n.pt",
+        "MANGO_MODEL_PATH": "/models/yolo11n.pt",
+        "BORDER_COLLIE_MANGO_RAW_CONFIDENCE": "0.08",
+        "BORDER_COLLIE_MANGO_COLOR_CONFIDENCE": "0.80",
+        "COCO_TEST_INTERVAL_S": "0.5",
         "BORDER_COLLIE_BARK_UUID": "161387de-21ab-4f0b-b4e9-97124b000d06",
         "EVIDENCE_MAXIMUM_FRAMES": "40",
         "EVIDENCE_FRAME_INTERVAL_S": "0.5"
@@ -46,6 +79,35 @@
       "entitlements": [
         {"type": "network", "mode": "host"},
         {"type": "gpu"}
+      ]
+    },
+    "voice": {
+      "context": "./voice",
+      "dependsOn": ["app", "media"],
+      "env": {
+        "PORT": "8092",
+        "ACTION_MODE": "border_collie",
+        "BORDER_COLLIE_URL": "http://127.0.0.1:8110",
+        "BORDER_COLLIE_EXPECTED_BUILD_LABEL": "stage-default-v6-general-mango",
+        "CONTINUOUS_TRANSCRIPTION": "0",
+        "AUTO_ARM_ACTIONS": "1",
+        "AUDIO_DEVICE": "DJI MIC MINI",
+        "MICROPHONE_RETRY_INTERVAL_S": "10.0",
+        "MICROPHONE_FRAME_TIMEOUT_S": "3.0",
+        "WAKE_WORD": "/app/hey_wendy.onnx",
+        "WAKE_THRESHOLD": "0.5",
+        "COMMAND_WINDOW_S": "8",
+        "OWW_MELSPEC_PATH": "/opt/openwakeword-models/melspectrogram.onnx",
+        "OWW_EMBEDDING_PATH": "/opt/openwakeword-models/embedding_model.onnx"
+      },
+      "entitlements": [
+        {"type": "network", "mode": "host"},
+        {"type": "audio"},
+        {
+          "type": "persist",
+          "name": "border-collie-parakeet-models",
+          "path": "/models"
+        }
       ]
     }
   },

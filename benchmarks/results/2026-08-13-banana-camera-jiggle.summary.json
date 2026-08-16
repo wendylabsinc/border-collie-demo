@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "status_url": "http://woof.local:8111/status",
+  "target_fruit": "banana",
+  "duration_s": 79.28120762493927,
+  "poll_hz_requested": 10.0,
+  "samples": 757,
+  "request_errors": 0,
+  "source_advanced_samples": 696,
+  "source_duplicate_samples": 61,
+  "detection_present_samples": 401,
+  "target_detection_samples": 401,
+  "target_missing_samples": 356,
+  "confidence": {
+    "samples": 401,
+    "minimum": 0.5523402094841003,
+    "average": 0.7714134903620009,
+    "maximum": 0.9273600578308105
+  },
+  "bottom_ratio": {
+    "samples": 401,
+    "minimum": 0.5694444444444444,
+    "average": 0.7308430313106125,
+    "maximum": 0.9986111111111111
+  },
+  "errors": [],
+  "jsonl": "benchmarks/results/2026-08-13-banana-camera-jiggle.jsonl"
+}

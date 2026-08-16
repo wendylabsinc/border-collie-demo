@@ -113,6 +113,8 @@ class PerceptionConfig:
     status_url: str = "http://127.0.0.1:8111/status"
     target_url: str = "http://127.0.0.1:8111/api/target"
     frame_url: str = "http://127.0.0.1:8111/api/camera/frame.jpg"
+    raw_frame_url: str = "http://127.0.0.1:8111/api/camera/raw.jpg"
+    coco_test_url: str = "http://127.0.0.1:8111/api/coco-test"
     timeout_s: float = 0.25
 
     def __post_init__(self) -> None:
@@ -122,6 +124,10 @@ class PerceptionConfig:
             raise ValueError("perception target_url must use http or https")
         if not self.frame_url.startswith(("http://", "https://")):
             raise ValueError("perception frame_url must use http or https")
+        if not self.raw_frame_url.startswith(("http://", "https://")):
+            raise ValueError("perception raw_frame_url must use http or https")
+        if not self.coco_test_url.startswith(("http://", "https://")):
+            raise ValueError("perception coco_test_url must use http or https")
         if not math.isfinite(self.timeout_s) or self.timeout_s <= 0.0:
             raise ValueError("perception timeout_s must be finite and positive")
 
@@ -140,6 +146,14 @@ class PerceptionConfig:
             frame_url=os.environ.get(
                 "BORDER_COLLIE_PERCEPTION_FRAME_URL",
                 "http://127.0.0.1:8111/api/camera/frame.jpg",
+            ).strip(),
+            raw_frame_url=os.environ.get(
+                "BORDER_COLLIE_PERCEPTION_RAW_FRAME_URL",
+                "http://127.0.0.1:8111/api/camera/raw.jpg",
+            ).strip(),
+            coco_test_url=os.environ.get(
+                "BORDER_COLLIE_COCO_TEST_URL",
+                "http://127.0.0.1:8111/api/coco-test",
             ).strip(),
             timeout_s=float(
                 os.environ.get("BORDER_COLLIE_PERCEPTION_TIMEOUT_S", "0.25")

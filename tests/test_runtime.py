@@ -56,6 +56,18 @@ def test_production_runtime_wires_the_real_stage_executor(
         def camera_frame():
             return b"\xff\xd8preview\xff\xd9"
 
+        @staticmethod
+        def raw_camera_frame():
+            return b"\xff\xd8raw-preview\xff\xd9"
+
+        @staticmethod
+        def coco_test_status():
+            return {"enabled": False, "strictly_read_only": True}
+
+        @staticmethod
+        def configure_coco_test(payload):
+            return {**payload, "strictly_read_only": True}
+
     def stages(hardware, perception, bark):
         created.append((hardware, perception, bark))
         return SimulatedStageExecutor()
@@ -66,7 +78,11 @@ def test_production_runtime_wires_the_real_stage_executor(
 
         @staticmethod
         def status():
-            return {"ready": True, "detail": "bark ready"}
+            return {"ready": False, "detail": "bark unavailable"}
+
+        @staticmethod
+        async def bark():
+            return {"bark_played": False}
 
     class Evidence:
         @classmethod
@@ -80,7 +96,11 @@ def test_production_runtime_wires_the_real_stage_executor(
     hardware = SimulatedHardware()
     monkeypatch.setenv("BORDER_COLLIE_RUNTIME_MODE", "production")
     monkeypatch.setenv("BORDER_COLLIE_RUNS_DIR", str(tmp_path))
-    monkeypatch.setattr(main_module, "HardwareManager", lambda _config: hardware)
+    monkeypatch.setattr(
+        main_module,
+        "HardwareManager",
+        lambda _config, **_options: hardware,
+    )
     monkeypatch.setattr(main_module, "PerceptionStatusClient", Perception)
     monkeypatch.setattr(main_module, "BarkClient", Bark)
     monkeypatch.setattr(main_module, "TerminalEvidenceClient", Evidence)
@@ -97,3 +117,4 @@ def test_production_runtime_wires_the_real_stage_executor(
 
     assert run["outcome"] == "COMPLETED"
     assert created and created[0][0] is hardware
+    assert isinstance(created[0][2], Bark)

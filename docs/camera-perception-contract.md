@@ -176,7 +176,10 @@ reacquisition is allowed or the run terminates as target loss.
 ## Evidence and remaining qualification
 
 The provisioned engine also represents apple and banana. `RED-APPLE-001`
-qualifies red apple at 0.70 confidence by five fresh detections; pear remains
+originally qualified red apple at 0.70 confidence by five fresh detections. The
+stage-default Apple policy now uses a two-threshold hysteresis: a fresh 0.50
+candidate stops the broad sweep for focused confirmation, and three fresh
+centered observations at or above 0.40 acquire identity. Pear remains
 qualified at 0.65 by five. Banana stays a camera-only **Supported Fruit**. The
 green apple trial produced no apple proposal and was classified as pear when
 class filtering was removed, so green apple is outside the qualified operating
@@ -197,6 +200,25 @@ The thresholds above are based on the guarded clean-repository results in
 Packet loss, robot-side camera failure, and active-run `CAMERA_FAILURE` Run
 Result behavior remain acceptance work. They do not authorize looser thresholds
 or in-run recovery.
+
+## Apple search hysteresis
+
+Apple search exposes separate focus and acquisition controls, both currently
+defaulted to `0.40`. A fresh Apple observation at or above `0.40` stops the
+broad sweep and enters a zero-motion focus state. Once focused, three fresh
+centered observations at or above `0.40` lock identity
+and permit the mission to continue. A weaker observation resets confirmation
+and remains zero-motion. Stale evidence, invalid geometry, camera failure, and
+camera-generation changes still fail closed.
+
+`BORDER_COLLIE_APPLE_FOCUS_CONFIDENCE` is a unitless app-side ratio with a
+`0.40` default and `0.40..0.70` valid range.
+`BORDER_COLLIE_APPLE_ACQUISITION_CONFIDENCE` is app-owned, has a `0.40` default
+and `0.40..0.70` valid range, and controls focused acquisition. The media
+sidecar publishes raw same-label temporal evidence and does not read either
+motion-policy threshold. Focus must be greater than or equal to acquisition.
+Neither variable bypasses freshness, identity, centering, geometry, or
+camera-health interlocks.
 
 ## Published detection confidence is raw by design
 

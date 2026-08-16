@@ -44,6 +44,8 @@ class SportClientProtocol(Protocol):
 
     def StopMove(self) -> int: ...
 
+    def Move(self, vx: float, vy: float, vyaw: float) -> int: ...
+
 
 class AvoidanceClientProtocol(Protocol):
     def SetTimeout(self, timeout_s: float) -> Any: ...
@@ -106,6 +108,7 @@ class Go2Motion:
         self._closed = False
         self._fault: str | None = None
         self._lease: str | None = None
+        self._mode: str | None = None
         self._avoidance_enabled = False
         self._remote_api_enabled = False
         self._last_verify_at: float | None = None
@@ -116,21 +119,24 @@ class Go2Motion:
 
     @property
     def armed(self) -> bool:
-        return bool(
+        common = bool(
             self._initialized
             and not self._closed
             and self._fault is None
             and self._lease
-            and self._avoidance_enabled
-            and self._remote_api_enabled
         )
+        if self._mode == "factory_avoidance":
+            return common and self._avoidance_enabled and self._remote_api_enabled
+        if self._mode == "sport_yaw":
+            return common and not self._avoidance_enabled and not self._remote_api_enabled
+        return False
 
     def status(self) -> dict[str, object]:
         return {
             "initialized": self._initialized,
             "closed": self._closed,
             "armed": self.armed,
-            "mode": "factory_avoidance" if self._lease else None,
+            "mode": self._mode if self._lease else None,
             "fault": self._fault,
             "avoidance_enabled": self._avoidance_enabled,
             "remote_api_enabled": self._remote_api_enabled,
@@ -183,7 +189,25 @@ class Go2Motion:
                 await self._release_locked(use_stop=True)
                 raise MotionNotReady(f"arm failed: {exc}") from exc
             self._lease = secrets.token_urlsafe(32)
+            self._mode = "factory_avoidance"
             self._last_command = VelocityCommand(reason="armed_zero")
+            return self._lease
+
+    async def arm_sport_yaw(self) -> str:
+        """Own a watchdog-protected regular SportClient yaw-only lease."""
+        async with self._lock:
+            self._require_ready()
+            if self._lease is not None:
+                raise MotionNotReady("motion lease already active")
+            try:
+                await self._disable_avoidance_locked()
+                await self._idle_stop()
+            except Exception as exc:
+                await self._release_locked(use_stop=True)
+                raise MotionNotReady(f"sport yaw arm failed: {exc}") from exc
+            self._lease = secrets.token_urlsafe(32)
+            self._mode = "sport_yaw"
+            self._last_command = VelocityCommand(reason="sport_yaw_armed_zero")
             return self._lease
 
     async def command(self, lease: str, command: VelocityCommand) -> VelocityCommand:
@@ -193,9 +217,16 @@ class Go2Motion:
             self._require_owner(lease)
             self._cancel_watchdog()
             try:
-                if forward != 0.0 or yaw != 0.0:
-                    await self._verify_avoidance_if_due()
-                await self._success(self.avoidance.Move, forward, 0.0, yaw)
+                if self._mode == "sport_yaw":
+                    if forward != 0.0:
+                        raise ValueError("regular SportClient lease is yaw-only")
+                    await self._success(self.sport.Move, 0.0, 0.0, yaw)
+                else:
+                    if forward != 0.0 or yaw != 0.0:
+                        await self._verify_avoidance_if_due()
+                    await self._success(self.avoidance.Move, forward, 0.0, yaw)
+            except ValueError:
+                raise
             except Exception as exc:
                 self._fault = f"velocity command failed: {exc}"
                 await self._release_locked(use_stop=True)
@@ -350,6 +381,7 @@ class Go2Motion:
             except Exception as exc:  # noqa: BLE001 - best-effort safety release
                 errors.append(f"{label}: {exc}")
         self._lease = None
+        self._mode = None
         self._avoidance_enabled = False
         self._remote_api_enabled = False
         self._last_verify_at = None

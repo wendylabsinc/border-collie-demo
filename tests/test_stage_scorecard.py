@@ -93,6 +93,46 @@ def test_empty_session_scores_null():
     criteria = score_session({"target_runs": 10, "runs": []})["criteria"]
     assert all(c["passed"] is None for c in criteria.values())
 
+    qualified = score_session(
+        {
+            "target_runs": 10,
+            "qualified_fruits": ["apple", "banana", "pear"],
+            "runs": [],
+        }
+    )["criteria"]
+    assert qualified["fruit_coverage"]["passed"] is None
+
+
+def test_partial_session_does_not_report_completion():
+    criteria = score_session({"target_runs": 10, "runs": [make_run(1)]})["criteria"]
+    assert criteria["completion"]["passed"] is False
+
+
+def test_coverage_includes_qualified_fruits_not_yet_attempted():
+    session = {
+        "target_runs": 4,
+        "qualified_fruits": ["apple", "banana", "pear"],
+        "runs": [
+            make_run(1, "apple"),
+            make_run(2, "apple"),
+            make_run(3, "pear"),
+            make_run(4, "pear"),
+        ],
+    }
+    coverage = score_session(session)["criteria"]["fruit_coverage"]
+    assert coverage["passed"] is False
+    assert coverage["per_fruit"]["banana"] == {"attempts": 0, "successes": 0}
+
+
+def test_home_gate_fails_when_any_run_lacks_a_measurement():
+    missing = make_run(2)
+    missing["home_distance_m"] = None
+    gate = score_session(
+        {"target_runs": 2, "runs": [make_run(1), missing]}
+    )["criteria"]["home_gate"]
+    assert gate["passed"] is False
+    assert gate["missing_measurements"] == 1
+
 
 def test_observations_capture_lighting_signals():
     session = {

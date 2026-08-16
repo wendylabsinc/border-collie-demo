@@ -22,32 +22,46 @@ fail-closed camera rules) belongs to the deployed application, and a latched
 restart-required state aborts the session immediately.
 
 Usage:
-    python3 scripts/fruit_soak.py --host 192.168.0.107 --runs 10 --seed 7 \
+    python3 scripts/fruit_soak.py --host 192.168.0.107 --runs 10 --seed 20260810 \
+        --expected-build-label "base-soak-v1 (demo/base)" \
+        --expected-fruits apple banana pear \
         --note "apple at 94in; banana and pear at 84in" \
-        --dongle-match "USB Audio" --device-probes
+        --dongle-match "DJI MIC MINI" --device-probes
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import random
+import os
 import shutil
 import subprocess
-import threading
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
+PROJECT_SRC = str(Path(__file__).resolve().parents[1] / "src")
+if PROJECT_SRC not in sys.path:  # direct checkout invocation
+    sys.path.insert(0, PROJECT_SRC)
+
+from border_collie_demo.cohort_policy import (  # noqa: E402
+    CohortPolicy,
+    FailureSelector,
+    choose_fruit_sequence,
+    decide_terminal_run,
+    evaluate_home_clearance,
+)
+
 try:  # package import (tests) or direct script execution
     from scripts.stage_scorecard import score_session
 except ImportError:  # pragma: no cover - script-invocation path
     from stage_scorecard import score_session
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 POLL_INTERVAL_S = 1.5
 READY_TIMEOUT_S = 90.0
 RUN_TIMEOUT_S = 180.0
@@ -95,8 +109,11 @@ class ApiClient:
     def fruits(self) -> dict:
         return self._request(f"{self.base_url}/api/fruits")
 
-    def activate(self, fruit: str) -> dict:
-        return self._request(f"{self.base_url}/api/run", "POST", {"target_fruit": fruit})
+    def activate(self, fruit: str, activation_id: str | None = None) -> dict:
+        payload = {"target_fruit": fruit, "activation_source": "soak"}
+        if activation_id is not None:
+            payload["activation_id"] = activation_id
+        return self._request(f"{self.base_url}/api/run", "POST", payload)
 
     def result(self, run_id: str) -> dict:
         return self._request(f"{self.base_url}/api/results/{run_id}")
@@ -279,11 +296,20 @@ def dongle_check(sources: dict | None, match: str | None) -> dict:
 
 
 def draw_fruit_sequence(qualified: list[str], runs: int, seed: int) -> list[str]:
-    """Seeded uniform draw so a session's fruit order is reproducible."""
-    if not qualified:
-        raise HarnessAbort("deployed build reports no qualified fruits")
-    rng = random.Random(seed)
-    return [rng.choice(sorted(qualified)) for _ in range(runs)]
+    """Build a seeded, balanced sequence with a reproducibly random order.
+
+    Balance matters for acceptance: ten independent choices can schedule one
+    of three fruits only once, making the scorecard's two-successes-per-fruit
+    criterion impossible before the robot moves. Every fruit therefore gets
+    either ``runs // fruit_count`` or one additional attempt, while the extra
+    slots and final order remain seeded and random.
+    """
+    try:
+        return choose_fruit_sequence(CohortPolicy(runs=runs, seed=seed), qualified)
+    except ValueError as exc:
+        if runs <= 0:
+            raise HarnessAbort("run count must be greater than zero") from exc
+        raise HarnessAbort(str(exc)) from exc
 
 
 def take_sample(
@@ -516,6 +542,18 @@ def wait_for_terminal(
         sleep(POLL_INTERVAL_S)
 
 
+def read_inter_run_clearance(client: ApiClient, prior_run_id: str) -> dict:
+    """Independently prove that a terminal run cleared Home before reuse."""
+    status = client.status()
+    mission = status.get("mission") or {}
+    if mission.get("restart_required"):
+        raise HarnessAbort(
+            "application latched restart-required "
+            f"({mission.get('reason')}); session cannot continue"
+        )
+    return evaluate_home_clearance(status, prior_run_id)
+
+
 def run_session(
     client: ApiClient,
     *,
@@ -527,15 +565,37 @@ def run_session(
     device_probe: DeviceProbe | None = None,
     dongle_match: str | None = None,
     note: str | None = None,
+    expected_build_label: str | None = None,
+    expected_fruits: list[str] | None = None,
     keep_samples: bool = True,
+    policy: CohortPolicy | None = None,
     sleep=time.sleep,
     log=print,
 ) -> dict:
+    policy = policy or CohortPolicy(runs=runs, seed=seed)
+    if policy.runs != runs or policy.seed != seed:
+        raise HarnessAbort("policy runs and seed must match the session arguments")
     temp_sampler = ThreadedTempSampler(temp_source or TempSource())
     status = wait_for_ready(client)
     build_label = status.get("build_label", "unlabelled")
+    if expected_build_label is not None and build_label != expected_build_label:
+        raise HarnessAbort(
+            f"expected build {expected_build_label!r}, got {build_label!r}; "
+            "no run was activated"
+        )
     qualified = list(client.fruits().get("qualified_fruits", []))
-    sequence = draw_fruit_sequence(qualified, runs, seed)
+    if expected_fruits is not None:
+        expected = sorted(set(expected_fruits))
+        actual = sorted(set(qualified))
+        if actual != expected:
+            raise HarnessAbort(
+                f"expected qualified fruits {expected!r}, got {actual!r}; "
+                "no run was activated"
+            )
+    try:
+        sequence = choose_fruit_sequence(policy, qualified)
+    except ValueError as exc:
+        raise HarnessAbort(str(exc)) from exc
     log(f"build: {build_label}")
     log(f"qualified fruits: {', '.join(qualified)}")
     log(f"seed {seed} -> sequence: {', '.join(sequence)}")
@@ -548,6 +608,7 @@ def run_session(
         "qualified_fruits": qualified,
         "target_runs": runs,
         "seed": seed,
+        "policy": policy.to_dict(),
         "fruit_sequence": sequence,
         "temperature_source": (
             temp_sampler.source.url
@@ -564,7 +625,12 @@ def run_session(
     def persist() -> None:
         session["scorecard"] = score_session(session)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(json.dumps(session, indent=2) + "\n")
+        temporary_path = output_path.with_suffix(output_path.suffix + ".tmp")
+        with temporary_path.open("w", encoding="utf-8") as handle:
+            handle.write(json.dumps(session, indent=2) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, output_path)
 
     persist()
     temp_sampler.start()
@@ -585,11 +651,19 @@ def run_session(
                 preflight["wifi_before"] = device_probe.wifi_status()
             lighting_frame = capture_lighting_frame(client, frames_dir, number)
             log(f"run {number}/{runs}: activating {fruit}")
-            run_id = client.activate(fruit)["run"]["run_id"]
+            activation_id = f"{session['session']}:run-{number}"
+            try:
+                run_id = client.activate(fruit, activation_id=activation_id)["run"]["run_id"]
+            except Exception as exc:
+                raise HarnessAbort(
+                    f"run {number} activation outcome is ambiguous; "
+                    f"no automatic retry will be attempted: {exc}"
+                ) from exc
             run, samples, harness_note = wait_for_terminal(
                 client, run_id, target_fruit=fruit, temp_sampler=temp_sampler
             )
             record = summarize_run(run, fruit, number)
+            record["activation_id"] = activation_id
             record["lighting_frame"] = lighting_frame
             record["stage_telemetry"] = aggregate_stage_telemetry(samples)
             record["network"] = summarize_network(samples)
@@ -603,12 +677,50 @@ def run_session(
                 record["harness_note"] = harness_note
             session["runs"].append(record)
             persist()
+            decision = decide_terminal_run(run, policy)
+            record["cohort_decision"] = decision
+            if decision["action"] == "AWAIT_HOME_CLEARANCE":
+                clearance = read_inter_run_clearance(client, run_id)
+                record["inter_run_clearance"] = clearance
+                if clearance["safe_to_continue"]:
+                    decision["action"] = (
+                        "CONTINUE" if number < runs else "COHORT_COMPLETE"
+                    )
+                    decision["clearance_code"] = (
+                        "HOME_CLEARANCE_PASSED"
+                        if number < runs
+                        else "TARGET_RUN_COUNT_REACHED"
+                    )
+                    decision["detail"] += "; fresh exact-run Home clearance passed"
+                else:
+                    decision["action"] = "STOP_COHORT"
+                    decision["clearance_code"] = "HOME_CLEARANCE_BLOCKED"
+                    decision["detail"] += "; fresh exact-run Home clearance failed"
+            persist()
             log(
                 f"run {number}/{runs}: {record['outcome']} / {record['reason']}"
                 f" | home {record['home_distance_m']}"
                 f" | polls {record['network']['poll_count']}"
                 f" (errors {record['network']['error_count']})"
             )
+            if decision["action"] == "STOP_COHORT":
+                if decision.get("clearance_code") == "HOME_CLEARANCE_BLOCKED":
+                    raise HarnessAbort(
+                        f"run {number} did not prove return to its captured Home; "
+                        + (
+                            "the next run was not activated"
+                            if number < runs
+                            else "the cohort ended without Home clearance"
+                        )
+                    )
+                raise HarnessAbort(
+                    f"run {number} stopped the cohort: {decision['detail']}; "
+                    + (
+                        "the next run was not activated"
+                        if number < runs
+                        else "the cohort ended"
+                    )
+                )
     except HarnessAbort as abort:
         session["aborted"] = str(abort)
         persist()
@@ -633,10 +745,48 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=8110)
     parser.add_argument("--sidecar-port", type=int, default=8111)
     parser.add_argument("--agent", default=None, help="wendy agent host:port for device probes")
-    parser.add_argument("--runs", type=int, default=10)
+    parser.add_argument("--runs", type=int, default=5)
     parser.add_argument("--seed", type=int, default=None, help="default: current epoch seconds")
+    parser.add_argument(
+        "--fixed-fruit",
+        choices=("apple", "banana", "pear"),
+        default=None,
+        help="repeat one Target Fruit instead of a seeded randomized sequence",
+    )
+    parser.add_argument(
+        "--tolerate-reason",
+        action="append",
+        default=[],
+        help=(
+            "terminal reason allowed to cross only the exact-zero fresh-Home "
+            "cohort boundary; repeat for more reasons"
+        ),
+    )
+    parser.add_argument(
+        "--tolerate-phase",
+        action="append",
+        default=[],
+        help=(
+            "failed phase allowed to cross only the exact-zero fresh-Home "
+            "cohort boundary; repeat for more phases"
+        ),
+    )
     parser.add_argument("--cooldown", type=float, default=COOLDOWN_S)
     parser.add_argument("--note", default=None, help="session context, e.g. fruit placements")
+    parser.add_argument(
+        "--expected-build-label",
+        default=None,
+        help=(
+            "abort before activation unless /api/status reports this exact "
+            "build label"
+        ),
+    )
+    parser.add_argument(
+        "--expected-fruits",
+        nargs="+",
+        default=None,
+        help="abort before activation unless these are the exact qualified fruits",
+    )
     parser.add_argument("--temp-url", default=None, help="HTTP JSON endpoint of temperatures")
     parser.add_argument("--temp-cmd", default=None, help="shell command printing temperature JSON")
     parser.add_argument("--no-temps", action="store_true", help="disable temperature sampling")
@@ -657,10 +807,21 @@ def main(argv: list[str] | None = None) -> int:
     if not args.no_temps and not args.temp_url and not args.temp_cmd:
         temp_agent = agent  # default: device thermal zones via wendy top
     try:
+        policy = CohortPolicy(
+            runs=args.runs,
+            randomized=args.fixed_fruit is None,
+            target_fruit=args.fixed_fruit,
+            seed=seed,
+            tolerated_failures=tuple(
+                [FailureSelector(reason=value) for value in args.tolerate_reason]
+                + [FailureSelector(failed_phase=value) for value in args.tolerate_phase]
+            ),
+        )
         session = run_session(
             client,
             runs=args.runs,
             seed=seed,
+            policy=policy,
             output_path=output,
             cooldown_s=args.cooldown,
             temp_source=TempSource()
@@ -669,8 +830,13 @@ def main(argv: list[str] | None = None) -> int:
             device_probe=DeviceProbe(agent, args.device_probes),
             dongle_match=args.dongle_match,
             note=args.note,
+            expected_build_label=args.expected_build_label,
+            expected_fruits=args.expected_fruits,
             keep_samples=not args.no_samples,
         )
+    except HarnessAbort as exc:
+        print(f"session aborted: {exc}", file=sys.stderr)
+        return 1
     except urllib.error.URLError as exc:
         print(f"cannot reach the demo app: {exc}", file=sys.stderr)
         return 2

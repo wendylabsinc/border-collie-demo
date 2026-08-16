@@ -10,7 +10,12 @@ from typing import Any
 from urllib.request import Request, urlopen
 
 from .config import PerceptionConfig
-from .fruits import SUPPORTED_FRUITS, fruit_policy
+from .fruits import (
+    SUPPORTED_FRUITS,
+    fruit_policy,
+    mango_color_confidence,
+    mango_raw_confidence,
+)
 
 SOURCE_MAXIMUM_AGE_S = 0.350
 SOURCE_MINIMUM_CONSECUTIVE_FRAMES = 10
@@ -21,6 +26,7 @@ DETECTION_MAXIMUM_AGE_S = 0.250
 
 StatusFetcher = Callable[[str, float], dict[str, Any]]
 TargetPoster = Callable[[str, str, float], dict[str, Any]]
+JsonPoster = Callable[[str, dict[str, object], float], dict[str, Any]]
 Clock = Callable[[], float]
 
 
@@ -33,11 +39,13 @@ class PerceptionStatusClient:
         *,
         fetcher: StatusFetcher | None = None,
         target_poster: TargetPoster | None = None,
+        json_poster: JsonPoster | None = None,
         clock: Clock = time.monotonic,
     ) -> None:
         self.config = config or PerceptionConfig()
         self._fetcher = fetcher or _fetch_status
         self._target_poster = target_poster or _post_target
+        self._json_poster = json_poster or _post_json
         self._clock = clock
 
     def select_target(self, target_fruit: str) -> dict[str, object]:
@@ -75,11 +83,33 @@ class PerceptionStatusClient:
                 "detail": f"camera/perception status unavailable: {exc}",
             }
 
+    def coco_test_status(self) -> dict[str, object]:
+        if not self.config.enabled:
+            raise RuntimeError("production camera/perception adapter is disabled")
+        return self._fetcher(self.config.coco_test_url, self.config.timeout_s)
+
+    def configure_coco_test(
+        self, payload: dict[str, object]
+    ) -> dict[str, object]:
+        if not self.config.enabled:
+            raise RuntimeError("production camera/perception adapter is disabled")
+        return self._json_poster(
+            self.config.coco_test_url,
+            payload,
+            max(self.config.timeout_s, 10.0),
+        )
+
     def camera_frame(self) -> bytes:
+        return self._camera_frame(self.config.frame_url)
+
+    def raw_camera_frame(self) -> bytes:
+        return self._camera_frame(self.config.raw_frame_url)
+
+    def _camera_frame(self, url: str) -> bytes:
         if not self.config.enabled:
             raise RuntimeError("production camera/perception adapter is disabled")
         request = Request(
-            self.config.frame_url,
+            url,
             headers={"Accept": "image/jpeg"},
         )
         with urlopen(request, timeout=self.config.timeout_s) as response:
@@ -159,6 +189,17 @@ def evaluate_perception_evidence(
     detection_age_s = _age(now_s, detection_completed_s)
     bbox = _bounding_box(detection.get("bbox_xyxy"), source_width, source_height)
     inference_passes = _whole_number(detection.get("inference_passes"))
+    color_identity = detection.get("color_identity")
+    if color_identity not in {"red_apple", "orange", "unknown"}:
+        color_identity = "unknown"
+    color_confidence = _finite_number(detection.get("color_confidence"))
+    raw_label = detection.get("raw_label")
+    raw_confidence = _finite_number(detection.get("raw_confidence"))
+    raw_bbox = _bounding_box(
+        detection.get("raw_bbox_xyxy"), source_width, source_height
+    )
+    derived_identity = detection.get("derived_identity")
+    derived_confidence = _finite_number(detection.get("derived_confidence"))
     raw_crop_confirmation = detection.get("crop_confirmation")
     if isinstance(raw_crop_confirmation, dict):
         crop_confirmation: dict[str, object] | None = {
@@ -188,6 +229,16 @@ def evaluate_perception_evidence(
         crop_confirmation = None
     if not isinstance(label, str) or label.casefold().strip() != target_fruit:
         violations.append(f"qualifying {target_fruit} detection is missing")
+    if target_fruit == "mango" and (
+        raw_label != "bowl"
+        or raw_confidence is None
+        or raw_confidence <= mango_raw_confidence()
+        or raw_bbox is None
+        or derived_identity != "mango"
+        or derived_confidence is None
+        or derived_confidence < mango_color_confidence()
+    ):
+        violations.append("derived Mango identity evidence is missing or unqualified")
     if detection_generation != generation:
         violations.append(
             f"{target_fruit} detection generation does not match camera generation"
@@ -266,6 +317,13 @@ def evaluate_perception_evidence(
             "consecutive_detections": detection_count,
             "inference_s": inference_s,
             "inference_passes": inference_passes,
+            "color_identity": color_identity,
+            "color_confidence": color_confidence,
+            "raw_label": raw_label,
+            "raw_confidence": raw_confidence,
+            "raw_bbox_xyxy": None if raw_bbox is None else list(raw_bbox),
+            "derived_identity": derived_identity,
+            "derived_confidence": derived_confidence,
             "crop_confirmation": crop_confirmation,
             "completed_monotonic_s": detection_completed_s,
             "age_s": detection_age_s,
@@ -301,7 +359,13 @@ def _fetch_status(url: str, timeout_s: float) -> dict[str, Any]:
 
 
 def _post_target(url: str, target_fruit: str, timeout_s: float) -> dict[str, Any]:
-    body = json.dumps({"target_fruit": target_fruit}).encode("utf-8")
+    return _post_json(url, {"target_fruit": target_fruit}, timeout_s)
+
+
+def _post_json(
+    url: str, payload_body: dict[str, object], timeout_s: float
+) -> dict[str, Any]:
+    body = json.dumps(payload_body).encode("utf-8")
     request = Request(
         url,
         data=body,
@@ -314,7 +378,7 @@ def _post_target(url: str, target_fruit: str, timeout_s: float) -> dict[str, Any
     with urlopen(request, timeout=timeout_s) as response:
         payload = json.load(response)
     if not isinstance(payload, dict):
-        raise TypeError("fruit target response must be a JSON object")
+        raise TypeError("perception response must be a JSON object")
     return payload
 
 

@@ -23,7 +23,8 @@ required and the application must not silently adjust the captured Home pose.
 
 Preflight records explicit checks for durable Run Result storage, connected
 hardware, the autonomous-motion gate, fresh pose, disarmed application motion,
-an advancing healthy camera/perception source, and bark-media readiness. Target Fruit
+and an advancing healthy camera/perception source. Bark status is observable
+but is not a motion-readiness gate. Target Fruit
 evidence is intentionally not an activation gate. The initial search is
 conditional: at the start of both search stages, fresh qualified evidence for
 the selected Target Fruit records
@@ -55,18 +56,37 @@ combine forward input with bounded yaw to steer toward the fruit. Confirmed
 near-fruit geometry arms the lower-edge Arrival gate; it does not command a
 zero-motion hold. While the fresh Target Fruit remains visible, forward
 approach continues. Every forward heartbeat is counted, including the single
-bounded 0.3 m/s by 1.0-second push after qualified lower-edge disappearance.
+bounded final push after qualified lower-edge disappearance. Its one-run
+defaults are `0.60 m/s` by `1.0 s`; the activation may safely select
+`0.50..1.0 m/s` and either zero duration (disabled) or `0.10..1.50 s` without a
+rebuild or redeploy.
 
 An acquired red-apple track may survive its observed close-range confidence
 collapse only while its box remains low and spatially continuous with the last
 accepted box. This continuation cannot acquire a fruit, and discontinuous or
 missing evidence commands zero motion.
-Arrival releases motion before `SIT_AND_BARK`; Woof barks while down and holds
-that posture for 5 seconds before `STAND` may begin. After the measured turn
-toward Home,
-`RETURN_HOME` replays the recorded number of forward heartbeats at the same
-1.0 m/s signal. Heading-only corrections do not consume a forward heartbeat;
-bounded course correction may accompany forward replay after approach.
+Arrival releases motion before `SIT_AND_BARK`; Woof stops, settles, lies down,
+and attempts the direct bark. Bark is audience feedback, not a success gate:
+failure records bounded detail and `bark_played: false`, but the five-second
+down hold still completes before `STAND` begins.
+
+`TURN_TOWARD_HOME` is the sole yaw-only Home alignment phase. It uses the
+regular SportClient path and must finish on a new fresh pose whose measured
+bearing is inside the configured course gate. Only then may `RETURN_HOME` arm
+factory obstacle avoidance and replay forward heartbeats with bounded yaw
+steering. Moving yaw is exactly zero inside the configured deadband (5 degrees
+by default). Outside that deadband, each non-zero correction is at least the
+physically verified 0.50 rad/s signal and no greater than the configured
+maximum. Both values are frozen in the per-run tuning snapshot and exposed in
+the UI. Once translation starts it never falls back to yaw-only correction; a
+heading escape outside the qualified forward-steering gate (20 degrees by
+default) stops and fails closed.
+
+The bounded failed-run epilogue uses the same two-phase Home contract after its
+down/hold/stand posture sequence: it first proves a fresh bearing within 5
+degrees through regular SportClient yaw, confirms exact-zero disarm, and only
+then permits the factory-avoidance position return. A failed or unverifiable
+alignment records its own evidence and never authorizes forward recovery.
 
 Return-to-Home must not use open-ended recovery. Loss of trustworthy pose or
 failure to make bounded progress must stop and disarm Woof, terminate the run

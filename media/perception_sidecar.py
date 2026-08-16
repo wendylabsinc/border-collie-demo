@@ -26,19 +26,23 @@ from uuid import uuid4
 from fastapi import FastAPI, HTTPException, Response
 from pydantic import BaseModel
 
+from media.coco_tester import CocoTester
+from media.fruit_color import classify_bbox_color
 from media.model_router import FruitCandidate, FruitModelRouter, RoutedPrediction
 
-FRUIT_ACQUISITION_CONFIDENCE = {
-    "apple": 0.70,
-    "banana": 0.20,
-    "pear": 0.65,
-}
-SUPPORTED_FRUITS = tuple(FRUIT_ACQUISITION_CONFIDENCE)
+SUPPORTED_FRUITS = ("apple", "banana", "mango", "pear")
+GENERAL_MODEL_FRUITS = ("apple", "pear", "mango")
 SEARCH_CROP_FRUITS = frozenset({"apple", "banana"})
 
 
 class TargetFruitRequest(BaseModel):
-    target_fruit: Literal["apple", "banana", "pear"]
+    target_fruit: Literal["apple", "banana", "mango", "pear"]
+
+
+class CocoTestRequest(BaseModel):
+    enabled: bool
+    minimum_confidence: float | None = None
+    reset: bool = False
 
 
 @dataclass(frozen=True)
@@ -380,10 +384,7 @@ class PerceptionEvidence:
             advances = (
                 self._last_detection_pts is None or pts > self._last_detection_pts
             )
-            qualified = confidence >= FRUIT_ACQUISITION_CONFIDENCE[self._target_fruit]
-            self._detection_count = (
-                self._detection_count + 1 if advances and qualified else 0
-            )
+            self._detection_count = self._detection_count + 1 if advances else 0
             self._last_detection_pts = pts
             self._detection = {
                 "source_pts": pts,
@@ -408,7 +409,7 @@ class PerceptionEvidence:
 
     def select_target(self, target_fruit: str) -> None:
         normalized = target_fruit.casefold().strip()
-        if normalized not in FRUIT_ACQUISITION_CONFIDENCE:
+        if normalized not in SUPPORTED_FRUITS:
             raise ValueError(f"unsupported Target Fruit: {target_fruit}")
         with self._lock:
             if normalized == self._target_fruit:
@@ -447,6 +448,15 @@ class PerceptionRuntime:
         self.banana_specialist_minimum_agreement_iou = float(
             os.environ.get("BANANA_SPECIALIST_MIN_IOU", "0.10")
         )
+        self.mango_model_path = os.environ.get(
+            "MANGO_MODEL_PATH", "/models/yolo11n.pt"
+        ).strip()
+        self.mango_minimum_raw_confidence = float(
+            os.environ.get("BORDER_COLLIE_MANGO_RAW_CONFIDENCE", "0.08")
+        )
+        self.mango_minimum_color_confidence = float(
+            os.environ.get("BORDER_COLLIE_MANGO_COLOR_CONFIDENCE", "0.80")
+        )
         self.bark_uuid = os.environ.get(
             "BORDER_COLLIE_BARK_UUID",
             "161387de-21ab-4f0b-b4e9-97124b000d06",
@@ -463,12 +473,20 @@ class PerceptionRuntime:
             os.environ.get("EVIDENCE_FRAME_INTERVAL_S", "0.5")
         )
         self._crop_confirm = CropConfirmConfig.from_env()
+        self._coco_tester = CocoTester(
+            model_path=os.environ.get(
+                "COCO_TEST_MODEL_PATH", "/models/yolo11n.pt"
+            ).strip(),
+            interval_s=float(os.environ.get("COCO_TEST_INTERVAL_S", "0.5")),
+        )
         self._last_evidence_capture_s: float | None = None
         self._connection: Any | None = None
         self._audiohub: Any | None = None
         self._detector_task: asyncio.Task[None] | None = None
         self._model: Any | None = None
         self._banana_specialist_model: Any | None = None
+        self._mango_model: Any | None = None
+        self._mango_class_ids: dict[str, int] = {}
         self._model_router: FruitModelRouter | None = None
         self._fruit_class_ids: dict[str, int] = {}
         self._target_lock = Lock()
@@ -501,9 +519,11 @@ class PerceptionRuntime:
             str(label).casefold().strip(): int(class_id) for class_id, label in items
         }
         self._fruit_class_ids = {
-            fruit: available[fruit] for fruit in SUPPORTED_FRUITS if fruit in available
+            fruit: available[fruit]
+            for fruit in GENERAL_MODEL_FRUITS
+            if fruit in available
         }
-        missing = sorted(set(SUPPORTED_FRUITS) - set(self._fruit_class_ids))
+        missing = sorted(set(GENERAL_MODEL_FRUITS) - set(self._fruit_class_ids))
         if missing:
             raise RuntimeError(
                 "fruit model is missing required classes: " + ", ".join(missing)
@@ -530,6 +550,32 @@ class PerceptionRuntime:
                 raise RuntimeError(
                     "banana specialist model is missing required banana class"
                 ) from exc
+        self._mango_model = await loop.run_in_executor(
+            self._inference_executor,
+            partial(YOLO, self.mango_model_path, task="detect"),
+        )
+        mango_names = getattr(self._mango_model, "names", {})
+        mango_items = (
+            mango_names.items()
+            if isinstance(mango_names, dict)
+            else enumerate(mango_names)
+        )
+        mango_classes = {
+            str(label).casefold().strip(): int(class_id)
+            for class_id, label in mango_items
+        }
+        required_mango_labels = ("sports ball", "bowl")
+        missing_mango_labels = [
+            label for label in required_mango_labels if label not in mango_classes
+        ]
+        if missing_mango_labels:
+            raise RuntimeError(
+                "Mango COCO model is missing required classes: "
+                + ", ".join(missing_mango_labels)
+            )
+        self._mango_class_ids = {
+            label: mango_classes[label] for label in required_mango_labels
+        }
         self._model_router = FruitModelRouter(
             general_model=self._model,
             general_class_ids=self._fruit_class_ids,
@@ -539,6 +585,10 @@ class PerceptionRuntime:
             banana_minimum_agreement_iou=(
                 self.banana_specialist_minimum_agreement_iou
             ),
+            mango_model=self._mango_model,
+            mango_class_ids=self._mango_class_ids,
+            mango_minimum_raw_confidence=self.mango_minimum_raw_confidence,
+            mango_minimum_color_confidence=self.mango_minimum_color_confidence,
         )
         self._connection = UnitreeWebRTCConnection(
             WebRTCConnectionMethod.LocalSTA,
@@ -575,6 +625,7 @@ class PerceptionRuntime:
             **self.evidence.status(),
             "bark_ready": self._audiohub is not None and bool(self.bark_uuid),
             "crop_confirm": asdict(self._crop_confirm),
+            "coco_test": self._coco_tester.status(),
             "model_router": (
                 self._model_router.status()
                 if self._model_router is not None
@@ -595,17 +646,42 @@ class PerceptionRuntime:
 
     def select_target(self, target_fruit: str) -> dict[str, object]:
         normalized = target_fruit.casefold().strip()
-        if normalized not in FRUIT_ACQUISITION_CONFIDENCE:
+        if normalized not in SUPPORTED_FRUITS:
             raise ValueError(f"unsupported Target Fruit: {target_fruit}")
-        if self._fruit_class_ids and normalized not in self._fruit_class_ids:
-            raise RuntimeError(f"model class is unavailable for {normalized}")
+        # A fruit carried by the general model is served directly. Mango falls
+        # back to the derived COCO route only while the general model lacks it.
+        if not self._fruit_class_ids or normalized not in self._fruit_class_ids:
+            if normalized == "mango":
+                if self._model is not None and self._mango_model is None:
+                    raise RuntimeError("Mango derived model route is unavailable")
+            elif self._fruit_class_ids:
+                raise RuntimeError(f"model class is unavailable for {normalized}")
         with self._target_lock:
             self._target_fruit = normalized
             self.evidence.select_target(normalized)
+        self._coco_tester.configure(enabled=False)
         return {
             "target_fruit": normalized,
             "supported_fruits": list(SUPPORTED_FRUITS),
         }
+
+    async def configure_coco_test(
+        self,
+        *,
+        enabled: bool,
+        minimum_confidence: float | None = None,
+        reset: bool = False,
+    ) -> dict[str, object]:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._inference_executor,
+            partial(
+                self._coco_tester.configure,
+                enabled=enabled,
+                minimum_confidence=minimum_confidence,
+                reset=reset,
+            ),
+        )
 
     def camera_frame(self) -> bytes:
         with self._preview_lock:
@@ -692,6 +768,7 @@ class PerceptionRuntime:
         with self._target_lock:
             target_fruit = self._target_fruit
         bgr = frame.to_ndarray(format="bgr24")
+        self._coco_tester.observe(bgr, pts=pts)
         started = time.monotonic()
         try:
             full_frame_prediction = self._predict_candidate(
@@ -747,6 +824,7 @@ class PerceptionRuntime:
                 candidate is not None
                 and not search_crop["attempted"]
                 and not bool(full_frame_prediction.route.get("triggered"))
+                and full_frame_prediction.route.get("mode") != "mango_derived"
                 and self._should_crop_confirm(
                     candidate,
                     width=int(bgr.shape[1]),
@@ -831,6 +909,19 @@ class PerceptionRuntime:
         # close-range continuation path (floors as low as 0.10).
         confidence = candidate.confidence
         bbox = candidate.bbox_xyxy
+        color = classify_bbox_color(bgr, bbox)
+        full_route = full_frame_prediction.route
+        mango_details = (
+            {
+                "raw_label": full_route.get("raw_label"),
+                "raw_confidence": full_route.get("raw_confidence"),
+                "raw_bbox_xyxy": full_route.get("raw_bbox_xyxy"),
+                "derived_identity": full_route.get("derived_identity"),
+                "derived_confidence": full_route.get("derived_confidence"),
+            }
+            if target_fruit == "mango" and full_route.get("mode") == "mango_derived"
+            else {}
+        )
         detection = self.evidence.note_detection(
             pts=pts,
             label=target_fruit,
@@ -843,6 +934,10 @@ class PerceptionRuntime:
                 "model_route": model_route,
                 "crop_confirmation": crop_confirmation,
                 "search_crop": search_crop,
+                "color_identity": color["identity"],
+                "color_confidence": color["confidence"],
+                "color_evidence": color,
+                **mango_details,
             },
         )
         if detection is None:
@@ -990,6 +1085,21 @@ def create_app(runtime: PerceptionRuntime | None = None) -> FastAPI:
             return media.select_target(request.target_fruit)
         except Exception as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.get("/api/coco-test")
+    async def coco_test_status() -> dict[str, object]:
+        return media.status()["coco_test"]
+
+    @app.post("/api/coco-test")
+    async def configure_coco_test(request: CocoTestRequest) -> dict[str, object]:
+        try:
+            return await media.configure_coco_test(
+                enabled=request.enabled,
+                minimum_confidence=request.minimum_confidence,
+                reset=request.reset,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     @app.post("/api/bark")
     async def bark() -> dict[str, object]:

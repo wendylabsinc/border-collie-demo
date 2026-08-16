@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "recorded_at_utc": "2026-08-16T00:02:12.188368+00:00",
+  "cohort_id": "f2a8a174-08e5-4e3f-81f9-81f999a73580",
+  "build_label": "stage-default-v4-cohort-subset-stepped-yaw",
+  "code_commit": "71cbc63",
+  "policy": {
+    "runs": 5,
+    "randomized": true,
+    "fruit_subset": [
+      "apple",
+      "pear"
+    ],
+    "seed": 20260815,
+    "tolerated_failures": []
+  },
+  "tuning": {
+    "broad_search_yaw_rps": 0.8,
+    "initial_home_alignment_yaw_rps": 0.8,
+    "focused_alignment_yaw_rps": 0.4,
+    "moving_approach_yaw_rps": 0.3,
+    "in_place_recenter_yaw_rps": 0.5,
+    "moving_home_steering_yaw_rps": 0.5
+  },
+  "summary": {
+    "attempted": 5,
+    "completed": 5,
+    "failed": 0,
+    "success_rate": 1.0,
+    "maximum_home_distance_m": 0.09297409562802147,
+    "all_disarmed_confirmed": true
+  },
+  "runs": [
+    {
+      "number": 1,
+      "run_id": "03b362c3-a0ee-4375-8fc2-8e284ac105a2",
+      "target_fruit": "apple",
+      "outcome": "COMPLETED",
+      "reason": "SUCCESS",
+      "duration_s": 26.50029560200005,
+      "home_distance_m": 0.03202372589613349,
+      "final_safety_state": "DISARMED_CONFIRMED"
+    },
+    {
+      "number": 2,
+      "run_id": "6c9044cd-f827-43e7-b97c-eff69f2390d2",
+      "target_fruit": "apple",
+      "outcome": "COMPLETED",
+      "reason": "SUCCESS",
+      "duration_s": 26.207044358000076,
+      "home_distance_m": 0.053320217040793504,
+      "final_safety_state": "DISARMED_CONFIRMED"
+    },
+    {
+      "number": 3,
+      "run_id": "11e1da06-2e8c-4f36-9435-2ddfa6ecc633",
+      "target_fruit": "pear",
+      "outcome": "COMPLETED",
+      "reason": "SUCCESS",
+      "duration_s": 27.650701990000016,
+      "home_distance_m": 0.07183130663869539,
+      "final_safety_state": "DISARMED_CONFIRMED"
+    },
+    {
+      "number": 4,
+      "run_id": "0b938b62-2227-4ad5-b532-90d149f20cce",
+      "target_fruit": "pear",
+      "outcome": "COMPLETED",
+      "reason": "SUCCESS",
+      "duration_s": 25.293759495000018,
+      "home_distance_m": 0.042891204105872154,
+      "final_safety_state": "DISARMED_CONFIRMED"
+    },
+    {
+      "number": 5,
+      "run_id": "ec60af52-4649-485e-b36a-67f019deb239",
+      "target_fruit": "apple",
+      "outcome": "COMPLETED",
+      "reason": "SUCCESS",
+      "duration_s": 25.180296130999977,
+      "home_distance_m": 0.09297409562802147,
+      "final_safety_state": "DISARMED_CONFIRMED"
+    }
+  ],
+  "post_run": {
+    "active_run_id": null,
+    "active_operation": null,
+    "motion_armed": false,
+    "last_command": {
+      "forward_mps": 0.0,
+      "yaw_rps": 0.0,
+      "reason": "released"
+    },
+    "activation_ready": true,
+    "thermal_alert": "normal",
+    "battery_soc_percent": 95,
+    "hottest_motor_c": 54.0,
+    "imu_c": 79.0
+  },
+  "limitations": [
+    "Application success and Home telemetry do not independently prove audience-side fruit placement quality.",
+    "This cohort compares one stepped-yaw profile only; it is not a paired same-seed baseline A/B.",
+    "Only Apple and Pear were exercised."
+  ]
+}
