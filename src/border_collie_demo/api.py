@@ -156,6 +156,11 @@ def create_app(
     camera_frame: Callable[[], bytes] | None = None,
     raw_camera_frame: Callable[[], bytes] | None = None,
     select_perception_target: Callable[[str], dict[str, object]] | None = None,
+    # Activation selects the Target Fruit through its own seam so a Demo Run
+    # takes the long run-scoped inference lease, while the fruit-test page only
+    # ever gets the short preview one.
+    select_run_perception_target: Callable[[str], dict[str, object]] | None = None,
+    preview_camera_perception: Callable[[], dict[str, object]] | None = None,
     media_status: Callable[[], dict[str, object]] | None = None,
     coco_test_status: Callable[[], dict[str, object]] | None = None,
     configure_coco_test: (
@@ -186,6 +191,7 @@ def create_app(
         }
     )
     read_media = media_status
+    read_preview_perception = preview_camera_perception or read_camera_perception
 
     demo = StageDemo(
         machine,
@@ -193,7 +199,9 @@ def create_app(
         robot,
         read_camera_perception,
         media_status=read_media,
-        select_perception_target=select_perception_target,
+        select_perception_target=(
+            select_run_perception_target or select_perception_target
+        ),
         stage_executor=stage_executor,
         terminal_evidence=terminal_evidence,
         failure_epilogue=failure_epilogue,
@@ -430,9 +438,14 @@ def create_app(
 
     @app.get("/api/fruits/preview")
     async def preview_fruit_status() -> dict[str, object]:
-        """Return the selected fruit's raw live observation without motion."""
+        """Return the selected fruit's raw live observation without motion.
+
+        The fruit-test page polls this while it is open, and each poll renews
+        the short preview lease. Closing the page stops the polling, so the
+        detector falls idle on its own with nothing to switch it off.
+        """
         try:
-            return await asyncio.to_thread(read_camera_perception)
+            return await asyncio.to_thread(read_preview_perception)
         except Exception as exc:
             raise HTTPException(
                 status_code=503,

@@ -49,9 +49,27 @@ def test_production_runtime_wires_the_real_stage_executor(
 
         status = staticmethod(simulated_camera_perception)
 
+        # The run and preview readers renew their inference lease; the plain
+        # status reader deliberately does not. They are distinct callables so
+        # the wiring below can prove which one each consumer was handed.
+        @staticmethod
+        def run_status():
+            return simulated_camera_perception()
+
+        @staticmethod
+        def preview_status():
+            return simulated_camera_perception()
+
         @staticmethod
         def select_target(target_fruit: str):
             return {"target_fruit": target_fruit}
+
+        @staticmethod
+        def select_run_target(target_fruit: str):
+            return {
+                "target_fruit": target_fruit,
+                "inference": {"active": True, "reason": "held"},
+            }
 
         @staticmethod
         def camera_frame():
@@ -118,6 +136,10 @@ def test_production_runtime_wires_the_real_stage_executor(
 
     assert run["outcome"] == "COMPLETED"
     assert created and created[0][0] is hardware
+    # Search, approach and centring all poll perception through this callable,
+    # so it has to be the lease-renewing reader. Wiring the plain one would let
+    # a run outlive its own inference lease and go blind partway through.
+    assert created[0][1] is Perception.run_status
     # The executor must bark through the speaker policy, not the raw sidecar
     # client. Handing it the bare client leaves the Go2 speaker muted, so every
     # bark is accepted and played inaudibly.

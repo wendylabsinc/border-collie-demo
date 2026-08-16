@@ -7,6 +7,7 @@ import math
 import time
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from urllib.request import Request, urlopen
 
 from .config import PerceptionConfig
@@ -49,6 +50,7 @@ class PerceptionStatusClient:
         self._clock = clock
 
     def select_target(self, target_fruit: str) -> dict[str, object]:
+        """Select the Target Fruit, waking inference on the short preview lease."""
         if not self.config.enabled:
             raise RuntimeError("production camera/perception adapter is disabled")
         fruit_policy(target_fruit)
@@ -65,17 +67,73 @@ class PerceptionStatusClient:
             raise RuntimeError("perception sidecar did not acknowledge Target Fruit")
         return payload
 
+    def select_run_target(self, target_fruit: str) -> dict[str, object]:
+        """Select the Target Fruit for a Demo Run and take the run lease.
+
+        Called during activation, before preflight and long before the first
+        search command, so the detector is already warm when guidance starts
+        looking. It has to reach the sidecar twice and both calls are required:
+        a failure raises, activation records it, and preflight fails loudly
+        rather than starting a run whose detector is asleep.
+
+        The ordering is deliberate. Target selection alone already wakes
+        inference on the preview lease, so if the second call is what fails,
+        inference is left *on* with a short lease - never off.
+        """
+        payload = self.select_target(target_fruit)
+        return {**payload, "inference": self.hold_inference("run")}
+
+    def hold_inference(
+        self, reason: str = "run", hold_s: float | None = None
+    ) -> dict[str, object]:
+        if not self.config.enabled:
+            raise RuntimeError("production camera/perception adapter is disabled")
+        body: dict[str, object] = {"hold": reason}
+        if hold_s is not None:
+            body["hold_s"] = hold_s
+        return self._json_poster(
+            self.config.inference_url, body, self.config.timeout_s
+        )
+
+    def release_inference(self, reason: str = "run") -> dict[str, object]:
+        """Drop a lease early. Best effort - expiry is the real release."""
+        if not self.config.enabled:
+            raise RuntimeError("production camera/perception adapter is disabled")
+        return self._json_poster(
+            self.config.inference_url,
+            {"release": reason},
+            self.config.timeout_s,
+        )
+
     def status(self) -> dict[str, object]:
+        """Read evidence without touching the inference lease.
+
+        This is the idle dashboard's reader. It must not renew, or leaving a
+        browser tab open would pin the detector on forever.
+        """
+        return self._status(self.config.status_url)
+
+    def run_status(self) -> dict[str, object]:
+        """Read evidence and renew the run lease.
+
+        Guidance, search and approach all poll perception through this, so a
+        run that is still executing keeps renewing its own lease, and one that
+        has finished simply stops.
+        """
+        return self._status(_status_url_with_hold(self.config.status_url, "run"))
+
+    def preview_status(self) -> dict[str, object]:
+        """Read evidence and renew the preview lease for the fruit-test page."""
+        return self._status(_status_url_with_hold(self.config.status_url, "preview"))
+
+    def _status(self, url: str) -> dict[str, object]:
         if not self.config.enabled:
             return {
                 "ready": False,
                 "detail": "production camera/perception adapter is disabled",
             }
         try:
-            payload = self._fetcher(
-                self.config.status_url,
-                self.config.timeout_s,
-            )
+            payload = self._fetcher(url, self.config.timeout_s)
             return evaluate_perception_evidence(payload, now_s=self._clock())
         except Exception as exc:  # noqa: BLE001 - remote evidence is untrusted
             return {
@@ -270,8 +328,13 @@ def evaluate_perception_evidence(
         violations.append(f"sidecar error: {payload['error']}")
 
     ready = not violations
+    # An idle detector is deliberately NOT a camera violation. The camera
+    # source is healthy whenever frames keep arriving, which is what preflight
+    # and activation gate on; only target_ready needs a live detection.
     camera_healthy = not camera_violations and not payload.get("error")
     target_ready = ready
+    raw_inference = payload.get("inference")
+    inference = dict(raw_inference) if isinstance(raw_inference, dict) else {}
     center_x_ratio = None
     center_y_ratio = None
     bottom_ratio = None
@@ -301,6 +364,7 @@ def evaluate_perception_evidence(
         ),
         "target_fruit": target_fruit,
         "supported_fruits": list(SUPPORTED_FRUITS),
+        "inference": inference,
         "motion_qualified": target_policy.motion_qualified,
         "generation": generation,
         "source": {
@@ -351,6 +415,14 @@ def evaluate_perception_evidence(
             "detection_maximum_age_s": DETECTION_MAXIMUM_AGE_S,
         },
     }
+
+
+def _status_url_with_hold(status_url: str, reason: str) -> str:
+    """Add one hold parameter without disturbing a configured query string."""
+    parts = urlparse(status_url)
+    query = [(key, value) for key, value in parse_qsl(parts.query) if key != "hold"]
+    query.append(("hold", reason))
+    return urlunparse(parts._replace(query=urlencode(query)))
 
 
 def _fetch_status(url: str, timeout_s: float) -> dict[str, Any]:

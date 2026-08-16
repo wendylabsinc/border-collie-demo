@@ -414,6 +414,40 @@ def test_activation_allows_a_healthy_camera_before_pear_is_visible(tmp_path) -> 
         }
 
 
+def test_activation_wakes_inference_before_the_first_search_command(tmp_path) -> None:
+    """The detector must be warm before guidance starts sweeping.
+
+    A qualifying detection needs five consecutive frames, so waking inference
+    at the first search command would leave the start of the sweep blind.
+    Activation therefore takes the run lease while it selects the Target
+    Fruit - before preflight, before Home capture, and well before any motion.
+    """
+    selections: list[tuple[str, str]] = []
+
+    with TestClient(
+        create_app(
+            runs_root=tmp_path,
+            hardware=ReadyHardwareBoundary(),
+            camera_perception_status=healthy_camera_without_pear,
+            select_perception_target=lambda fruit: (
+                selections.append(("preview", fruit)) or {"target_fruit": fruit}
+            ),
+            select_run_perception_target=lambda fruit: (
+                selections.append(("run", fruit)) or {"target_fruit": fruit}
+            ),
+        )
+    ) as client:
+        response = client.post("/api/run", json={"target_fruit": "pear"})
+        run = response.json()["run"]
+
+        assert response.status_code == 201
+        # The run lease was taken, and it was taken by the time the run was
+        # only waiting for its command - no motion has happened yet.
+        assert selections == [("run", "pear")]
+        assert run["current_phase"] == "wait_for_command"
+        assert run["preflight"]["ready"] is True
+
+
 def test_activate_demo_completes_every_stage_with_simulated_adapters(tmp_path) -> None:
     with TestClient(
         create_app(

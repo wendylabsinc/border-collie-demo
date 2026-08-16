@@ -71,14 +71,19 @@ def build_app_from_env() -> FastAPI:
         camera_frame=perception.camera_frame,
         raw_camera_frame=perception.raw_camera_frame,
         select_perception_target=perception.select_target,
+        select_run_perception_target=perception.select_run_target,
+        preview_camera_perception=perception.preview_status,
         coco_test_status=perception.coco_test_status,
         configure_coco_test=perception.configure_coco_test,
         runs_root=runs_root,
         media_status=best_effort_bark_status,
         # Barks go through the audio policy, not the raw sidecar client, so the
         # speaker is unmuted for the sound and re-muted afterwards.
+        # Search, approach and centring poll perception every tick, so routing
+        # the stage executor through run_status is what keeps the run lease
+        # renewed for exactly as long as a run is actually executing.
         stage_executor=ProductionStageExecutor(
-            hardware, perception.status, system_audio
+            hardware, perception.run_status, system_audio
         ),
         system_audio=system_audio,
         terminal_evidence=terminal_evidence.capture,

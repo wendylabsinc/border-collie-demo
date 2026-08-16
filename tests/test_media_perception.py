@@ -879,6 +879,7 @@ def test_media_http_boundary_selects_a_supported_camera_only_target() -> None:
     class Runtime:
         def __init__(self) -> None:
             self.target_fruit = "pear"
+            self.holds: list[str] = []
 
         async def start(self) -> None:
             pass
@@ -893,6 +894,12 @@ def test_media_http_boundary_selects_a_supported_camera_only_target() -> None:
                 "supported_fruits": ["apple", "banana", "pear"],
             }
 
+        def hold_inference(
+            self, reason: str, hold_s: float | None = None
+        ) -> dict[str, object]:
+            self.holds.append(reason)
+            return {"active": True, "reason": "held"}
+
     runtime = Runtime()
     with TestClient(create_app(runtime)) as client:
         response = client.post(
@@ -903,6 +910,10 @@ def test_media_http_boundary_selects_a_supported_camera_only_target() -> None:
     assert response.status_code == 200
     assert response.json()["target_fruit"] == "banana"
     assert runtime.target_fruit == "banana"
+    # Selecting a fruit is what wakes the detector, and an unqualified caller
+    # only ever gets the short preview lease.
+    assert runtime.holds == ["preview"]
+    assert response.json()["inference"]["active"] is True
 
 
 def test_media_http_boundary_configures_only_the_read_only_coco_tester() -> None:

@@ -34,9 +34,22 @@ SUPPORTED_FRUITS = ("apple", "banana", "mango", "pear")
 GENERAL_MODEL_FRUITS = ("apple", "pear", "mango")
 SEARCH_CROP_FRUITS = frozenset({"apple", "banana"})
 
+INFERENCE_HOLD_REASONS = ("run", "preview")
+DEFAULT_INFERENCE_HOLD_S: dict[str, float] = {"run": 120.0, "preview": 20.0}
+MAXIMUM_INFERENCE_HOLD_S = 900.0
+
 
 class TargetFruitRequest(BaseModel):
     target_fruit: Literal["apple", "banana", "mango", "pear"]
+    # Selecting a Target Fruit is the one call every consumer already makes
+    # before it cares about detections, so it is also what wakes inference.
+    hold: Literal["run", "preview"] = "preview"
+
+
+class InferenceHoldRequest(BaseModel):
+    hold: Literal["run", "preview"] | None = None
+    hold_s: float | None = None
+    release: Literal["run", "preview"] | None = None
 
 
 class CocoTestRequest(BaseModel):
@@ -109,6 +122,146 @@ class CropConfirmConfig:
 def configure_media_logging() -> None:
     """Prevent recoverable decoder packet errors from flooding device logs."""
     logging.getLogger("aiortc.codecs.h264").setLevel(logging.ERROR)
+
+
+class InferenceGate:
+    """Decide when the fruit detector is allowed to spend GPU time.
+
+    A YOLO pass per frame keeps the Jetson busy forever, but nothing needs a
+    detection unless a Demo Run or cohort is executing, or the operator is
+    watching the fruit-test page. Consumers therefore take a *named, expiring
+    lease* and the detector sleeps whenever every lease has lapsed.
+
+    Leases expire instead of requiring an explicit release, which fixes the
+    direction of every failure:
+
+    * A crashed or disconnected app stops renewing, so inference falls idle and
+      the robot stops burning power. It is never left stuck on.
+    * It can never be left stuck *off* either, because nothing persists an
+      "off" decision. Every Demo Run takes its lease during activation through
+      a sidecar call the run already depends on, so the next run re-arms the
+      detector whatever happened to the last one.
+
+    ``warmup_s`` keeps a freshly started process hot so the first inference of
+    the day - the slow one, while CUDA and cuDNN finish initialising - is paid
+    for before a run is waiting on it. ``INFERENCE_MAXIMUM_S`` is only 0.200 s,
+    and a cold first pass can exceed it.
+    """
+
+    def __init__(
+        self,
+        *,
+        enabled: bool = True,
+        warmup_s: float = 60.0,
+        default_hold_s: dict[str, float] | None = None,
+        clock: Any = time.monotonic,
+    ) -> None:
+        if not math.isfinite(warmup_s) or warmup_s < 0.0:
+            raise ValueError("inference warmup seconds must be finite and positive")
+        holds = dict(DEFAULT_INFERENCE_HOLD_S)
+        holds.update(default_hold_s or {})
+        for reason, seconds in holds.items():
+            _require_hold_reason(reason)
+            _require_hold_seconds(seconds)
+        self._enabled = bool(enabled)
+        self._warmup_s = float(warmup_s)
+        self._default_hold_s = holds
+        self._clock = clock
+        self._lock = Lock()
+        self._started_s = float(clock())
+        self._deadlines: dict[str, float] = {}
+
+    @classmethod
+    def from_env(cls) -> InferenceGate:
+        return cls(
+            # The kill switch restores the always-on detector in one env var,
+            # so a gate defect never needs a code change on demo day.
+            enabled=os.environ.get("BORDER_COLLIE_INFERENCE_GATE_ENABLED", "1")
+            .strip()
+            .casefold()
+            in {"1", "true", "yes", "on"},
+            warmup_s=float(os.environ.get("BORDER_COLLIE_INFERENCE_WARMUP_S", "60.0")),
+            default_hold_s={
+                "run": float(
+                    os.environ.get("BORDER_COLLIE_INFERENCE_RUN_HOLD_S", "120.0")
+                ),
+                "preview": float(
+                    os.environ.get("BORDER_COLLIE_INFERENCE_PREVIEW_HOLD_S", "20.0")
+                ),
+            },
+        )
+
+    def hold(self, reason: str, hold_s: float | None = None) -> dict[str, object]:
+        """Take or renew one named lease. Renewals never shorten a longer one."""
+        normalized = _require_hold_reason(reason)
+        seconds = (
+            self._default_hold_s[normalized] if hold_s is None else float(hold_s)
+        )
+        _require_hold_seconds(seconds)
+        now = float(self._clock())
+        with self._lock:
+            self._deadlines[normalized] = max(
+                self._deadlines.get(normalized, 0.0),
+                now + seconds,
+            )
+        return self.status()
+
+    def release(self, reason: str) -> dict[str, object]:
+        normalized = _require_hold_reason(reason)
+        with self._lock:
+            self._deadlines.pop(normalized, None)
+        return self.status()
+
+    def active(self) -> bool:
+        if not self._enabled:
+            return True
+        now = float(self._clock())
+        with self._lock:
+            if now - self._started_s < self._warmup_s:
+                return True
+            return any(deadline > now for deadline in self._deadlines.values())
+
+    def status(self) -> dict[str, object]:
+        now = float(self._clock())
+        with self._lock:
+            holds = {
+                reason: deadline - now
+                for reason, deadline in self._deadlines.items()
+                if deadline > now
+            }
+            warmup_remaining_s = max(0.0, self._warmup_s - (now - self._started_s))
+        if not self._enabled:
+            reason = "gate_disabled"
+        elif holds:
+            reason = "held"
+        elif warmup_remaining_s > 0.0:
+            reason = "warmup"
+        else:
+            reason = "idle"
+        return {
+            "active": reason != "idle",
+            "reason": reason,
+            "gate_enabled": self._enabled,
+            "warmup_remaining_s": warmup_remaining_s,
+            "holds": holds,
+            "default_hold_s": dict(self._default_hold_s),
+        }
+
+
+def _require_hold_reason(reason: str) -> str:
+    normalized = str(reason).casefold().strip()
+    if normalized not in INFERENCE_HOLD_REASONS:
+        raise ValueError(f"unsupported inference hold reason: {reason}")
+    return normalized
+
+
+def _require_hold_seconds(seconds: float) -> float:
+    value = float(seconds)
+    if not math.isfinite(value) or not 0.0 < value <= MAXIMUM_INFERENCE_HOLD_S:
+        raise ValueError(
+            f"inference hold seconds must be within (0, {MAXIMUM_INFERENCE_HOLD_S}]"
+        )
+    return value
 
 
 class EvidenceFrameBuffer:
@@ -498,6 +651,14 @@ class PerceptionRuntime:
         self._inference_executor_closed = False
         self._preview_lock = Lock()
         self._preview_jpeg: bytes | None = None
+        self._inference_gate = InferenceGate.from_env()
+        # While inference is idle the loop still publishes an occasional frame
+        # so the operator keeps live video and the evidence buffer stays warm.
+        # It is throttled because the JPEG encode is the only cost left.
+        self._idle_preview_interval_s = float(
+            os.environ.get("BORDER_COLLIE_INFERENCE_IDLE_PREVIEW_INTERVAL_S", "0.5")
+        )
+        self._last_idle_preview_s: float | None = None
 
     async def start(self) -> None:
         configure_media_logging()
@@ -620,9 +781,21 @@ class PerceptionRuntime:
         await self._audiohub.play_by_uuid(self.bark_uuid)
         return {"ok": True, "uuid": self.bark_uuid}
 
+    def hold_inference(
+        self, reason: str, hold_s: float | None = None
+    ) -> dict[str, object]:
+        return self._inference_gate.hold(reason, hold_s)
+
+    def release_inference(self, reason: str) -> dict[str, object]:
+        return self._inference_gate.release(reason)
+
+    def inference_status(self) -> dict[str, object]:
+        return self._inference_gate.status()
+
     def status(self) -> dict[str, object]:
         return {
             **self.evidence.status(),
+            "inference": self._inference_gate.status(),
             "bark_ready": self._audiohub is not None and bool(self.bark_uuid),
             "crop_confirm": asdict(self._crop_confirm),
             "coco_test": self._coco_tester.status(),
@@ -726,14 +899,73 @@ class PerceptionRuntime:
         loop = asyncio.get_running_loop()
         while True:
             frame, received, pts, time_base = await self._frames.get()
+            if self._inference_gate.active():
+                self._last_idle_preview_s = None
+                await loop.run_in_executor(
+                    self._inference_executor,
+                    self._process_frame,
+                    frame,
+                    received,
+                    pts,
+                    time_base,
+                )
+                continue
+            # Idle. Drop most frames before the colour conversion - that and the
+            # model pass are the whole cost. Source evidence is unaffected:
+            # _consume_camera records it, so camera_healthy and preflight still
+            # pass with the detector asleep.
+            if (
+                self._last_idle_preview_s is not None
+                and received - self._last_idle_preview_s
+                < self._idle_preview_interval_s
+            ):
+                continue
+            self._last_idle_preview_s = received
             await loop.run_in_executor(
                 self._inference_executor,
-                self._process_frame,
+                self._process_idle_frame,
                 frame,
                 received,
                 pts,
                 time_base,
             )
+
+    def _process_idle_frame(
+        self,
+        frame: Any,
+        received_monotonic_s: float,
+        pts: int,
+        time_base: str,
+    ) -> None:
+        """Keep preview and evidence alive while paying for no inference."""
+        with self._target_lock:
+            target_fruit = self._target_fruit
+        # No model ran, so there is genuinely no qualifying detection. Say so
+        # rather than letting the last one go stale and look current.
+        self.evidence.note_miss(target_fruit)
+        try:
+            bgr = frame.to_ndarray(format="bgr24")
+        except Exception as exc:  # noqa: BLE001 - frame conversion is untyped
+            # Deliberately not evidence.fail(): that latches an error that is
+            # never cleared, and camera_healthy reads it. A dropped idle
+            # preview frame must not be able to block every future Demo Run.
+            # Source evidence comes from _consume_camera and is untouched.
+            logging.getLogger(__name__).warning(
+                "idle camera preview frame was skipped: %s: %s",
+                type(exc).__name__,
+                exc,
+            )
+            return
+        self._publish_preview(
+            bgr,
+            message=f"IDLE | {target_fruit.upper()} NOT BEING TRACKED",
+            color=(160, 160, 160),
+            header="YOLO FRUIT MODEL: IDLE (SAVING POWER)",
+            pts=pts,
+            time_base=time_base,
+            received_monotonic_s=received_monotonic_s,
+            detection={},
+        )
 
     def _predict_candidate(
         self,
@@ -997,6 +1229,7 @@ class PerceptionRuntime:
         received_monotonic_s: float,
         detection: dict[str, object],
         bbox_xyxy: tuple[int, int, int, int] | None = None,
+        header: str = "YOLO FRUIT MODEL: LIVE",
     ) -> None:
         import cv2
 
@@ -1007,7 +1240,7 @@ class PerceptionRuntime:
         cv2.rectangle(preview, (0, 0), (preview.shape[1], 92), (20, 20, 20), -1)
         cv2.putText(
             preview,
-            "YOLO FRUIT MODEL: LIVE",
+            header,
             (20, 35),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.85,
@@ -1076,15 +1309,49 @@ def create_app(runtime: PerceptionRuntime | None = None) -> FastAPI:
     app = FastAPI(title="Border Collie Media", lifespan=lifespan)
 
     @app.get("/status")
-    async def status() -> dict[str, object]:
+    async def status(hold: str | None = None) -> dict[str, object]:
+        """Report evidence, optionally renewing one inference lease.
+
+        Guidance and the fruit-test page already poll this every tick, so the
+        renewal rides along instead of costing a second round trip. Whoever
+        stops polling stops renewing, and the detector falls idle on its own.
+        """
+        if hold is not None:
+            try:
+                media.hold_inference(hold)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
         return media.status()
 
     @app.post("/api/target")
     async def select_target(request: TargetFruitRequest) -> dict[str, object]:
         try:
-            return media.select_target(request.target_fruit)
+            selected = media.select_target(request.target_fruit)
         except Exception as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {**selected, "inference": media.hold_inference(request.hold)}
+
+    @app.get("/api/inference")
+    async def inference_status() -> dict[str, object]:
+        return media.inference_status()
+
+    @app.post("/api/inference")
+    async def configure_inference(
+        request: InferenceHoldRequest,
+    ) -> dict[str, object]:
+        if request.hold is None and request.release is None:
+            raise HTTPException(
+                status_code=422,
+                detail="an inference request must hold or release a lease",
+            )
+        try:
+            if request.release is not None:
+                media.release_inference(request.release)
+            if request.hold is not None:
+                media.hold_inference(request.hold, request.hold_s)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return media.inference_status()
 
     @app.get("/api/coco-test")
     async def coco_test_status() -> dict[str, object]:
