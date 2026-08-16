@@ -187,7 +187,7 @@ def test_api_rejects_empty_or_unknown_randomized_subset_before_activation(
             json={
                 "runs": 2,
                 "randomized": True,
-                "fruit_subset": ["mango"],
+                "fruit_subset": ["banana"],
                 "seed": 1,
             },
         )
@@ -288,7 +288,7 @@ def test_cohort_request_defaults_are_explicit_and_validation_is_closed(tmp_path)
     assert body["policy"]["runs"] == 5
     assert body["policy"]["randomized"] is True
     assert body["policy"]["fruit_subset"] is None
-    assert body["selected_fruits"] == ["apple", "banana", "pear"]
+    assert body["selected_fruits"] == ["apple", "mango", "pear"]
     assert body["policy"]["tolerated_failures"] == []
     assert invalid.status_code in {409, 422}
 
