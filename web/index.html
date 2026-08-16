@@ -138,6 +138,7 @@
         <button id="activate" type="button" disabled>Activate Demo</button>
         <button id="stop" type="button">Stop Woof</button>
         <button id="recapture-home" type="button">Set Home here</button>
+        <button id="test-bark" type="button">Test bark (unmute → bark → mute)</button>
         <p id="stage-home"></p>
       </div>
       <section class="cohort-panel" aria-labelledby="cohort-title">
@@ -212,6 +213,7 @@
       const targetFruit = document.querySelector('#target-fruit');
       const stop = document.querySelector('#stop');
       const recaptureHome = document.querySelector('#recapture-home');
+      const testBark = document.querySelector('#test-bark');
       const stageHome = document.querySelector('#stage-home');
       const status = document.querySelector('#status');
       const runId = document.querySelector('#run-id');
@@ -595,6 +597,31 @@
           showCohort(body.cohort);
         } catch (error) {
           cohortOutput.textContent = error.message;
+        }
+      });
+
+      testBark.addEventListener('click', async () => {
+        testBark.disabled = true;
+        status.textContent = 'Unmuting and barking…';
+        try {
+          // Same path a Demo Run's sit_and_bark uses, so a silent bark here
+          // means a silent bark on stage.
+          const body = await readJson(
+            await fetch('/api/bark/test', {method: 'POST'})
+          );
+          if (body.sounded) {
+            const remuted = body.speaker_remuted === false
+              ? ' Speaker stayed audible (remute failed).'
+              : ' Speaker re-muted.';
+            status.textContent =
+              `Bark played at volume ${body.bark_volume}.${remuted}`;
+          } else {
+            status.textContent = `Bark did not sound: ${body.error}`;
+          }
+        } catch (error) {
+          status.textContent = error.message;
+        } finally {
+          testBark.disabled = false;
         }
       });
 

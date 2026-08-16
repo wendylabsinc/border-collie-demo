@@ -637,6 +637,15 @@ def create_app(
     async def stop() -> dict[str, object]:
         return await demo.stop()
 
+    @app.post("/api/bark/test")
+    async def bark_test() -> dict[str, object]:
+        """Sound one bark down the same path a Demo Run uses.
+
+        Goes through the speaker policy exactly as sit_and_bark does, so this
+        exercises unmute -> bark -> remute rather than only the sidecar.
+        """
+        return await thermal_beep()
+
     @app.post("/api/thermal/beep")
     async def thermal_beep() -> dict[str, object]:
         """Sound the speaker for a thermal alert.

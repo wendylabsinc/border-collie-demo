@@ -35,6 +35,8 @@ class SystemAudioConfig:
     bark_audible_s: float = 2.0
     rpc_timeout_s: float = 3.0
     restore_original_on_close: bool = False
+    volume_settle_s: float = 0.25
+    volume_verify_attempts: int = 3
 
     def __post_init__(self) -> None:
         if isinstance(self.bark_volume, bool) or not 0 <= self.bark_volume <= 10:
@@ -167,14 +169,18 @@ class SystemAudioPolicy:
                     await self._sleep(self.config.bark_audible_s)
             except Exception as exc:  # noqa: BLE001 - remute must always run
                 bark_error = exc
+            remute_error: Exception | None = None
             try:
                 await self._set_and_verify(0)
                 self._muted = True
-            except Exception as exc:
-                self._ready = False
+            except Exception as exc:  # noqa: BLE001 - fail loud, not silent
+                # A failed remute leaves the speaker audible, which is the safe
+                # direction: the sound the caller asked for did play. Latching
+                # not-ready here used to disable every later bark and alarm
+                # until restart, turning one stale read into permanent silence.
+                remute_error = exc
                 self._muted = False
-                self._error = f"speaker remute failed: {exc}"
-                raise BarkFailure(self._error) from exc
+                self._warning = f"speaker remained audible: {exc}"
             if bark_error is not None:
                 if isinstance(bark_error, BarkFailure):
                     raise bark_error
@@ -185,7 +191,7 @@ class SystemAudioPolicy:
                 "speaker_policy": "muted_except_bark",
                 "bark_volume": self.config.bark_volume,
                 "bark_audible_s": self.config.bark_audible_s,
-                "speaker_remuted": True,
+                "speaker_remuted": remute_error is None,
                 "audio_trace": [
                     {
                         "state": "audible",
@@ -248,11 +254,19 @@ class SystemAudioPolicy:
         result = await self._call(self._vui.SetVolume, volume)
         if result != 0:
             raise RuntimeError(f"SetVolume({volume}) returned {result!r}")
-        observed = await self._get_volume()
-        if observed != volume:
-            raise RuntimeError(
-                f"speaker volume verification expected {volume}, got {observed}"
-            )
+        # The Go2 acks SetVolume before GetVolume reflects it. Reading straight
+        # back returned the previous level on hardware, so give it a settle and
+        # one retry before calling it a mismatch.
+        observed = None
+        for attempt in range(self.config.volume_verify_attempts):
+            if attempt:
+                await self._sleep(self.config.volume_settle_s)
+            observed = await self._get_volume()
+            if observed == volume:
+                return
+        raise RuntimeError(
+            f"speaker volume verification expected {volume}, got {observed}"
+        )
 
     async def _call(self, method: Callable[..., Any], *args: Any) -> Any:
         return await asyncio.wait_for(
