@@ -300,10 +300,13 @@ def test_next_activation_waits_for_fresh_return_to_prior_run_home(tmp_path) -> N
         )
         await demo.start()
 
-        blocked = demo.status()
+        drifted = demo.status()
 
-        assert blocked["activation"]["ready"] is False
-        assert blocked["activation"]["inter_run"] == {
+        # An operator start captures Home fresh, so distance from the prior
+        # run's Home is reported but never blocks activation.
+        assert drifted["activation"]["ready"] is True
+        assert [b["name"] for b in drifted["activation"]["blockers"]] == []
+        assert drifted["activation"]["inter_run"] == {
             "required": True,
             "prior_run_id": prior["run_id"],
             "prior_outcome": "FAILED",
@@ -311,18 +314,20 @@ def test_next_activation_waits_for_fresh_return_to_prior_run_home(tmp_path) -> N
             "stage_home_margin_m": 0.5,
             "returned_home": False,
         }
-        assert blocked["activation"]["blockers"][-1]["name"] == (
-            "inter_run_home_clearance"
-        )
+        # A back-to-back cohort run reuses Home and is still gated on it.
         with pytest.raises(ActiveRunError, match="has not returned Home"):
-            await demo.activate(FruitMission("pear", "soak", "attempt-2"))
+            await demo.activate(
+                FruitMission("pear", "cohort", "attempt-2"), reuse_home=True
+            )
 
         hardware.x_m = 1.2
         ready = demo.status()
 
         assert ready["activation"]["ready"] is True
         assert ready["activation"]["inter_run"]["returned_home"] is True
-        activation = await demo.activate(FruitMission("pear", "soak", "attempt-2"))
+        activation = await demo.activate(
+            FruitMission("pear", "cohort", "attempt-2"), reuse_home=True
+        )
         assert activation.run["target_fruit"] == "pear"
         await demo.stop()
         await demo.close()
@@ -331,9 +336,10 @@ def test_next_activation_waits_for_fresh_return_to_prior_run_home(tmp_path) -> N
 
 
 async def _complete_run(
-    demo: StageDemo, mission: FruitMission
+    demo: StageDemo, mission: FruitMission, *, reuse_home: bool = False
 ) -> dict[str, object]:
-    activation = await demo.activate(mission)
+    """Run one mission. reuse_home models a back-to-back run inside a cohort."""
+    activation = await demo.activate(mission, reuse_home=reuse_home)
     return await demo.wait(activation.run["run_id"], timeout_s=5.0)
 
 
@@ -347,8 +353,8 @@ def _stage_demo(results: RunResultStore, hardware: ReadyHardware) -> StageDemo:
     )
 
 
-def test_second_activation_reuses_the_persisted_stage_home(tmp_path) -> None:
-    """Home is captured once; a later run must not adopt where Woof stopped."""
+def test_each_operator_started_run_captures_home_fresh(tmp_path) -> None:
+    """A standalone start treats the spot Woof is standing on as Home."""
 
     async def scenario() -> None:
         hardware = ReadyHardware()
@@ -356,17 +362,16 @@ def test_second_activation_reuses_the_persisted_stage_home(tmp_path) -> None:
         await demo.start()
 
         first = await _complete_run(demo, FruitMission("pear", "soak", "attempt-1"))
-        # Woof finished 0.10 m off Home, inside the stage margin.
+        # Woof finished 0.10 m off Home; the next operator start adopts it.
         hardware.drift_to(1.10, 2.0)
         second = await _complete_run(demo, FruitMission("pear", "soak", "attempt-2"))
 
         assert first["home"]["x_m"] == 1.0
-        assert second["home"] == first["home"]
+        assert second["home"]["x_m"] == pytest.approx(1.10)
         assert first["home_provenance"]["source"] == "CAPTURED"
-        assert second["home_provenance"]["source"] == "REUSED"
-        assert second["home_provenance"]["activation_offset_m"] == pytest.approx(0.10)
-        assert second["home_provenance"]["measured_pose"]["x_m"] == pytest.approx(1.10)
-        assert demo.status()["stage_home"] == first["home"]
+        assert second["home_provenance"]["source"] == "CAPTURED"
+        assert second["home_provenance"]["activation_offset_m"] == pytest.approx(0.0)
+        assert demo.status()["stage_home"] == second["home"]
         await demo.close()
 
     asyncio.run(scenario())
@@ -383,7 +388,10 @@ def test_stage_home_does_not_drift_across_a_cohort_of_runs(tmp_path) -> None:
         homes = []
         for number in range(1, 6):
             run = await _complete_run(
-                demo, FruitMission("pear", "cohort", f"cohort-run-{number}")
+                demo,
+                FruitMission("pear", "cohort", f"cohort-run-{number}"),
+                # Run 1 captures Home; the back-to-back runs share it.
+                reuse_home=number > 1,
             )
             homes.append(run["home"])
             # Each run ends 0.12 m further out than the last would have.
@@ -396,8 +404,8 @@ def test_stage_home_does_not_drift_across_a_cohort_of_runs(tmp_path) -> None:
     asyncio.run(scenario())
 
 
-def test_failed_run_does_not_reset_the_stage_home(tmp_path) -> None:
-    """A failure epilogue that leaves Woof rotated must not redefine Home."""
+def test_failed_run_inside_a_cohort_does_not_reset_the_stage_home(tmp_path) -> None:
+    """A failure that leaves Woof rotated must not redefine a cohort's Home."""
 
     async def scenario() -> None:
         hardware = ReadyHardware()
@@ -410,14 +418,16 @@ def test_failed_run_does_not_reset_the_stage_home(tmp_path) -> None:
         )
         await demo.start()
 
-        first = await _complete_run(demo, FruitMission("pear", "soak", "attempt-1"))
+        first = await _complete_run(demo, FruitMission("pear", "cohort", "run-1"))
         # The failed run left Woof rotated 2.4 rad and 0.20 m out.
         hardware.drift_to(1.20, 2.0, yaw_rad=2.65)
 
         assert first["outcome"] == "FAILED"
         assert demo.status()["stage_home"] == first["home"]
 
-        second = await _complete_run(demo, FruitMission("pear", "soak", "attempt-2"))
+        second = await _complete_run(
+            demo, FruitMission("pear", "cohort", "run-2"), reuse_home=True
+        )
 
         assert second["outcome"] == "FAILED"
         assert second["home"] == first["home"]
@@ -429,7 +439,13 @@ def test_failed_run_does_not_reset_the_stage_home(tmp_path) -> None:
     asyncio.run(scenario())
 
 
-def test_stage_home_survives_a_process_restart(tmp_path) -> None:
+def test_stage_home_is_not_inherited_across_a_process_restart(tmp_path) -> None:
+    """A restart must not adopt a Home from a previous session.
+
+    Home is only meaningful for the start it was captured on, so a restarted
+    process begins with no Home and captures one on the next start.
+    """
+
     async def scenario() -> None:
         hardware = ReadyHardware()
         demo = _stage_demo(RunResultStore(tmp_path), hardware)
@@ -441,25 +457,34 @@ def test_stage_home_survives_a_process_restart(tmp_path) -> None:
         restarted = _stage_demo(RunResultStore(tmp_path), hardware)
         await restarted.start()
 
-        assert restarted.status()["stage_home"] == first["home"]
+        assert restarted.status()["stage_home"] is None
         resumed = await _complete_run(
             restarted, FruitMission("pear", "soak", "attempt-2")
         )
 
-        assert resumed["home"] == first["home"]
-        assert resumed["home_provenance"]["source"] == "REUSED"
+        assert resumed["home"]["x_m"] == pytest.approx(1.15)
+        assert resumed["home"] != first["home"]
+        assert resumed["home_provenance"]["source"] == "CAPTURED"
         await restarted.close()
 
     asyncio.run(scenario())
 
 
-def test_explicit_recapture_is_the_only_thing_that_moves_home(tmp_path) -> None:
+def test_explicit_recapture_moves_home_for_a_cohort_already_underway(
+    tmp_path,
+) -> None:
+    """Recapture retargets the Home that back-to-back runs share.
+
+    An operator start captures Home on its own, so recapture matters for the
+    reusing case: it moves the Home a cohort's remaining runs return to.
+    """
+
     async def scenario() -> None:
         hardware = ReadyHardware()
         demo = _stage_demo(RunResultStore(tmp_path), hardware)
         await demo.start()
 
-        first = await _complete_run(demo, FruitMission("pear", "soak", "attempt-1"))
+        first = await _complete_run(demo, FruitMission("pear", "cohort", "run-1"))
         hardware.drift_to(1.30, 2.0)
         moved = await demo.recapture_home()
 
@@ -467,7 +492,9 @@ def test_explicit_recapture_is_the_only_thing_that_moves_home(tmp_path) -> None:
         assert moved["home"]["x_m"] == pytest.approx(1.30)
         assert moved["offset_from_previous_m"] == pytest.approx(0.30)
 
-        second = await _complete_run(demo, FruitMission("pear", "soak", "attempt-2"))
+        second = await _complete_run(
+            demo, FruitMission("pear", "cohort", "run-2"), reuse_home=True
+        )
 
         assert second["home"]["x_m"] == pytest.approx(1.30)
         assert second["home_provenance"]["source"] == "REUSED"

@@ -41,12 +41,13 @@ to `CAPTURE_HOME`. Home capture then reads a new fresh, disarmed
 is lost before capture completes, the run fails closed in `capture_home`
 without arming motion.
 
-That reading becomes Home only on the first run after the Stage Home is set by
-the explicit `POST /api/home/recapture` control. Otherwise the persisted Stage
-Home is reused unchanged and the fresh reading is recorded as the run's
-measured offset from Home. A new run, a new cohort, a failed run, and an
-application restart never reset Home, so Home error cannot compound across a
-cohort. `/api/status.stage_home` reports the Home currently in effect.
+That reading becomes Home on an individual Demo Run start and on a cohort
+start, so the spot Woof is standing on becomes Home. For the back-to-back runs
+of that cohort the Stage Home is reused unchanged and the fresh reading is
+recorded as the run's measured offset from Home, which is what stops Home error
+compounding across the cohort. A failed run inside a cohort does not reset it,
+and Home is not carried across an application restart.
+`/api/status.stage_home` reports the Home currently in effect.
 
 A frozen, repeated, disconnected, or otherwise stale camera frame must stop
 motion immediately and terminate the current run as `FAILED`. The run result

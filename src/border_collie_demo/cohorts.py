@@ -170,7 +170,10 @@ class CohortController:
                             "cohort",
                             activation_id,
                             tuning=tuning,
-                        )
+                        ),
+                        # The cohort captures Home once on its first run; every
+                        # back-to-back run after that shares it.
+                        reuse_home=number > 1,
                     )
                 except Exception as exc:  # noqa: BLE001 - activation is ambiguous
                     self._finish(

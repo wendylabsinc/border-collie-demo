@@ -11,21 +11,25 @@ The executable, hardware-free design probe lives in
 
 ## Home and pose authority
 
-- Home is a position and heading captured once and then persisted as the Stage
-  Home. It is the physical spot the stage is set to, not a per-run reading.
+- Home is a position and heading captured at each operator-initiated start and
+  held as the Stage Home for that start. It is the physical spot the stage is
+  set to, not a reading each back-to-back run takes for itself.
 - Capture requires a stable window of advancing local-pose samples. The sample
   count and permitted position and yaw spread are qualification parameters.
-- Every activation still reads a fresh, disarmed pose before `capture_home`
-  completes, so the disarm and pose-freshness gates are unchanged. That reading
-  becomes Home only when no Stage Home is set yet. Otherwise it is recorded as
-  `home_provenance.activation_offset_m`, the measured drift from Home at the
-  start of that run.
-- A new Demo Run, a new cohort, a failed run, and an application restart all
-  reuse the persisted Stage Home. Home never resets implicitly, so Home error
-  cannot compound from one run into the next.
-- Only the explicit operator control `POST /api/home/recapture` moves the Stage
-  Home. It is refused while a Demo Run or cohort owns activation, and while
-  Remote Takeover is latched.
+- Every activation reads a fresh, disarmed pose before `capture_home`
+  completes, so the disarm and pose-freshness gates are unchanged. On an
+  operator start that reading becomes Home. On a back-to-back run inside a
+  cohort it is recorded instead as `home_provenance.activation_offset_m`, the
+  measured drift from the cohort's Home at the start of that run.
+- An individual Demo Run start and a cohort start both capture Home fresh, so
+  the spot Woof is standing on becomes Home. The remaining runs of that cohort
+  reuse it, which is what keeps Home error from compounding across the cohort.
+  A failed run inside a cohort does not reset it.
+- Home is not carried across an application restart. A restarted process holds
+  no Home and captures one on the next start.
+- `POST /api/home/recapture` retargets the Home a cohort already underway
+  returns to. It is refused while a Demo Run or cohort owns activation, and
+  while Remote Takeover is latched.
 - The recorded outbound forward-heartbeat count bounds the return translation:
   after turning toward Home, the return controller replays at most that many
   forward heartbeats at the same 1.0 m/s signal. Heading-only corrections do
@@ -81,16 +85,19 @@ stage soak has a separate operator margin, configured by
 `BORDER_COLLIE_STAGE_HOME_MARGIN_M`: meters, default `0.50`, valid range
 `0.10..1.0`. This margin never changes whether an individual Demo Run passed.
 
-After any terminal Demo Run that captured Home, `/api/status.activation.ready`
-remains false until fresh current pose is within this margin of the persisted
-Stage Home and the run ended `DISARMED_CONFIRMED`. The soak harness checks the
-same `activation.inter_run` evidence before issuing another activation. A
-failed return therefore aborts the cohort instead of capturing the fruit-side
-position as a new Home.
+Inside a cohort, a back-to-back run does not start until fresh current pose is
+within this margin of the cohort's Stage Home and the prior run ended
+`DISARMED_CONFIRMED`. A failed return therefore aborts the cohort instead of
+capturing the fruit-side position as a new Home.
 
-The margin is measured against the one persisted Stage Home rather than against
+The margin is measured against the cohort's one Stage Home rather than against
 each run's own reading. A cohort therefore cannot random-walk away from the
 stage by staying inside the margin on every individual hop.
+
+`/api/status.activation.ready` does not fall to false on this distance, and
+`activation.inter_run` is published as evidence rather than as a blocker. An
+operator start captures Home fresh, so it cannot be refused for standing too
+far from a previous run's Home.
 
 ## Route, progress, and recovery
 

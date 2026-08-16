@@ -160,7 +160,9 @@ class StageDemo:
                 return
             self._results.seal_interrupted_runs()
             await self._hardware.start()
-            self._stage_home = self._latest_recorded_home()
+            # Home is not carried across a restart: the next start captures it
+            # fresh, so there is no stale Home to inherit from a prior session.
+            self._stage_home = None
             self._started = True
 
     async def close(self) -> list[str]:
@@ -191,7 +193,17 @@ class StageDemo:
         self._started = False
         return errors
 
-    async def activate(self, mission: FruitMission) -> Activation:
+    async def activate(
+        self, mission: FruitMission, *, reuse_home: bool = False
+    ) -> Activation:
+        """Activate one Demo Run.
+
+        Home is captured fresh for every operator-initiated start, so a run or
+        a cohort always treats the spot Woof is standing on as Home. Only
+        back-to-back runs inside one cohort pass reuse_home=True and share the
+        Home the cohort started from, which is what makes drift across a
+        cohort measurable instead of accumulating silently.
+        """
         async with self._lifecycle_lock:
             self._require_started()
             prior = self._find_activation(mission.activation_id)
@@ -202,11 +214,17 @@ class StageDemo:
                 raise RestartRequired(
                     "physical remote takeover is latched; restart required"
                 )
-            clearance = self._inter_run_clearance(self._hardware.status())
-            if clearance is not None and not clearance["returned_home"]:
-                raise ActiveRunError(
-                    "the prior Demo Run has not returned Home; another run cannot start"
-                )
+            # Home clearance only means something while a Home is being reused.
+            # A fresh start redefines Home at the current pose, so gating it
+            # against the previous cohort's Home would block every new start
+            # once drift exceeded the margin.
+            if reuse_home:
+                clearance = self._inter_run_clearance(self._hardware.status())
+                if clearance is not None and not clearance["returned_home"]:
+                    raise ActiveRunError(
+                        "the prior Demo Run has not returned Home; "
+                        "another run cannot start"
+                    )
 
             run = self._results.start_run(
                 target_fruit=mission.target_fruit,
@@ -281,8 +299,9 @@ class StageDemo:
                 )
                 return Activation(run, idempotent_replay=False)
 
-            source = "REUSED" if self._stage_home is not None else "CAPTURED"
-            if self._stage_home is None:
+            reusing = reuse_home and self._stage_home is not None
+            source = "REUSED" if reusing else "CAPTURED"
+            if not reusing:
                 self._stage_home = deepcopy(measured)
             home = deepcopy(self._stage_home)
             provenance = self._home_provenance(home, measured, source=source)
@@ -399,20 +418,12 @@ class StageDemo:
             for item in report["checks"]
             if not item["ready"]
         ]
-        if clearance is not None and not clearance["returned_home"]:
-            distance = clearance["home_distance_m"]
-            detail = (
-                "fresh current Home distance is unavailable"
-                if distance is None
-                else (
-                    f"prior run is {distance:.3f} m from Home; "
-                    f"required <= {self._stage_home_margin_m:.3f} m"
-                )
-            )
-            blockers.append({"name": "inter_run_home_clearance", "detail": detail})
+        # Home clearance is evidence here, not a blocker. An operator start
+        # captures Home fresh, so it cannot be blocked by distance from a
+        # previous run's Home. Back-to-back runs inside a cohort still reuse
+        # Home and are gated by activate(reuse_home=True).
         activation: dict[str, Any] = {
-            "ready": report["ready"]
-            and (clearance is None or clearance["returned_home"]),
+            "ready": report["ready"],
             "blockers": blockers,
         }
         if clearance is not None:
