@@ -1,6 +1,6 @@
 {
-  "appId": "border-collie-demo",
-  "version": "1.2.2-stage-default",
+  "appId": "border-collie-demo-max",
+  "version": "1.2.2-stage-default-max",
   "services": {
     "app": {
       "context": ".",
@@ -72,6 +72,8 @@
         "MANGO_MODEL_PATH": "/models/yolo11n.pt",
         "BORDER_COLLIE_MANGO_RAW_CONFIDENCE": "0.08",
         "BORDER_COLLIE_MANGO_COLOR_CONFIDENCE": "0.80",
+        "BORDER_COLLIE_COLOR_BACKEND": "reference",
+        "BORDER_COLLIE_COLOR_MAX_DEVICE": "cpu",
         "COCO_TEST_INTERVAL_S": "0.5",
         "BORDER_COLLIE_BARK_UUID": "161387de-21ab-4f0b-b4e9-97124b000d06",
         "EVIDENCE_MAXIMUM_FRAMES": "40",

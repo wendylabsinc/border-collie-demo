@@ -1,0 +1,67 @@
+# Opt-in Modular MAX build of the media service.
+#
+# This file is NOT referenced by wendy.json, exactly like Dockerfile.control.
+# The default media build is unchanged, so the deployed variant stays identical
+# to FINAL_DEMO unless someone deliberately builds this image AND sets
+# BORDER_COLLIE_COLOR_BACKEND=max. MAX is deliberately kept out of
+# media/requirements.txt so the working demo never builds against it.
+#
+# Recipe reused verbatim from collie-max-shadow-adapter/Dockerfile.shadow,
+# which is the known-good MAX install for this hardware.
+#
+#   docker build -f media/Dockerfile.max -t border-collie-media-max media/
+#
+# Device note: MODULAR_NVPTX_COMPILER_PATH and the gpu entitlement only matter
+# if you set BORDER_COLLIE_COLOR_MAX_DEVICE=accelerator. The default is cpu.
+# Woof is a Jetson Orin NX (sm_87) on JetPack 6.2.1, whose 540-series driver is
+# below the 580 floor current MAX documents; GPU there additionally needs
+# NVIDIA's cuda-compat-orin forward-compatibility package.
+
+FROM dustynv/pytorch:2.7-r36.4.0-cu128-24.04
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG MODULAR_VERSION=26.5.0.dev2026072906
+
+ENV PATH=/opt/modular/bin:$PATH \
+    PYTHONUNBUFFERED=1 \
+    PIP_INDEX_URL=https://pypi.org/simple \
+    PIP_EXTRA_INDEX_URL="" \
+    XDG_CACHE_HOME=/data/cache \
+    MODULAR_MAX_CACHE_DIR=/data/max \
+    MODULAR_NVPTX_COMPILER_PATH=/usr/local/cuda/bin/ptxas \
+    MODULAR_MAX_SHM_WATERMARK=0.0
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential ca-certificates curl libffi8 libgl1 libglib2.0-0 \
+      libgomp1 libportaudio2 libsrtp2-1 libssl3 portaudio19-dev python3-venv \
+    && rm -rf /var/lib/apt/lists/*
+
+# --system-site-packages so the MAX interpreter still sees the base image's
+# torch / ultralytics / opencv rather than rebuilding them.
+RUN python3 -m venv --system-site-packages /opt/modular \
+    && /opt/modular/bin/pip install --no-cache-dir --upgrade pip uv \
+    && /opt/modular/bin/uv pip install \
+      --python /opt/modular/bin/python \
+      --prerelease allow \
+      --index https://whl.modular.com/nightly/simple/ \
+      modular==${MODULAR_VERSION}
+
+WORKDIR /app
+COPY requirements.txt ./media/
+RUN --mount=type=cache,target=/root/.cache/pip \
+    /opt/modular/bin/python -m pip install -r /app/media/requirements.txt
+COPY __init__.py fruit_color.py fruit_color_max.py fruit_color_benchmark.py \
+     model_router.py perception_sidecar.py coco_tester.py ./media/
+
+RUN /opt/modular/bin/python -c "import max; print('max import ok')" \
+    && max --version
+
+ENV UNITREE_ROBOT_IP=192.168.123.161 \
+    BORDER_COLLIE_MEDIA_PORT=8111 \
+    BORDER_COLLIE_COLOR_BACKEND=reference \
+    BORDER_COLLIE_COLOR_MAX_DEVICE=cpu
+
+EXPOSE 8111
+
+CMD ["/opt/modular/bin/python", "-m", "uvicorn", "media.perception_sidecar:app", \
+     "--host", "0.0.0.0", "--port", "8111"]
