@@ -1,0 +1,536 @@
+{
+  "activation_id": "cohort:29fecaa2-4b13-4957-844f-d15dd983aba4:run:1",
+  "activation_source": "cohort",
+  "artifacts": [],
+  "current_phase": "failed",
+  "duration_s": 1.598763808000001,
+  "ended_at_utc": "2026-08-17T19:22:57.780572Z",
+  "events": [
+    {
+      "message": "Demo Run persisted before preflight",
+      "phase": "idle",
+      "previous_phase": null,
+      "reason": "ACTIVATION_ACCEPTED",
+      "recorded_at_utc": "2026-08-17T19:22:56.183763Z",
+      "seconds_since_start": 0.0019451520000046685,
+      "sequence": 1
+    },
+    {
+      "message": "preflight entered; verifying production motion and media gates",
+      "phase": "preflight",
+      "previous_phase": "idle",
+      "reason": "PREFLIGHT_STARTED",
+      "recorded_at_utc": "2026-08-17T19:22:56.189974Z",
+      "seconds_since_start": 0.008175360000009846,
+      "sequence": 2
+    },
+    {
+      "message": "all preflight checks passed",
+      "phase": "preflight",
+      "previous_phase": "preflight",
+      "reason": "PREFLIGHT_PASSED",
+      "recorded_at_utc": "2026-08-17T19:22:56.221287Z",
+      "seconds_since_start": 0.03949411199999986,
+      "sequence": 3
+    },
+    {
+      "message": "preflight passed; ready to capture Home",
+      "phase": "capture_home",
+      "previous_phase": "preflight",
+      "reason": "CAPTURE_HOME_STARTED",
+      "recorded_at_utc": "2026-08-17T19:22:56.228283Z",
+      "seconds_since_start": 0.046488992000007556,
+      "sequence": 4
+    },
+    {
+      "message": "fresh robot-local position and heading captured as Home",
+      "phase": "capture_home",
+      "previous_phase": "capture_home",
+      "reason": "HOME_CAPTURED",
+      "recorded_at_utc": "2026-08-17T19:22:56.235043Z",
+      "seconds_since_start": 0.05325369599999874,
+      "sequence": 5
+    },
+    {
+      "message": "Home captured; waiting for the qualified pear command",
+      "phase": "wait_for_command",
+      "previous_phase": "capture_home",
+      "reason": "WAITING_FOR_COMMAND",
+      "recorded_at_utc": "2026-08-17T19:22:56.241510Z",
+      "seconds_since_start": 0.059718176000004064,
+      "sequence": 6
+    },
+    {
+      "message": "turn_to_fruit started",
+      "phase": "turn_to_fruit",
+      "previous_phase": "wait_for_command",
+      "reason": "TURN_TO_FRUIT_STARTED",
+      "recorded_at_utc": "2026-08-17T19:22:56.255152Z",
+      "seconds_since_start": 0.07335705600000608,
+      "sequence": 7
+    },
+    {
+      "message": "fresh measured pose is already inside the Home gate",
+      "phase": "failure_epilogue",
+      "previous_phase": "turn_to_fruit",
+      "reason": "FAILURE_EPILOGUE_ALREADY_HOME",
+      "recorded_at_utc": "2026-08-17T19:22:57.698030Z",
+      "seconds_since_start": 1.5162331840000007,
+      "sequence": 8
+    },
+    {
+      "message": "camera guidance stopped: camera_unhealthy",
+      "phase": "failed",
+      "previous_phase": "failure_epilogue",
+      "reason": "CAMERA_FAILURE",
+      "recorded_at_utc": "2026-08-17T19:22:57.777790Z",
+      "seconds_since_start": 1.5960122879999972,
+      "sequence": 9
+    }
+  ],
+  "evidence_capture": {
+    "available": false,
+    "unavailable_reason": "terminal evidence capture failed: HTTP Error 503: Service Unavailable"
+  },
+  "failed_phase": "turn_to_fruit",
+  "failure_details": {
+    "motion_commands": [
+      {
+        "forward_mps": 0.0,
+        "motion_path": "factory_avoidance",
+        "phase": "turn_to_fruit",
+        "reason": "searching_for_target",
+        "recorded_monotonic_s": 73.15504928,
+        "sequence": 1,
+        "yaw_rps": 0.8
+      },
+      {
+        "forward_mps": 0.0,
+        "motion_path": "factory_avoidance",
+        "phase": "turn_to_fruit",
+        "reason": "searching_for_target",
+        "recorded_monotonic_s": 73.264288192,
+        "sequence": 2,
+        "yaw_rps": 0.8
+      },
+      {
+        "forward_mps": 0.0,
+        "motion_path": "factory_avoidance",
+        "phase": "turn_to_fruit",
+        "reason": "searching_for_target",
+        "recorded_monotonic_s": 73.37356656,
+        "sequence": 3,
+        "yaw_rps": 0.8
+      },
+      {
+        "forward_mps": 0.0,
+        "motion_path": "factory_avoidance",
+        "phase": "turn_to_fruit",
+        "reason": "searching_for_target",
+        "recorded_monotonic_s": 73.483296224,
+        "sequence": 4,
+        "yaw_rps": 0.8
+      },
+      {
+        "forward_mps": 0.0,
+        "motion_path": "factory_avoidance",
+        "phase": "turn_to_fruit",
+        "reason": "searching_for_target",
+        "recorded_monotonic_s": 73.599417408,
+        "sequence": 5,
+        "yaw_rps": 0.8
+      },
+      {
+        "forward_mps": 0.0,
+        "motion_path": "factory_avoidance",
+        "phase": "turn_to_fruit",
+        "reason": "searching_for_target",
+        "recorded_monotonic_s": 73.705576992,
+        "sequence": 6,
+        "yaw_rps": 0.8
+      }
+    ],
+    "recognition": {
+      "confidence_summary": {
+        "average": null,
+        "detected_frames": 0,
+        "lock_confidence": null,
+        "maximum": null,
+        "minimum": null
+      },
+      "guidance_reason": "camera_unhealthy",
+      "search_trace": [
+        {
+          "camera_healthy": true,
+          "camera_violations": [],
+          "center_x_ratio": null,
+          "commanded_yaw_rps": 0.8,
+          "confidence": null,
+          "detection_age_s": null,
+          "elapsed_s": 0.5075,
+          "frame_advanced": true,
+          "guidance_action": "search",
+          "guidance_reason": "searching_for_target",
+          "locked": false,
+          "measured_yaw_rad": 0.03573251515626907,
+          "sample": 1,
+          "search_progress_rad": 9.58926975727012e-05,
+          "source_age_s": 0.04653987199999676,
+          "source_consecutive_frames": 29,
+          "source_pts": 3960,
+          "target_fruit": "pear"
+        },
+        {
+          "camera_healthy": true,
+          "camera_violations": [],
+          "center_x_ratio": null,
+          "commanded_yaw_rps": 0.8,
+          "confidence": null,
+          "detection_age_s": null,
+          "elapsed_s": 0.6156,
+          "frame_advanced": true,
+          "guidance_action": "search",
+          "guidance_reason": "searching_for_target",
+          "locked": false,
+          "measured_yaw_rad": 0.03735441341996193,
+          "sample": 2,
+          "search_progress_rad": 0.001717790961265564,
+          "source_age_s": 0.017262144000000035,
+          "source_consecutive_frames": 31,
+          "source_pts": 4080,
+          "target_fruit": "pear"
+        },
+        {
+          "camera_healthy": true,
+          "camera_violations": [],
+          "center_x_ratio": null,
+          "commanded_yaw_rps": 0.8,
+          "confidence": null,
+          "detection_age_s": null,
+          "elapsed_s": 0.7241,
+          "frame_advanced": true,
+          "guidance_action": "search",
+          "guidance_reason": "searching_for_target",
+          "locked": false,
+          "measured_yaw_rad": 0.05424881353974342,
+          "sample": 3,
+          "search_progress_rad": 0.018612191081047058,
+          "source_age_s": 0.045144992000004436,
+          "source_consecutive_frames": 32,
+          "source_pts": 4140,
+          "target_fruit": "pear"
+        },
+        {
+          "camera_healthy": true,
+          "camera_violations": [],
+          "center_x_ratio": null,
+          "commanded_yaw_rps": 0.8,
+          "confidence": null,
+          "detection_age_s": null,
+          "elapsed_s": 0.833,
+          "frame_advanced": true,
+          "guidance_action": "search",
+          "guidance_reason": "searching_for_target",
+          "locked": false,
+          "measured_yaw_rad": 0.08058758080005646,
+          "sample": 4,
+          "search_progress_rad": 0.04495095834136009,
+          "source_age_s": 0.006584031999992135,
+          "source_consecutive_frames": 34,
+          "source_pts": 4260,
+          "target_fruit": "pear"
+        },
+        {
+          "camera_healthy": true,
+          "camera_violations": [],
+          "center_x_ratio": null,
+          "commanded_yaw_rps": 0.8,
+          "confidence": null,
+          "detection_age_s": null,
+          "elapsed_s": 0.9428,
+          "frame_advanced": true,
+          "guidance_action": "search",
+          "guidance_reason": "searching_for_target",
+          "locked": false,
+          "measured_yaw_rad": 0.11133138090372087,
+          "sample": 5,
+          "search_progress_rad": 0.0756947584450245,
+          "source_age_s": 0.059789632000004644,
+          "source_consecutive_frames": 35,
+          "source_pts": 4320,
+          "target_fruit": "pear"
+        },
+        {
+          "camera_healthy": true,
+          "camera_violations": [],
+          "center_x_ratio": null,
+          "commanded_yaw_rps": 0.8,
+          "confidence": null,
+          "detection_age_s": null,
+          "elapsed_s": 1.0597,
+          "frame_advanced": true,
+          "guidance_action": "search",
+          "guidance_reason": "searching_for_target",
+          "locked": false,
+          "measured_yaw_rad": 0.15263928472995758,
+          "sample": 6,
+          "search_progress_rad": 0.11700266227126122,
+          "source_age_s": 0.03917478399999652,
+          "source_consecutive_frames": 37,
+          "source_pts": 4440,
+          "target_fruit": "pear"
+        },
+        {
+          "camera_healthy": false,
+          "camera_violations": [],
+          "center_x_ratio": null,
+          "commanded_yaw_rps": 0.0,
+          "confidence": null,
+          "detection_age_s": null,
+          "elapsed_s": 1.1655,
+          "frame_advanced": true,
+          "guidance_action": "stop",
+          "guidance_reason": "camera_unhealthy",
+          "locked": false,
+          "measured_yaw_rad": 0.20633703470230103,
+          "sample": 7,
+          "search_progress_rad": 0.17070041224360466,
+          "source_age_s": null,
+          "source_consecutive_frames": null,
+          "source_pts": null,
+          "target_fruit": "pear"
+        }
+      ]
+    }
+  },
+  "failure_epilogue": {
+    "attempted_alignment": false,
+    "attempted_return": false,
+    "exact_stop_confirmed": true,
+    "home_alignment_evidence": null,
+    "posture_evidence": null,
+    "reason": "fresh measured pose is already inside the Home gate",
+    "return_evidence": null,
+    "status": "ALREADY_HOME",
+    "terminal_home_measurement": {
+      "home_distance_m": 0.006790667955945936,
+      "pose_age_s": 0.001305695999988643,
+      "pose_captured_monotonic_s": 74.073611424,
+      "pose_source": "rt/sportmodestate"
+    }
+  },
+  "final_safety_state": "DISARMED_CONFIRMED",
+  "home": {
+    "age_s": 0.0018320960000011155,
+    "captured_monotonic_s": 72.610230464,
+    "source": "rt/sportmodestate",
+    "x_m": 0.00166322011500597,
+    "y_m": 0.0025153730530291796,
+    "yaw_rad": 0.035596683621406555
+  },
+  "home_provenance": {
+    "activation_offset_m": 0.0,
+    "measured_pose": {
+      "age_s": 0.0018320960000011155,
+      "captured_monotonic_s": 72.610230464,
+      "source": "rt/sportmodestate",
+      "x_m": 0.00166322011500597,
+      "y_m": 0.0025153730530291796,
+      "yaw_rad": 0.035596683621406555
+    },
+    "source": "CAPTURED"
+  },
+  "message": "camera guidance stopped: camera_unhealthy",
+  "outcome": "FAILED",
+  "preflight": {
+    "camera_perception": {
+      "camera_healthy": true,
+      "camera_violations": [],
+      "detail": "qualifying pear detection is missing; pear detection generation does not match camera generation; pear detection time base does not match camera source; pear detection source PTS is missing or invalid; pear confidence is below 0.65; fewer than 5 consecutive pear detections; detector execution exceeds 0.200 seconds; pear detection is stale; pear bounding box is missing or invalid",
+      "detection": {
+        "age_s": null,
+        "bbox_area_ratio": null,
+        "bbox_height_ratio": null,
+        "bbox_width_ratio": null,
+        "bbox_xyxy": null,
+        "bottom_ratio": null,
+        "center_x_ratio": null,
+        "center_y_ratio": null,
+        "color_confidence": null,
+        "color_identity": "unknown",
+        "completed_monotonic_s": null,
+        "confidence": null,
+        "consecutive_detections": null,
+        "crop_confirmation": null,
+        "derived_confidence": null,
+        "derived_identity": null,
+        "generation": null,
+        "inference_passes": null,
+        "inference_s": null,
+        "label": null,
+        "raw_bbox_xyxy": null,
+        "raw_confidence": null,
+        "raw_label": null,
+        "source_pts": null,
+        "source_time_base": null
+      },
+      "generation": "6653d910a85e427cb122e456c8a1c811",
+      "inference": {
+        "active": true,
+        "default_hold_s": {
+          "preview": 20.0,
+          "run": 120.0
+        },
+        "gate_enabled": true,
+        "holds": {
+          "preview": 19.986981952000008,
+          "run": 119.99693363200002
+        },
+        "reason": "held",
+        "warmup_remaining_s": 49.45049075200001
+      },
+      "motion_qualified": true,
+      "ready": false,
+      "source": {
+        "age_s": 0.023737023999998996,
+        "consecutive_frames": 21,
+        "height": 720,
+        "pts": 3480,
+        "received_monotonic_s": 72.569179808,
+        "time_base": "1/90000",
+        "width": 1280
+      },
+      "supported_fruits": [
+        "apple",
+        "banana",
+        "mango",
+        "pear"
+      ],
+      "target_fruit": "pear",
+      "target_ready": false,
+      "thresholds": {
+        "detection_maximum_age_s": 0.25,
+        "inference_maximum_s": 0.2,
+        "pear_minimum_confidence": 0.65,
+        "pear_minimum_consecutive_detections": 5,
+        "source_maximum_age_s": 0.35,
+        "source_minimum_consecutive_frames": 10,
+        "target_minimum_confidence": 0.65
+      }
+    },
+    "checks": [
+      {
+        "detail": "Run Result was persisted before preflight",
+        "name": "durable_run_storage",
+        "ready": true
+      },
+      {
+        "detail": "Go2 hardware is connected",
+        "name": "hardware_connected",
+        "ready": true
+      },
+      {
+        "detail": "autonomous demo motion is enabled",
+        "name": "autonomy_enabled",
+        "ready": true
+      },
+      {
+        "detail": "pose age is 0.003 seconds",
+        "name": "fresh_pose",
+        "ready": true
+      },
+      {
+        "detail": "application motion owner is disarmed",
+        "name": "motion_disarmed",
+        "ready": true
+      },
+      {
+        "detail": "camera source is healthy and advancing",
+        "name": "camera_perception_ready",
+        "ready": true
+      },
+      {
+        "detail": "bark is best effort and does not block Demo Run readiness",
+        "name": "bark_media_ready",
+        "ready": true
+      }
+    ],
+    "media": {
+      "bark_detail": "speaker mute failed: ",
+      "bark_ready": false,
+      "detail": "bark is best effort and does not block Demo Run readiness",
+      "ready": true
+    },
+    "ready": true
+  },
+  "reason": "CAMERA_FAILURE",
+  "run_id": "b1fcc819-9420-4d08-a05e-1b1f95c95052",
+  "run_tuning": {
+    "approach": {
+      "detection_maximum_age_s": 1.0,
+      "duplicate_hold_s": 0.25,
+      "forward_mps": 1.0,
+      "source_maximum_age_s": 1.0,
+      "timeout_s": 20.0
+    },
+    "arrival": {
+      "disappearance_bottom_ratio": 0.8,
+      "final_push_duration_s": 1.0,
+      "final_push_mps": 0.6,
+      "loss_confirmations": 2,
+      "loss_grace_s": 0.75,
+      "near_bottom_ratio": 0.9,
+      "near_center_ratio": 0.72,
+      "near_confirmations": 3
+    },
+    "centering": {
+      "approach_yaw_rps": 0.3,
+      "focus_yaw_rps": 0.4,
+      "lock_tolerance_ratio": 0.08,
+      "outer_corridor_ratio": 0.2,
+      "recenter_yaw_rps": 0.5
+    },
+    "home": {
+      "align_timeout_s": 30.0,
+      "align_tolerance_deg": 5.0,
+      "align_yaw_rps": 0.8,
+      "arrival_tolerance_m": 0.1,
+      "heading_gate_deg": 20.0,
+      "minimum_progress_m": 0.03,
+      "return_forward_mps": 1.0,
+      "return_minimum_yaw_rps": 0.5,
+      "return_timeout_s": 30.0,
+      "return_yaw_deadband_deg": 5.0,
+      "return_yaw_rps": 0.5,
+      "stall_timeout_s": 2.0
+    },
+    "recognition": {
+      "focus_confidence": null,
+      "lock_confidence": 0.65,
+      "required_frames": 3,
+      "tracking_confidence": 0.55
+    },
+    "search": {
+      "sweep_rad": 6.283185307179586,
+      "timeout_s": 30.0,
+      "yaw_rps": 0.8
+    },
+    "target_fruit": "pear"
+  },
+  "schema_version": 1,
+  "search_experiment": {
+    "center_confirmations": 3,
+    "center_tolerance_ratio": 0.08,
+    "focus_confidence": null,
+    "lock_confidence": 0.65,
+    "search_yaw_rps": 0.8,
+    "target_fruit": "pear"
+  },
+  "started_at_utc": "2026-08-17T19:22:56.181778Z",
+  "started_monotonic_s": 72.559370976,
+  "target_fruit": "pear",
+  "terminal_measurements": {
+    "heading_error_rad": null,
+    "home_distance_m": 0.006790667955945936
+  }
+}

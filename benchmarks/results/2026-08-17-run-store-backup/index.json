@@ -1,0 +1,574 @@
+{
+  "captured_at_utc": "2026-08-17T19:40:24.118083Z",
+  "source_device": "Woof (Unitree Go2 / Jetson Orin NX)",
+  "source_base_url": "http://192.168.123.18:8110",
+  "endpoints_used": [
+    "GET /api/results",
+    "GET /api/results/{run_id}",
+    "GET /api/results/{run_id}/black-box.ndjson",
+    "GET /api/results/{run_id}/artifacts/{filename}"
+  ],
+  "reason": "Run records lived in the app container's ephemeral filesystem; captured before adding a persist volume so no in-flight investigation evidence is lost to a redeploy.",
+  "run_count": 18,
+  "evidence_frame_count": 24,
+  "runs": [
+    {
+      "run_id": "85d51f76-778d-4758-a04a-21c4b3e95596",
+      "started_at_utc": "2026-08-17T19:25:19.138992Z",
+      "ended_at_utc": "2026-08-17T19:25:30.239053Z",
+      "duration_s": 11.100058080000025,
+      "target_fruit": "mango",
+      "activation_source": "voice",
+      "outcome": "FAILED",
+      "reason": "TARGET_RECOGNITION_FAILURE",
+      "failed_phase": "turn_to_fruit",
+      "message": "mango was not found in the bounded search sweep",
+      "has_failure_details": true,
+      "has_search_trace": false,
+      "event_count": 9,
+      "run_file": "run-json/85d51f76-778d-4758-a04a-21c4b3e95596.json",
+      "run_file_sha256": "2fd6b96d791d08ce535886d13a2474eb718a70e92b581c99a0317c78fa8128c2",
+      "detail_matches_listing": true,
+      "black_box_file": "black-box/85d51f76-778d-4758-a04a-21c4b3e95596.ndjson",
+      "black_box_lines": 206,
+      "evidence_frames": [
+        {
+          "filename": "evidence.zip",
+          "path": "evidence-frames/85d51f76-778d-4758-a04a-21c4b3e95596/evidence.zip",
+          "size_bytes": 2439670,
+          "sha256": "b794ffadbbc1b0f146a946b5e9d04887c1691f37fe8a0ea9089d19f2c5e6afc8",
+          "sha256_matches_record": true
+        },
+        {
+          "filename": "terminal.jpg",
+          "path": "evidence-frames/85d51f76-778d-4758-a04a-21c4b3e95596/terminal.jpg",
+          "size_bytes": 66084,
+          "sha256": "f1368e33e70c9020a003131dff5a49843afa6517c6cb92bb5d498508d2d4c737",
+          "sha256_matches_record": true
+        }
+      ]
+    },
+    {
+      "run_id": "8f0ef484-fc1b-4a42-aa32-8f2188239d0a",
+      "started_at_utc": "2026-08-17T19:24:59.101519Z",
+      "ended_at_utc": "2026-08-17T19:25:09.724387Z",
+      "duration_s": 10.622866912000006,
+      "target_fruit": "mango",
+      "activation_source": "voice",
+      "outcome": "FAILED",
+      "reason": "TARGET_RECOGNITION_FAILURE",
+      "failed_phase": "turn_to_fruit",
+      "message": "mango was not found in the bounded search sweep",
+      "has_failure_details": true,
+      "has_search_trace": false,
+      "event_count": 9,
+      "run_file": "run-json/8f0ef484-fc1b-4a42-aa32-8f2188239d0a.json",
+      "run_file_sha256": "391a6a5e5a570686a18f1b7b7243fce7623989d6c8866561e0b30bdcd4c4ed76",
+      "detail_matches_listing": true,
+      "black_box_file": "black-box/8f0ef484-fc1b-4a42-aa32-8f2188239d0a.ndjson",
+      "black_box_lines": 198,
+      "evidence_frames": [
+        {
+          "filename": "evidence.zip",
+          "path": "evidence-frames/8f0ef484-fc1b-4a42-aa32-8f2188239d0a/evidence.zip",
+          "size_bytes": 2656461,
+          "sha256": "57fb4d10ba29f63c0c0acbdaee390dd7858dcef33e4bcd9d4fb879e6625d1bf8",
+          "sha256_matches_record": true
+        },
+        {
+          "filename": "terminal.jpg",
+          "path": "evidence-frames/8f0ef484-fc1b-4a42-aa32-8f2188239d0a/terminal.jpg",
+          "size_bytes": 61527,
+          "sha256": "96eb23f7e975ec8071b2cc8191ff9694ebaf394e5360724e035dbad2eff76b6c",
+          "sha256_matches_record": true
+        }
+      ]
+    },
+    {
+      "run_id": "f22b4eef-a20b-4501-b961-d3169d16a5ef",
+      "started_at_utc": "2026-08-17T19:24:08.374585Z",
+      "ended_at_utc": "2026-08-17T19:24:29.584283Z",
+      "duration_s": 21.209686591999997,
+      "target_fruit": "mango",
+      "activation_source": "voice",
+      "outcome": "FAILED",
+      "reason": "RETURN_HOME_FAILURE",
+      "failed_phase": "return_home",
+      "message": "return Home stalled at 1.844 m",
+      "has_failure_details": true,
+      "has_search_trace": false,
+      "event_count": 22,
+      "run_file": "run-json/f22b4eef-a20b-4501-b961-d3169d16a5ef.json",
+      "run_file_sha256": "2f6c8483bbfa3f92e5dab46337e92f812f201d58ee46def7fa095db75b96f4d1",
+      "detail_matches_listing": true,
+      "black_box_file": "black-box/f22b4eef-a20b-4501-b961-d3169d16a5ef.ndjson",
+      "black_box_lines": 167,
+      "evidence_frames": [
+        {
+          "filename": "evidence.zip",
+          "path": "evidence-frames/f22b4eef-a20b-4501-b961-d3169d16a5ef/evidence.zip",
+          "size_bytes": 2747025,
+          "sha256": "9c9d514f626839e53da07e9a890df6f8547c12d4b675bf8af793744ad7474bb9",
+          "sha256_matches_record": true
+        },
+        {
+          "filename": "terminal.jpg",
+          "path": "evidence-frames/f22b4eef-a20b-4501-b961-d3169d16a5ef/terminal.jpg",
+          "size_bytes": 98477,
+          "sha256": "8edc1e9effb143494f673e6aae45dac97ab359152430a05defbea090c8bdb147",
+          "sha256_matches_record": true
+        }
+      ]
+    },
+    {
+      "run_id": "d595dd34-7912-41a4-bdfd-4adb34abe097",
+      "started_at_utc": "2026-08-17T19:23:09.149700Z",
+      "ended_at_utc": "2026-08-17T19:23:11.324209Z",
+      "duration_s": 2.174473247999998,
+      "target_fruit": "mango",
+      "activation_source": "voice",
+      "outcome": "FAILED",
+      "reason": "ARRIVAL_FAILURE",
+      "failed_phase": "approach_fruit",
+      "message": "approach did not record a positive forward pulse count",
+      "has_failure_details": false,
+      "has_search_trace": false,
+      "event_count": 14,
+      "run_file": "run-json/d595dd34-7912-41a4-bdfd-4adb34abe097.json",
+      "run_file_sha256": "fea3a2ac7ef70c4217f6ec861cf8f33582481c532560f461917ae51e794966ca",
+      "detail_matches_listing": true,
+      "black_box_file": "black-box/d595dd34-7912-41a4-bdfd-4adb34abe097.ndjson",
+      "black_box_lines": 42,
+      "evidence_frames": [
+        {
+          "filename": "evidence.zip",
+          "path": "evidence-frames/d595dd34-7912-41a4-bdfd-4adb34abe097/evidence.zip",
+          "size_bytes": 2757769,
+          "sha256": "994160072cb0c37041c8a8cefb47de1a20d9145c0f0297d9a3365c36cc667494",
+          "sha256_matches_record": true
+        },
+        {
+          "filename": "terminal.jpg",
+          "path": "evidence-frames/d595dd34-7912-41a4-bdfd-4adb34abe097/terminal.jpg",
+          "size_bytes": 110292,
+          "sha256": "3968428f95d27b9ed525b475c78f2b9fab7e3d5e905ca6cda70e53722b16f4dc",
+          "sha256_matches_record": true
+        }
+      ]
+    },
+    {
+      "run_id": "b1fcc819-9420-4d08-a05e-1b1f95c95052",
+      "started_at_utc": "2026-08-17T19:22:56.181778Z",
+      "ended_at_utc": "2026-08-17T19:22:57.780572Z",
+      "duration_s": 1.598763808000001,
+      "target_fruit": "pear",
+      "activation_source": "cohort",
+      "outcome": "FAILED",
+      "reason": "CAMERA_FAILURE",
+      "failed_phase": "turn_to_fruit",
+      "message": "camera guidance stopped: camera_unhealthy",
+      "has_failure_details": true,
+      "has_search_trace": false,
+      "event_count": 9,
+      "run_file": "run-json/b1fcc819-9420-4d08-a05e-1b1f95c95052.json",
+      "run_file_sha256": "16d243a008c3b192aa5170eba7cc18487742cc1e3aa27cbb6fc2fa3c0f550e9e",
+      "detail_matches_listing": true,
+      "black_box_file": "black-box/b1fcc819-9420-4d08-a05e-1b1f95c95052.ndjson",
+      "black_box_lines": 25,
+      "evidence_frames": []
+    },
+    {
+      "run_id": "ad95fc11-60b7-4215-a004-381e13a2a7b6",
+      "started_at_utc": "2026-08-17T18:59:26.094162Z",
+      "ended_at_utc": "2026-08-17T18:59:28.502284Z",
+      "duration_s": 2.40809001599996,
+      "target_fruit": "mango",
+      "activation_source": "cohort",
+      "outcome": "STOPPED",
+      "reason": "OPERATOR_STOP",
+      "failed_phase": null,
+      "message": "operator stopped the Demo Run",
+      "has_failure_details": false,
+      "has_search_trace": false,
+      "event_count": 8,
+      "run_file": "run-json/ad95fc11-60b7-4215-a004-381e13a2a7b6.json",
+      "run_file_sha256": "fdda9f252aceccbb66e2a0bfe4138e139b39866fc052e653377998f7b8dc0f57",
+      "detail_matches_listing": true,
+      "black_box_file": "black-box/ad95fc11-60b7-4215-a004-381e13a2a7b6.ndjson",
+      "black_box_lines": 43,
+      "evidence_frames": []
+    },
+    {
+      "run_id": "b3db93cb-d1a7-4351-8e4f-b82d0d283b95",
+      "started_at_utc": "2026-08-17T18:59:06.833962Z",
+      "ended_at_utc": "2026-08-17T18:59:07.808245Z",
+      "duration_s": 0.9742375039999729,
+      "target_fruit": "mango",
+      "activation_source": "cohort",
+      "outcome": "STOPPED",
+      "reason": "OPERATOR_STOP",
+      "failed_phase": null,
+      "message": "operator stopped the Demo Run",
+      "has_failure_details": false,
+      "has_search_trace": false,
+      "event_count": 8,
+      "run_file": "run-json/b3db93cb-d1a7-4351-8e4f-b82d0d283b95.json",
+      "run_file_sha256": "d8d23b95f044de9c33a9a5210f187304d553053c44636f01ef4890b814919848",
+      "detail_matches_listing": true,
+      "black_box_file": "black-box/b3db93cb-d1a7-4351-8e4f-b82d0d283b95.ndjson",
+      "black_box_lines": 17,
+      "evidence_frames": []
+    },
+    {
+      "run_id": "5c4cbb05-5312-47bc-a03f-cd058a4bb407",
+      "started_at_utc": "2026-08-16T20:27:47.405820Z",
+      "ended_at_utc": "2026-08-16T20:28:19.784168Z",
+      "duration_s": 32.37832046699998,
+      "target_fruit": "mango",
+      "activation_source": "voice",
+      "outcome": "FAILED",
+      "reason": "RETURN_HOME_FAILURE",
+      "failed_phase": "return_home",
+      "message": "return Home heading escaped the forward steering gate",
+      "has_failure_details": true,
+      "has_search_trace": false,
+      "event_count": 22,
+      "run_file": "run-json/5c4cbb05-5312-47bc-a03f-cd058a4bb407.json",
+      "run_file_sha256": "e83f13a3301b2cf8d624a4f6671032d34be0196e64fcb99974b4797ad041196b",
+      "detail_matches_listing": true,
+      "black_box_file": "black-box/5c4cbb05-5312-47bc-a03f-cd058a4bb407.ndjson",
+      "black_box_lines": 354,
+      "evidence_frames": [
+        {
+          "filename": "evidence.zip",
+          "path": "evidence-frames/5c4cbb05-5312-47bc-a03f-cd058a4bb407/evidence.zip",
+          "size_bytes": 3602012,
+          "sha256": "b9aa5c89f089d1731ab4758cc8550512623182421b74a6e24298eff793dc6ae6",
+          "sha256_matches_record": true
+        },
+        {
+          "filename": "terminal.jpg",
+          "path": "evidence-frames/5c4cbb05-5312-47bc-a03f-cd058a4bb407/terminal.jpg",
+          "size_bytes": 66504,
+          "sha256": "f661ffbf2f1cbdab43e7bb12acebc6bab8b7e2286af2039675c679b3d0191230",
+          "sha256_matches_record": true
+        }
+      ]
+    },
+    {
+      "run_id": "91fa1941-e4a8-4d0c-a533-b338d7bc5c69",
+      "started_at_utc": "2026-08-16T20:27:10.414532Z",
+      "ended_at_utc": "2026-08-16T20:27:35.981742Z",
+      "duration_s": 25.567191262999984,
+      "target_fruit": "apple",
+      "activation_source": "voice",
+      "outcome": "COMPLETED",
+      "reason": "SUCCESS",
+      "failed_phase": null,
+      "message": "Demo Run completed at Home",
+      "has_failure_details": false,
+      "has_search_trace": false,
+      "event_count": 24,
+      "run_file": "run-json/91fa1941-e4a8-4d0c-a533-b338d7bc5c69.json",
+      "run_file_sha256": "184c26f759de2bc3fae3cc4164a31813f51b47d5ac5a2aebfa489dee7a1aa12e",
+      "detail_matches_listing": true,
+      "black_box_file": "black-box/91fa1941-e4a8-4d0c-a533-b338d7bc5c69.ndjson",
+      "black_box_lines": 239,
+      "evidence_frames": [
+        {
+          "filename": "evidence.zip",
+          "path": "evidence-frames/91fa1941-e4a8-4d0c-a533-b338d7bc5c69/evidence.zip",
+          "size_bytes": 3816919,
+          "sha256": "770423dd2823f8cc756382b7309b39996ec39a5693ab4156160da550452ec9da",
+          "sha256_matches_record": true
+        },
+        {
+          "filename": "terminal.jpg",
+          "path": "evidence-frames/91fa1941-e4a8-4d0c-a533-b338d7bc5c69/terminal.jpg",
+          "size_bytes": 65941,
+          "sha256": "8c38117b91c7d36740ff539bd5f84c85ad89c876f2e85c054cca3c92c42a1731",
+          "sha256_matches_record": true
+        }
+      ]
+    },
+    {
+      "run_id": "064fe9ff-a1ee-4a43-8eb1-62a10766458e",
+      "started_at_utc": "2026-08-16T20:26:37.354077Z",
+      "ended_at_utc": "2026-08-16T20:27:02.626593Z",
+      "duration_s": 25.27249678000004,
+      "target_fruit": "pear",
+      "activation_source": "voice",
+      "outcome": "COMPLETED",
+      "reason": "SUCCESS",
+      "failed_phase": null,
+      "message": "Demo Run completed at Home",
+      "has_failure_details": false,
+      "has_search_trace": false,
+      "event_count": 24,
+      "run_file": "run-json/064fe9ff-a1ee-4a43-8eb1-62a10766458e.json",
+      "run_file_sha256": "10dde5d9c0a135db9e6740b737509fe4a8fc17d3f09cea62e391eec6615b0215",
+      "detail_matches_listing": true,
+      "black_box_file": "black-box/064fe9ff-a1ee-4a43-8eb1-62a10766458e.ndjson",
+      "black_box_lines": 241,
+      "evidence_frames": [
+        {
+          "filename": "evidence.zip",
+          "path": "evidence-frames/064fe9ff-a1ee-4a43-8eb1-62a10766458e/evidence.zip",
+          "size_bytes": 3560971,
+          "sha256": "2e929e88f010d44d361539761b4448903bbea173dd15580b05b036f288d7fc76",
+          "sha256_matches_record": true
+        },
+        {
+          "filename": "terminal.jpg",
+          "path": "evidence-frames/064fe9ff-a1ee-4a43-8eb1-62a10766458e/terminal.jpg",
+          "size_bytes": 63848,
+          "sha256": "af42c8af3fba401306f30ca74c9724551360a4bdaa9be8e0b0778f0cfbc59c33",
+          "sha256_matches_record": true
+        }
+      ]
+    },
+    {
+      "run_id": "c58dbaf3-2c9f-49bc-a0af-093072a93d6e",
+      "started_at_utc": "2026-08-16T20:26:05.170603Z",
+      "ended_at_utc": "2026-08-16T20:26:32.374473Z",
+      "duration_s": 27.203850868000018,
+      "target_fruit": "pear",
+      "activation_source": "voice",
+      "outcome": "COMPLETED",
+      "reason": "SUCCESS",
+      "failed_phase": null,
+      "message": "Demo Run completed at Home",
+      "has_failure_details": false,
+      "has_search_trace": false,
+      "event_count": 24,
+      "run_file": "run-json/c58dbaf3-2c9f-49bc-a0af-093072a93d6e.json",
+      "run_file_sha256": "bd9d4611641d2681a0363208a4b7db3f58e6f2cc34693019b983341ff8f2c382",
+      "detail_matches_listing": true,
+      "black_box_file": "black-box/c58dbaf3-2c9f-49bc-a0af-093072a93d6e.ndjson",
+      "black_box_lines": 278,
+      "evidence_frames": [
+        {
+          "filename": "evidence.zip",
+          "path": "evidence-frames/c58dbaf3-2c9f-49bc-a0af-093072a93d6e/evidence.zip",
+          "size_bytes": 3662282,
+          "sha256": "053ad498dd7a954dca4642a8b2c3de7537049aab7398ef3a00d7ea2eaca992b7",
+          "sha256_matches_record": true
+        },
+        {
+          "filename": "terminal.jpg",
+          "path": "evidence-frames/c58dbaf3-2c9f-49bc-a0af-093072a93d6e/terminal.jpg",
+          "size_bytes": 70664,
+          "sha256": "994189fd7427de067dd2e0f04c61965c089587d1be48f29ea7b018f3595a5f64",
+          "sha256_matches_record": true
+        }
+      ]
+    },
+    {
+      "run_id": "6e0cd73c-54dd-4885-939a-b1ddc4989eaf",
+      "started_at_utc": "2026-08-16T20:25:25.926610Z",
+      "ended_at_utc": "2026-08-16T20:25:55.144067Z",
+      "duration_s": 29.217430679000017,
+      "target_fruit": "apple",
+      "activation_source": "voice",
+      "outcome": "COMPLETED",
+      "reason": "SUCCESS",
+      "failed_phase": null,
+      "message": "Demo Run completed at Home",
+      "has_failure_details": false,
+      "has_search_trace": false,
+      "event_count": 24,
+      "run_file": "run-json/6e0cd73c-54dd-4885-939a-b1ddc4989eaf.json",
+      "run_file_sha256": "8b7f04a076ecd75a636a00489f6a169de2a5df1ae6e02e8eb8da469d88e8af3a",
+      "detail_matches_listing": true,
+      "black_box_file": "black-box/6e0cd73c-54dd-4885-939a-b1ddc4989eaf.ndjson",
+      "black_box_lines": 305,
+      "evidence_frames": [
+        {
+          "filename": "evidence.zip",
+          "path": "evidence-frames/6e0cd73c-54dd-4885-939a-b1ddc4989eaf/evidence.zip",
+          "size_bytes": 3901973,
+          "sha256": "5b477c437fe2b9e1f39e4a0aecd7b06808ee67f0815b20632d135c9b3656a10b",
+          "sha256_matches_record": true
+        },
+        {
+          "filename": "terminal.jpg",
+          "path": "evidence-frames/6e0cd73c-54dd-4885-939a-b1ddc4989eaf/terminal.jpg",
+          "size_bytes": 67995,
+          "sha256": "914c6c0f50bca0c1f5ee409efc98e0f37ef7abff5ff5781991a255fe08b761ec",
+          "sha256_matches_record": true
+        }
+      ]
+    },
+    {
+      "run_id": "28bd6080-f63f-46c9-998d-6be20b44339e",
+      "started_at_utc": "2026-08-16T20:10:03.346280Z",
+      "ended_at_utc": "2026-08-16T20:10:31.949972Z",
+      "duration_s": 28.603666800000155,
+      "target_fruit": "apple",
+      "activation_source": "cohort",
+      "outcome": "COMPLETED",
+      "reason": "SUCCESS",
+      "failed_phase": null,
+      "message": "Demo Run completed at Home",
+      "has_failure_details": false,
+      "has_search_trace": false,
+      "event_count": 24,
+      "run_file": "run-json/28bd6080-f63f-46c9-998d-6be20b44339e.json",
+      "run_file_sha256": "4dc90d49657aa3283ed7572c1e2e16915ced9322706984d7969f125653b8aefc",
+      "detail_matches_listing": true,
+      "black_box_file": "black-box/28bd6080-f63f-46c9-998d-6be20b44339e.ndjson",
+      "black_box_lines": 230,
+      "evidence_frames": [
+        {
+          "filename": "evidence.zip",
+          "path": "evidence-frames/28bd6080-f63f-46c9-998d-6be20b44339e/evidence.zip",
+          "size_bytes": 3926148,
+          "sha256": "e2a098b1eb8194d43e0c9660236eda5433b01c6bdd475fb7b579d49a644acd72",
+          "sha256_matches_record": true
+        },
+        {
+          "filename": "terminal.jpg",
+          "path": "evidence-frames/28bd6080-f63f-46c9-998d-6be20b44339e/terminal.jpg",
+          "size_bytes": 67013,
+          "sha256": "224624bc23f42a9e75f4685cf29b02496f2be82d3e05f0bf568258723cc6e9f9",
+          "sha256_matches_record": true
+        }
+      ]
+    },
+    {
+      "run_id": "dc431e5d-81e0-418a-bb66-eeff8204e523",
+      "started_at_utc": "2026-08-16T20:09:31.960349Z",
+      "ended_at_utc": "2026-08-16T20:10:03.254920Z",
+      "duration_s": 31.29455003899966,
+      "target_fruit": "pear",
+      "activation_source": "cohort",
+      "outcome": "COMPLETED",
+      "reason": "SUCCESS",
+      "failed_phase": null,
+      "message": "Demo Run completed at Home",
+      "has_failure_details": false,
+      "has_search_trace": false,
+      "event_count": 24,
+      "run_file": "run-json/dc431e5d-81e0-418a-bb66-eeff8204e523.json",
+      "run_file_sha256": "b183bb33495163dc1bbe89b782448f4c9cd057827a404d4161d0f254260ec598",
+      "detail_matches_listing": true,
+      "black_box_file": "black-box/dc431e5d-81e0-418a-bb66-eeff8204e523.ndjson",
+      "black_box_lines": 281,
+      "evidence_frames": [
+        {
+          "filename": "evidence.zip",
+          "path": "evidence-frames/dc431e5d-81e0-418a-bb66-eeff8204e523/evidence.zip",
+          "size_bytes": 3706926,
+          "sha256": "a23b823064f48f0755770e64fea6a46c1a4eb66bab4c64a9569751b948094200",
+          "sha256_matches_record": true
+        },
+        {
+          "filename": "terminal.jpg",
+          "path": "evidence-frames/dc431e5d-81e0-418a-bb66-eeff8204e523/terminal.jpg",
+          "size_bytes": 67482,
+          "sha256": "3043eeb7b6766d07555070375d1188f126b2036862778ac943333b5402a61c33",
+          "sha256_matches_record": true
+        }
+      ]
+    },
+    {
+      "run_id": "b1b6c313-d4ee-44a6-bea6-0e9dfabd899c",
+      "started_at_utc": "2026-08-16T20:09:02.313998Z",
+      "ended_at_utc": "2026-08-16T20:09:31.906709Z",
+      "duration_s": 29.592679755000063,
+      "target_fruit": "mango",
+      "activation_source": "cohort",
+      "outcome": "COMPLETED",
+      "reason": "SUCCESS",
+      "failed_phase": null,
+      "message": "Demo Run completed at Home",
+      "has_failure_details": false,
+      "has_search_trace": false,
+      "event_count": 24,
+      "run_file": "run-json/b1b6c313-d4ee-44a6-bea6-0e9dfabd899c.json",
+      "run_file_sha256": "024397fb8d9d6bdceea5f0e8fc6b7adc995179a110a116032307a9a3e5906d88",
+      "detail_matches_listing": true,
+      "black_box_file": "black-box/b1b6c313-d4ee-44a6-bea6-0e9dfabd899c.ndjson",
+      "black_box_lines": 265,
+      "evidence_frames": [
+        {
+          "filename": "evidence.zip",
+          "path": "evidence-frames/b1b6c313-d4ee-44a6-bea6-0e9dfabd899c/evidence.zip",
+          "size_bytes": 3500153,
+          "sha256": "9400630d629cb6bddf909fcfdba5d18a2c63badacd3a885501d760c483a11d09",
+          "sha256_matches_record": true
+        },
+        {
+          "filename": "terminal.jpg",
+          "path": "evidence-frames/b1b6c313-d4ee-44a6-bea6-0e9dfabd899c/terminal.jpg",
+          "size_bytes": 60409,
+          "sha256": "7f0a4b17c06528772051ce83f40f07ac8427e30b442abf7bb8af3f93e8156b74",
+          "sha256_matches_record": true
+        }
+      ]
+    },
+    {
+      "run_id": "0c04b938-6f74-4601-b6b4-fe7f77216c2b",
+      "started_at_utc": "2026-08-16T20:08:55.513019Z",
+      "ended_at_utc": "2026-08-16T20:08:56.119069Z",
+      "duration_s": 0.6060377019998668,
+      "target_fruit": "mango",
+      "activation_source": "cohort",
+      "outcome": "STOPPED",
+      "reason": "OPERATOR_STOP",
+      "failed_phase": null,
+      "message": "operator stopped the Demo Run",
+      "has_failure_details": false,
+      "has_search_trace": false,
+      "event_count": 8,
+      "run_file": "run-json/0c04b938-6f74-4601-b6b4-fe7f77216c2b.json",
+      "run_file_sha256": "872ba1cc9fa60ccf02304ac799ca6f50f73cd250f6ed44e980f82a8dd7b82ed5",
+      "detail_matches_listing": true,
+      "black_box_file": "black-box/0c04b938-6f74-4601-b6b4-fe7f77216c2b.ndjson",
+      "black_box_lines": 11,
+      "evidence_frames": []
+    },
+    {
+      "run_id": "843a4cfd-7e00-4f59-a997-b52a82f9c412",
+      "started_at_utc": "2026-08-16T20:08:11.760212Z",
+      "ended_at_utc": "2026-08-16T20:08:21.270532Z",
+      "duration_s": 9.510300500000085,
+      "target_fruit": "pear",
+      "activation_source": "cohort",
+      "outcome": "STOPPED",
+      "reason": "OPERATOR_STOP",
+      "failed_phase": null,
+      "message": "operator stopped the Demo Run",
+      "has_failure_details": false,
+      "has_search_trace": false,
+      "event_count": 12,
+      "run_file": "run-json/843a4cfd-7e00-4f59-a997-b52a82f9c412.json",
+      "run_file_sha256": "fa89fb366c9b4da14d67c3e34782d825755ecef25e5a417f89833ad44b4c08ad",
+      "detail_matches_listing": true,
+      "black_box_file": "black-box/843a4cfd-7e00-4f59-a997-b52a82f9c412.ndjson",
+      "black_box_lines": 173,
+      "evidence_frames": []
+    },
+    {
+      "run_id": "32813ec1-3566-44a2-996c-bb4a32262a85",
+      "started_at_utc": "2026-08-16T20:08:06.908302Z",
+      "ended_at_utc": "2026-08-16T20:08:07.223224Z",
+      "duration_s": 0.3148954730004334,
+      "target_fruit": "apple",
+      "activation_source": "cohort",
+      "outcome": "STOPPED",
+      "reason": "OPERATOR_STOP",
+      "failed_phase": null,
+      "message": "operator stopped the Demo Run",
+      "has_failure_details": false,
+      "has_search_trace": false,
+      "event_count": 8,
+      "run_file": "run-json/32813ec1-3566-44a2-996c-bb4a32262a85.json",
+      "run_file_sha256": "ba47c2ca0f75622435fb5f9673022b7e7f9f970e12f83816b789fc8543a3696c",
+      "detail_matches_listing": true,
+      "black_box_file": "black-box/32813ec1-3566-44a2-996c-bb4a32262a85.ndjson",
+      "black_box_lines": 11,
+      "evidence_frames": []
+    }
+  ]
+}
