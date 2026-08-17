@@ -45,9 +45,43 @@ def _is_virtual(name: str) -> bool:
     return any(m in low for m in VIRTUAL_MARKERS)
 
 
-def list_input_devices() -> list[InputDevice]:
-    """Enumerate every device with at least one input channel (needs hardware)."""
+def refresh_audio_backend() -> None:
+    """Re-scan the host's audio hardware.
+
+    PortAudio snapshots the device list during `Pa_Initialize` and never revisits
+    it, and sounddevice initializes lazily exactly once per process. Without this
+    call every later enumeration returns the set of devices that existed at
+    startup, so a microphone plugged in after boot stays invisible forever no
+    matter how often we re-enumerate. Tearing the backend down and bringing it
+    back up is the supported way to pick up a replug.
+
+    Only safe with no stream open; the capture session closes its stream in a
+    `finally` before the supervisor re-enumerates. Failures are non-fatal: a
+    backend that refuses to cycle should still be queried with what it has.
+    """
     import sounddevice as sd
+
+    try:
+        sd._terminate()
+    except Exception:  # noqa: BLE001 - nothing to tear down yet is fine
+        pass
+    try:
+        sd._initialize()
+    except Exception:  # noqa: BLE001 - query_devices re-initializes on demand
+        pass
+
+
+def list_input_devices(*, refresh: bool = True) -> list[InputDevice]:
+    """Enumerate every device with at least one input channel (needs hardware).
+
+    `refresh` re-scans the audio backend first so hot-plugged microphones are
+    discoverable; pass False when a stream is open or when enumerating twice in
+    quick succession.
+    """
+    import sounddevice as sd
+
+    if refresh:
+        refresh_audio_backend()
 
     devices = []
     for idx, dev in enumerate(sd.query_devices()):

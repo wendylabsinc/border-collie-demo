@@ -22,7 +22,7 @@ import uuid
 import httpx
 import uvicorn
 from asr import SherpaTranscriber
-from capture import Capture
+from capture import DEFAULT_SILENCE_TIMEOUT_S, Capture, MicrophoneSilent
 from collie_adapter import BorderCollieAdapter, display_command, interpret_command
 from devices import list_input_devices, select_input_device
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -53,6 +53,9 @@ PORT = int(os.environ.get("PORT", "8080"))
 AUDIO_DEVICE = os.environ.get("AUDIO_DEVICE", "auto")
 MICROPHONE_RETRY_INTERVAL_S = float(
     os.environ.get("MICROPHONE_RETRY_INTERVAL_S", "10.0")
+)
+MICROPHONE_SILENCE_TIMEOUT_S = float(
+    os.environ.get("MICROPHONE_SILENCE_TIMEOUT_S", str(DEFAULT_SILENCE_TIMEOUT_S))
 )
 MICROPHONE_FRAME_TIMEOUT_S = float(
     os.environ.get("MICROPHONE_FRAME_TIMEOUT_S", "3.0")
@@ -230,7 +233,10 @@ def build_app() -> FastAPI:
         else:
             print(f"[web] listening for '{wake_key}'; open http://<device>:{PORT}", flush=True)
         try:
-            for frame in capture.frames(timeout_s=MICROPHONE_FRAME_TIMEOUT_S):
+            for frame in capture.frames(
+                timeout_s=MICROPHONE_FRAME_TIMEOUT_S,
+                silence_timeout_s=MICROPHONE_SILENCE_TIMEOUT_S,
+            ):
                 # In acoustic mode the wake model runs on every raw frame and
                 # keeps ASR idle until needed. ASR phrase mode intentionally
                 # transcribes each completed utterance to find the configured phrase.
@@ -329,6 +335,11 @@ def build_app() -> FastAPI:
                 if not CONTINUOUS_TRANSCRIPTION and ready["ready"]:
                     asyncio.run_coroutine_threadsafe(
                         commands.put((event["id"], event["text"])), loop)
+        except MicrophoneSilent as exc:
+            # Expected, recoverable, and never fatal: drop readiness and let the
+            # supervisor re-enumerate so a working microphone can take over.
+            audio_state.update(ready=False, error=str(exc), signal_seen=False)
+            print(f"[audio] waiting: {audio_state['error']}", flush=True)
         except Exception as exc:  # noqa: BLE001 - capture thread must report failure
             audio_state.update(
                 ready=False,
@@ -480,6 +491,16 @@ def build_app() -> FastAPI:
     @app.get("/api/voice/status")
     async def _voice_status() -> dict:
         return voice_snapshot()
+
+    @app.get("/api/microphone")
+    def microphone_status() -> dict:
+        """Report microphone health for stage checks.
+
+        Deliberately always 200: this is diagnostic, and a missing microphone is
+        a normal waiting state, not a service fault. `ready` false with a rising
+        `attempts` means the supervisor is still looking for one.
+        """
+        return dict(audio_state)
 
     @app.get("/api/actions/status")
     async def _action_status() -> dict:
