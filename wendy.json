@@ -6,8 +6,10 @@
       "context": ".",
       "env": {
         "BORDER_COLLIE_PORT": "8110",
-        "BORDER_COLLIE_BUILD_LABEL": "stage-default-v9-idle-inference-gate",
+        "BORDER_COLLIE_BUILD_LABEL": "stage-default-v10-persistent-runs",
         "BORDER_COLLIE_RUNTIME_MODE": "production",
+        "BORDER_COLLIE_RUNS_DIR": "/run-store/runs",
+        "BORDER_COLLIE_COHORTS_DIR": "/run-store/cohorts",
         "BORDER_COLLIE_HARDWARE_ENABLED": "1",
         "BORDER_COLLIE_AUTONOMY_ENABLED": "1",
         "BORDER_COLLIE_CONTROLLER_START_ENABLED": "1",
@@ -56,7 +58,12 @@
         "GO2_NETWORK_INTERFACE": "enP8p1s0"
       },
       "entitlements": [
-        {"type": "network", "mode": "host"}
+        {"type": "network", "mode": "host"},
+        {
+          "type": "persist",
+          "name": "border-collie-run-store",
+          "path": "/run-store"
+        }
       ]
     },
     "media": {
@@ -90,7 +97,7 @@
         "PORT": "8092",
         "ACTION_MODE": "border_collie",
         "BORDER_COLLIE_URL": "http://127.0.0.1:8110",
-        "BORDER_COLLIE_EXPECTED_BUILD_LABEL": "stage-default-v9-idle-inference-gate",
+        "BORDER_COLLIE_EXPECTED_BUILD_LABEL": "stage-default-v10-persistent-runs",
         "CONTINUOUS_TRANSCRIPTION": "0",
         "AUTO_ARM_ACTIONS": "1",
         "AUDIO_DEVICE": "DJI MIC MINI",

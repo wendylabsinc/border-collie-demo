@@ -302,8 +302,14 @@ revalidated the physical pulse.
 The clean app uses host port `8110` so it can be connection-tested beside the
 legacy app on `8096` without replacing it.
 
-Run Results default to `artifacts/runs/`. A deployment must set
-`BORDER_COLLIE_RUNS_DIR` to durable mounted storage before stage use.
+Run Results default to `artifacts/runs/` for local use. On the device they are
+durable: `wendy.json` gives the `app` service a `persist` volume named
+`border-collie-run-store` mounted at `/run-store`, and points
+`BORDER_COLLIE_RUNS_DIR` at `/run-store/runs` with `BORDER_COLLIE_COHORTS_DIR`
+at `/run-store/cohorts`. Run Results, their black-box timelines, and their
+evidence artifacts all live under the run directory, so they survive a
+`wendy run` redeploy. The store is created on first use, so an empty volume is
+a normal first boot.
 
 ## Configurable Demo Run cohorts
 
