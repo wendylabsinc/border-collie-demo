@@ -97,7 +97,18 @@ class CohortRequest(BaseModel):
 CONTROLLER_START_COHORT_RUNS = 3
 CONTROLLER_START_COHORT_FRUITS: tuple[str, ...] = ("apple", "mango", "pear")
 # Deployed stage defaults; do not drift these without re-qualifying on Woof.
-CONTROLLER_START_SEARCH_YAW_RPS = 0.80
+#
+# The search sweep follows the same environment variable the per-fruit guidance
+# defaults use. It was hardcoded, which quietly gave two different sweep speeds
+# for the same stage: lowering the deployment to 0.60 rad/s changed web-UI runs
+# while every controller-started run kept sweeping at 0.80, so a Pear started
+# with X did not behave like the Pear the operator had just tuned.
+#
+# Home alignment stays a literal on purpose: 0.80 is its own qualified value and
+# is unrelated to how fast the dog scans for a fruit.
+CONTROLLER_START_SEARCH_YAW_RPS = float(
+    os.environ.get("BORDER_COLLIE_GUIDANCE_SEARCH_YAW_RPS", "0.80")
+)
 CONTROLLER_START_HOME_ALIGN_YAW_RPS = 0.80
 CONTROLLER_START_TOLERATED_FAILURES: tuple[dict[str, str], ...] = (
     {"reason": "TARGET_RECOGNITION_FAILURE"},

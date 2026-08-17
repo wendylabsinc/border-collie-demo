@@ -6,7 +6,7 @@
       "context": ".",
       "env": {
         "BORDER_COLLIE_PORT": "8110",
-        "BORDER_COLLIE_BUILD_LABEL": "stage-default-v13-search-yaw-060",
+        "BORDER_COLLIE_BUILD_LABEL": "stage-default-v14-yaw-060-everywhere",
         "BORDER_COLLIE_RUNTIME_MODE": "production",
         "BORDER_COLLIE_RUNS_DIR": "/run-store/runs",
         "BORDER_COLLIE_COHORTS_DIR": "/run-store/cohorts",
@@ -97,7 +97,7 @@
         "PORT": "8092",
         "ACTION_MODE": "border_collie",
         "BORDER_COLLIE_URL": "http://127.0.0.1:8110",
-        "BORDER_COLLIE_EXPECTED_BUILD_LABEL": "stage-default-v13-search-yaw-060",
+        "BORDER_COLLIE_EXPECTED_BUILD_LABEL": "stage-default-v14-yaw-060-everywhere",
         "CONTINUOUS_TRANSCRIPTION": "0",
         "AUTO_ARM_ACTIONS": "1",
         "AUDIO_DEVICE": "DJI MIC MINI",
