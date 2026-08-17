@@ -16,6 +16,7 @@ from .black_box import RunBlackBox
 from .cohort_policy import CohortPolicy, FailureSelector
 from .cohorts import INTER_RUN_PAUSE_S, CohortConflict, CohortController
 from .controller_start import (
+    FRUIT_RUN_BUTTONS,
     ControllerStartAdapter,
     ControllerStartRefused,
     ControllerStartSource,
@@ -111,6 +112,27 @@ CONTROLLER_START_TOLERATED_FAILURES: tuple[dict[str, str], ...] = (
     {"failed_phase": "stand"},
 )
 
+# Provenance recorded on every Demo Run the physical controller activates.
+#
+# Deliberately NOT added to RunRequest.activation_source: that Literal is the
+# public HTTP contract, and an HTTP client must not be able to claim it drove
+# the physical controller. The cohort runner already sets its own out-of-band
+# "cohort" source the same way, so FruitMission.activation_source is a free
+# string by design and this follows that precedent.
+CONTROLLER_ACTIVATION_SOURCE = "controller"
+
+
+def controller_run_tuning() -> dict[str, object]:
+    """Return the stage tuning every controller-activated Demo Run uses.
+
+    Shared verbatim by the Start cohort and the per-fruit face buttons, so a
+    Pear started with X behaves exactly like the Pear inside a Start cohort.
+    """
+    return {
+        "search": {"yaw_rps": CONTROLLER_START_SEARCH_YAW_RPS},
+        "home": {"align_yaw_rps": CONTROLLER_START_HOME_ALIGN_YAW_RPS},
+    }
+
 
 def three_fruit_cohort_request(seed: int | None = None) -> CohortRequest:
     """Return the canonical one-Apple, one-Mango, one-Pear cohort request.
@@ -128,10 +150,7 @@ def three_fruit_cohort_request(seed: int | None = None) -> CohortRequest:
             FailureSelectorRequest(**item)
             for item in CONTROLLER_START_TOLERATED_FAILURES
         ],
-        tuning={
-            "search": {"yaw_rps": CONTROLLER_START_SEARCH_YAW_RPS},
-            "home": {"align_yaw_rps": CONTROLLER_START_HOME_ALIGN_YAW_RPS},
-        },
+        tuning=controller_run_tuning(),
     )
 
 
@@ -263,13 +282,17 @@ def create_app(
             tuning_template=request.tuning,
         )
 
-    async def start_controller_cohort() -> dict[str, object]:
-        """Start one three-fruit cohort for one physical Start rising edge.
+    def refuse_unless_idle() -> None:
+        """Reject a controller activation unless nothing owns the robot.
 
         The guards mirror the HTTP contract exactly: a latched Remote Takeover
         is the 423 case and must never be overridden from the controller, and
         an already-active cohort or Demo Run is the 409 case.  Refusing here
         rather than queueing keeps one press from stacking activations.
+
+        The adapter already refuses to count presses while a run is active --
+        those presses stop it instead -- so this is the second, authoritative
+        gate against a race between a stop completing and a launch landing.
         """
         if machine.takeover_latched:
             raise ControllerStartRefused(
@@ -286,9 +309,47 @@ def create_app(
                 "active_run",
                 "a Demo Run is already active",
             )
+
+    async def start_controller_cohort() -> dict[str, object]:
+        """Start one three-fruit cohort for one physical Start rising edge."""
+        refuse_unless_idle()
         return await start_cohort_from_request(
             three_fruit_cohort_request(controller_start_seed())
         )
+
+    async def start_controller_fruit_run(
+        *, target_fruit: str, activation_id: str
+    ) -> dict[str, object]:
+        """Start one single-fruit Demo Run for one physical face-button triple.
+
+        Same seam as ``POST /api/run``: one ``FruitMission`` through
+        ``StageDemo.activate``, so preflight, Home capture, the per-run Home
+        clearance gate and terminal exact-zero disarm all apply unchanged. The
+        only differences from the audience UI are the recorded provenance and
+        the fact that the tuning is the controller's, matching the Start
+        cohort's runs exactly.
+        """
+        refuse_unless_idle()
+        if target_fruit not in QUALIFIED_FRUITS:
+            # Belt and braces: FRUIT_RUN_BUTTONS only maps qualified fruits, so
+            # reaching here means the mapping drifted rather than the operator
+            # doing something unusual. Refuse instead of activating.
+            raise ControllerStartRefused(
+                "rejected",
+                f"unqualified Target Fruit for a controller run: {target_fruit}",
+            )
+        activation = await demo.activate(
+            FruitMission(
+                target_fruit=target_fruit,
+                activation_source=CONTROLLER_ACTIVATION_SOURCE,
+                activation_id=activation_id,
+                tuning=RunTuning.from_payload(target_fruit, controller_run_tuning()),
+            )
+        )
+        return {
+            "run": activation.run,
+            "idempotent_replay": activation.idempotent_replay,
+        }
 
     def controller_owns_activation() -> bool:
         """True while a cohort or a Demo Run is the thing an input would stop."""
@@ -319,6 +380,7 @@ def create_app(
         if controller_start_source is None
         else ControllerStartAdapter(
             start_cohort=start_controller_cohort,
+            start_fruit_run=start_controller_fruit_run,
             stop_active=stop_for_controller_input,
             black_box=results.black_box,
             active_run_id=lambda: results.active_run_id,
@@ -501,6 +563,10 @@ def create_app(
                     "cohort_request": three_fruit_cohort_request(
                         controller_start_seed()
                     ).model_dump(),
+                    # Which face button runs which fruit, so the operator sheet
+                    # can be read off the running build instead of memory.
+                    "fruit_run_buttons": dict(FRUIT_RUN_BUTTONS),
+                    "run_activation_source": CONTROLLER_ACTIVATION_SOURCE,
                     "source": controller_start_source.status(),
                     "adapter": controller_start_adapter.status(),
                 }

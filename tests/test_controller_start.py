@@ -12,16 +12,22 @@ import pytest
 from fastapi.testclient import TestClient
 
 from border_collie_demo.api import (
+    CONTROLLER_ACTIVATION_SOURCE,
     CONTROLLER_START_COHORT_FRUITS,
     CONTROLLER_START_HOME_ALIGN_YAW_RPS,
     CONTROLLER_START_SEARCH_YAW_RPS,
     CONTROLLER_START_TOLERATED_FAILURES,
+    controller_run_tuning,
     create_app,
     three_fruit_cohort_request,
 )
 from border_collie_demo.black_box import RunBlackBox
 from border_collie_demo.cohorts import CohortConflict
 from border_collie_demo.controller_start import (
+    BUTTON_MASKS,
+    BUTTON_NAMES,
+    FRUIT_RUN_BUTTON_MASKS,
+    FRUIT_RUN_BUTTONS,
     START_PRESS_COUNT,
     START_SEQUENCE_WINDOW_S,
     STICK_DEADZONE,
@@ -32,6 +38,7 @@ from border_collie_demo.controller_start import (
     Go2ControllerStartSource,
     decode_frame,
 )
+from border_collie_demo.fruits import QUALIFIED_FRUITS
 from border_collie_demo.mission import MissionMachine
 from border_collie_demo.models import RemoteInput
 from border_collie_demo.orchestrator import SimulatedStageExecutor
@@ -41,6 +48,19 @@ TOPIC = "rt/lf/lowstate"
 START_MASK = 1 << 2
 SELECT_MASK = 1 << 3
 A_MASK = 1 << 8
+# Face buttons that each request one single-fruit Demo Run. The bit indices come
+# from Unitree's xKeySwitchUnion order (R1, L1, start, select, R2, L2, F1, F2,
+# A, B, X, Y, up, right, down, left), which is the same order decode_frame
+# reads. Written out literally here so the production masks are checked against
+# a second, independent statement of the layout rather than against themselves.
+B_MASK = 1 << 9
+X_MASK = 1 << 10
+Y_MASK = 1 << 11
+FRUIT_BUTTON_CASES = (
+    ("X", X_MASK, "pear"),
+    ("Y", Y_MASK, "mango"),
+    ("B", B_MASK, "apple"),
+)
 REPOSITORY_ROOT = Path(__file__).parents[1]
 
 # Byte offsets of the four watched stick axes inside wireless_remote. The
@@ -79,23 +99,56 @@ def cohort_record(cohort_id: str) -> dict[str, object]:
     }
 
 
-def start_edges(first_sequence: int, presses: int = START_PRESS_COUNT):
+def button_edges(
+    first_sequence: int, mask: int = START_MASK, presses: int = START_PRESS_COUNT
+):
     """A neutral arming sample followed by ``presses`` release/press pairs."""
     edges = [(first_sequence, 0)]
     for index in range(presses):
-        edges.append((first_sequence + 1 + index * 2, START_MASK))
+        edges.append((first_sequence + 1 + index * 2, mask))
         edges.append((first_sequence + 2 + index * 2, 0))
     return edges
+
+
+def start_edges(first_sequence: int, presses: int = START_PRESS_COUNT):
+    return button_edges(first_sequence, START_MASK, presses)
 
 
 async def arm(adapter: ControllerStartAdapter, sequence: int, at_s: float):
     return await adapter.observe(sample(sequence, 0, at_s))
 
 
+async def press_button(
+    adapter: ControllerStartAdapter, mask: int, sequence: int, at_s: float
+):
+    """One complete press of ``mask``: the button goes down, then comes up."""
+    decision = await adapter.observe(sample(sequence, mask, at_s))
+    await adapter.observe(sample(sequence + 1, 0, at_s + 0.02))
+    return decision
+
+
 async def press_start(adapter: ControllerStartAdapter, sequence: int, at_s: float):
     """One complete Start press: the button goes down, then comes back up."""
-    decision = await adapter.observe(sample(sequence, START_MASK, at_s))
-    await adapter.observe(sample(sequence + 1, 0, at_s + 0.02))
+    return await press_button(adapter, START_MASK, sequence, at_s)
+
+
+async def press_button_times(
+    adapter: ControllerStartAdapter,
+    mask: int,
+    first_sequence: int,
+    at_s: float,
+    presses: int = START_PRESS_COUNT,
+    spacing_s: float = 0.1,
+):
+    """Press ``mask`` ``presses`` times, returning the last decision."""
+    decision = None
+    for index in range(presses):
+        decision = await press_button(
+            adapter,
+            mask,
+            first_sequence + index * 2,
+            at_s + index * spacing_s,
+        )
     return decision
 
 
@@ -215,18 +268,27 @@ class DrivableSource:
             self._observer(sample(sequence, buttons, received_s, axes)), self._loop
         ).result(timeout=10.0)
 
-    def press_start(self, sequence: int, received_s: float):
-        decision = self.submit(sequence, START_MASK, received_s)
+    def press(self, mask: int, sequence: int, received_s: float):
+        decision = self.submit(sequence, mask, received_s)
         self.submit(sequence + 1, 0, received_s + 0.02)
+        return decision
+
+    def press_start(self, sequence: int, received_s: float):
+        return self.press(START_MASK, sequence, received_s)
+
+    def launch_button(self, mask: int, first_sequence: int, at_s: float):
+        """Arm, then press ``mask`` the full required number of times."""
+        self.submit(first_sequence, 0, at_s)
+        decision = None
+        for index in range(START_PRESS_COUNT):
+            decision = self.press(
+                mask, first_sequence + 1 + index * 2, at_s + 0.1 * index
+            )
         return decision
 
     def launch(self, first_sequence: int, at_s: float):
         """Arm, then press Start the full required number of times."""
-        self.submit(first_sequence, 0, at_s)
-        decision = None
-        for index in range(START_PRESS_COUNT):
-            decision = self.press_start(first_sequence + 1 + index * 2, at_s + 0.1 * index)
-        return decision
+        return self.launch_button(START_MASK, first_sequence, at_s)
 
     def call_on_loop(self, callback) -> None:
         assert self._loop is not None
@@ -1275,3 +1337,679 @@ def test_controller_cohort_shape_does_not_drift_from_the_ui_button() -> None:
     for selector in CONTROLLER_START_TOLERATED_FAILURES:
         for value in selector.values():
             assert f"'{value}'" in handler
+
+
+# ---------------------------------------------------------------------------
+# Per-fruit run triggers: X -> Pear, Y -> Mango, B -> Apple
+# ---------------------------------------------------------------------------
+
+
+class ActivationRecorder:
+    """Record what the adapter asked for, without touching a robot."""
+
+    def __init__(self) -> None:
+        self.fruit_runs: list[tuple[str, str]] = []
+        self.cohorts: list[str] = []
+
+    async def start_fruit_run(
+        self, *, target_fruit: str, activation_id: str
+    ) -> dict[str, object]:
+        self.fruit_runs.append((target_fruit, activation_id))
+        return {
+            "run": {
+                "run_id": f"run-{len(self.fruit_runs)}",
+                "target_fruit": target_fruit,
+            },
+            "idempotent_replay": False,
+        }
+
+    async def start_cohort(self) -> dict[str, object]:
+        cohort_id = str(uuid4())
+        self.cohorts.append(cohort_id)
+        return cohort_record(cohort_id)
+
+    def fruits(self) -> list[str]:
+        return [fruit for fruit, _ in self.fruit_runs]
+
+
+def make_idle_adapter(black_box: RunBlackBox):
+    """An adapter with both activation paths wired and nothing running."""
+    recorder = ActivationRecorder()
+    adapter = ControllerStartAdapter(
+        start_cohort=recorder.start_cohort,
+        start_fruit_run=recorder.start_fruit_run,
+        black_box=black_box,
+        active_run_id=lambda: None,
+    )
+    return adapter, recorder
+
+
+def fruit_button_params(*, with_start: bool = False):
+    cases = list(FRUIT_BUTTON_CASES)
+    if with_start:
+        cases.append(("start", START_MASK, None))
+    return pytest.mark.parametrize(
+        ("button", "mask", "fruit"), cases, ids=[case[0] for case in cases]
+    )
+
+
+def test_fruit_button_masks_agree_with_the_decoder_and_the_sdk_bitfield() -> None:
+    """The production masks match an independent restatement of the layout."""
+    assert BUTTON_NAMES.index("B") == 9
+    assert BUTTON_NAMES.index("X") == 10
+    assert BUTTON_NAMES.index("Y") == 11
+    assert FRUIT_RUN_BUTTON_MASKS == {"X": X_MASK, "Y": Y_MASK, "B": B_MASK}
+    # The pre-existing masks are unchanged, so the derivation did not shift.
+    assert BUTTON_MASKS["start"] == START_MASK == 1 << 2
+    assert BUTTON_MASKS["select"] == SELECT_MASK
+    assert BUTTON_MASKS["A"] == A_MASK
+
+    # Every mask decodes back to exactly its own button and nothing else, so a
+    # press of X can never be read as A, B or Y.
+    for name, mask, _fruit in FRUIT_BUTTON_CASES:
+        decoded = decode_frame(frame(mask))
+        assert decoded.buttons == (name,)
+        assert decoded.displaced_axes == ()
+        assert decoded.neutral is False
+
+
+def test_fruit_run_buttons_map_the_three_stage_fruits_and_never_banana() -> None:
+    assert FRUIT_RUN_BUTTONS == {"X": "pear", "Y": "mango", "B": "apple"}
+    assert sorted(FRUIT_RUN_BUTTONS.values()) == sorted(CONTROLLER_START_COHORT_FRUITS)
+    assert "banana" not in FRUIT_RUN_BUTTONS.values()
+    for fruit in FRUIT_RUN_BUTTONS.values():
+        assert fruit in QUALIFIED_FRUITS
+
+
+def test_a_controller_fruit_run_uses_the_same_tuning_as_the_start_cohort() -> None:
+    """A Pear started with X must behave like the Pear inside a Start cohort."""
+    assert controller_run_tuning() == three_fruit_cohort_request().tuning
+    assert controller_run_tuning() == {
+        "search": {"yaw_rps": CONTROLLER_START_SEARCH_YAW_RPS},
+        "home": {"align_yaw_rps": CONTROLLER_START_HOME_ALIGN_YAW_RPS},
+    }
+
+
+@fruit_button_params()
+def test_three_presses_of_a_fruit_button_start_that_one_fruit(
+    tmp_path, button, mask, fruit
+) -> None:
+    async def scenario() -> None:
+        black_box = RunBlackBox(tmp_path)
+        adapter, recorder = make_idle_adapter(black_box)
+
+        assert (await arm(adapter, 10, 100.0)).disposition == "armed"
+        first = await press_button(adapter, mask, 11, 100.1)
+        assert adapter.status()["pending_button"] == button
+        assert adapter.status()["pending_press_progress"] == "1 of 3"
+        # A partial fruit sequence must never read as progress to a cohort.
+        assert adapter.status()["start_press_progress"] == "0 of 3"
+        second = await press_button(adapter, mask, 13, 100.2)
+        assert adapter.status()["pending_press_progress"] == "2 of 3"
+        third = await press_button(adapter, mask, 15, 100.3)
+
+        assert first.disposition == "start_press_recorded"
+        assert second.disposition == "start_press_recorded"
+        assert third.disposition == "accepted"
+        assert third.target_fruit == fruit
+        assert third.run_id == "run-1"
+        # A single-fruit run is not a cohort.
+        assert third.cohort_id is None
+        assert third.activation_id == f"go2-controller-{fruit}:{TOPIC}:15"
+        assert recorder.fruit_runs == [(fruit, third.activation_id)]
+        assert recorder.cohorts == []
+
+        status = adapter.status()
+        assert status["accepted_edges"] == 1
+        assert status["last_target_fruit"] == fruit
+        assert status["last_run_id"] == "run-1"
+        assert status["last_cohort_id"] is None
+        # The counter resets after a launch, so a fourth press cannot relaunch.
+        assert status["pending_presses_recorded"] == 0
+        assert status["pending_button"] is None
+        black_box.close()
+
+    asyncio.run(scenario())
+
+
+@fruit_button_params(with_start=True)
+def test_holding_an_activation_button_down_is_one_press_not_three(
+    tmp_path, button, mask, fruit
+) -> None:
+    """Presses are counted as edges, so a held thumb is exactly one press."""
+
+    async def scenario() -> None:
+        black_box = RunBlackBox(tmp_path)
+        adapter, recorder = make_idle_adapter(black_box)
+
+        await arm(adapter, 30, 300.0)
+        first = await adapter.observe(sample(31, mask, 300.1))
+        held = [
+            await adapter.observe(sample(32 + index, mask, 300.2 + index * 0.05))
+            for index in range(8)
+        ]
+
+        assert first.disposition == "start_press_recorded"
+        assert {decision.disposition for decision in held} == {"held"}
+        assert adapter.status()["pending_presses_recorded"] == 1
+        assert adapter.status()["pending_button"] == button
+        assert recorder.fruit_runs == []
+        assert recorder.cohorts == []
+        black_box.close()
+
+    asyncio.run(scenario())
+
+
+@fruit_button_params()
+def test_fruit_presses_spread_beyond_the_window_start_nothing(
+    tmp_path, button, mask, fruit
+) -> None:
+    async def scenario() -> None:
+        black_box = RunBlackBox(tmp_path)
+        adapter, recorder = make_idle_adapter(black_box)
+
+        await arm(adapter, 20, 200.0)
+        await press_button(adapter, mask, 21, 200.0)
+        await press_button(adapter, mask, 23, 200.1)
+        assert adapter.status()["pending_presses_recorded"] == 2
+
+        # The third press lands outside the window measured from the first, so
+        # it opens a fresh sequence instead of completing the stale one.
+        late = await press_button(
+            adapter, mask, 25, 200.0 + START_SEQUENCE_WINDOW_S + 0.1
+        )
+
+        assert late.disposition == "start_press_recorded"
+        assert adapter.status()["pending_presses_recorded"] == 1
+        assert recorder.fruit_runs == []
+
+        # The button is not disabled, only the stale sequence was: two more
+        # presses inside the fresh window do launch.
+        await press_button(adapter, mask, 27, 200.0 + START_SEQUENCE_WINDOW_S + 0.2)
+        launched = await press_button(
+            adapter, mask, 29, 200.0 + START_SEQUENCE_WINDOW_S + 0.3
+        )
+        assert launched.disposition == "accepted"
+        assert recorder.fruits() == [fruit]
+        black_box.close()
+
+    asyncio.run(scenario())
+
+
+def test_mixed_fruit_button_presses_never_accumulate(tmp_path) -> None:
+    """X, X, Y starts nothing: each button owns its own count."""
+
+    async def scenario() -> None:
+        black_box = RunBlackBox(tmp_path)
+        adapter, recorder = make_idle_adapter(black_box)
+
+        await arm(adapter, 40, 400.0)
+        await press_button(adapter, X_MASK, 41, 400.0)
+        await press_button(adapter, X_MASK, 43, 400.1)
+        assert adapter.status()["pending_button"] == "X"
+        assert adapter.status()["pending_presses_recorded"] == 2
+
+        # The documented rule: an edge on a different activation button
+        # abandons the X sequence and counts as press one of Y's own sequence.
+        switched = await press_button(adapter, Y_MASK, 45, 400.2)
+
+        assert switched.disposition == "start_press_recorded"
+        assert adapter.status()["pending_button"] == "Y"
+        assert adapter.status()["pending_presses_recorded"] == 1
+        assert recorder.fruit_runs == []
+
+        # Two further Y presses -- three Y presses in all -- start Mango, and
+        # never Pear, even though two X presses came first.
+        await press_button(adapter, Y_MASK, 47, 400.3)
+        launched = await press_button(adapter, Y_MASK, 49, 400.4)
+
+        assert launched.disposition == "accepted"
+        assert launched.target_fruit == "mango"
+        assert recorder.fruits() == ["mango"]
+        black_box.close()
+
+    asyncio.run(scenario())
+
+
+def test_start_and_fruit_presses_do_not_combine(tmp_path) -> None:
+    async def scenario() -> None:
+        black_box = RunBlackBox(tmp_path)
+        adapter, recorder = make_idle_adapter(black_box)
+
+        await arm(adapter, 50, 500.0)
+        await press_start(adapter, 51, 500.0)
+        await press_start(adapter, 53, 500.1)
+        assert adapter.status()["start_presses_recorded"] == 2
+
+        # One X press abandons the two-thirds-complete cohort sequence.
+        await press_button(adapter, X_MASK, 55, 500.2)
+        assert adapter.status()["start_presses_recorded"] == 0
+        assert adapter.status()["pending_button"] == "X"
+
+        # So the next Start press is Start press one, not the launch.
+        back = await press_start(adapter, 57, 500.3)
+        assert back.disposition == "start_press_recorded"
+        assert adapter.status()["start_presses_recorded"] == 1
+        assert recorder.cohorts == []
+        assert recorder.fruit_runs == []
+        black_box.close()
+
+    asyncio.run(scenario())
+
+
+def test_two_activation_buttons_at_once_count_for_neither(tmp_path) -> None:
+    async def scenario() -> None:
+        black_box = RunBlackBox(tmp_path)
+        adapter, recorder = make_idle_adapter(black_box)
+
+        await arm(adapter, 60, 600.0)
+        await press_button(adapter, X_MASK, 61, 600.0)
+        await press_button(adapter, X_MASK, 63, 600.1)
+        assert adapter.status()["pending_presses_recorded"] == 2
+
+        # An X+Y chord is ambiguous, so it is other input: it clears the
+        # sequence and counts for nothing.
+        chord = await adapter.observe(sample(65, X_MASK | Y_MASK, 600.2))
+
+        assert chord.disposition == "other_input"
+        assert adapter.status()["pending_presses_recorded"] == 0
+        assert adapter.status()["pending_button"] is None
+        assert recorder.fruit_runs == []
+        black_box.close()
+
+    asyncio.run(scenario())
+
+
+def test_a_stick_clears_a_partial_fruit_sequence(tmp_path) -> None:
+    async def scenario() -> None:
+        black_box = RunBlackBox(tmp_path)
+        adapter, recorder = make_idle_adapter(black_box)
+
+        await arm(adapter, 66, 660.0)
+        await press_button(adapter, B_MASK, 67, 660.0)
+        await press_button(adapter, B_MASK, 69, 660.1)
+        assert adapter.status()["pending_presses_recorded"] == 2
+
+        nudged = await adapter.observe(sample(71, 0, 660.2, {"ly": 0.9}))
+
+        assert nudged.disposition == "other_input"
+        assert adapter.status()["pending_presses_recorded"] == 0
+        assert recorder.fruit_runs == []
+        black_box.close()
+
+    asyncio.run(scenario())
+
+
+@fruit_button_params()
+def test_fruit_presses_during_an_active_run_stop_it_and_never_start(
+    tmp_path, button, mask, fruit
+) -> None:
+    """The dangerous case: X x3 during a run must stop, not stop-then-launch."""
+
+    async def scenario() -> None:
+        black_box = RunBlackBox(tmp_path)
+        recorder = ActivationRecorder()
+        stops: list[RemoteInput] = []
+
+        async def stop_active(remote_input: RemoteInput) -> dict[str, object]:
+            stops.append(remote_input)
+            return {}
+
+        adapter = ControllerStartAdapter(
+            start_cohort=recorder.start_cohort,
+            start_fruit_run=recorder.start_fruit_run,
+            black_box=black_box,
+            active_run_id=lambda: "run-1",
+            stop_active=stop_active,
+            # Busy throughout and deliberately never latched: the worst case,
+            # because the takeover latch is not there to block a second
+            # activation. Only the press gating can prevent a launch here.
+            is_busy=lambda: True,
+            takeover_latched=lambda: False,
+        )
+
+        await arm(adapter, 70, 700.0)
+        decisions = [
+            await press_button(adapter, mask, 71 + index * 2, 700.1 + index * 0.1)
+            for index in range(START_PRESS_COUNT)
+        ]
+
+        assert [decision.disposition for decision in decisions] == [
+            "takeover_stop"
+        ] * START_PRESS_COUNT
+        assert [stop.control for stop in stops] == [button] * START_PRESS_COUNT
+        assert recorder.fruit_runs == []
+        assert recorder.cohorts == []
+        assert adapter.status()["pending_presses_recorded"] == 0
+        assert adapter.status()["pending_button"] is None
+        assert adapter.status()["accepted_edges"] == 0
+        assert adapter.status()["takeover"]["stops"] == START_PRESS_COUNT
+        black_box.close()
+
+    asyncio.run(scenario())
+
+
+def test_three_start_presses_still_start_the_cohort_with_fruit_buttons_wired(
+    tmp_path,
+) -> None:
+    async def scenario() -> None:
+        black_box = RunBlackBox(tmp_path)
+        adapter, recorder = make_idle_adapter(black_box)
+
+        await arm(adapter, 80, 800.0)
+        launched = await press_button_times(adapter, START_MASK, 81, 800.1)
+
+        assert launched is not None
+        assert launched.disposition == "accepted"
+        assert launched.cohort_id == recorder.cohorts[0]
+        assert launched.activation_id == f"go2-controller-start:{TOPIC}:85"
+        # A cohort is not a single-fruit run.
+        assert launched.run_id is None
+        assert launched.target_fruit is None
+        assert recorder.fruit_runs == []
+        assert adapter.status()["last_target_fruit"] is None
+        black_box.close()
+
+    asyncio.run(scenario())
+
+
+def test_a_missing_fruit_run_path_is_reported_rather_than_silently_ignored(
+    tmp_path,
+) -> None:
+    async def scenario() -> None:
+        black_box = RunBlackBox(tmp_path)
+        recorder = ActivationRecorder()
+        adapter = ControllerStartAdapter(
+            start_cohort=recorder.start_cohort,
+            black_box=black_box,
+            active_run_id=lambda: None,
+        )
+
+        assert adapter.status()["fruit_run_path_connected"] is False
+        await arm(adapter, 90, 900.0)
+        refused = await press_button_times(adapter, X_MASK, 91, 900.1)
+
+        assert refused is not None
+        assert refused.disposition == "run_unavailable"
+        assert recorder.fruit_runs == []
+        status = adapter.status()
+        assert status["accepted_edges"] == 0
+        assert "not connected" in str(status["last_error"])
+        black_box.close()
+
+    asyncio.run(scenario())
+
+
+def test_the_status_detail_names_the_fruit_a_partial_sequence_would_run(
+    tmp_path,
+) -> None:
+    async def scenario() -> None:
+        black_box = RunBlackBox(tmp_path)
+        adapter, _ = make_idle_adapter(black_box)
+
+        await arm(adapter, 95, 950.0)
+        await press_button(adapter, Y_MASK, 96, 950.1)
+
+        detail = str(adapter.status()["detail"])
+        assert "Y" in detail
+        assert "Mango" in detail
+        assert "2 more time" in detail
+        black_box.close()
+
+    asyncio.run(scenario())
+
+
+# ---------------------------------------------------------------------------
+# Per-fruit triggers: whole-application behaviour
+# ---------------------------------------------------------------------------
+
+
+def wait_for_run(client: TestClient, run_id: str, timeout_s: float = 10.0) -> dict:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        response = client.get(f"/api/results/{run_id}")
+        if response.status_code == 200 and response.json()["run"].get("outcome"):
+            return response.json()["run"]
+        time.sleep(0.01)
+    raise AssertionError("Demo Run did not become terminal")
+
+
+@fruit_button_params()
+def test_three_face_button_presses_run_exactly_that_fruit(
+    tmp_path, button, mask, fruit
+) -> None:
+    source = DrivableSource()
+    app = create_app(
+        runs_root=tmp_path / "runs",
+        cohorts_root=tmp_path / "cohorts",
+        hardware=ReadyHardware(),
+        camera_perception_status=ready_camera,
+        stage_executor=SimulatedStageExecutor(),
+        controller_start_source=source,
+        inter_run_pause_s=0.0,
+    )
+
+    with TestClient(app) as client:
+        launched = source.launch_button(mask, 500, 5000.0)
+
+        assert launched.disposition == "accepted"
+        assert launched.target_fruit == fruit
+        assert launched.run_id is not None
+        # A face button starts one Demo Run, never a cohort.
+        assert launched.cohort_id is None
+        assert client.get("/api/cohorts/active").json()["cohort"] is None
+
+        run = wait_for_run(client, launched.run_id)
+        assert run["outcome"] == "COMPLETED"
+        assert run["target_fruit"] == fruit
+        assert run["activation_source"] == CONTROLLER_ACTIVATION_SOURCE
+        assert run["final_safety_state"] == "DISARMED_CONFIRMED"
+        assert run["run_tuning"]["search"]["yaw_rps"] == CONTROLLER_START_SEARCH_YAW_RPS
+
+        controller = client.get("/api/status").json()["controller_start"]
+        assert controller["fruit_run_buttons"][button] == fruit
+        assert controller["run_activation_source"] == CONTROLLER_ACTIVATION_SOURCE
+        assert controller["adapter"]["accepted_edges"] == 1
+        assert controller["adapter"]["last_target_fruit"] == fruit
+        assert controller["adapter"]["last_run_id"] == launched.run_id
+        assert controller["adapter"]["fruit_run_path_connected"] is True
+
+    assert source.closed is True
+
+
+def test_two_face_button_presses_alone_never_start_a_run(tmp_path) -> None:
+    source = ScriptedSource(button_edges(90, X_MASK, presses=2))
+    app = create_app(
+        runs_root=tmp_path / "runs",
+        cohorts_root=tmp_path / "cohorts",
+        hardware=ReadyHardware(),
+        camera_perception_status=ready_camera,
+        stage_executor=SimulatedStageExecutor(),
+        controller_start_source=source,
+        inter_run_pause_s=0.0,
+    )
+
+    with TestClient(app) as client:
+        assert "accepted" not in source.dispositions()
+        status = client.get("/api/status").json()
+        assert status["active_run_id"] is None
+        assert status["cohort"] is None
+        adapter = status["controller_start"]["adapter"]
+        assert adapter["accepted_edges"] == 0
+        assert adapter["pending_press_progress"] == "2 of 3"
+
+
+def test_a_face_button_during_an_active_run_stops_it_and_starts_nothing(
+    tmp_path,
+) -> None:
+    source = DrivableSource()
+    executor = GatedStageExecutor()
+    app = create_app(
+        runs_root=tmp_path / "runs",
+        cohorts_root=tmp_path / "cohorts",
+        hardware=ReadyHardware(),
+        camera_perception_status=ready_camera,
+        stage_executor=executor,
+        controller_start_source=source,
+        inter_run_pause_s=0.0,
+    )
+
+    with TestClient(app) as client:
+        assert source.submit(600, 0, 6000.0).disposition == "armed"
+        started = client.post("/api/run", json={"target_fruit": "mango"})
+        assert started.status_code == 201
+        run_id = started.json()["run"]["run_id"]
+        wait_until(lambda: executor.gate_reached)
+
+        # Three X presses during the run. The first stops it; none of the three
+        # may leave a Pear run behind.
+        first = source.press(X_MASK, 601, 6000.1)
+        second = source.press(X_MASK, 603, 6000.2)
+        third = source.press(X_MASK, 605, 6000.3)
+
+        assert first.disposition == "takeover_stop"
+        # Presses two and three land on the takeover latch, not on a counter.
+        assert {second.disposition, third.disposition} == {"takeover_latched"}
+
+        status = client.get("/api/status").json()
+        assert status["active_run_id"] is None
+        assert client.get("/api/cohorts/active").json()["cohort"] is None
+        run = client.get(f"/api/results/{run_id}").json()["run"]
+        assert run["outcome"] == "STOPPED"
+        assert run["target_fruit"] == "mango"
+
+        adapter = status["controller_start"]["adapter"]
+        assert adapter["accepted_edges"] == 0
+        assert adapter["pending_presses_recorded"] == 0
+        assert adapter["start_presses_recorded"] == 0
+        assert adapter["takeover"]["latched"] is True
+        assert adapter["takeover"]["stops"] == 1
+
+
+def test_a_face_button_during_a_start_cohort_stops_the_cohort(tmp_path) -> None:
+    source = DrivableSource()
+    executor = GatedStageExecutor()
+    app = create_app(
+        runs_root=tmp_path / "runs",
+        cohorts_root=tmp_path / "cohorts",
+        hardware=ReadyHardware(),
+        camera_perception_status=ready_camera,
+        stage_executor=executor,
+        controller_start_source=source,
+        inter_run_pause_s=0.0,
+    )
+
+    with TestClient(app) as client:
+        assert source.launch(700, 7000.0).disposition == "accepted"
+        wait_until(lambda: executor.gate_reached)
+
+        stopped = source.press(B_MASK, 720, 7010.0)
+
+        assert stopped.disposition == "takeover_stop"
+        cohort = client.get("/api/cohorts/active").json()["cohort"]
+        assert cohort["status"] == "STOPPED"
+        status = client.get("/api/status").json()
+        assert status["active_run_id"] is None
+        adapter = status["controller_start"]["adapter"]
+        # B stopped the cohort and did not queue an Apple run.
+        assert adapter["accepted_edges"] == 1
+        assert adapter["pending_presses_recorded"] == 0
+        assert adapter["last_target_fruit"] is None
+
+
+def test_face_button_edges_while_remote_takeover_is_latched_are_refused(
+    tmp_path,
+) -> None:
+    machine = MissionMachine()
+    machine.remote_takeover(
+        RemoteInput(
+            source="go2_controller",
+            control="wireless_remote",
+            received_monotonic_s=1.0,
+        )
+    )
+    source = ScriptedSource(button_edges(80, Y_MASK))
+    app = create_app(
+        mission=machine,
+        runs_root=tmp_path / "runs",
+        cohorts_root=tmp_path / "cohorts",
+        hardware=ReadyHardware(),
+        camera_perception_status=ready_camera,
+        stage_executor=SimulatedStageExecutor(),
+        controller_start_source=source,
+    )
+
+    with TestClient(app) as client:
+        assert "accepted" not in source.dispositions()
+        assert set(source.dispositions()[1:]) == {"takeover_latched"}
+        status = client.get("/api/status").json()
+        assert status["active_run_id"] is None
+        adapter = status["controller_start"]["adapter"]
+        assert adapter["accepted_edges"] == 0
+        assert adapter["takeover"]["latched"] is True
+
+
+@fruit_button_params()
+def test_a_stale_fruit_press_count_cannot_survive_a_stop(
+    tmp_path, button, mask, fruit
+) -> None:
+    """The exact hazard: two presses, a stop, one press must not launch.
+
+    Two X presses while idle, then a run starts from the UI, then a third X
+    press stops it. If the stopping press left the count at two, the operator's
+    next single X press would launch a Pear run -- three presses, but only one
+    of them after the stop. The count must be gone.
+    """
+
+    async def scenario() -> None:
+        black_box = RunBlackBox(tmp_path)
+        recorder = ActivationRecorder()
+        busy = {"value": False}
+        stops: list[RemoteInput] = []
+
+        async def stop_active(remote_input: RemoteInput) -> dict[str, object]:
+            stops.append(remote_input)
+            busy["value"] = False
+            return {}
+
+        adapter = ControllerStartAdapter(
+            start_cohort=recorder.start_cohort,
+            start_fruit_run=recorder.start_fruit_run,
+            black_box=black_box,
+            active_run_id=lambda: "run-1" if busy["value"] else None,
+            stop_active=stop_active,
+            is_busy=lambda: busy["value"],
+            # Never latched, so nothing but the press gating stands between the
+            # stop and an unwanted launch.
+            takeover_latched=lambda: False,
+        )
+
+        await arm(adapter, 120, 1200.0)
+        await press_button(adapter, mask, 121, 1200.1)
+        await press_button(adapter, mask, 123, 1200.2)
+        assert adapter.status()["pending_presses_recorded"] == 2
+
+        # The UI starts a run, then the operator presses the same button.
+        busy["value"] = True
+        stopped = await press_button(adapter, mask, 125, 1200.3)
+
+        assert stopped.disposition == "takeover_stop"
+        assert [stop.control for stop in stops] == [button]
+        assert adapter.status()["pending_presses_recorded"] == 0
+
+        # One more press must be press one of a fresh sequence, not a launch.
+        again = await press_button(adapter, mask, 127, 1200.4)
+        assert again.disposition == "start_press_recorded"
+        assert adapter.status()["pending_presses_recorded"] == 1
+        assert recorder.fruit_runs == []
+        assert recorder.cohorts == []
+
+        # It takes two further presses -- three after the stop -- to launch.
+        await press_button(adapter, mask, 129, 1200.5)
+        launched = await press_button(adapter, mask, 131, 1200.6)
+        assert launched.disposition == "accepted"
+        assert launched.target_fruit == fruit
+        assert recorder.fruits() == [fruit]
+        black_box.close()
+
+    asyncio.run(scenario())

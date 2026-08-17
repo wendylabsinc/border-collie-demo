@@ -3,16 +3,22 @@
 The adapter turns raw ``LowState_.wireless_remote`` frames into exactly two
 operator intents, and never sends a robot command of its own:
 
-* **Idle** -- three deliberate Start presses inside a bounded window request
-  one three-fruit cohort: one Apple, one Mango and one Pear Demo Run, in a
-  seeded random order.  The injected ``start_cohort`` callable is the same
-  ``CohortController.start`` path the "Run Apple + Mango + Pear once" UI button
-  drives through ``POST /api/cohorts``, so preflight, exact-zero disarm, the
-  Remote Takeover latch and the per-run Home clearance gate all still apply.
+* **Idle** -- three deliberate presses of one activation button inside a
+  bounded window request one Demo Run activation.  Start requests the
+  three-fruit cohort: one Apple, one Mango and one Pear Demo Run, in a seeded
+  random order.  X, Y and B each request a single Demo Run for one fruit
+  (X -> Pear, Y -> Mango, B -> Apple).  The injected ``start_cohort`` callable
+  is the same ``CohortController.start`` path the "Run Apple + Mango + Pear
+  once" UI button drives through ``POST /api/cohorts``, and
+  ``start_fruit_run`` is the same ``StageDemo.activate`` path ``POST /api/run``
+  drives, so preflight, exact-zero disarm, the Remote Takeover latch and the
+  per-run Home clearance gate all still apply.
 * **Run or cohort active** -- *any* freshly touched control, button or stick,
   stops immediately through the injected ``stop_active`` callable, which is the
   same safe path ``POST /api/stop`` uses.  Stopping is never rate-limited,
-  never counted and never debounced: one input, one stop.
+  never counted and never debounced: one input, one stop.  This takes priority
+  over activation: while something is running, X/Y/B stop it exactly like every
+  other control, and the stopping press is never counted toward a launch.
 
 The adapter owns decoding, neutral-before-arm behavior, rising-edge
 deduplication, the press counter and black-box attribution.  It owns no motion
@@ -70,8 +76,34 @@ STICK_AXES: tuple[tuple[str, int], ...] = (
     ("left_stick_y", 20),
 )
 
-START_BUTTON_MASK = 1 << 2
+# Every mask is derived from the BUTTON_NAMES order above, which is the same
+# order ``decode_frame`` reads, so a mask can never disagree with the decoder.
+BUTTON_MASKS: dict[str, int] = {
+    name: 1 << index for index, name in enumerate(BUTTON_NAMES)
+}
+
 START_BUTTON_NAME = "start"
+START_BUTTON_MASK = BUTTON_MASKS[START_BUTTON_NAME]
+
+# Face buttons that each request one single-fruit Demo Run on
+# ``START_PRESS_COUNT`` presses, alongside Start's three-fruit cohort.
+#
+# Banana is deliberately absent: it is not motion-qualified, so no controller
+# button can request it. The three mapped fruits are exactly the ones the Start
+# cohort runs, which keeps the stage vocabulary the same either way.
+FRUIT_RUN_BUTTONS: dict[str, str] = {
+    "X": "pear",
+    "Y": "mango",
+    "B": "apple",
+}
+FRUIT_RUN_BUTTON_MASKS: dict[str, int] = {
+    name: BUTTON_MASKS[name] for name in FRUIT_RUN_BUTTONS
+}
+
+# Every button that can request an activation when the robot is idle. Any other
+# control -- a stick, select, a shoulder, a d-pad key -- is "other input" and
+# only ever clears a partial sequence.
+ACTIVATION_BUTTONS: tuple[str, ...] = (START_BUTTON_NAME, *FRUIT_RUN_BUTTONS)
 
 # Stick displacement that counts as a deliberate touch, in normalized units
 # where full deflection is 1.0.
@@ -86,8 +118,9 @@ START_BUTTON_NAME = "start"
 # delay it.
 STICK_DEADZONE = 0.15
 
-# Deliberate presses required to launch a cohort. One press was too easy to
-# trigger by brushing the controller.
+# Deliberate presses required to launch a cohort or a single-fruit run. One
+# press was too easy to trigger by brushing the controller. The same count
+# applies to every activation button, so the operator learns one gesture.
 START_PRESS_COUNT = 3
 
 # All the presses must land inside this window, measured from the first one.
@@ -218,10 +251,28 @@ class ControllerDecision:
     activation_id: str | None = None
     cohort_id: str | None = None
     detail: str | None = None
+    run_id: str | None = None
+    target_fruit: str | None = None
 
 
 StartCohort = Callable[[], Awaitable[dict[str, Any]]]
 StopActive = Callable[[RemoteInput], Awaitable[dict[str, Any]]]
+
+
+class StartFruitRun(Protocol):
+    """Activate exactly one single-fruit Demo Run.
+
+    Keyword-only so a fruit and an activation id can never be swapped at a
+    call site. ``activation_id`` is the idempotency key, derived from the DDS
+    sample that carried the third press, so a replayed edge cannot stack a
+    second run.
+    """
+
+    async def __call__(
+        self, *, target_fruit: str, activation_id: str
+    ) -> dict[str, Any]: ...
+
+
 ActiveRunId = Callable[[], str | None]
 IsBusy = Callable[[], bool]
 IsTakeoverLatched = Callable[[], bool]
@@ -238,17 +289,32 @@ class ControllerStartSource(Protocol):
 
 
 class ControllerStartAdapter:
-    """Turn physical controller input into a cohort request or an instant stop.
+    """Turn physical controller input into a run request or an instant stop.
 
     Two intents, kept unambiguous by what the robot is doing at the time:
 
-    * **Idle** -- ``START_PRESS_COUNT`` distinct Start rising edges inside
-      ``START_SEQUENCE_WINDOW_S`` request one three-fruit cohort. A held button
-      is one press, not many. The counter resets when the window lapses, when
-      any other control is touched, on a stop, and after a launch.
+    * **Idle** -- ``START_PRESS_COUNT`` distinct rising edges of *one*
+      activation button inside ``START_SEQUENCE_WINDOW_S`` request one
+      activation: Start requests the three-fruit cohort, and X, Y and B each
+      request one single-fruit Demo Run per ``FRUIT_RUN_BUTTONS``. A held
+      button is one press, not many. The counter resets when the window lapses,
+      when any other control is touched, on a stop, and after a launch.
     * **Run or cohort active** -- any freshly touched control stops the run at
-      once through the safe stop path. Start has no special status here: while
-      something is running it stops, and it never counts toward a new sequence.
+      once through the safe stop path. The activation buttons have no special
+      status here: while something is running they stop, and the stopping press
+      never counts toward a new sequence.
+
+    Only one press sequence is ever in progress. Presses of different
+    activation buttons never accumulate together: an edge on one activation
+    button counts as press one of *its own* sequence and simultaneously
+    abandons any sequence in progress on a different button. So X, X, Y leaves
+    Y at 1 of 3 and X at nothing, and starts nothing; an operator who changes
+    their mind mid-sequence still gets the fruit they pressed three times, and
+    no run can ever be launched by fewer than three presses of its own button.
+    Storing this as a single (button, press times) pair rather than one counter
+    per button is deliberate: there is exactly one place to clear and one place
+    to expire, so a stale counter cannot survive somewhere unnoticed and
+    contribute to a later launch.
 
     The first observed state must be fully neutral -- every button released and
     every stick centered. Consequently a controller held, or a stick leaned on,
@@ -262,6 +328,7 @@ class ControllerStartAdapter:
         start_cohort: StartCohort,
         black_box: RunBlackBox,
         active_run_id: ActiveRunId,
+        start_fruit_run: StartFruitRun | None = None,
         stop_active: StopActive | None = None,
         is_busy: IsBusy | None = None,
         takeover_latched: IsTakeoverLatched | None = None,
@@ -286,6 +353,7 @@ class ControllerStartAdapter:
         if takeover_release_hold_s < 0.0:
             raise ValueError("the takeover release hold must not be negative")
         self._start_cohort = start_cohort
+        self._start_fruit_run = start_fruit_run
         self._stop_active = stop_active
         self._black_box = black_box
         self._active_run_id = active_run_id
@@ -306,6 +374,9 @@ class ControllerStartAdapter:
         self._in_flight = False
         self._armed_after_release = False
         self._active_controls: frozenset[str] = frozenset()
+        # The single in-progress press sequence: which activation button it
+        # belongs to, and when each counted edge landed. Cleared together.
+        self._press_button: str | None = None
         self._press_times: list[float] = []
         self._neutral_since: float | None = None
         self._seen_order: deque[tuple[str, int]] = deque()
@@ -316,6 +387,8 @@ class ControllerStartAdapter:
         self._accepted_edges = 0
         self._takeover_stops = 0
         self._last_cohort_id: str | None = None
+        self._last_run_id: str | None = None
+        self._last_target_fruit: str | None = None
         self._last_error: str | None = None
         # Accepted cohorts have no Run Result yet, so the black box cannot own
         # their attribution.  Keep a bounded edge history readable from status.
@@ -355,13 +428,19 @@ class ControllerStartAdapter:
                 return self._observe_while_latched(frame, now)
 
             # 3. Something is running: any fresh touch stops it, instantly.
+            #
+            #    This is checked before any counting, so an activation button is
+            #    a stop here and nothing else. Clearing the sequence on every
+            #    busy sample -- not only on the ones that stop -- is what stops
+            #    three X presses during a run from stopping the run and then
+            #    immediately launching a Pear run off the same three presses.
             if self._is_busy():
-                self._press_times.clear()
+                self._clear_presses()
                 if newly_touched:
                     return await self._stop_for_input(sample, frame, newly_touched)
                 return self._decision("held" if controls else "idle")
 
-            # 4. Idle: only Start, pressed alone, counts toward a launch.
+            # 4. Idle: only one activation button, pressed alone, counts.
             return await self._observe_while_idle(sample, frame, previous, now)
 
     def _observe_while_latched(
@@ -384,7 +463,7 @@ class ControllerStartAdapter:
         except Exception as exc:  # noqa: BLE001 - never crash on the input path
             self._last_error = f"remote takeover release failed: {exc}"
             return self._decision("takeover_latched")
-        self._press_times.clear()
+        self._clear_presses()
         self._last_error = None
         self._events.append(
             {
@@ -411,35 +490,117 @@ class ControllerStartAdapter:
                 return self._decision("start_sequence_expired")
             return self._decision("released" if previous else "idle")
 
-        # A stick leaned on, or any other button, is not a Start press. It
+        # A stick leaned on, or any non-activation button, is not a press. It
         # clears the sequence so a half-counted launch cannot hide behind it.
-        if controls != frozenset({START_BUTTON_NAME}):
-            self._press_times.clear()
+        # Chords are rejected the same way: exactly one activation button, with
+        # nothing else touched, so X+Y together is ambiguous and counts for
+        # neither.
+        button = next(iter(controls)) if len(controls) == 1 else None
+        if button is None or button not in ACTIVATION_BUTTONS:
+            self._clear_presses()
             return self._decision("other_input")
 
-        if START_BUTTON_NAME in previous:
+        if button in previous:
+            # Still held from the previous frame: one press, however many
+            # LowState samples arrive while the operator's thumb is down.
             return self._decision("held")
+
+        # A rising edge on a different activation button abandons the sequence
+        # in progress and starts a fresh one, so presses of different buttons
+        # can never add up to a launch.
+        if self._press_button != button:
+            self._press_button = button
+            self._press_times = []
 
         self._press_times.append(now)
         if len(self._press_times) < self._start_press_count:
             return self._decision("start_press_recorded")
-        return await self._launch_cohort(sample, frame)
+        if button == START_BUTTON_NAME:
+            return await self._launch_cohort(sample, frame)
+        return await self._launch_fruit_run(sample, frame, button)
 
-    async def _launch_cohort(
-        self, sample: ControllerSample, frame: ControllerFrame
-    ) -> ControllerDecision:
-        self._press_times.clear()
-        activation_id = f"go2-controller-start:{sample.source}:{sample.source_sequence}"
-        evidence: dict[str, Any] = {
+    def _launch_evidence(
+        self,
+        sample: ControllerSample,
+        frame: ControllerFrame,
+        button: str,
+    ) -> dict[str, Any]:
+        return {
             **frame.to_evidence(),
-            "button": START_BUTTON_NAME,
-            "button_mask": START_BUTTON_MASK,
+            "button": button,
+            "button_mask": BUTTON_MASKS[button],
             "presses_required": self._start_press_count,
             "received_monotonic_s": sample.received_monotonic_s,
             "source": sample.source,
             "source_sequence": sample.source_sequence,
-            "start_pressed": True,
+            "start_pressed": button == START_BUTTON_NAME,
         }
+
+    async def _launch_fruit_run(
+        self,
+        sample: ControllerSample,
+        frame: ControllerFrame,
+        button: str,
+    ) -> ControllerDecision:
+        """Request one single-fruit Demo Run for one face-button sequence."""
+
+        self._clear_presses()
+        target_fruit = FRUIT_RUN_BUTTONS[button]
+        activation_id = (
+            f"go2-controller-{target_fruit}:{sample.source}:{sample.source_sequence}"
+        )
+        evidence = {
+            **self._launch_evidence(sample, frame, button),
+            "target_fruit": target_fruit,
+        }
+        if self._start_fruit_run is None:
+            detail = "controller single-fruit run path is not connected"
+            return self._refuse(evidence, activation_id, "run_unavailable", detail)
+
+        self._in_flight = True
+        try:
+            activated = await self._start_fruit_run(
+                target_fruit=target_fruit, activation_id=activation_id
+            )
+        except ControllerStartRefused as exc:
+            return self._refuse(evidence, activation_id, exc.disposition, exc.detail)
+        except Exception as exc:  # noqa: BLE001 - refuse, never crash the app
+            return self._refuse(evidence, activation_id, "rejected", str(exc))
+        finally:
+            self._in_flight = False
+
+        run = activated.get("run") or {}
+        run_id = run.get("run_id")
+        run_id = None if run_id is None else str(run_id)
+        payload = {
+            **evidence,
+            "activation_id": activation_id,
+            "disposition": "accepted",
+            "run_id": run_id,
+            "idempotent_replay": bool(activated.get("idempotent_replay")),
+        }
+        self._accepted_edges += 1
+        self._last_run_id = run_id
+        self._last_target_fruit = target_fruit
+        self._last_cohort_id = None
+        self._last_error = None
+        self._events.append(payload)
+        return self._decision(
+            "accepted",
+            activation_id=activation_id,
+            detail=target_fruit,
+            run_id=run_id,
+            target_fruit=target_fruit,
+        )
+
+    async def _launch_cohort(
+        self, sample: ControllerSample, frame: ControllerFrame
+    ) -> ControllerDecision:
+        self._clear_presses()
+        activation_id = f"go2-controller-start:{sample.source}:{sample.source_sequence}"
+        evidence: dict[str, Any] = self._launch_evidence(
+            sample, frame, START_BUTTON_NAME
+        )
         self._in_flight = True
         try:
             cohort = await self._start_cohort()
@@ -462,6 +623,10 @@ class ControllerStartAdapter:
         }
         self._accepted_edges += 1
         self._last_cohort_id = cohort_id
+        # A cohort runs all three fruits, so there is no single Target Fruit or
+        # run id to report until the cohort picks one.
+        self._last_run_id = None
+        self._last_target_fruit = None
         self._last_error = None
         self._events.append(payload)
         return self._decision(
@@ -529,18 +694,33 @@ class ControllerStartAdapter:
         self._events.append(payload)
         return self._decision("takeover_stop", detail=control)
 
+    def _clear_presses(self) -> None:
+        """Forget the in-progress press sequence, whichever button owns it."""
+        self._press_button = None
+        self._press_times = []
+
     def _expire_start_sequence(self, now: float) -> bool:
-        """Drop a partial press sequence once its window has lapsed."""
+        """Drop a partial press sequence once its window has lapsed.
+
+        Measured from the first counted press, identically for every activation
+        button: three presses of X must land inside the same
+        ``START_SEQUENCE_WINDOW_S`` that Start has always required.
+        """
         if not self._press_times:
             return False
         if now - self._press_times[0] <= self._start_sequence_window_s:
             return False
-        self._press_times.clear()
+        self._clear_presses()
         return True
 
     def status(self) -> dict[str, object]:
-        recorded = len(self._press_times)
+        pending_button = self._press_button
+        pending = len(self._press_times)
+        # ``start_presses_*`` stays specifically about Start, so an operator
+        # part-way through an X sequence never reads as part-way to a cohort.
+        recorded = pending if pending_button == START_BUTTON_NAME else 0
         latched = bool(self._takeover_latched())
+        remaining = self._start_press_count - pending
         if not self._armed_after_release:
             detail = "waiting for a neutral controller before activation"
         elif latched:
@@ -550,6 +730,13 @@ class ControllerStartAdapter:
             )
         elif self._is_busy():
             detail = "a run is active; any controller input stops it immediately"
+        elif pending_button in FRUIT_RUN_BUTTONS:
+            fruit = FRUIT_RUN_BUTTONS[str(pending_button)]
+            detail = (
+                f"{pending} of {self._start_press_count} {pending_button} presses "
+                f"recorded; press {pending_button} {remaining} more time(s) "
+                f"for one {fruit.title()} Demo Run"
+            )
         else:
             detail = (
                 f"{recorded} of {self._start_press_count} Start presses recorded; "
@@ -564,6 +751,12 @@ class ControllerStartAdapter:
             "start_presses_required": self._start_press_count,
             "start_presses_recorded": recorded,
             "start_press_progress": f"{recorded} of {self._start_press_count}",
+            "pending_button": pending_button,
+            "pending_presses_recorded": pending,
+            "pending_press_progress": f"{pending} of {self._start_press_count}",
+            "fruit_run_buttons": dict(FRUIT_RUN_BUTTONS),
+            "fruit_run_button_masks": dict(FRUIT_RUN_BUTTON_MASKS),
+            "fruit_run_path_connected": self._start_fruit_run is not None,
             "start_sequence_window_s": self._start_sequence_window_s,
             "stick_deadzone": self._stick_deadzone,
             "watched_axes": [name for name, _ in STICK_AXES],
@@ -578,6 +771,8 @@ class ControllerStartAdapter:
             "last_source_sequence": self._last_source_sequence,
             "accepted_edges": self._accepted_edges,
             "last_cohort_id": self._last_cohort_id,
+            "last_run_id": self._last_run_id,
+            "last_target_fruit": self._last_target_fruit,
             "last_error": self._last_error,
             "recent_edges": [dict(event) for event in self._events],
         }
@@ -619,9 +814,18 @@ class ControllerStartAdapter:
         activation_id: str | None = None,
         cohort_id: str | None = None,
         detail: str | None = None,
+        run_id: str | None = None,
+        target_fruit: str | None = None,
     ) -> ControllerDecision:
         self._last_decision = disposition
-        return ControllerDecision(disposition, activation_id, cohort_id, detail)
+        return ControllerDecision(
+            disposition,
+            activation_id,
+            cohort_id,
+            detail,
+            run_id=run_id,
+            target_fruit=target_fruit,
+        )
 
     def _remember(self, identity: tuple[str, int]) -> None:
         while len(self._seen_order) >= self._dedupe_window:
