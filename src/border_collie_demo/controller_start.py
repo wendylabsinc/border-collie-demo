@@ -36,6 +36,7 @@ from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
+from uuid import uuid4
 
 from .black_box import RunBlackBox
 from .models import RemoteInput
@@ -374,6 +375,15 @@ class ControllerStartAdapter:
         self._in_flight = False
         self._armed_after_release = False
         self._active_controls: frozenset[str] = frozenset()
+        # A single-fruit run's activation_id is its durable idempotency key, and
+        # it is built from the DDS tick, which restarts at zero when the robot
+        # reboots. Without a per-process nonce, a tick value that happened to
+        # repeat across a reboot would make StageDemo replay the earlier
+        # persisted Run Result: the operator would see the press accepted and
+        # the robot would not move. The Start cohort needs no nonce because
+        # CohortController mints its own per-run activation ids and the
+        # controller's id is evidence only, so that string is left unchanged.
+        self.instance_id = uuid4().hex[:8]
         # The single in-progress press sequence: which activation button it
         # belongs to, and when each counted edge landed. Cleared together.
         self._press_button: str | None = None
@@ -547,7 +557,8 @@ class ControllerStartAdapter:
         self._clear_presses()
         target_fruit = FRUIT_RUN_BUTTONS[button]
         activation_id = (
-            f"go2-controller-{target_fruit}:{sample.source}:{sample.source_sequence}"
+            f"go2-controller-{target_fruit}:{self.instance_id}"
+            f":{sample.source}:{sample.source_sequence}"
         )
         evidence = {
             **self._launch_evidence(sample, frame, button),

@@ -1455,7 +1455,9 @@ def test_three_presses_of_a_fruit_button_start_that_one_fruit(
         assert third.run_id == "run-1"
         # A single-fruit run is not a cohort.
         assert third.cohort_id is None
-        assert third.activation_id == f"go2-controller-{fruit}:{TOPIC}:15"
+        assert third.activation_id == (
+            f"go2-controller-{fruit}:{adapter.instance_id}:{TOPIC}:15"
+        )
         assert recorder.fruit_runs == [(fruit, third.activation_id)]
         assert recorder.cohorts == []
 
@@ -2010,6 +2012,41 @@ def test_a_stale_fruit_press_count_cannot_survive_a_stop(
         assert launched.disposition == "accepted"
         assert launched.target_fruit == fruit
         assert recorder.fruits() == [fruit]
+        black_box.close()
+
+    asyncio.run(scenario())
+
+
+def test_a_fruit_activation_id_cannot_collide_across_a_robot_reboot(tmp_path) -> None:
+    """The DDS tick restarts at zero on reboot; the activation id must not.
+
+    activation_id is StageDemo's durable idempotency key, matched against
+    persisted Run Results. If a repeated tick produced a repeated id, the
+    operator's press would be answered with the earlier run and the robot would
+    never move -- a silent dead press on stage.
+    """
+
+    async def scenario() -> None:
+        black_box = RunBlackBox(tmp_path)
+        first_adapter, first = make_idle_adapter(black_box)
+        second_adapter, second = make_idle_adapter(black_box)
+
+        # The identical sample sequence, as if the robot had rebooted and the
+        # tick counter came back around to the same values.
+        for adapter in (first_adapter, second_adapter):
+            await arm(adapter, 140, 1400.0)
+            await press_button_times(adapter, X_MASK, 141, 1400.1)
+
+        assert first.fruits() == ["pear"]
+        assert second.fruits() == ["pear"]
+        first_id = first.fruit_runs[0][1]
+        second_id = second.fruit_runs[0][1]
+
+        assert first_id != second_id
+        assert first_adapter.instance_id != second_adapter.instance_id
+        assert first_id.startswith("go2-controller-pear:")
+        assert first_id.endswith(f":{TOPIC}:145")
+        assert second_id.endswith(f":{TOPIC}:145")
         black_box.close()
 
     asyncio.run(scenario())
