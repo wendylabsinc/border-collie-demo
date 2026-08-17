@@ -11,10 +11,10 @@ from border_collie_demo.search_experiment import (
 @pytest.mark.parametrize(
     ("fruit", "focus", "lock"),
     [
-        ("apple", 0.40, 0.40),
-        ("pear", None, 0.65),
+        ("apple", 0.30, 0.30),
+        ("pear", 0.30, 0.30),
         ("banana", None, 0.20),
-        ("mango", None, 0.45),
+        ("mango", 0.30, 0.30),
     ],
 )
 def test_search_experiment_tuning_preserves_each_fruits_baseline_policy(

@@ -447,8 +447,8 @@ def test_production_applies_selected_fruit_search_confidence_only_to_the_run(
 @pytest.mark.parametrize(
     ("fruit", "focus", "lock"),
     [
-        ("apple", 0.40, 0.40),
-        ("pear", None, 0.65),
+        ("apple", 0.30, 0.30),
+        ("pear", 0.30, 0.30),
         ("banana", None, 0.20),
     ],
 )

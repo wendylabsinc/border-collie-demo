@@ -14,11 +14,15 @@ class FruitPolicy:
 
 
 FRUIT_POLICIES: dict[str, FruitPolicy] = {
+    # 0.40 -> 0.30 on 2026-08-17. Apple was the clearest case for this: run
+    # a22eaba1 held a real apple in view for 234 detections peaking at 0.815 and
+    # still failed, because the sustained value sat at 0.23-0.37 just under the
+    # 0.40 bar; 4da2a662 and 55eefa3d peaked at 0.358 and 0.379.
     "apple": FruitPolicy(
-        acquisition_confidence=0.40,
+        acquisition_confidence=0.30,
         close_range_tracking_confidence=0.10,
         motion_qualified=True,
-        focus_confidence=0.40,
+        focus_confidence=0.30,
     ),
     # Banana is motion-qualified only because every published banana detection
     # is already gated by the resident banana specialist (0.55 confidence with
@@ -43,15 +47,34 @@ FRUIT_POLICIES: dict[str, FruitPolicy] = {
     # worst false positive at 0.209, so this still keeps better than 2x headroom
     # over measured noise. Tracking stays 0.10 below acquisition, matching pear's
     # spacing, so a lock is easier to keep than to win.
+    # 0.45 -> 0.30 on 2026-08-17: mango failed a full sweep at 0.349 (512d8790)
+    # on the same stage, and only one sample in three failed mango sweeps ever
+    # reached 0.30, so the noise headroom holds.
     "mango": FruitPolicy(
-        acquisition_confidence=0.45,
+        acquisition_confidence=0.30,
         close_range_tracking_confidence=0.35,
         motion_qualified=True,
+        focus_confidence=0.30,
     ),
+    # Pear kept 0.65 from when it measured 0.957 on the reference frame. On the
+    # 2026-08-17 stage that bar is unreachable. With the robot STATIONARY and the
+    # pear plainly in frame, the live preview read 0.36, 0.36, 0.36, 0.46, 0.46
+    # and 0.59 — so the pear could not lock even with no motion, no blur and the
+    # fruit centred. During a sweep it only reaches 0.086-0.248.
+    #
+    # False-positive exposure at 0.30 is measured, not assumed: across eight
+    # failed pear sweeps (95 samples each) not one sample ever reached 0.30, and
+    # the highest pear confidence recorded in any failing sweep was 0.248. With
+    # required_frames=3 on top, 0.30 has real headroom over observed noise.
+    #
+    # This makes the pear lockable once the dog is settled. It does NOT rescue
+    # the sweep, where the pear tops out at 0.248 — that needs better frames,
+    # not a lower bar.
     "pear": FruitPolicy(
-        acquisition_confidence=0.65,
+        acquisition_confidence=0.30,
         close_range_tracking_confidence=0.55,
         motion_qualified=True,
+        focus_confidence=0.30,
     ),
 }
 
@@ -72,14 +95,14 @@ def fruit_policy(target_fruit: str) -> FruitPolicy:
     acquisition = _bounded_confidence_env(
         "BORDER_COLLIE_APPLE_ACQUISITION_CONFIDENCE",
         policy.acquisition_confidence,
-        minimum=0.40,
+        minimum=0.30,
         maximum=0.70,
     )
     assert policy.focus_confidence is not None
     focus = _bounded_confidence_env(
         "BORDER_COLLIE_APPLE_FOCUS_CONFIDENCE",
         policy.focus_confidence,
-        minimum=0.40,
+        minimum=0.30,
         maximum=0.70,
     )
     if focus < acquisition:
