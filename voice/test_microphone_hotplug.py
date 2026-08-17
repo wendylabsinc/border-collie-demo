@@ -163,5 +163,40 @@ class DeadMicrophoneTests(unittest.TestCase):
             next(capture.frames(silence_timeout_s=0.0))
 
 
+
+class FailureRecordTests(unittest.TestCase):
+    """Every failed attempt is classified so a stage problem is nameable."""
+
+    def test_each_failure_mode_gets_a_distinct_kind(self) -> None:
+        from microphone import classify_microphone_failure as classify
+
+        cases = {
+            "no microphone matched 'DJI MIC MINI'; available inputs: none": "absent",
+            "DJI MIC MINI delivered only digital silence for 20.0 seconds; the "
+            "microphone is connected but sending no audio": "silent",
+            "microphone capture failed to start: PortAudio error -9996": "open_failed",
+            "no microphone frame received for 3.000 seconds": "disconnected",
+            "microphone discovery failed: PortAudio not initialized": "discovery_failed",
+            "microphone capture stopped": "other",
+        }
+        for error, expected in cases.items():
+            with self.subTest(error=error[:40]):
+                self.assertEqual(classify(error), expected)
+
+    def test_classification_is_case_insensitive_and_survives_empty(self) -> None:
+        from microphone import classify_microphone_failure as classify
+
+        self.assertEqual(classify("NO MICROPHONE MATCHED 'x'"), "absent")
+        self.assertEqual(classify(""), "other")
+
+    def test_absent_is_distinguished_from_silent(self) -> None:
+        """The two look identical to an operator but need opposite responses."""
+        from microphone import classify_microphone_failure as classify
+
+        self.assertNotEqual(
+            classify("no microphone matched 'DJI MIC MINI'"),
+            classify("DJI delivered only digital silence for 20.0 seconds"),
+        )
+
 if __name__ == "__main__":
     unittest.main()

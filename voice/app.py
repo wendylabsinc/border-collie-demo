@@ -18,6 +18,8 @@ import re
 import threading
 import time
 import uuid
+from collections import deque
+from datetime import datetime, timezone
 
 import httpx
 import uvicorn
@@ -29,7 +31,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from frontend import AudioFrontEnd
 from mcpclient import MultiMCP
-from microphone import run_microphone_session_loop
+from microphone import classify_microphone_failure, run_microphone_session_loop
 from model_cache import ensure_model
 from observe_page import OBSERVE_HTML
 from page import INDEX_HTML
@@ -53,6 +55,9 @@ PORT = int(os.environ.get("PORT", "8080"))
 AUDIO_DEVICE = os.environ.get("AUDIO_DEVICE", "auto")
 MICROPHONE_RETRY_INTERVAL_S = float(
     os.environ.get("MICROPHONE_RETRY_INTERVAL_S", "10.0")
+)
+MICROPHONE_FAILURE_HISTORY = int(
+    os.environ.get("MICROPHONE_FAILURE_HISTORY", "200")
 )
 MICROPHONE_SILENCE_TIMEOUT_S = float(
     os.environ.get("MICROPHONE_SILENCE_TIMEOUT_S", str(DEFAULT_SILENCE_TIMEOUT_S))
@@ -142,7 +147,12 @@ def build_app() -> FastAPI:
         "attempts": 0,
         "retry_count": 0,
         "retry_interval_s": MICROPHONE_RETRY_INTERVAL_S,
+        "failure_counts": {},
+        "last_failure_kind": None,
     }
+    # Bounded so a robot left running overnight with no microphone cannot grow
+    # this without limit; the counts above stay complete regardless.
+    failures: deque[dict] = deque(maxlen=MICROPHONE_FAILURE_HISTORY)
     state: dict = {"loop": None}
     collie = (
         BorderCollieAdapter(
@@ -359,11 +369,31 @@ def build_app() -> FastAPI:
 
         def report_retry(error: str) -> None:
             nonlocal last_retry_error
+            # Every failed attempt is recorded, even when the message repeats:
+            # "absent for 40 minutes" and "absent, then silent, then absent"
+            # are different stage problems and the counts distinguish them.
+            kind = classify_microphone_failure(error)
+            attempt = int(audio_state.get("attempts") or 0)
+            failures.append({
+                "attempt": attempt,
+                "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "kind": kind,
+                "device": audio_state.get("device"),
+                "error": error,
+            })
+            counts = dict(audio_state.get("failure_counts") or {})
+            counts[kind] = int(counts.get(kind, 0)) + 1
+            audio_state["failure_counts"] = counts
+            audio_state["last_failure_kind"] = kind
+
+            # Printing stays deduplicated so a mic that is simply not plugged in
+            # yet does not scroll the log, while the record above keeps every one.
             if error == last_retry_error:
                 return
             last_retry_error = error
             print(
-                f"[audio] retrying in {MICROPHONE_RETRY_INTERVAL_S:.2f}s: {error}",
+                f"[audio] retrying in {MICROPHONE_RETRY_INTERVAL_S:.2f}s "
+                f"({kind}): {error}",
                 flush=True,
             )
 
@@ -499,8 +529,12 @@ def build_app() -> FastAPI:
         Deliberately always 200: this is diagnostic, and a missing microphone is
         a normal waiting state, not a service fault. `ready` false with a rising
         `attempts` means the supervisor is still looking for one.
+
+        `failure_counts` totals every failed attempt by kind for the life of the
+        process, so it stays complete; `recent_failures` is the bounded detail,
+        oldest first.
         """
-        return dict(audio_state)
+        return {**audio_state, "recent_failures": list(failures)}
 
     @app.get("/api/actions/status")
     async def _action_status() -> dict:
