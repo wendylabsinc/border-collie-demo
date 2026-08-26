@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "session": "supervised-three-run-2026-08-08",
+  "purpose": "Confirm demo/base (voice-activation-source lineage) reproduces its passing return-home record and select it as the robust base branch",
+  "deployment_branch": "demo/base",
+  "deployment_commit": "648469f",
+  "build_label": "base (demo/base)",
+  "target_fruit": "pear",
+  "home_gate_m": 0.1,
+  "runs": [
+    {
+      "run_id": "809fda85-99f1-4876-98e1-96bd20ec5297",
+      "target_fruit": "pear",
+      "activation_source": "audience_ui",
+      "started_at_utc": "2026-08-08T17:58:43.170352Z",
+      "ended_at_utc": "2026-08-08T17:59:24.586879Z",
+      "duration_s": 41.416491835000215,
+      "outcome": "COMPLETED",
+      "reason": "SUCCESS",
+      "message": "Demo Run completed at Home",
+      "final_safety_state": "DISARMED_CONFIRMED",
+      "terminal_measurements": {
+        "home_distance_m": 0.07560231170858868,
+        "heading_error_rad": 0.054573774337768555
+      },
+      "stage_summary": {
+        "turn_to_fruit": {},
+        "find_fruit": {},
+        "approach_fruit": {
+          "arrival_confirmed": true,
+          "forward_pulse_count": 26
+        },
+        "sit_and_bark": {},
+        "stand": {},
+        "turn_toward_home": {
+          "home_distance_m": 1.2060804673424161
+        },
+        "return_home": {
+          "home_distance_m": 0.09774112763519018
+        },
+        "restore_heading": {
+          "home_distance_m": 0.07560231170858868,
+          "heading_error_rad": 0.054573774337768555
+        }
+      },
+      "number": 1
+    },
+    {
+      "run_id": "f1634d79-f4cd-44b1-b654-4e0ed118cb68",
+      "target_fruit": "pear",
+      "activation_source": "audience_ui",
+      "started_at_utc": "2026-08-08T18:00:45.478658Z",
+      "ended_at_utc": "2026-08-08T18:01:25.923426Z",
+      "duration_s": 40.4447533120001,
+      "outcome": "COMPLETED",
+      "reason": "SUCCESS",
+      "message": "Demo Run completed at Home",
+      "final_safety_state": "DISARMED_CONFIRMED",
+      "terminal_measurements": {
+        "home_distance_m": 0.02737227807394324,
+        "heading_error_rad": -0.07499241828918458
+      },
+      "stage_summary": {
+        "turn_to_fruit": {},
+        "find_fruit": {},
+        "approach_fruit": {
+          "arrival_confirmed": true,
+          "forward_pulse_count": 29
+        },
+        "sit_and_bark": {},
+        "stand": {},
+        "turn_toward_home": {
+          "home_distance_m": 1.4685456957747596
+        },
+        "return_home": {
+          "home_distance_m": 0.05129934878425351
+        },
+        "restore_heading": {
+          "home_distance_m": 0.02737227807394324,
+          "heading_error_rad": -0.07499241828918458
+        }
+      },
+      "number": 2
+    },
+    {
+      "run_id": "4da7ad09-f0a4-4175-aa76-0babcb822f67",
+      "target_fruit": "pear",
+      "activation_source": "audience_ui",
+      "started_at_utc": "2026-08-08T18:01:36.319485Z",
+      "ended_at_utc": "2026-08-08T18:02:16.544013Z",
+      "duration_s": 40.22450888000003,
+      "outcome": "COMPLETED",
+      "reason": "SUCCESS",
+      "message": "Demo Run completed at Home",
+      "final_safety_state": "DISARMED_CONFIRMED",
+      "terminal_measurements": {
+        "home_distance_m": 0.057769862277823616,
+        "heading_error_rad": -0.029557108879089355
+      },
+      "stage_summary": {
+        "turn_to_fruit": {},
+        "find_fruit": {},
+        "approach_fruit": {
+          "arrival_confirmed": true,
+          "forward_pulse_count": 29
+        },
+        "sit_and_bark": {},
+        "stand": {},
+        "turn_toward_home": {
+          "home_distance_m": 1.4669968019837138
+        },
+        "return_home": {
+          "home_distance_m": 0.08052963722425899
+        },
+        "restore_heading": {
+          "home_distance_m": 0.057769862277823616,
+          "heading_error_rad": -0.029557108879089355
+        }
+      },
+      "number": 3
+    }
+  ],
+  "operator_observation": "All three runs succeeded end to end. Operator notes the approach sometimes finishes too close to the fruit; recorded as a refinement item, not a gate failure. Any approach-distance change must revalidate against this session.",
+  "conclusion": "3/3 COMPLETED SUCCESS with terminal home distances 0.0756, 0.0274, 0.0578 m, matching the 2026-08-05 record (0.063-0.078 m) on the same code. This exonerates the environment for the 2026-08-07 robust-arrival failures (0.187-0.375 m) and confirms demo/base as the robust base branch."
+}

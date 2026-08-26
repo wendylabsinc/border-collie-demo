@@ -1,0 +1,7 @@
+version: 1
+sourceHash: sha256:5e4108d479d8bcf47a0afbc008a3b5b17ab48fb6e7ed853ae5b1d2f5e99a98f5
+images:
+    python:3.11-slim-bookworm: sha256:d29f48a31a8b408ed19272ca1e7b10ebae13b240a27e862d3d4217c528e2e0c3
+downloads:
+    https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/embedding_model.onnx: sha256:70d164290c1d095d1d4ee149bc5e00543250a7316b59f31d056cff7bd3075c1f
+    https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/melspectrogram.onnx: sha256:ba2b0e0f8b7b875369a2c89cb13360ff53bac436f2895cced9f479fa65eb176f

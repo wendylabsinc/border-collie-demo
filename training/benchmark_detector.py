@@ -47,6 +47,26 @@ def _ground_truth(label_path: Path, width: int, height: int) -> list[float] | No
     ]
 
 
+def _load_detector(model_path: Path | str, task: str | None) -> YOLO:
+    """Load a checkpoint or a serialized artifact.
+
+    A `.pt` carries its own task metadata. A serialized artifact (`.engine`,
+    `.onnx`) does not, and ultralytics then decodes a segmentation head's 39
+    output channels as 4 box + 35 classes instead of 4 box + 3 classes + 32
+    mask coefficients, which surfaces as `KeyError: 23`. So a non-`.pt`
+    artifact must always be told its task.
+    """
+    path = Path(model_path)
+    if path.suffix.casefold() == ".pt":
+        return YOLO(str(path)) if task is None else YOLO(str(path), task=task)
+    if task is None:
+        raise ValueError(
+            f"--task is required for a non-.pt artifact: {path.name}"
+            " (use segment for apple-pear-mango, detect for a box-only model)"
+        )
+    return YOLO(str(path), task=task)
+
+
 def _maximum_streak(values: list[bool]) -> int:
     longest = current = 0
     for value in values:
@@ -65,8 +85,9 @@ def benchmark(
     iou_threshold: float = 0.5,
     image_size: int = 640,
     device: str = "mps",
+    task: str | None = None,
 ) -> dict[str, object]:
-    model = YOLO(str(model_path))
+    model = _load_detector(model_path, task)
     names = model.names
     target_ids = {
         int(class_id)
@@ -180,6 +201,12 @@ def main() -> None:
     parser.add_argument("--iou-threshold", default=0.5, type=float)
     parser.add_argument("--image-size", default=640, type=int)
     parser.add_argument("--device", default="mps")
+    parser.add_argument(
+        "--task",
+        default=None,
+        choices=("detect", "segment", "pose", "obb", "classify"),
+        help="required for .engine/.onnx artifacts, which carry no task metadata",
+    )
     args = parser.parse_args()
     result = benchmark(
         args.model,
@@ -190,6 +217,7 @@ def main() -> None:
         iou_threshold=args.iou_threshold,
         image_size=args.image_size,
         device=args.device,
+        task=args.task,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2) + "\n")

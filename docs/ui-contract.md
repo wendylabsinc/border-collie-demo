@@ -10,7 +10,12 @@ The audience route is intentionally minimal:
 
 - one primary **Activate Demo** control;
 - one always-available **Stop Woof** safety control;
-- a narrow qualified-fruit selector containing Pear and Red apple;
+- a narrow qualified-fruit selector containing Pear, Red apple, and Banana;
+- server-described per-run controls for search, selected-fruit confidence,
+  centering, approach, Arrival, and Home, with effective values displayed and
+  persisted before activation and no process-wide configuration mutation;
+- bounded final-push speed and duration within the Arrival tuning group; zero
+  duration explicitly disables the push without rebuilding or redeploying;
 - a read-only annotated camera preview showing model state and Target Fruit
   evidence;
 - readiness or the exact reason activation is unavailable;
@@ -100,6 +105,9 @@ failed-run archive is offered as a one-click download for extraction and manual
 labeling in Fieldmark; the UI never sends those images to an external service
 automatically.
 
+The bounded yaw/lock comparison and its recorded evidence are defined in
+[`search-experiment.md`](search-experiment.md).
+
 Result routes are read-only. They accept only full Run IDs and snapshot
 references already present in the Run Result. They cannot delete, relabel,
 rewrite, resume, or clear evidence.
@@ -125,6 +133,8 @@ Automated and browser acceptance must prove:
 
 - repeated activation cannot create concurrent runs;
 - the Run Result exists before the first hardware call;
+- exact effective per-run final-push values appear in the activation, persisted
+  Run Result, and black-box trace;
 - disabled activation explains the blocking readiness gate;
 - Stop Woof remains reachable in every audience state;
 - camera failure, target loss, operator stop, return failure, and Remote

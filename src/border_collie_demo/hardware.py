@@ -3,9 +3,11 @@ from __future__ import annotations
 import asyncio
 import math
 import time
+from collections import Counter, deque
 from collections.abc import Callable
 from typing import Protocol
 
+from .black_box import RunBlackBox
 from .config import HardwareConfig
 from .fruits import fruit_policy
 from .go2_motion import (
@@ -16,14 +18,17 @@ from .go2_motion import (
     initialize_dds,
 )
 from .go2_pose import Go2PoseProvider, PoseStatus
+from .guidance import FruitGuidance, GuidanceAction, GuidanceDecision, GuidancePhase
 from .models import VelocityCommand
 from .return_home import (
     Pose2D,
     ReturnMode,
     ReturnPlannerConfig,
     normalize_angle,
+    plan_position_return_step,
     plan_return_step,
 )
+from .search_experiment import confidence_summary
 
 FORWARD_PULSE_CONFIRMATION = "PATH CLEAR - MOVE WOOF FORWARD"
 INITIAL_CENTER_TOLERANCE_RATIO = 0.08
@@ -35,8 +40,9 @@ CLOSE_RANGE_MINIMUM_BOTTOM_RATIO = 0.70
 CLOSE_RANGE_MAXIMUM_CENTER_DELTA_RATIO = 0.20
 CLOSE_RANGE_MAXIMUM_VERTICAL_RETREAT_RATIO = 0.08
 FORWARD_CAPABLE_OPERATIONS = frozenset(
-    {"forward_pulse", "approach_target", "return_home"}
+    {"forward_pulse", "approach_target", "guide_target", "return_home"}
 )
+APPROACH_TRACE_LIMIT = 256
 
 
 def _finite_float(value: object) -> float | None:
@@ -59,7 +65,14 @@ class HardwareUnavailable(RuntimeError):
 
 
 class CameraFailure(HardwareUnavailable):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        evidence: dict[str, object] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.evidence = dict(evidence or {})
 
 
 class TargetLost(HardwareUnavailable):
@@ -86,6 +99,8 @@ class MotionAdapterProtocol(Protocol):
     async def initialize(self) -> None: ...
 
     async def arm(self) -> str: ...
+
+    async def arm_sport_yaw(self) -> str: ...
 
     async def command(
         self, lease: str, command: VelocityCommand
@@ -115,6 +130,157 @@ PoseFactory = Callable[[float], PoseProviderProtocol]
 DdsInitializer = Callable[[str | None], None]
 
 
+class _ApproachRecorder:
+    """Bounded, image-free record of every approach guidance decision."""
+
+    def __init__(
+        self,
+        guidance: FruitGuidance,
+        *,
+        started_s: float,
+        event_sink: Callable[[dict[str, object]], None] | None = None,
+    ) -> None:
+        self._guidance = guidance
+        self._started_s = started_s
+        self._trace: deque[dict[str, object]] = deque(maxlen=APPROACH_TRACE_LIMIT)
+        self._action_counts: Counter[str] = Counter()
+        self._reason_counts: Counter[str] = Counter()
+        self._confidence_count = 0
+        self._confidence_minimum: float | None = None
+        self._confidence_maximum: float | None = None
+        self._confidence_total = 0.0
+        self._forward_decisions = 0
+        self._stop_decisions = 0
+        self._forward_commands_sent = 0
+        self._stop_commands_sent = 0
+        self._samples = 0
+        self._event_sink = event_sink
+
+    def record(
+        self,
+        status: dict[str, object],
+        decision: GuidanceDecision,
+        *,
+        now_s: float,
+    ) -> None:
+        self._samples += 1
+        source = status.get("source")
+        detection = status.get("detection")
+        source_record = source if isinstance(source, dict) else {}
+        detection_record = detection if isinstance(detection, dict) else {}
+        confidence = _finite_float(detection_record.get("confidence"))
+        if confidence is not None:
+            self._confidence_count += 1
+            self._confidence_total += confidence
+            self._confidence_minimum = (
+                confidence
+                if self._confidence_minimum is None
+                else min(self._confidence_minimum, confidence)
+            )
+            self._confidence_maximum = (
+                confidence
+                if self._confidence_maximum is None
+                else max(self._confidence_maximum, confidence)
+            )
+        action = decision.action.value
+        reason = decision.reason
+        self._action_counts[action] += 1
+        self._reason_counts[reason] += 1
+        if decision.command.forward_mps > 0.0:
+            self._forward_decisions += 1
+        if decision.action is GuidanceAction.STOP:
+            self._stop_decisions += 1
+        sample = {
+            "sample": self._samples,
+            "recorded_monotonic_s": now_s,
+            "elapsed_s": round(now_s - self._started_s, 4),
+            "target_fruit": self._guidance.target_fruit,
+            "camera_healthy": status.get("camera_healthy") is True,
+            # Which source check failed, so a camera_unhealthy stop is
+            # diagnosable from the run record instead of needing a repro.
+            "camera_violations": list(status.get("camera_violations") or ()),
+            "generation": status.get("generation"),
+            "source_pts": source_record.get("pts"),
+            "source_time_base": source_record.get("time_base"),
+            "source_age_s": _finite_float(source_record.get("age_s")),
+            "source_consecutive_frames": source_record.get("consecutive_frames"),
+            "detection_age_s": _finite_float(detection_record.get("age_s")),
+            "raw_label": detection_record.get("label"),
+            "confidence": confidence,
+            "focus_confidence": self._guidance.policy.focus_confidence,
+            "acquisition_confidence": (self._guidance.policy.acquisition_confidence),
+            "tracking_confidence": (
+                self._guidance.policy.close_range_tracking_confidence
+            ),
+            "center_x_ratio": _finite_float(detection_record.get("center_x_ratio")),
+            "center_y_ratio": _finite_float(detection_record.get("center_y_ratio")),
+            "bottom_ratio": _finite_float(detection_record.get("bottom_ratio")),
+            "guidance_phase": decision.phase.value,
+            "guidance_action": action,
+            "guidance_reason": reason,
+            "terminal": decision.terminal,
+            "arrival_confirmed": decision.arrival_confirmed,
+            "arrival_eligible": decision.arrival_eligible,
+            "centered_fresh_samples": decision.centered_fresh_samples,
+            "near_fresh_samples": decision.near_fresh_samples,
+            "near_loss_samples": decision.near_loss_samples,
+            "frame_advanced": decision.frame_advanced,
+            "resulting_command": decision.command.to_dict(),
+            "command_sent": False,
+        }
+        self._trace.append(sample)
+        if self._event_sink is not None:
+            self._event_sink(dict(sample))
+
+    def mark_command_sent(self) -> None:
+        if not self._trace:
+            return
+        self._trace[-1]["command_sent"] = True
+        command = self._trace[-1]["resulting_command"]
+        if not isinstance(command, dict):
+            return
+        forward_mps = _finite_float(command.get("forward_mps"))
+        if forward_mps is not None and forward_mps > 0.0:
+            self._forward_commands_sent += 1
+        if self._trace[-1]["guidance_action"] == GuidanceAction.STOP.value:
+            self._stop_commands_sent += 1
+
+    def evidence(self) -> dict[str, object]:
+        recorded = len(self._trace)
+        dropped = self._samples - recorded
+        confidence_average = (
+            self._confidence_total / self._confidence_count
+            if self._confidence_count
+            else None
+        )
+        return {
+            "approach_trace": [dict(sample) for sample in self._trace],
+            "approach_trace_limit": APPROACH_TRACE_LIMIT,
+            "approach_trace_dropped": dropped,
+            "approach_summary": {
+                "samples": self._samples,
+                "recorded_samples": recorded,
+                "dropped_samples": dropped,
+                "action_counts": dict(sorted(self._action_counts.items())),
+                "reason_counts": dict(sorted(self._reason_counts.items())),
+                "confidence": {
+                    "detected_frames": self._confidence_count,
+                    "minimum": self._confidence_minimum,
+                    "maximum": self._confidence_maximum,
+                    "average": confidence_average,
+                    "lock_confidence": None,
+                },
+                "forward_decisions": self._forward_decisions,
+                "stop_decisions": self._stop_decisions,
+                "forward_commands_sent": self._forward_commands_sent,
+                "stop_commands_sent": self._stop_commands_sent,
+                "final_guidance_reason": (
+                    self._trace[-1]["guidance_reason"] if self._trace else None
+                ),
+            },
+        }
+
+
 class HardwareManager:
     def __init__(
         self,
@@ -123,6 +289,7 @@ class HardwareManager:
         dds_initializer: DdsInitializer = initialize_dds,
         motion_factory: MotionFactory | None = None,
         pose_factory: PoseFactory | None = None,
+        black_box: RunBlackBox | None = None,
     ) -> None:
         self.config = config or HardwareConfig()
         self._dds_initializer = dds_initializer
@@ -139,6 +306,9 @@ class HardwareManager:
         self._last_pulse: dict[str, object] | None = None
         self._motion_trace_phase: str | None = None
         self._motion_trace: list[dict[str, object]] = []
+        self._posture = "unknown"
+        self._black_box = black_box
+        self._motion_trace_run_id: str | None = None
 
     async def start(self) -> None:
         if not self.config.enabled or self._connected:
@@ -270,6 +440,7 @@ class HardwareManager:
         timeout_s: float,
         response_timeout_s: float = 0.75,
         response_min_progress_rad: float = math.radians(2.0),
+        motion_path: str = "factory_avoidance",
     ) -> dict[str, object]:
         """Turn through a measured robot-local yaw change, then disarm."""
         requested = float(angle_rad)
@@ -300,6 +471,8 @@ class HardwareManager:
             raise ValueError("turn timeout must be positive")
         if response_timeout <= 0.0 or response_min_progress <= 0.0:
             raise ValueError("turn response gate must be positive")
+        if motion_path not in {"factory_avoidance", "sport_yaw"}:
+            raise ValueError("turn motion_path must be factory_avoidance or sport_yaw")
         self._require_autonomy_ready()
 
         async with self._operation_lock:
@@ -322,7 +495,11 @@ class HardwareManager:
                         initial.error or "fresh Go2 pose is required before motion"
                     )
                 previous_yaw = initial.pose.yaw_rad
-                lease = await self._motion.arm()
+                lease = (
+                    await self._motion.arm_sport_yaw()
+                    if motion_path == "sport_yaw"
+                    else await self._motion.arm()
+                )
                 command_started = time.monotonic()
                 deadline = started + timeout
                 while time.monotonic() < deadline:
@@ -359,7 +536,11 @@ class HardwareManager:
             except Exception as exc:  # noqa: BLE001 - always disarm below
                 operation_error = exc
             finally:
-                if lease is not None and self._motion is not None and self._motion.armed:
+                if (
+                    lease is not None
+                    and self._motion is not None
+                    and self._motion.armed
+                ):
                     try:
                         await self._motion.release(lease)
                     except MotionError as exc:
@@ -382,7 +563,7 @@ class HardwareManager:
             if release_error is not None:
                 raise HardwareUnavailable(f"measured turn stop failed: {release_error}")
             return {
-                "motion_path": "factory_avoidance",
+                "motion_path": motion_path,
                 "requested_angle_rad": requested,
                 "measured_yaw_change_rad": progress,
                 "yaw_rps": direction * rate,
@@ -450,7 +631,10 @@ class HardwareManager:
                     recognition["samples"] = int(recognition["samples"]) + 1
                     if not status.get("camera_healthy"):
                         raise CameraFailure(
-                            str(status.get("detail") or "camera evidence became unhealthy")
+                            str(
+                                status.get("detail")
+                                or "camera evidence became unhealthy"
+                            )
                         )
                     detection = status.get("detection")
                     if isinstance(detection, dict):
@@ -477,9 +661,7 @@ class HardwareManager:
                                 int(recognition["maximum_consecutive_detections"]),
                                 consecutive,
                             )
-                        area_ratio = _finite_float(
-                            detection.get("bbox_area_ratio")
-                        )
+                        area_ratio = _finite_float(detection.get("bbox_area_ratio"))
                         maximum_area = _finite_float(
                             recognition["maximum_bbox_area_ratio"]
                         )
@@ -520,9 +702,9 @@ class HardwareManager:
                                     )
                                     + 1
                                 )
-                                recognition[
-                                    "crop_candidate_confidence_threshold"
-                                ] = SEARCH_CROP_CANDIDATE_CONFIDENCE
+                                recognition["crop_candidate_confidence_threshold"] = (
+                                    SEARCH_CROP_CANDIDATE_CONFIDENCE
+                                )
                     if status.get("target_ready") and isinstance(detection, dict):
                         label = str(detection.get("label") or "").casefold()
                         if label == target_fruit.casefold():
@@ -607,7 +789,11 @@ class HardwareManager:
             except Exception as exc:  # noqa: BLE001 - always disarm below
                 operation_error = exc
             finally:
-                if lease is not None and self._motion is not None and self._motion.armed:
+                if (
+                    lease is not None
+                    and self._motion is not None
+                    and self._motion.armed
+                ):
                     try:
                         await self._motion.release(lease)
                     except MotionError as exc:
@@ -658,7 +844,11 @@ class HardwareManager:
             raise ValueError("approach yaw is outside the configured limit")
         if not 0.0 < near_bottom_ratio <= 1.0 or not 0.0 < near_center_ratio <= 1.0:
             raise ValueError("near-fruit geometry thresholds are invalid")
-        if near_confirmations < 1 or min(near_loss_grace_s, final_push_duration_s, timeout_s) <= 0.0:
+        if (
+            near_confirmations < 1
+            or min(near_loss_grace_s, timeout_s) <= 0.0
+            or final_push_duration_s < 0.0
+        ):
             raise ValueError("approach timing or confirmation count is invalid")
         self._require_autonomy_ready()
 
@@ -694,7 +884,10 @@ class HardwareManager:
                     status = status_reader()
                     if not status.get("camera_healthy"):
                         raise CameraFailure(
-                            str(status.get("detail") or "camera evidence became unhealthy")
+                            str(
+                                status.get("detail")
+                                or "camera evidence became unhealthy"
+                            )
                         )
                     detection = status.get("detection")
                     target_ready = bool(status.get("target_ready"))
@@ -766,9 +959,7 @@ class HardwareManager:
                         and detection_label == target_fruit.casefold()
                     )
                     if requested_target_ready:
-                        tracking_confirmations = (
-                            self.config.pear_tracking_confirmations
-                        )
+                        tracking_confirmations = self.config.pear_tracking_confirmations
                     elif tracking_candidate:
                         tracking_confirmations += 1
                     elif close_range_continuation:
@@ -779,12 +970,14 @@ class HardwareManager:
                     else:
                         tracking_confirmations = 0
                     track_ready = (
-                        requested_target_ready
-                    ) or (
-                        tracking_candidate
-                        and tracking_confirmations
-                        >= self.config.pear_tracking_confirmations
-                    ) or close_range_continuation
+                        (requested_target_ready)
+                        or (
+                            tracking_candidate
+                            and tracking_confirmations
+                            >= self.config.pear_tracking_confirmations
+                        )
+                        or close_range_continuation
+                    )
                     if not track_ready:
                         if not initial_centered:
                             initial_center_confirmations = 0
@@ -803,6 +996,11 @@ class HardwareManager:
                             )
                             await asyncio.sleep(self.config.command_heartbeat_s)
                             continue
+                        if final_push_duration_s == 0.0:
+                            await self._send_motion_command(
+                                lease,
+                                VelocityCommand(reason="bounded_final_push_disabled"),
+                            )
                         push_deadline = now + final_push_duration_s
                         while time.monotonic() < push_deadline:
                             push_status = status_reader()
@@ -834,7 +1032,9 @@ class HardwareManager:
                             "near_confirmations": confirmations,
                             "final_push_mps": final_push_mps,
                             "final_push_duration_s": final_push_duration_s,
-                            "final_push_count": 1,
+                            "final_push_count": (
+                                0 if final_push_duration_s == 0.0 else 1
+                            ),
                             "initial_center_confirmations": (
                                 initial_center_confirmations
                             ),
@@ -922,8 +1122,7 @@ class HardwareManager:
                     horizontal_error = center_x - 0.5
                     yaw = (
                         0.0
-                        if abs(horizontal_error)
-                        <= APPROACH_CENTER_TOLERANCE_RATIO
+                        if abs(horizontal_error) <= APPROACH_CENTER_TOLERANCE_RATIO
                         else -math.copysign(
                             maximum_yaw_rps,
                             horizontal_error,
@@ -949,7 +1148,11 @@ class HardwareManager:
             except Exception as exc:  # noqa: BLE001 - always disarm below
                 operation_error = exc
             finally:
-                if lease is not None and self._motion is not None and self._motion.armed:
+                if (
+                    lease is not None
+                    and self._motion is not None
+                    and self._motion.armed
+                ):
                     try:
                         await self._motion.release(lease)
                     except MotionError as exc:
@@ -964,6 +1167,263 @@ class HardwareManager:
             assert evidence is not None
             return evidence
 
+    async def guide_target(
+        self,
+        status_reader: Callable[[], dict[str, object]],
+        guidance: FruitGuidance,
+        *,
+        allow_forward: bool,
+        timeout_s: float,
+    ) -> dict[str, object]:
+        """Execute one mission-lifetime guidance module until lock or Arrival."""
+        if not math.isfinite(timeout_s) or timeout_s <= 0.0:
+            raise ValueError("guidance timeout must be finite and positive")
+        self._require_autonomy_ready()
+
+        async with self._operation_lock:
+            if self._active_operation is not None:
+                raise HardwareUnavailable(
+                    f"hardware operation already active: {self._active_operation}"
+                )
+            self._active_operation = "guide_target"
+            lease: str | None = None
+            release_error: str | None = None
+            operation_error: Exception | None = None
+            evidence: dict[str, object] | None = None
+            commands_sent = False
+            forward_pulse_count = 0
+            samples = 0
+            search_progress_rad = 0.0
+            previous_search_yaw: float | None = None
+            search_trace: list[dict[str, object]] = []
+            started = time.monotonic()
+            approach_recorder = (
+                _ApproachRecorder(
+                    guidance,
+                    started_s=started,
+                    event_sink=lambda event: self._record_black_box(
+                        "guidance_decision", event
+                    ),
+                )
+                if allow_forward
+                else None
+            )
+            try:
+                assert self._motion is not None and self._pose is not None
+                if not allow_forward:
+                    initial_pose = self._pose.status()
+                    if not initial_pose.healthy or initial_pose.pose is None:
+                        raise HardwareUnavailable(
+                            initial_pose.error
+                            or "fresh Go2 pose is required before Target Fruit search"
+                        )
+                    previous_search_yaw = initial_pose.pose.yaw_rad
+                lease = await self._motion.arm()
+                deadline = started + timeout_s
+                while time.monotonic() < deadline:
+                    now = time.monotonic()
+                    measured_yaw_rad: float | None = None
+                    if not allow_forward:
+                        pose = self._pose.status()
+                        if not pose.healthy or pose.pose is None:
+                            raise HardwareUnavailable(
+                                pose.error
+                                or "Go2 pose became stale during Target Fruit search"
+                            )
+                        assert previous_search_yaw is not None
+                        measured_yaw_rad = pose.pose.yaw_rad
+                        yaw_delta = math.atan2(
+                            math.sin(pose.pose.yaw_rad - previous_search_yaw),
+                            math.cos(pose.pose.yaw_rad - previous_search_yaw),
+                        )
+                        search_progress_rad += max(0.0, yaw_delta)
+                        previous_search_yaw = pose.pose.yaw_rad
+                        if search_progress_rad >= guidance.config.search_sweep_rad:
+                            raise TargetLost(
+                                f"{guidance.target_fruit} was not found in the bounded search sweep",
+                                evidence={
+                                    "guidance_phase": guidance.phase.value,
+                                    "search_progress_rad": search_progress_rad,
+                                    "search_sweep_rad": guidance.config.search_sweep_rad,
+                                    "samples": samples,
+                                    "search_trace": search_trace,
+                                    "confidence_summary": confidence_summary(
+                                        search_trace
+                                    ),
+                                },
+                            )
+                    status = status_reader()
+                    decision = guidance.observe(
+                        status,
+                        now_s=now,
+                        allow_forward=allow_forward,
+                    )
+                    samples += 1
+                    if approach_recorder is not None:
+                        approach_recorder.record(status, decision, now_s=now)
+                    if not allow_forward:
+                        source = status.get("source")
+                        detection = status.get("detection")
+                        search_event = {
+                            "sample": samples,
+                            "elapsed_s": round(now - started, 4),
+                            "target_fruit": guidance.target_fruit,
+                            "source_pts": (
+                                source.get("pts") if isinstance(source, dict) else None
+                            ),
+                            "confidence": (
+                                detection.get("confidence")
+                                if isinstance(detection, dict)
+                                else None
+                            ),
+                            "center_x_ratio": (
+                                detection.get("center_x_ratio")
+                                if isinstance(detection, dict)
+                                else None
+                            ),
+                            "measured_yaw_rad": measured_yaw_rad,
+                            "search_progress_rad": search_progress_rad,
+                            "commanded_yaw_rps": decision.command.yaw_rps,
+                            "guidance_action": decision.action.value,
+                            "guidance_reason": decision.reason,
+                            "frame_advanced": decision.frame_advanced,
+                            "locked": decision.phase is GuidancePhase.LOCKED,
+                            # Freshness evidence. turn_to_fruit records this
+                            # trace rather than the approach trace, so without
+                            # these a detection_stale or camera_unhealthy stop
+                            # cannot be diagnosed from the run record.
+                            "camera_healthy": status.get("camera_healthy") is True,
+                            "camera_violations": list(
+                                status.get("camera_violations") or ()
+                            ),
+                            "detection_age_s": (
+                                _finite_float(detection.get("age_s"))
+                                if isinstance(detection, dict)
+                                else None
+                            ),
+                            "source_age_s": (
+                                _finite_float(source.get("age_s"))
+                                if isinstance(source, dict)
+                                else None
+                            ),
+                            "source_consecutive_frames": (
+                                source.get("consecutive_frames")
+                                if isinstance(source, dict)
+                                else None
+                            ),
+                        }
+                        search_trace.append(search_event)
+                        self._record_black_box("guidance_decision", search_event)
+                    if decision.action is GuidanceAction.STOP and decision.terminal:
+                        diagnostics = (
+                            approach_recorder.evidence()
+                            if approach_recorder is not None
+                            else {}
+                        )
+                        if decision.camera_failure:
+                            raise CameraFailure(
+                                f"camera guidance stopped: {decision.reason}",
+                                evidence={
+                                    "guidance_reason": decision.reason,
+                                    "search_trace": search_trace,
+                                    "confidence_summary": confidence_summary(
+                                        search_trace
+                                    ),
+                                    **diagnostics,
+                                },
+                            )
+                        raise TargetLost(
+                            f"{guidance.target_fruit} guidance stopped: "
+                            f"{decision.reason}",
+                            evidence={
+                                "guidance_reason": decision.reason,
+                                "search_trace": search_trace,
+                                "confidence_summary": confidence_summary(search_trace),
+                                **diagnostics,
+                            },
+                        )
+
+                    await self._send_motion_command(lease, decision.command)
+                    if approach_recorder is not None:
+                        approach_recorder.mark_command_sent()
+                    commands_sent = commands_sent or (
+                        decision.command.forward_mps != 0.0
+                        or decision.command.yaw_rps != 0.0
+                    )
+                    if decision.command.forward_mps > 0.0:
+                        forward_pulse_count += 1
+
+                    terminal_for_call = (
+                        not allow_forward and decision.phase is GuidancePhase.LOCKED
+                    ) or decision.arrival_confirmed
+                    if terminal_for_call:
+                        evidence = {
+                            "label": guidance.target_fruit,
+                            "guidance_phase": decision.phase.value,
+                            "guidance_reason": decision.reason,
+                            "acquisition_epoch": guidance.acquisition_epoch,
+                            "centered_fresh_samples": (decision.centered_fresh_samples),
+                            "near_confirmations": decision.near_fresh_samples,
+                            "arrival_confirmed": decision.arrival_confirmed,
+                            "final_push_mps": guidance.config.final_push_mps,
+                            "final_push_duration_s": (
+                                guidance.config.final_push_duration_s
+                            ),
+                            "final_push_count": guidance.final_push_count,
+                            "forward_pulse_count": forward_pulse_count,
+                            "forward_pulse_period_s": (self.config.command_heartbeat_s),
+                            "samples": samples,
+                            "search_progress_rad": search_progress_rad,
+                            "search_trace": search_trace,
+                            "confidence_summary": confidence_summary(search_trace),
+                            "motion_commands_sent": commands_sent,
+                            **(
+                                approach_recorder.evidence()
+                                if approach_recorder is not None
+                                else {}
+                            ),
+                        }
+                        break
+                    await asyncio.sleep(self.config.command_heartbeat_s)
+                else:
+                    raise TargetLost(
+                        f"{guidance.target_fruit} camera guidance timed out",
+                        evidence={
+                            "guidance_phase": guidance.phase.value,
+                            "samples": samples,
+                            "search_trace": search_trace,
+                            "confidence_summary": confidence_summary(search_trace),
+                            **(
+                                approach_recorder.evidence()
+                                if approach_recorder is not None
+                                else {}
+                            ),
+                        },
+                    )
+            except Exception as exc:  # noqa: BLE001 - always disarm below
+                operation_error = exc
+            finally:
+                if (
+                    lease is not None
+                    and self._motion is not None
+                    and self._motion.armed
+                ):
+                    try:
+                        await self._motion.release(lease)
+                    except MotionError as exc:
+                        release_error = str(exc)
+                        await self._motion.emergency_stop()
+                self._active_operation = None
+
+            if operation_error is not None:
+                raise operation_error
+            if release_error is not None:
+                raise HardwareUnavailable(
+                    f"camera guidance stop failed: {release_error}"
+                )
+            assert evidence is not None
+            return evidence
+
     async def return_home(
         self,
         home: dict[str, object],
@@ -973,6 +1433,8 @@ class HardwareManager:
         arrival_tolerance_m: float,
         heading_gate_rad: float,
         maximum_yaw_rps: float,
+        minimum_yaw_rps: float = 0.50,
+        heading_tolerance_rad: float = math.radians(5.0),
         minimum_progress_m: float,
         stall_timeout_s: float,
         timeout_s: float,
@@ -981,10 +1443,11 @@ class HardwareManager:
         home_pose = _home_pose(home)
         config = ReturnPlannerConfig(
             arrival_tolerance_m=arrival_tolerance_m,
-            heading_tolerance_rad=math.radians(5.0),
+            heading_tolerance_rad=heading_tolerance_rad,
             heading_gate_rad=heading_gate_rad,
             forward_mps=forward_mps,
             maximum_yaw_rps=maximum_yaw_rps,
+            minimum_yaw_rps=minimum_yaw_rps,
         )
         if forward_mps > self.config.maximum_forward_mps:
             raise ValueError("return speed is outside the configured limit")
@@ -1060,14 +1523,14 @@ class HardwareManager:
                         raise HardwareUnavailable(
                             f"return Home stalled at {step.distance_m:.3f} m"
                         )
-                    command = (
-                        VelocityCommand(0.0, step.yaw_rps, "return_course_correction")
-                        if step.mode is ReturnMode.TURN_TO_HOME
-                        else VelocityCommand(
-                            step.forward_mps,
-                            step.yaw_rps,
-                            "return_home",
+                    if step.mode is ReturnMode.TURN_TO_HOME:
+                        raise HardwareUnavailable(
+                            "return Home heading escaped the forward steering gate"
                         )
+                    command = VelocityCommand(
+                        step.forward_mps,
+                        step.yaw_rps,
+                        "return_home",
                     )
                     await self._send_motion_command(lease, command)
                     commands_sent = True
@@ -1079,7 +1542,11 @@ class HardwareManager:
             except Exception as exc:  # noqa: BLE001 - always disarm below
                 operation_error = exc
             finally:
-                if lease is not None and self._motion is not None and self._motion.armed:
+                if (
+                    lease is not None
+                    and self._motion is not None
+                    and self._motion.armed
+                ):
                     try:
                         await self._motion.release(lease)
                     except MotionError as exc:
@@ -1093,6 +1560,170 @@ class HardwareManager:
                 raise HardwareUnavailable(f"return Home stop failed: {release_error}")
             assert evidence is not None
             return evidence
+
+    def measure_home_position(
+        self,
+        home: dict[str, object],
+    ) -> dict[str, object]:
+        """Read one fresh authoritative Go2 pose relative to captured Home."""
+        home_pose = _home_pose(home)
+        if not self.config.enabled:
+            raise HardwareUnavailable("Go2 hardware is disabled")
+        if not self._connected or self._pose is None or self._motion is None:
+            raise HardwareUnavailable(self._fault or "Go2 hardware is not connected")
+        sample = self._pose.status()
+        if not sample.healthy or sample.pose is None or sample.age_s is None:
+            raise HardwareUnavailable(
+                sample.error or "fresh Go2 pose is unavailable for Home measurement"
+            )
+        return {
+            "home_distance_m": math.hypot(
+                home_pose.x_m - sample.pose.x_m,
+                home_pose.y_m - sample.pose.y_m,
+            ),
+            "pose_age_s": sample.age_s,
+            "pose_captured_monotonic_s": sample.pose.captured_monotonic_s,
+            "pose_source": "rt/sportmodestate",
+        }
+
+    async def return_home_position(
+        self,
+        home: dict[str, object],
+        *,
+        forward_mps: float,
+        arrival_tolerance_m: float,
+        heading_gate_rad: float,
+        maximum_yaw_rps: float,
+        minimum_yaw_rps: float = 0.50,
+        heading_tolerance_rad: float = math.radians(5.0),
+        minimum_progress_m: float,
+        stall_timeout_s: float,
+        timeout_s: float,
+    ) -> dict[str, object]:
+        """Return to measured Home position with no pulse or heading credit."""
+        home_pose = _home_pose(home)
+        config = ReturnPlannerConfig(
+            arrival_tolerance_m=arrival_tolerance_m,
+            heading_tolerance_rad=heading_tolerance_rad,
+            heading_gate_rad=heading_gate_rad,
+            forward_mps=forward_mps,
+            maximum_yaw_rps=maximum_yaw_rps,
+            minimum_yaw_rps=minimum_yaw_rps,
+        )
+        if forward_mps > self.config.maximum_forward_mps:
+            raise ValueError("return speed is outside the configured limit")
+        if maximum_yaw_rps > self.config.maximum_yaw_rps:
+            raise ValueError("return yaw is outside the configured limit")
+        if minimum_progress_m <= 0.0 or stall_timeout_s <= 0.0 or timeout_s <= 0.0:
+            raise ValueError("return progress and timing values must be positive")
+        self._require_autonomy_ready()
+
+        initial = self.measure_home_position(home)
+        initial_distance = float(initial["home_distance_m"])
+        if initial_distance <= arrival_tolerance_m:
+            return {
+                **initial,
+                "arrival_tolerance_m": arrival_tolerance_m,
+                "pose_samples": 1,
+                "motion_path": "factory_avoidance",
+                "motion_commands_sent": False,
+                "heading_restoration_skipped": True,
+                "measured_after_disarm": True,
+            }
+
+        async with self._operation_lock:
+            if self._active_operation is not None:
+                raise HardwareUnavailable(
+                    f"hardware operation already active: {self._active_operation}"
+                )
+            self._active_operation = "return_home"
+            lease: str | None = None
+            release_error: str | None = None
+            operation_error: Exception | None = None
+            started = time.monotonic()
+            best_distance = initial_distance
+            progress_at = started
+            samples = 1
+            commands_sent = False
+            try:
+                assert self._motion is not None and self._pose is not None
+                lease = await self._motion.arm()
+                deadline = started + timeout_s
+                while time.monotonic() < deadline:
+                    sample = self._pose.status()
+                    if not sample.healthy or sample.pose is None:
+                        raise HardwareUnavailable(
+                            sample.error or "Go2 pose became stale during return Home"
+                        )
+                    current = Pose2D(
+                        sample.pose.x_m,
+                        sample.pose.y_m,
+                        sample.pose.yaw_rad,
+                    )
+                    step = plan_position_return_step(home_pose, current, config)
+                    samples += 1
+                    if step.mode is ReturnMode.COMPLETE:
+                        break
+                    now = time.monotonic()
+                    if step.distance_m <= best_distance - minimum_progress_m:
+                        best_distance = step.distance_m
+                        progress_at = now
+                    elif now - progress_at > stall_timeout_s:
+                        raise HardwareUnavailable(
+                            f"return Home stalled at {step.distance_m:.3f} m"
+                        )
+                    if step.mode is ReturnMode.TURN_TO_HOME:
+                        raise HardwareUnavailable(
+                            "return Home heading escaped the forward steering gate"
+                        )
+                    command = VelocityCommand(
+                        step.forward_mps,
+                        step.yaw_rps,
+                        "return_home_position",
+                    )
+                    await self._send_motion_command(lease, command)
+                    commands_sent = True
+                    await asyncio.sleep(self.config.command_heartbeat_s)
+                else:
+                    raise HardwareUnavailable("return Home timed out")
+            except Exception as exc:  # noqa: BLE001 - always disarm below
+                operation_error = exc
+            finally:
+                if (
+                    lease is not None
+                    and self._motion is not None
+                    and self._motion.armed
+                ):
+                    try:
+                        await self._motion.release(lease)
+                    except MotionError as exc:
+                        release_error = str(exc)
+                        await self._motion.emergency_stop()
+                elif self._motion is not None:
+                    stop_errors = await self._motion.emergency_stop()
+                    if stop_errors:
+                        release_error = "; ".join(stop_errors)
+                self._active_operation = None
+
+            if operation_error is not None:
+                raise operation_error
+            if release_error is not None:
+                raise HardwareUnavailable(f"return Home stop failed: {release_error}")
+            terminal = self.measure_home_position(home)
+            terminal_distance = float(terminal["home_distance_m"])
+            if terminal_distance > arrival_tolerance_m:
+                raise HardwareUnavailable(
+                    f"return ended outside Home after disarm: {terminal_distance:.3f} m"
+                )
+            return {
+                **terminal,
+                "arrival_tolerance_m": arrival_tolerance_m,
+                "pose_samples": samples + 1,
+                "motion_path": "factory_avoidance",
+                "motion_commands_sent": commands_sent,
+                "heading_restoration_skipped": True,
+                "measured_after_disarm": True,
+            }
 
     async def turn_toward_home(
         self,
@@ -1109,6 +1740,8 @@ class HardwareManager:
         self._require_autonomy_ready()
         deadline = time.monotonic() + timeout_s
         recovery_count = 0
+        measured_yaw_change = 0.0
+        commands_sent = False
         while True:
             assert self._pose is not None
             sample = self._pose.status()
@@ -1123,20 +1756,24 @@ class HardwareManager:
                 return {
                     "home_distance_m": distance,
                     "home_bearing_error_rad": 0.0,
-                    "measured_yaw_change_rad": 0.0,
+                    "measured_yaw_change_rad": measured_yaw_change,
                     "turn_recovery_count": recovery_count,
-                    "motion_commands_sent": False,
+                    "motion_path": "sport_yaw",
+                    "pose_age_s": sample.age_s,
+                    "bearing_tolerance_rad": tolerance_rad,
+                    "motion_commands_sent": commands_sent,
                 }
-            bearing_error = normalize_angle(
-                math.atan2(dy, dx) - sample.pose.yaw_rad
-            )
+            bearing_error = normalize_angle(math.atan2(dy, dx) - sample.pose.yaw_rad)
             if abs(bearing_error) <= tolerance_rad:
                 return {
                     "home_distance_m": distance,
                     "home_bearing_error_rad": bearing_error,
-                    "measured_yaw_change_rad": 0.0,
+                    "measured_yaw_change_rad": measured_yaw_change,
                     "turn_recovery_count": recovery_count,
-                    "motion_commands_sent": False,
+                    "motion_path": "sport_yaw",
+                    "pose_age_s": sample.age_s,
+                    "bearing_tolerance_rad": tolerance_rad,
+                    "motion_commands_sent": commands_sent,
                 }
             remaining_s = deadline - time.monotonic()
             if remaining_s <= 0.0:
@@ -1149,6 +1786,7 @@ class HardwareManager:
                     timeout_s=remaining_s,
                     response_timeout_s=response_timeout_s,
                     response_min_progress_rad=response_min_progress_rad,
+                    motion_path="sport_yaw",
                 )
             except TurnNoResponse as exc:
                 if recovery_count >= 1:
@@ -1160,12 +1798,8 @@ class HardwareManager:
                 await self.stand_up(settle_s=recovery_settle_s)
                 recovery_count += 1
                 continue
-            return {
-                **evidence,
-                "home_distance_m": distance,
-                "home_bearing_error_rad": bearing_error,
-                "turn_recovery_count": recovery_count,
-            }
+            measured_yaw_change += float(evidence["measured_yaw_change_rad"])
+            commands_sent = True
 
     async def restore_home_heading(
         self,
@@ -1286,6 +1920,7 @@ class HardwareManager:
             "fault": self._fault,
             "network_interface": self.config.network_interface,
             "active_operation": self._active_operation,
+            "posture": self._posture,
             "can_pulse_forward": can_pulse,
             "forward_pulse": {
                 "mps": self.config.forward_pulse_mps,
@@ -1297,8 +1932,9 @@ class HardwareManager:
             "last_pulse": self._last_pulse,
         }
 
-    def start_motion_trace(self, phase: str) -> None:
+    def start_motion_trace(self, phase: str, *, run_id: str | None = None) -> None:
         self._motion_trace_phase = str(phase)
+        self._motion_trace_run_id = run_id
         self._motion_trace = []
 
     def motion_trace(self) -> list[dict[str, object]]:
@@ -1319,15 +1955,27 @@ class HardwareManager:
                 "forward command blocked before approach or return motion"
             )
         sent = await self._motion.command(lease, command)
-        self._motion_trace.append(
-            {
-                "sequence": len(self._motion_trace) + 1,
-                "phase": self._motion_trace_phase,
-                "recorded_monotonic_s": time.monotonic(),
-                **sent.to_dict(),
-            }
-        )
+        motion_status = self._motion.status()
+        event = {
+            "sequence": len(self._motion_trace) + 1,
+            "phase": self._motion_trace_phase,
+            "recorded_monotonic_s": time.monotonic(),
+            "motion_path": motion_status.get("mode"),
+            **sent.to_dict(),
+        }
+        self._motion_trace.append(event)
+        self._record_black_box("motion_command", event)
         return sent
+
+    def _record_black_box(self, kind: str, payload: dict[str, object]) -> None:
+        if self._black_box is None or self._motion_trace_run_id is None:
+            return
+        self._black_box.record(
+            self._motion_trace_run_id,
+            kind,
+            phase=self._motion_trace_phase,
+            payload=payload,
+        )
 
     async def _best_effort_stop(self) -> None:
         if self._motion is None:
@@ -1352,13 +2000,17 @@ class HardwareManager:
                 )
             assert self._motion is not None
             if self._motion.armed:
-                raise HardwareUnavailable("motion must be disarmed before posture change")
+                raise HardwareUnavailable(
+                    "motion must be disarmed before posture change"
+                )
             self._active_operation = operation
             try:
                 if operation == "stand_down":
                     await self._motion.stand_down()
+                    self._posture = "down"
                 else:
                     await self._motion.stand_up(settle_s=settle_s)
+                    self._posture = "standing"
             except Exception as exc:
                 raise HardwareUnavailable(f"{operation} failed: {exc}") from exc
             finally:

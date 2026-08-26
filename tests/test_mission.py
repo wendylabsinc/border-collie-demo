@@ -61,3 +61,34 @@ def test_repeated_remote_input_cannot_clear_or_replace_the_latch() -> None:
     assert mission.phase == MissionPhase.REMOTE_TAKEOVER
     assert mission.reason == "unitree_remote: button_a"
     assert len(mission.history) == 2
+
+
+def test_releasing_the_remote_hands_control_back_without_resuming_anything() -> None:
+    mission = MissionMachine()
+    mission.advance("begin preflight")
+    mission.remote_takeover(RemoteInput("go2_controller", "left_stick_y", monotonic()))
+
+    phase = mission.release_remote_takeover("physical remote released")
+
+    # The hazard the latch guards -- a human driving the robot by hand -- ends
+    # when the remote is released, so the latch ends with it.
+    assert phase == MissionPhase.STOPPED
+    assert mission.takeover_latched is False
+    assert mission.status()["restart_required"] is False
+    # Nothing resumed: the takeover stays in the history and the mission is
+    # stopped, waiting for a fresh deliberate human activation.
+    assert [event.phase for event in mission.history][-2:] == [
+        MissionPhase.REMOTE_TAKEOVER,
+        MissionPhase.STOPPED,
+    ]
+    assert mission.begin_run("operator started a new Demo Run") == (
+        MissionPhase.PREFLIGHT
+    )
+
+
+def test_releasing_an_unlatched_mission_changes_nothing() -> None:
+    mission = MissionMachine()
+    mission.advance("begin preflight")
+
+    assert mission.release_remote_takeover() == MissionPhase.PREFLIGHT
+    assert len(mission.history) == 2

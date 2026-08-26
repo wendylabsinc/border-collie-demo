@@ -11,9 +11,25 @@ The executable, hardware-free design probe lives in
 
 ## Home and pose authority
 
-- Home is a position and heading captured immediately before the run begins.
+- Home is a position and heading captured at each operator-initiated start and
+  held as the Stage Home for that start. It is the physical spot the stage is
+  set to, not a reading each back-to-back run takes for itself.
 - Capture requires a stable window of advancing local-pose samples. The sample
   count and permitted position and yaw spread are qualification parameters.
+- Every activation reads a fresh, disarmed pose before `capture_home`
+  completes, so the disarm and pose-freshness gates are unchanged. On an
+  operator start that reading becomes Home. On a back-to-back run inside a
+  cohort it is recorded instead as `home_provenance.activation_offset_m`, the
+  measured drift from the cohort's Home at the start of that run.
+- An individual Demo Run start and a cohort start both capture Home fresh, so
+  the spot Woof is standing on becomes Home. The remaining runs of that cohort
+  reuse it, which is what keeps Home error from compounding across the cohort.
+  A failed run inside a cohort does not reset it.
+- Home is not carried across an application restart. A restarted process holds
+  no Home and captures one on the next start.
+- `POST /api/home/recapture` retargets the Home a cohort already underway
+  returns to. It is refused while a Demo Run or cohort owns activation, and
+  while Remote Takeover is latched.
 - The recorded outbound forward-heartbeat count bounds the return translation:
   after turning toward Home, the return controller replays at most that many
   forward heartbeats at the same 1.0 m/s signal. Heading-only corrections do
@@ -34,28 +50,62 @@ The executable, hardware-free design probe lives in
 
 1. Stop and settle after standing from the fruit action.
 2. Read a fresh pose and recompute bearing and distance to Home.
-3. Turn in place until the measured Home bearing enters the qualified course
-   gate.
-4. Replay the recorded outbound forward-heartbeat count through a
+3. In `TURN_TOWARD_HOME`, turn in place through regular SportClient until a new
+   fresh pose proves the measured Home bearing is inside the qualified course
+   gate. This is the only Home phase that may issue yaw-only commands.
+4. In `RETURN_HOME`, arm factory obstacle avoidance and replay the recorded
+   outbound forward-heartbeat count through a
    collision-aware motion owner while continuously measuring Home Distance,
-   pose age, route state, and progress.
+   pose age, route state, and progress. Every non-zero command combines forward
+   translation with bounded yaw steering. Yaw is exactly zero inside the
+   per-run moving-yaw deadband. Outside it, a correction uses at least the
+   configured minimum and no more than the configured maximum. The production
+   defaults are a 5-degree deadband and 0.50 rad/s for both minimum and maximum;
+   the minimum cannot be configured below the physically verified 0.50 rad/s
+   factory-avoidance turning signal.
 5. Stop translation inside the position gate.
-6. Restore the captured Home heading in place.
-7. Re-read position after the heading turn. If the position gate was lost,
-   repeat the bounded turn-and-translate sequence within the same limits.
-8. Request stop, release the motion owner, and confirm disarm.
-9. Report success only when fresh pose confirms both position and heading gates
-   and the final safety state is `DISARMED_CONFIRMED`.
+6. If the bearing escapes the qualified forward-steering gate after translation
+   starts, command exact zero, disarm, and fail. Do not re-enter an in-place
+   turn from `RETURN_HOME`.
+7. Request stop, release the motion owner, and confirm disarm.
+8. Report success only when fresh pose confirms the position gate and the final
+   safety state is `DISARMED_CONFIRMED`. Captured heading remains evidence, not
+   a completion gate.
 
-The initial acceptance targets are **0.10 meters** Home Distance and **5 degrees**
-heading error. They are proposed gates, not qualified claims. The earlier
+The initial acceptance target is **0.10 meters** Home Distance. The
+`TURN_TOWARD_HOME` course-entry gate is **5 degrees**. They are proposed gates,
+not qualified claims. The earlier
 prototype failed its 0.10-meter gate with 0.207 meters remaining, so the clean
 implementation must earn these values in a new acceptance run.
+
+## Inter-run stage clearance
+
+Mission completion keeps the strict 0.10 m position target above. A repeated
+stage soak has a separate operator margin, configured by
+`BORDER_COLLIE_STAGE_HOME_MARGIN_M`: meters, default `0.50`, valid range
+`0.10..1.0`. This margin never changes whether an individual Demo Run passed.
+
+Inside a cohort, a back-to-back run does not start until fresh current pose is
+within this margin of the cohort's Stage Home and the prior run ended
+`DISARMED_CONFIRMED`. A failed return therefore aborts the cohort instead of
+capturing the fruit-side position as a new Home.
+
+The margin is measured against the cohort's one Stage Home rather than against
+each run's own reading. A cohort therefore cannot random-walk away from the
+stage by staying inside the margin on every individual hop.
+
+`/api/status.activation.ready` does not fall to false on this distance, and
+`activation.inter_run` is published as evidence rather than as a blocker. An
+operator start captures Home fresh, so it cannot be refused for standing too
+far from a previous run's Home.
 
 ## Route, progress, and recovery
 
 - Translation is forward-only. The return controller does not reverse toward
   an unseen route. Bounded course correction may accompany forward replay.
+- All yaw-only Home commands precede the first forward command. After that
+  first forward command, an excessive course error is a terminal safety event,
+  not authorization for a stationary correction.
 - Translation must retain factory obstacle avoidance or use another
   independently qualified collision-aware planner. Direct unprotected body
   translation cannot implement production return-to-Home.

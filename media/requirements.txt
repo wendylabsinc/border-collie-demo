@@ -2,5 +2,14 @@ av>=14,<17
 fastapi>=0.115,<1
 opencv-python-headless>=4.8,<5
 unitree_webrtc_connect==2.1.2
-ultralytics>=8.4,<9
+# PINNED, do not widen to a range. The range >=8.4,<9 silently upgraded this
+# container from 8.4.120 to 8.4.121 (released 2026-08-17 13:15 UTC) the moment a
+# build ran without a warm pip cache, and pear acquisition confidence collapsed
+# from 0.95 to 0.07 on identical weights. apple-pear-mango.pt is a YOLOE
+# visual-prompt checkpoint: one baked exemplar embedding per class, decoded by
+# ultralytics itself, so a patch release can shift per-class confidence
+# asymmetrically. 8.4.120 is what a same-day build resolved while the demo was
+# passing 5/5. Re-qualify against media/model/apple-pear-mango-reference.jpg
+# (pear 0.960, apple 0.957, mango 0.901) before changing this.
+ultralytics==8.4.120
 uvicorn[standard]>=0.30,<1

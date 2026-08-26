@@ -1,0 +1,23 @@
+{
+  "appId": "border-collie-tensorrt-export",
+  "version": "0.1.0",
+  "services": {
+    "export": {
+      "context": ".",
+      "env": {
+        "EXPORT_WORK_DIR": "/export",
+        "EXPORT_IMAGE_SIZE": "640",
+        "EXPORT_DEVICE": "0",
+        "EXPORT_FORCE": "0",
+        "EXPORT_TIMING_PASSES": "30",
+        "EXPORT_SERVE_PORT": "8124",
+        "EXPORT_CONFIDENCE_TOLERANCE": "0.05",
+        "EXPORT_IOU_FLOOR": "0.90"
+      },
+      "entitlements": [
+        {"type": "network", "mode": "host"},
+        {"type": "gpu"}
+      ]
+    }
+  }
+}

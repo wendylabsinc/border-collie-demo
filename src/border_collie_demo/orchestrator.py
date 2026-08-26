@@ -19,6 +19,8 @@ class StageContext:
     target_fruit: str
     home: dict[str, Any]
     outbound_forward_pulses: int = 0
+    run_tuning: dict[str, object] | None = None
+    search_experiment: dict[str, object] | None = None
 
 
 class StageExecutor(Protocol):
@@ -29,6 +31,17 @@ class StageExecutor(Protocol):
     ) -> dict[str, Any]: ...
 
     async def stop(self) -> list[str]: ...
+
+
+class FailureEpilogue(Protocol):
+    async def recover(
+        self,
+        home: dict[str, Any] | None,
+        *,
+        original_reason: str,
+        failed_phase: str,
+        takeover_latched: bool,
+    ) -> dict[str, object]: ...
 
 
 class StageFailure(RuntimeError):
@@ -75,11 +88,42 @@ class DemoOrchestrator:
         results: RunResultStore,
         stages: StageExecutor,
         terminal_evidence: Callable[[], list[EvidenceArtifact]] | None = None,
+        failure_epilogue: FailureEpilogue | None = None,
     ) -> None:
         self._mission = mission
         self._results = results
         self._stages = stages
         self._terminal_evidence = terminal_evidence
+        self._failure_epilogue = failure_epilogue
+
+    async def _run_failure_epilogue(
+        self,
+        run_id: str,
+        *,
+        reason: str,
+        failed_phase: str,
+    ) -> dict[str, object] | None:
+        if self._failure_epilogue is None:
+            return None
+        run = self._results.get(run_id)
+        try:
+            report = await self._failure_epilogue.recover(
+                run.get("home"),
+                original_reason=reason,
+                failed_phase=failed_phase,
+                takeover_latched=self._mission.takeover_latched,
+            )
+        except Exception as exc:  # noqa: BLE001 - never mask original failure
+            report = {
+                "status": "FAILED",
+                "reason": f"failure epilogue adapter failed: {exc}",
+                "attempted_return": False,
+                "exact_stop_confirmed": False,
+                "terminal_home_measurement": None,
+                "return_evidence": None,
+            }
+        self._results.record_failure_epilogue(run_id, report)
+        return report
 
     async def _capture_terminal_evidence(self, run_id: str) -> None:
         if self._terminal_evidence is None:
@@ -97,15 +141,30 @@ class DemoOrchestrator:
                 f"terminal evidence capture failed: {exc}",
             )
 
-    async def run(self, run_id: str) -> dict[str, Any]:
+    async def run(
+        self,
+        run_id: str,
+        *,
+        pre_search_pause_s: float = 0.0,
+    ) -> dict[str, Any]:
+        """Execute the eight Demo Run stages.
+
+        ``pre_search_pause_s`` is a deliberate beat held immediately before the
+        first search command of this run and after every activation gate has
+        already passed, so it can never delay a safety decision. Only a
+        back-to-back cohort run asks for one; a standalone run passes zero.
+        """
         run = self._results.get(run_id)
         context = StageContext(
             run_id=run_id,
             target_fruit=run["target_fruit"],
             home=run["home"],
+            run_tuning=run.get("run_tuning"),
         )
         try:
             for phase in EXECUTED_STAGES:
+                if phase is MissionPhase.TURN_TO_FRUIT and pre_search_pause_s > 0.0:
+                    await asyncio.sleep(pre_search_pause_s)
                 self._mission.advance(f"starting {phase.value}")
                 self._results.enter_phase(
                     run_id,
@@ -114,6 +173,11 @@ class DemoOrchestrator:
                     message=f"{phase.value} started",
                 )
                 evidence = await self._stages.execute(phase, context)
+                if phase is MissionPhase.TURN_TO_FRUIT:
+                    evidence = {
+                        **evidence,
+                        "pre_search_pause_s": pre_search_pause_s,
+                    }
                 self._results.record_stage(run_id, phase.value, evidence)
                 if phase is MissionPhase.APPROACH_FRUIT:
                     pulse_count = evidence.get("forward_pulse_count")
@@ -150,8 +214,17 @@ class DemoOrchestrator:
         except StageFailure as exc:
             failed_phase = self._mission.phase.value
             stop_errors = await self._stages.stop()
+            epilogue = await self._run_failure_epilogue(
+                run_id,
+                reason=exc.reason,
+                failed_phase=failed_phase,
+            )
             await self._capture_terminal_evidence(run_id)
             self._mission.fail(exc.message)
+            epilogue_stop = (
+                isinstance(epilogue, dict)
+                and epilogue.get("exact_stop_confirmed") is True
+            )
             return self._results.seal(
                 run_id,
                 phase=self._mission.phase.value,
@@ -160,7 +233,7 @@ class DemoOrchestrator:
                 message=exc.message,
                 final_safety_state=(
                     "DISARMED_CONFIRMED"
-                    if not stop_errors
+                    if not stop_errors and (epilogue is None or epilogue_stop)
                     else "STOP_REQUESTED_UNCONFIRMED"
                 ),
                 failed_phase=failed_phase,
@@ -169,8 +242,17 @@ class DemoOrchestrator:
         except Exception as exc:  # noqa: BLE001 - terminal safety boundary
             failed_phase = self._mission.phase.value
             stop_errors = await self._stages.stop()
+            epilogue = await self._run_failure_epilogue(
+                run_id,
+                reason="INTERNAL_ERROR",
+                failed_phase=failed_phase,
+            )
             await self._capture_terminal_evidence(run_id)
             self._mission.fail(f"Demo Run failed: {exc}")
+            epilogue_stop = (
+                isinstance(epilogue, dict)
+                and epilogue.get("exact_stop_confirmed") is True
+            )
             return self._results.seal(
                 run_id,
                 phase=self._mission.phase.value,
@@ -179,7 +261,7 @@ class DemoOrchestrator:
                 message=f"Demo Run failed: {exc}",
                 final_safety_state=(
                     "DISARMED_CONFIRMED"
-                    if not stop_errors
+                    if not stop_errors and (epilogue is None or epilogue_stop)
                     else "STOP_REQUESTED_UNCONFIRMED"
                 ),
                 failed_phase=failed_phase,
@@ -202,7 +284,7 @@ class SimulatedStageExecutor:
         },
         MissionPhase.APPROACH_FRUIT: {
             "arrival_confirmed": True,
-            "final_push_mps": 0.3,
+            "final_push_mps": 0.6,
             "final_push_duration_s": 1.0,
             "forward_pulse_count": 7,
             "motion_commands_sent": False,
@@ -266,6 +348,13 @@ class SimulatedStageExecutor:
                 requested_forward_pulses=context.outbound_forward_pulses,
                 replayed_forward_pulses=context.outbound_forward_pulses,
             )
+        if phase is MissionPhase.APPROACH_FRUIT and context.run_tuning is not None:
+            arrival = context.run_tuning.get("arrival")
+            if isinstance(arrival, dict):
+                evidence.update(
+                    final_push_mps=arrival.get("final_push_mps"),
+                    final_push_duration_s=arrival.get("final_push_duration_s"),
+                )
         return evidence
 
     async def stop(self) -> list[str]:

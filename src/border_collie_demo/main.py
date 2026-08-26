@@ -1,19 +1,24 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI
 
 from .api import create_app
-from .config import HardwareConfig, PerceptionConfig
+from .black_box import RunBlackBox
+from .config import HardwareConfig, PerceptionConfig, env_bool
+from .controller_start import Go2ControllerStartSource
 from .evidence import TerminalEvidenceClient
+from .failure_epilogue import PositionOnlyFailureEpilogue
 from .hardware import HardwareManager
 from .media import BarkClient, BarkConfig
 from .orchestrator import SimulatedStageExecutor
 from .perception import PerceptionStatusClient
 from .production import ProductionStageExecutor
 from .simulation import SimulatedHardware, simulated_camera_perception
+from .system_audio import create_system_audio_policy
 
 
 def build_app_from_env() -> FastAPI:
@@ -30,19 +35,62 @@ def build_app_from_env() -> FastAPI:
         )
     if runtime_mode != "production":
         raise ValueError("BORDER_COLLIE_RUNTIME_MODE must be production or simulation")
-    hardware = HardwareManager(HardwareConfig.from_env())
+    runs_root = Path(
+        os.environ.get("BORDER_COLLIE_RUNS_DIR", "artifacts/runs")
+    ).resolve()
+    black_box = RunBlackBox(runs_root)
+    hardware = HardwareManager(HardwareConfig.from_env(), black_box=black_box)
     perception = PerceptionStatusClient(PerceptionConfig.from_env())
     bark = BarkClient(BarkConfig.from_env())
+    # The Go2 speaker has no other control surface: SetVolume lives only behind
+    # this policy. Without it wired, nothing raises the volume and every bark is
+    # accepted by the sidecar and played inaudibly.
+    system_audio = create_system_audio_policy(bark)
+
+    def best_effort_bark_status() -> dict[str, object]:
+        try:
+            status = system_audio.status()
+        except Exception as exc:  # noqa: BLE001 - bark cannot block motion readiness
+            status = {"ready": False, "detail": str(exc)}
+        return {
+            "ready": True,
+            "detail": "bark is best effort and does not block Demo Run readiness",
+            "bark_ready": status.get("ready") is True,
+            "bark_detail": status.get("detail"),
+        }
+
     terminal_evidence = TerminalEvidenceClient.from_env()
+    controller_start_source = (
+        Go2ControllerStartSource()
+        if env_bool("BORDER_COLLIE_CONTROLLER_START_ENABLED")
+        else None
+    )
     return create_app(
         hardware=hardware,
         camera_perception_status=perception.status,
         camera_frame=perception.camera_frame,
+        raw_camera_frame=perception.raw_camera_frame,
         select_perception_target=perception.select_target,
-        media_status=bark.status,
-        stage_executor=ProductionStageExecutor(hardware, perception.status, bark),
+        select_run_perception_target=perception.select_run_target,
+        preview_camera_perception=perception.preview_status,
+        coco_test_status=perception.coco_test_status,
+        configure_coco_test=perception.configure_coco_test,
+        runs_root=runs_root,
+        media_status=best_effort_bark_status,
+        # Barks go through the audio policy, not the raw sidecar client, so the
+        # speaker is unmuted for the sound and re-muted afterwards.
+        # Search, approach and centring poll perception every tick, so routing
+        # the stage executor through run_status is what keeps the run lease
+        # renewed for exactly as long as a run is actually executing.
+        stage_executor=ProductionStageExecutor(
+            hardware, perception.run_status, system_audio
+        ),
+        system_audio=system_audio,
         terminal_evidence=terminal_evidence.capture,
+        failure_epilogue=PositionOnlyFailureEpilogue(hardware),
+        black_box=black_box,
         runtime_mode="production",
+        controller_start_source=controller_start_source,
     )
 
 

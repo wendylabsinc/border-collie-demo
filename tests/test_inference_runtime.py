@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -12,12 +14,12 @@ from media.inference_runtime import (
 from media.model_router import FruitModelRouter
 
 
-def test_tensorrt_remains_the_default_validated_runtime() -> None:
+def test_ultralytics_remains_the_default_presented_runtime() -> None:
     sentinel = object()
 
     loaded = load_general_model(
         InferenceRuntimeConfig.from_mapping({}),
-        tensorrt_factory=lambda: sentinel,
+        ultralytics_factory=lambda: sentinel,
         max_factory=lambda _config: (_ for _ in ()).throw(
             AssertionError("MAX must not load by default")
         ),
@@ -25,8 +27,8 @@ def test_tensorrt_remains_the_default_validated_runtime() -> None:
 
     assert loaded.model is sentinel
     assert loaded.status() == {
-        "requested_backend": "tensorrt",
-        "active_backend": "tensorrt",
+        "requested_backend": "ultralytics",
+        "active_backend": "ultralytics",
         "fallback_used": False,
         "fallback_reason": None,
         "candidate_validated": True,
@@ -41,25 +43,25 @@ def test_max_startup_failure_is_fail_closed_without_explicit_fallback() -> None:
     with pytest.raises(RuntimeError, match="MAX inference startup failed"):
         load_general_model(
             config,
-            tensorrt_factory=lambda: object(),
+            ultralytics_factory=lambda: object(),
             max_factory=lambda _config: (_ for _ in ()).throw(
                 FileNotFoundError("candidate.mef")
             ),
         )
 
 
-def test_explicit_max_fallback_reports_that_tensorrt_is_active() -> None:
+def test_explicit_max_fallback_reports_that_ultralytics_is_active() -> None:
     sentinel = object()
     config = InferenceRuntimeConfig.from_mapping(
         {
             "FRUIT_INFERENCE_BACKEND": "max",
-            "MAX_ALLOW_TENSORRT_FALLBACK": "1",
+            "MAX_ALLOW_ULTRALYTICS_FALLBACK": "1",
         }
     )
 
     loaded = load_general_model(
         config,
-        tensorrt_factory=lambda: sentinel,
+        ultralytics_factory=lambda: sentinel,
         max_factory=lambda _config: (_ for _ in ()).throw(
             RuntimeError("accelerator unavailable")
         ),
@@ -68,7 +70,7 @@ def test_explicit_max_fallback_reports_that_tensorrt_is_active() -> None:
     assert loaded.model is sentinel
     assert loaded.status() == {
         "requested_backend": "max",
-        "active_backend": "tensorrt",
+        "active_backend": "ultralytics",
         "fallback_used": True,
         "fallback_reason": "RuntimeError: accelerator unavailable",
         "candidate_validated": True,
@@ -249,17 +251,33 @@ def test_max_runtime_configuration_names_the_candidate_artifact_and_classes() ->
     config = InferenceRuntimeConfig.from_mapping(
         {
             "FRUIT_INFERENCE_BACKEND": "max",
-            "MAX_MODEL_PATH": "/media/fruit.cuda-sm87.mef",
-            "MAX_WEIGHTS_PATH": "/media/fruit.cuda-sm87.weights.npz",
-            "MAX_FRUIT_CLASS_IDS_JSON": '{"apple": 1, "banana": 2, "pear": 3}',
+            "MAX_MODEL_PATH": "/media/apple-pear-mango.cuda-sm87.mef",
+            "MAX_WEIGHTS_PATH": "/media/apple-pear-mango.cuda-sm87.weights.npz",
+            "MAX_FRUIT_CLASS_IDS_JSON": '{"apple": 0, "pear": 1, "mango": 2}',
             "MAX_INPUT_SIZE": "640",
             "MAX_DEVICE_INDEX": "0",
         }
     )
 
-    assert config.max_model_path == "/media/fruit.cuda-sm87.mef"
-    assert config.max_weights_path == "/media/fruit.cuda-sm87.weights.npz"
-    assert config.max_fruit_class_ids == {"apple": 1, "banana": 2, "pear": 3}
+    assert config.max_model_path == "/media/apple-pear-mango.cuda-sm87.mef"
+    assert config.max_weights_path == "/media/apple-pear-mango.cuda-sm87.weights.npz"
+    assert config.max_fruit_class_ids == {"apple": 0, "pear": 1, "mango": 2}
     assert config.max_input_size == 640
     assert config.max_device_index == 0
     assert config.max_output_contract == "yoloe_segment_raw"
+
+
+def test_max_manifest_selects_only_the_current_presentation_model_classes() -> None:
+    root = Path(__file__).parents[1]
+    descriptor = json.loads((root / "wendy.json").read_text(encoding="utf-8"))
+    app_env = descriptor["services"]["app"]["env"]
+    media_env = descriptor["services"]["media"]["env"]
+
+    assert app_env["BORDER_COLLIE_AUTONOMY_ENABLED"] == "0"
+    assert media_env["FRUIT_INFERENCE_BACKEND"] == "max"
+    assert media_env["MAX_ALLOW_ULTRALYTICS_FALLBACK"] == "0"
+    assert json.loads(media_env["MAX_FRUIT_CLASS_IDS_JSON"]) == {
+        "apple": 0,
+        "pear": 1,
+        "mango": 2,
+    }

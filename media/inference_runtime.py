@@ -304,10 +304,10 @@ class MaxYoloModelAdapter:
 
 @dataclass(frozen=True)
 class InferenceRuntimeConfig:
-    requested_backend: str = "tensorrt"
-    allow_tensorrt_fallback: bool = False
-    max_model_path: str = "/media/fruit.cuda-sm87.mef"
-    max_weights_path: str = "/media/fruit.cuda-sm87.weights.npz"
+    requested_backend: str = "ultralytics"
+    allow_ultralytics_fallback: bool = False
+    max_model_path: str = "/media/apple-pear-mango.cuda-sm87.mef"
+    max_weights_path: str = "/media/apple-pear-mango.cuda-sm87.weights.npz"
     max_fruit_class_ids: dict[str, int] = field(default_factory=dict)
     max_input_size: int = 640
     max_device_index: int = 0
@@ -319,11 +319,19 @@ class InferenceRuntimeConfig:
 
     @classmethod
     def from_mapping(cls, values: Mapping[str, str]) -> InferenceRuntimeConfig:
-        backend = values.get("FRUIT_INFERENCE_BACKEND", "tensorrt").strip().casefold()
-        if backend not in {"tensorrt", "max"}:
-            raise ValueError("FRUIT_INFERENCE_BACKEND must be tensorrt or max")
+        backend = values.get(
+            "FRUIT_INFERENCE_BACKEND", "ultralytics"
+        ).strip().casefold()
+        # The original MAX branch called every control path "tensorrt". The
+        # presented checkpoint now loads apple-pear-mango.pt through
+        # Ultralytics, so retain the old spelling only as a compatibility alias.
+        if backend == "tensorrt":
+            backend = "ultralytics"
+        if backend not in {"ultralytics", "max"}:
+            raise ValueError("FRUIT_INFERENCE_BACKEND must be ultralytics or max")
         allow_fallback = values.get(
-            "MAX_ALLOW_TENSORRT_FALLBACK", "0"
+            "MAX_ALLOW_ULTRALYTICS_FALLBACK",
+            values.get("MAX_ALLOW_TENSORRT_FALLBACK", "0"),
         ).strip().casefold() in {"1", "true", "yes", "on"}
         raw_class_ids = values.get("MAX_FRUIT_CLASS_IDS_JSON", "{}").strip()
         try:
@@ -355,12 +363,13 @@ class InferenceRuntimeConfig:
             )
         return cls(
             requested_backend=backend,
-            allow_tensorrt_fallback=allow_fallback,
+            allow_ultralytics_fallback=allow_fallback,
             max_model_path=values.get(
-                "MAX_MODEL_PATH", "/media/fruit.cuda-sm87.mef"
+                "MAX_MODEL_PATH", "/media/apple-pear-mango.cuda-sm87.mef"
             ).strip(),
             max_weights_path=values.get(
-                "MAX_WEIGHTS_PATH", "/media/fruit.cuda-sm87.weights.npz"
+                "MAX_WEIGHTS_PATH",
+                "/media/apple-pear-mango.cuda-sm87.weights.npz",
             ).strip(),
             max_fruit_class_ids={
                 name.casefold().strip(): class_id
@@ -385,7 +394,7 @@ class LoadedInferenceRuntime:
             "active_backend": self.active_backend,
             "fallback_used": self.fallback_reason is not None,
             "fallback_reason": self.fallback_reason,
-            "candidate_validated": self.active_backend == "tensorrt",
+            "candidate_validated": self.active_backend == "ultralytics",
         }
 
 
@@ -422,24 +431,24 @@ def create_max_model(
 def load_general_model(
     config: InferenceRuntimeConfig,
     *,
-    tensorrt_factory: Callable[[], object],
+    ultralytics_factory: Callable[[], object],
     max_factory: Callable[[InferenceRuntimeConfig], object],
 ) -> LoadedInferenceRuntime:
-    if config.requested_backend == "tensorrt":
+    if config.requested_backend == "ultralytics":
         return LoadedInferenceRuntime(
-            model=tensorrt_factory(),
-            requested_backend="tensorrt",
-            active_backend="tensorrt",
+            model=ultralytics_factory(),
+            requested_backend="ultralytics",
+            active_backend="ultralytics",
         )
     try:
         model = max_factory(config)
     except Exception as exc:
         reason = f"{type(exc).__name__}: {exc}"
-        if config.allow_tensorrt_fallback:
+        if config.allow_ultralytics_fallback:
             return LoadedInferenceRuntime(
-                model=tensorrt_factory(),
+                model=ultralytics_factory(),
                 requested_backend="max",
-                active_backend="tensorrt",
+                active_backend="ultralytics",
                 fallback_reason=reason,
             )
         raise RuntimeError(

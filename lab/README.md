@@ -7,3 +7,6 @@ result and a visual snapshot.
 
 - [`run-labeler`](run-labeler/README.md) opens a recorded run directly for
   long-distance fruit-box correction and training-label export.
+- [`tensorrt-export`](tensorrt-export/README.md) builds the TensorRT FP16
+  engine for `apple-pear-mango.pt` on Woof and qualifies it against the `.pt`
+  on the committed reference frame. Camera-free and motion-free.

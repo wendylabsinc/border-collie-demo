@@ -1,0 +1,54 @@
+version: 1
+stages:
+  - name: voice
+    from: python:3.11-slim-bookworm
+    workdir: /app
+    env:
+      PYTHONUNBUFFERED: "1"
+      MODEL_DIR: /models
+      WAKE_WORD: /app/hey_wendy.onnx
+      OWW_MELSPEC_PATH: /opt/openwakeword-models/melspectrogram.onnx
+      OWW_EMBEDDING_PATH: /opt/openwakeword-models/embedding_model.onnx
+    install:
+      apt:
+        packages:
+          - alsa-utils
+          - ca-certificates
+          - libasound2
+          - libgomp1
+          - libportaudio2
+          - libsndfile1
+      pip:
+        - requirements: requirements.txt
+    download:
+      - url: https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/melspectrogram.onnx
+        sha256: ba2b0e0f8b7b875369a2c89cb13360ff53bac436f2895cced9f479fa65eb176f
+        dest: /opt/openwakeword-models/melspectrogram.onnx
+      - url: https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/embedding_model.onnx
+        sha256: 70d164290c1d095d1d4ee149bc5e00543250a7316b59f31d056cff7bd3075c1f
+        dest: /opt/openwakeword-models/embedding_model.onnx
+    copy:
+      - from: local
+        paths: [hey_wendy.onnx]
+        dest: /app/
+      - from: local
+        paths:
+          - app.py
+          - asr.py
+          - asr_types.py
+          - capture.py
+          - collie_adapter.py
+          - devices.py
+          - frontend.py
+          - mcpclient.py
+          - microphone.py
+          - model_cache.py
+          - observe_page.py
+          - page.py
+          - transcription_policy.py
+          - utterance.py
+          - wake_phrase.py
+          - wakeword.py
+        dest: /app/
+    user: root
+    cmd: [python, app.py]

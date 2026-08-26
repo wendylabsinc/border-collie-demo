@@ -1,0 +1,296 @@
+{
+  "activation_id": "cohort:e70d4348-f9a4-4728-8dd4-dd371b115d9a:run:1",
+  "activation_source": "cohort",
+  "current_phase": "remote_takeover",
+  "duration_s": 2.40809001599996,
+  "ended_at_utc": "2026-08-17T18:59:28.502284Z",
+  "events": [
+    {
+      "message": "Demo Run persisted before preflight",
+      "phase": "idle",
+      "previous_phase": null,
+      "reason": "ACTIVATION_ACCEPTED",
+      "recorded_at_utc": "2026-08-17T18:59:26.096983Z",
+      "seconds_since_start": 0.0027895679999687673,
+      "sequence": 1
+    },
+    {
+      "message": "preflight entered; verifying production motion and media gates",
+      "phase": "preflight",
+      "previous_phase": "idle",
+      "reason": "PREFLIGHT_STARTED",
+      "recorded_at_utc": "2026-08-17T18:59:26.106140Z",
+      "seconds_since_start": 0.011963647999948535,
+      "sequence": 2
+    },
+    {
+      "message": "all preflight checks passed",
+      "phase": "preflight",
+      "previous_phase": "preflight",
+      "reason": "PREFLIGHT_PASSED",
+      "recorded_at_utc": "2026-08-17T18:59:26.125918Z",
+      "seconds_since_start": 0.0317468799999574,
+      "sequence": 3
+    },
+    {
+      "message": "preflight passed; reusing the persisted Stage Home",
+      "phase": "capture_home",
+      "previous_phase": "preflight",
+      "reason": "CAPTURE_HOME_STARTED",
+      "recorded_at_utc": "2026-08-17T18:59:26.133855Z",
+      "seconds_since_start": 0.039672735999999986,
+      "sequence": 4
+    },
+    {
+      "message": "fresh robot-local position and heading captured as Home",
+      "phase": "capture_home",
+      "previous_phase": "capture_home",
+      "reason": "HOME_CAPTURED",
+      "recorded_at_utc": "2026-08-17T18:59:26.141097Z",
+      "seconds_since_start": 0.046927871999969284,
+      "sequence": 5
+    },
+    {
+      "message": "Home captured; waiting for the qualified mango command",
+      "phase": "wait_for_command",
+      "previous_phase": "capture_home",
+      "reason": "WAITING_FOR_COMMAND",
+      "recorded_at_utc": "2026-08-17T18:59:26.150784Z",
+      "seconds_since_start": 0.05660374399997181,
+      "sequence": 6
+    },
+    {
+      "message": "turn_to_fruit started",
+      "phase": "turn_to_fruit",
+      "previous_phase": "wait_for_command",
+      "reason": "TURN_TO_FRUIT_STARTED",
+      "recorded_at_utc": "2026-08-17T18:59:26.174797Z",
+      "seconds_since_start": 0.0806272639999861,
+      "sequence": 7
+    },
+    {
+      "message": "operator stopped the Demo Run",
+      "phase": "remote_takeover",
+      "previous_phase": "turn_to_fruit",
+      "reason": "OPERATOR_STOP",
+      "recorded_at_utc": "2026-08-17T18:59:28.499785Z",
+      "seconds_since_start": 2.4056052799999748,
+      "sequence": 8
+    }
+  ],
+  "failed_phase": null,
+  "final_safety_state": "DISARMED_CONFIRMED",
+  "home": {
+    "age_s": 0.0018686399999978676,
+    "captured_monotonic_s": 328.35847856,
+    "source": "rt/sportmodestate",
+    "x_m": -0.015537288971245289,
+    "y_m": -0.018200146034359932,
+    "yaw_rad": 0.18375910818576813
+  },
+  "home_provenance": {
+    "activation_offset_m": 0.0,
+    "measured_pose": {
+      "age_s": 0.0018686399999978676,
+      "captured_monotonic_s": 328.35847856,
+      "source": "rt/sportmodestate",
+      "x_m": -0.015537288971245289,
+      "y_m": -0.018200146034359932,
+      "yaw_rad": 0.18375910818576813
+    },
+    "source": "CAPTURED"
+  },
+  "message": "operator stopped the Demo Run",
+  "outcome": "STOPPED",
+  "preflight": {
+    "camera_perception": {
+      "camera_healthy": true,
+      "camera_violations": [],
+      "detail": "qualifying mango detection is missing; derived Mango identity evidence is missing or unqualified; mango detection generation does not match camera generation; mango detection time base does not match camera source; mango detection source PTS is missing or invalid; mango confidence is below 0.45; fewer than 5 consecutive mango detections; detector execution exceeds 0.200 seconds; mango detection is stale; mango bounding box is missing or invalid",
+      "detection": {
+        "age_s": null,
+        "bbox_area_ratio": null,
+        "bbox_height_ratio": null,
+        "bbox_width_ratio": null,
+        "bbox_xyxy": null,
+        "bottom_ratio": null,
+        "center_x_ratio": null,
+        "center_y_ratio": null,
+        "color_confidence": null,
+        "color_identity": "unknown",
+        "completed_monotonic_s": null,
+        "confidence": null,
+        "consecutive_detections": null,
+        "crop_confirmation": null,
+        "derived_confidence": null,
+        "derived_identity": null,
+        "generation": null,
+        "inference_passes": null,
+        "inference_s": null,
+        "label": null,
+        "raw_bbox_xyxy": null,
+        "raw_confidence": null,
+        "raw_label": null,
+        "source_pts": null,
+        "source_time_base": null
+      },
+      "generation": "de1e9d93dfea4ff6a3b968c0ead9b0bf",
+      "inference": {
+        "active": true,
+        "default_hold_s": {
+          "preview": 20.0,
+          "run": 120.0
+        },
+        "gate_enabled": true,
+        "holds": {
+          "preview": 19.99536438399997,
+          "run": 119.99799820800001
+        },
+        "reason": "held",
+        "warmup_remaining_s": 0.0
+      },
+      "motion_qualified": true,
+      "ready": false,
+      "source": {
+        "age_s": 0.028171199999974306,
+        "consecutive_frames": 3667,
+        "height": 720,
+        "pts": 223380,
+        "received_monotonic_s": 328.312783232,
+        "time_base": "1/90000",
+        "width": 1280
+      },
+      "supported_fruits": [
+        "apple",
+        "banana",
+        "mango",
+        "pear"
+      ],
+      "target_fruit": "mango",
+      "target_ready": false,
+      "thresholds": {
+        "detection_maximum_age_s": 0.25,
+        "inference_maximum_s": 0.2,
+        "pear_minimum_confidence": 0.65,
+        "pear_minimum_consecutive_detections": 5,
+        "source_maximum_age_s": 0.35,
+        "source_minimum_consecutive_frames": 10,
+        "target_minimum_confidence": 0.45
+      }
+    },
+    "checks": [
+      {
+        "detail": "Run Result was persisted before preflight",
+        "name": "durable_run_storage",
+        "ready": true
+      },
+      {
+        "detail": "Go2 hardware is connected",
+        "name": "hardware_connected",
+        "ready": true
+      },
+      {
+        "detail": "autonomous demo motion is enabled",
+        "name": "autonomy_enabled",
+        "ready": true
+      },
+      {
+        "detail": "pose age is 0.002 seconds",
+        "name": "fresh_pose",
+        "ready": true
+      },
+      {
+        "detail": "application motion owner is disarmed",
+        "name": "motion_disarmed",
+        "ready": true
+      },
+      {
+        "detail": "camera source is healthy and advancing",
+        "name": "camera_perception_ready",
+        "ready": true
+      },
+      {
+        "detail": "bark is best effort and does not block Demo Run readiness",
+        "name": "bark_media_ready",
+        "ready": true
+      }
+    ],
+    "media": {
+      "bark_detail": "speaker mute failed: ",
+      "bark_ready": false,
+      "detail": "bark is best effort and does not block Demo Run readiness",
+      "ready": true
+    },
+    "ready": true
+  },
+  "reason": "OPERATOR_STOP",
+  "run_id": "ad95fc11-60b7-4215-a004-381e13a2a7b6",
+  "run_tuning": {
+    "approach": {
+      "detection_maximum_age_s": 1.0,
+      "duplicate_hold_s": 0.25,
+      "forward_mps": 1.0,
+      "source_maximum_age_s": 1.0,
+      "timeout_s": 20.0
+    },
+    "arrival": {
+      "disappearance_bottom_ratio": 0.8,
+      "final_push_duration_s": 1.0,
+      "final_push_mps": 0.6,
+      "loss_confirmations": 2,
+      "loss_grace_s": 0.75,
+      "near_bottom_ratio": 0.9,
+      "near_center_ratio": 0.72,
+      "near_confirmations": 3
+    },
+    "centering": {
+      "approach_yaw_rps": 0.3,
+      "focus_yaw_rps": 0.4,
+      "lock_tolerance_ratio": 0.08,
+      "outer_corridor_ratio": 0.2,
+      "recenter_yaw_rps": 0.5
+    },
+    "home": {
+      "align_timeout_s": 30.0,
+      "align_tolerance_deg": 5.0,
+      "align_yaw_rps": 0.8,
+      "arrival_tolerance_m": 0.1,
+      "heading_gate_deg": 20.0,
+      "minimum_progress_m": 0.03,
+      "return_forward_mps": 1.0,
+      "return_minimum_yaw_rps": 0.5,
+      "return_timeout_s": 30.0,
+      "return_yaw_deadband_deg": 5.0,
+      "return_yaw_rps": 0.5,
+      "stall_timeout_s": 2.0
+    },
+    "recognition": {
+      "focus_confidence": null,
+      "lock_confidence": 0.45,
+      "required_frames": 3,
+      "tracking_confidence": 0.35
+    },
+    "search": {
+      "sweep_rad": 6.283185307179586,
+      "timeout_s": 30.0,
+      "yaw_rps": 0.8
+    },
+    "target_fruit": "mango"
+  },
+  "schema_version": 1,
+  "search_experiment": {
+    "center_confirmations": 3,
+    "center_tolerance_ratio": 0.08,
+    "focus_confidence": null,
+    "lock_confidence": 0.45,
+    "search_yaw_rps": 0.8,
+    "target_fruit": "mango"
+  },
+  "started_at_utc": "2026-08-17T18:59:26.094162Z",
+  "started_monotonic_s": 328.31407632,
+  "target_fruit": "mango",
+  "terminal_measurements": {
+    "heading_error_rad": null,
+    "home_distance_m": null
+  }
+}

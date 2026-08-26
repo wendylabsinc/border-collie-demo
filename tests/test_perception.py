@@ -36,6 +36,8 @@ def valid_payload() -> dict[str, object]:
                 "crop_xyxy": [400, 280, 880, 720],
                 "agreement_iou": 0.72,
             },
+            "color_identity": "red_apple",
+            "color_confidence": 0.91,
         },
     }
 
@@ -62,14 +64,50 @@ def test_qualified_apple_evidence_uses_its_own_threshold() -> None:
     payload["target_fruit"] = "apple"
     payload["supported_fruits"] = ["apple", "banana", "pear"]
     payload["detection"]["label"] = "apple"
-    payload["detection"]["confidence"] = 0.70
+    payload["detection"]["confidence"] = 0.40
 
     status = client_for(payload).status()
 
     assert status["target_fruit"] == "apple"
     assert status["target_ready"] is True
     assert status["motion_qualified"] is True
-    assert status["thresholds"]["target_minimum_confidence"] == 0.70
+    assert status["thresholds"]["target_minimum_confidence"] == 0.40
+
+
+def test_qualified_mango_requires_raw_bowl_and_derived_identity() -> None:
+    payload = valid_payload()
+    payload["target_fruit"] = "mango"
+    payload["supported_fruits"] = ["apple", "banana", "mango", "pear"]
+    payload["detection"].update(
+        label="mango",
+        confidence=0.70,
+        raw_label="bowl",
+        raw_confidence=0.128,
+        raw_bbox_xyxy=[480, 360, 800, 700],
+        derived_identity="mango",
+        derived_confidence=1.0,
+    )
+
+    ready = client_for(payload).status()
+
+    assert ready["target_ready"] is True
+    assert ready["detection"]["raw_label"] == "bowl"
+    assert ready["detection"]["derived_identity"] == "mango"
+
+    for field, value in (
+        ("raw_label", "sports ball"),
+        ("raw_confidence", 0.08),
+        ("derived_identity", "unknown"),
+        ("derived_confidence", 0.79),
+        ("derived_confidence", None),
+    ):
+        invalid = valid_payload()
+        invalid["target_fruit"] = "mango"
+        invalid["detection"].update(payload["detection"])
+        invalid["detection"][field] = value
+        status = client_for(invalid).status()
+        assert status["target_ready"] is False
+        assert "derived Mango identity" in status["detail"]
 
 
 def test_perception_client_selects_target_through_the_read_only_sidecar() -> None:
@@ -108,6 +146,8 @@ def test_status_preserves_validated_geometry_for_approach_and_arrival() -> None:
     assert status["detection"]["inference_passes"] == 2
     assert status["detection"]["crop_confirmation"]["promoted"] is True
     assert status["detection"]["crop_confirmation"]["crop_confidence"] == 0.81
+    assert status["detection"]["color_identity"] == "red_apple"
+    assert status["detection"]["color_confidence"] == 0.91
 
 
 def test_detection_must_be_bound_to_the_current_camera_generation() -> None:
@@ -185,3 +225,41 @@ def test_malformed_or_unreachable_status_fails_closed() -> None:
     assert status["detail"] == (
         "camera/perception status unavailable: sidecar timed out"
     )
+
+
+def test_camera_violations_name_the_failing_source_check() -> None:
+    """A camera_unhealthy stop must be diagnosable from the record alone.
+
+    Guidance halts a run the moment camera_healthy goes false, but the reason
+    is a source-level check the run record previously discarded, leaving the
+    failure undiagnosable without a live repro.
+    """
+    healthy = client_for(valid_payload()).status()
+    assert healthy["camera_healthy"] is True
+    assert healthy["camera_violations"] == []
+
+    stalled = valid_payload()
+    stalled["source"]["received_monotonic_s"] = 99.0  # 1.0 s old, gate is 0.350
+    status = client_for(stalled).status()
+
+    assert status["camera_healthy"] is False
+    assert status["camera_violations"] == ["source progress is stale"]
+
+    reconnected = valid_payload()
+    reconnected["source"]["consecutive_frames"] = 3
+    status = client_for(reconnected).status()
+
+    assert status["camera_healthy"] is False
+    assert status["camera_violations"] == ["fewer than 10 consecutive source frames"]
+
+
+def test_camera_violations_exclude_target_only_failures() -> None:
+    """A weak detection is not a camera fault and must not be reported as one."""
+    weak = valid_payload()
+    weak["detection"]["confidence"] = 0.01
+
+    status = client_for(weak).status()
+
+    assert status["ready"] is False
+    assert status["camera_healthy"] is True
+    assert status["camera_violations"] == []

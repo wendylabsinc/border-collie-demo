@@ -12,6 +12,7 @@ import json
 import logging
 import math
 import os
+import re
 import time
 import zipfile
 from collections import deque
@@ -26,6 +27,8 @@ from uuid import uuid4
 from fastapi import FastAPI, HTTPException, Response
 from pydantic import BaseModel
 
+from media.coco_tester import CocoTester
+from media.fruit_color import classify_bbox_color
 from media.inference_runtime import (
     InferenceRuntimeConfig,
     LoadedInferenceRuntime,
@@ -34,17 +37,34 @@ from media.inference_runtime import (
 )
 from media.model_router import FruitCandidate, FruitModelRouter, RoutedPrediction
 
-FRUIT_ACQUISITION_CONFIDENCE = {
-    "apple": 0.70,
-    "banana": 0.20,
-    "pear": 0.65,
-}
-SUPPORTED_FRUITS = tuple(FRUIT_ACQUISITION_CONFIDENCE)
+_UUID_PATTERN = re.compile(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}")
+
+SUPPORTED_FRUITS = ("apple", "banana", "mango", "pear")
+GENERAL_MODEL_FRUITS = ("apple", "pear", "mango")
 SEARCH_CROP_FRUITS = frozenset({"apple", "banana"})
+
+INFERENCE_HOLD_REASONS = ("run", "preview")
+DEFAULT_INFERENCE_HOLD_S: dict[str, float] = {"run": 120.0, "preview": 20.0}
+MAXIMUM_INFERENCE_HOLD_S = 900.0
 
 
 class TargetFruitRequest(BaseModel):
-    target_fruit: Literal["apple", "banana", "pear"]
+    target_fruit: Literal["apple", "banana", "mango", "pear"]
+    # Selecting a Target Fruit is the one call every consumer already makes
+    # before it cares about detections, so it is also what wakes inference.
+    hold: Literal["run", "preview"] = "preview"
+
+
+class InferenceHoldRequest(BaseModel):
+    hold: Literal["run", "preview"] | None = None
+    hold_s: float | None = None
+    release: Literal["run", "preview"] | None = None
+
+
+class CocoTestRequest(BaseModel):
+    enabled: bool
+    minimum_confidence: float | None = None
+    reset: bool = False
 
 
 @dataclass(frozen=True)
@@ -108,9 +128,189 @@ class CropConfirmConfig:
         )
 
 
+def _audio_uuids_from_listing(listing: Any) -> set[str]:
+    """Pull uuids out of an AudioHub listing without assuming its shape.
+
+    The response is a nested request/response envelope whose exact layout is
+    not contractual, and the payload may arrive as a JSON string. Walk it and
+    collect anything uuid-shaped rather than depending on one nesting.
+    """
+    found: set[str] = set()
+
+    def walk(node: Any, depth: int = 0) -> None:
+        if depth > 8:
+            return
+        if isinstance(node, str):
+            text = node.strip()
+            if _UUID_PATTERN.fullmatch(text):
+                found.add(text)
+                return
+            if text.startswith(("{", "[")):
+                try:
+                    walk(json.loads(text), depth + 1)
+                except (ValueError, TypeError):
+                    return
+            return
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key in {"unique_id", "uuid", "id"} and isinstance(value, str):
+                    candidate = value.strip()
+                    if _UUID_PATTERN.fullmatch(candidate):
+                        found.add(candidate)
+                        continue
+                walk(value, depth + 1)
+            return
+        if isinstance(node, (list, tuple)):
+            for value in node:
+                walk(value, depth + 1)
+
+    walk(listing)
+    return found
+
+
 def configure_media_logging() -> None:
     """Prevent recoverable decoder packet errors from flooding device logs."""
     logging.getLogger("aiortc.codecs.h264").setLevel(logging.ERROR)
+
+
+class InferenceGate:
+    """Decide when the fruit detector is allowed to spend GPU time.
+
+    A YOLO pass per frame keeps the Jetson busy forever, but nothing needs a
+    detection unless a Demo Run or cohort is executing, or the operator is
+    watching the fruit-test page. Consumers therefore take a *named, expiring
+    lease* and the detector sleeps whenever every lease has lapsed.
+
+    Leases expire instead of requiring an explicit release, which fixes the
+    direction of every failure:
+
+    * A crashed or disconnected app stops renewing, so inference falls idle and
+      the robot stops burning power. It is never left stuck on.
+    * It can never be left stuck *off* either, because nothing persists an
+      "off" decision. Every Demo Run takes its lease during activation through
+      a sidecar call the run already depends on, so the next run re-arms the
+      detector whatever happened to the last one.
+
+    ``warmup_s`` keeps a freshly started process hot so the first inference of
+    the day - the slow one, while CUDA and cuDNN finish initialising - is paid
+    for before a run is waiting on it. ``INFERENCE_MAXIMUM_S`` is only 0.200 s,
+    and a cold first pass can exceed it.
+    """
+
+    def __init__(
+        self,
+        *,
+        enabled: bool = True,
+        warmup_s: float = 60.0,
+        default_hold_s: dict[str, float] | None = None,
+        clock: Any = time.monotonic,
+    ) -> None:
+        if not math.isfinite(warmup_s) or warmup_s < 0.0:
+            raise ValueError("inference warmup seconds must be finite and positive")
+        holds = dict(DEFAULT_INFERENCE_HOLD_S)
+        holds.update(default_hold_s or {})
+        for reason, seconds in holds.items():
+            _require_hold_reason(reason)
+            _require_hold_seconds(seconds)
+        self._enabled = bool(enabled)
+        self._warmup_s = float(warmup_s)
+        self._default_hold_s = holds
+        self._clock = clock
+        self._lock = Lock()
+        self._started_s = float(clock())
+        self._deadlines: dict[str, float] = {}
+
+    @classmethod
+    def from_env(cls) -> InferenceGate:
+        return cls(
+            # The kill switch restores the always-on detector in one env var,
+            # so a gate defect never needs a code change on demo day.
+            enabled=os.environ.get("BORDER_COLLIE_INFERENCE_GATE_ENABLED", "1")
+            .strip()
+            .casefold()
+            in {"1", "true", "yes", "on"},
+            warmup_s=float(os.environ.get("BORDER_COLLIE_INFERENCE_WARMUP_S", "60.0")),
+            default_hold_s={
+                "run": float(
+                    os.environ.get("BORDER_COLLIE_INFERENCE_RUN_HOLD_S", "120.0")
+                ),
+                "preview": float(
+                    os.environ.get("BORDER_COLLIE_INFERENCE_PREVIEW_HOLD_S", "20.0")
+                ),
+            },
+        )
+
+    def hold(self, reason: str, hold_s: float | None = None) -> dict[str, object]:
+        """Take or renew one named lease. Renewals never shorten a longer one."""
+        normalized = _require_hold_reason(reason)
+        seconds = (
+            self._default_hold_s[normalized] if hold_s is None else float(hold_s)
+        )
+        _require_hold_seconds(seconds)
+        now = float(self._clock())
+        with self._lock:
+            self._deadlines[normalized] = max(
+                self._deadlines.get(normalized, 0.0),
+                now + seconds,
+            )
+        return self.status()
+
+    def release(self, reason: str) -> dict[str, object]:
+        normalized = _require_hold_reason(reason)
+        with self._lock:
+            self._deadlines.pop(normalized, None)
+        return self.status()
+
+    def active(self) -> bool:
+        if not self._enabled:
+            return True
+        now = float(self._clock())
+        with self._lock:
+            if now - self._started_s < self._warmup_s:
+                return True
+            return any(deadline > now for deadline in self._deadlines.values())
+
+    def status(self) -> dict[str, object]:
+        now = float(self._clock())
+        with self._lock:
+            holds = {
+                reason: deadline - now
+                for reason, deadline in self._deadlines.items()
+                if deadline > now
+            }
+            warmup_remaining_s = max(0.0, self._warmup_s - (now - self._started_s))
+        if not self._enabled:
+            reason = "gate_disabled"
+        elif holds:
+            reason = "held"
+        elif warmup_remaining_s > 0.0:
+            reason = "warmup"
+        else:
+            reason = "idle"
+        return {
+            "active": reason != "idle",
+            "reason": reason,
+            "gate_enabled": self._enabled,
+            "warmup_remaining_s": warmup_remaining_s,
+            "holds": holds,
+            "default_hold_s": dict(self._default_hold_s),
+        }
+
+
+def _require_hold_reason(reason: str) -> str:
+    normalized = str(reason).casefold().strip()
+    if normalized not in INFERENCE_HOLD_REASONS:
+        raise ValueError(f"unsupported inference hold reason: {reason}")
+    return normalized
+
+
+def _require_hold_seconds(seconds: float) -> float:
+    value = float(seconds)
+    if not math.isfinite(value) or not 0.0 < value <= MAXIMUM_INFERENCE_HOLD_S:
+        raise ValueError(
+            f"inference hold seconds must be within (0, {MAXIMUM_INFERENCE_HOLD_S}]"
+        )
+    return value
 
 
 class EvidenceFrameBuffer:
@@ -386,10 +586,7 @@ class PerceptionEvidence:
             advances = (
                 self._last_detection_pts is None or pts > self._last_detection_pts
             )
-            qualified = confidence >= FRUIT_ACQUISITION_CONFIDENCE[self._target_fruit]
-            self._detection_count = (
-                self._detection_count + 1 if advances and qualified else 0
-            )
+            self._detection_count = self._detection_count + 1 if advances else 0
             self._last_detection_pts = pts
             self._detection = {
                 "source_pts": pts,
@@ -414,7 +611,7 @@ class PerceptionEvidence:
 
     def select_target(self, target_fruit: str) -> None:
         normalized = target_fruit.casefold().strip()
-        if normalized not in FRUIT_ACQUISITION_CONFIDENCE:
+        if normalized not in SUPPORTED_FRUITS:
             raise ValueError(f"unsupported Target Fruit: {target_fruit}")
         with self._lock:
             if normalized == self._target_fruit:
@@ -453,10 +650,21 @@ class PerceptionRuntime:
         self.banana_specialist_minimum_agreement_iou = float(
             os.environ.get("BANANA_SPECIALIST_MIN_IOU", "0.10")
         )
+        self.mango_model_path = os.environ.get(
+            "MANGO_MODEL_PATH", "/models/yolo11n.pt"
+        ).strip()
+        self.mango_minimum_raw_confidence = float(
+            os.environ.get("BORDER_COLLIE_MANGO_RAW_CONFIDENCE", "0.08")
+        )
+        self.mango_minimum_color_confidence = float(
+            os.environ.get("BORDER_COLLIE_MANGO_COLOR_CONFIDENCE", "0.80")
+        )
         self.bark_uuid = os.environ.get(
             "BORDER_COLLIE_BARK_UUID",
             "161387de-21ab-4f0b-b4e9-97124b000d06",
         )
+        self._audio_uuids: set[str] | None = None
+        self._audio_catalogue_error: str | None = None
         self.evidence = PerceptionEvidence(generation=uuid4().hex)
         self._frames: asyncio.Queue[tuple[Any, float, int, str]] = asyncio.Queue(
             maxsize=1
@@ -471,12 +679,20 @@ class PerceptionRuntime:
         self._crop_confirm = CropConfirmConfig.from_env()
         self._inference_runtime_config = InferenceRuntimeConfig.from_env()
         self._inference_runtime: LoadedInferenceRuntime | None = None
+        self._coco_tester = CocoTester(
+            model_path=os.environ.get(
+                "COCO_TEST_MODEL_PATH", "/models/yolo11n.pt"
+            ).strip(),
+            interval_s=float(os.environ.get("COCO_TEST_INTERVAL_S", "0.5")),
+        )
         self._last_evidence_capture_s: float | None = None
         self._connection: Any | None = None
         self._audiohub: Any | None = None
         self._detector_task: asyncio.Task[None] | None = None
         self._model: Any | None = None
         self._banana_specialist_model: Any | None = None
+        self._mango_model: Any | None = None
+        self._mango_class_ids: dict[str, int] = {}
         self._model_router: FruitModelRouter | None = None
         self._fruit_class_ids: dict[str, int] = {}
         self._target_lock = Lock()
@@ -488,6 +704,14 @@ class PerceptionRuntime:
         self._inference_executor_closed = False
         self._preview_lock = Lock()
         self._preview_jpeg: bytes | None = None
+        self._inference_gate = InferenceGate.from_env()
+        # While inference is idle the loop still publishes an occasional frame
+        # so the operator keeps live video and the evidence buffer stays warm.
+        # It is throttled because the JPEG encode is the only cost left.
+        self._idle_preview_interval_s = float(
+            os.environ.get("BORDER_COLLIE_INFERENCE_IDLE_PREVIEW_INTERVAL_S", "0.5")
+        )
+        self._last_idle_preview_s: float | None = None
 
     async def start(self) -> None:
         configure_media_logging()
@@ -504,7 +728,7 @@ class PerceptionRuntime:
             partial(
                 load_general_model,
                 self._inference_runtime_config,
-                tensorrt_factory=partial(YOLO, self.model_path, task="segment"),
+                ultralytics_factory=partial(YOLO, self.model_path, task="segment"),
                 max_factory=create_max_model,
             ),
         )
@@ -515,9 +739,11 @@ class PerceptionRuntime:
             str(label).casefold().strip(): int(class_id) for class_id, label in items
         }
         self._fruit_class_ids = {
-            fruit: available[fruit] for fruit in SUPPORTED_FRUITS if fruit in available
+            fruit: available[fruit]
+            for fruit in GENERAL_MODEL_FRUITS
+            if fruit in available
         }
-        missing = sorted(set(SUPPORTED_FRUITS) - set(self._fruit_class_ids))
+        missing = sorted(set(GENERAL_MODEL_FRUITS) - set(self._fruit_class_ids))
         if missing:
             raise RuntimeError(
                 "fruit model is missing required classes: " + ", ".join(missing)
@@ -544,6 +770,32 @@ class PerceptionRuntime:
                 raise RuntimeError(
                     "banana specialist model is missing required banana class"
                 ) from exc
+        self._mango_model = await loop.run_in_executor(
+            self._inference_executor,
+            partial(YOLO, self.mango_model_path, task="detect"),
+        )
+        mango_names = getattr(self._mango_model, "names", {})
+        mango_items = (
+            mango_names.items()
+            if isinstance(mango_names, dict)
+            else enumerate(mango_names)
+        )
+        mango_classes = {
+            str(label).casefold().strip(): int(class_id)
+            for class_id, label in mango_items
+        }
+        required_mango_labels = ("sports ball", "bowl")
+        missing_mango_labels = [
+            label for label in required_mango_labels if label not in mango_classes
+        ]
+        if missing_mango_labels:
+            raise RuntimeError(
+                "Mango COCO model is missing required classes: "
+                + ", ".join(missing_mango_labels)
+            )
+        self._mango_class_ids = {
+            label: mango_classes[label] for label in required_mango_labels
+        }
         self._model_router = FruitModelRouter(
             general_model=self._model,
             general_class_ids=self._fruit_class_ids,
@@ -553,6 +805,10 @@ class PerceptionRuntime:
             banana_minimum_agreement_iou=(
                 self.banana_specialist_minimum_agreement_iou
             ),
+            mango_model=self._mango_model,
+            mango_class_ids=self._mango_class_ids,
+            mango_minimum_raw_confidence=self.mango_minimum_raw_confidence,
+            mango_minimum_color_confidence=self.mango_minimum_color_confidence,
         )
         self._connection = UnitreeWebRTCConnection(
             WebRTCConnectionMethod.LocalSTA,
@@ -560,6 +816,7 @@ class PerceptionRuntime:
         )
         await self._connection.connect()
         self._audiohub = WebRTCAudioHub(self._connection)
+        await self._refresh_audio_catalogue()
         self._connection.video.add_track_callback(self._consume_camera)
         self._connection.video.switchVideoChannel(True)
         self._detector_task = asyncio.create_task(self._detect())
@@ -578,16 +835,78 @@ class PerceptionRuntime:
             )
             self._inference_executor_closed = True
 
+    async def _refresh_audio_catalogue(self) -> None:
+        """Record which audio the Go2 actually holds.
+
+        AudioHub's play_by_uuid discards its response, so a request naming a
+        uuid the robot does not have looks identical to one that played. This
+        is the only way to tell the difference, and it is why a bark could
+        report bark_played true all day while nothing was audible.
+
+        Best effort by contract: bark must never block the demo, so a failure
+        here is recorded and ignored rather than raised.
+        """
+        self._audio_catalogue_error = None
+        self._audio_uuids = None
+        if self._audiohub is None:
+            return
+        try:
+            listing = await self._audiohub.get_audio_list()
+            self._audio_uuids = _audio_uuids_from_listing(listing)
+        except Exception as exc:  # noqa: BLE001 - audio is never load-bearing
+            self._audio_catalogue_error = str(exc)[:200]
+
+    @property
+    def bark_uuid_present(self) -> bool | None:
+        """True/False once the catalogue is known, None while it is not."""
+        if self._audio_uuids is None:
+            return None
+        return self.bark_uuid in self._audio_uuids
+
     async def bark(self) -> dict[str, object]:
         if self._audiohub is None:
             raise RuntimeError("Go2 AudioHub is not connected")
+        present = self.bark_uuid_present
+        if present is False:
+            # Fail loudly rather than returning ok for a sound that cannot
+            # play. The caller still treats a bark failure as non-terminal.
+            raise RuntimeError(
+                f"bark uuid {self.bark_uuid} is not in the Go2 AudioHub; "
+                f"available: {sorted(self._audio_uuids or ())}"
+            )
         await self._audiohub.play_by_uuid(self.bark_uuid)
-        return {"ok": True, "uuid": self.bark_uuid}
+        return {
+            "ok": True,
+            "uuid": self.bark_uuid,
+            # Unverified when the catalogue is unknown: AudioHub does not
+            # acknowledge playback, so this is a request, not a confirmation.
+            "uuid_present": present,
+        }
+
+    def hold_inference(
+        self, reason: str, hold_s: float | None = None
+    ) -> dict[str, object]:
+        return self._inference_gate.hold(reason, hold_s)
+
+    def release_inference(self, reason: str) -> dict[str, object]:
+        return self._inference_gate.release(reason)
+
+    def inference_status(self) -> dict[str, object]:
+        return self._inference_gate.status()
 
     def status(self) -> dict[str, object]:
         return {
             **self.evidence.status(),
-            "bark_ready": self._audiohub is not None and bool(self.bark_uuid),
+            "inference": self._inference_gate.status(),
+            # bark_ready stays advisory: main.py reports it without gating
+            # readiness, because a silent robot must never block a Demo Run.
+            "bark_ready": self._audiohub is not None
+            and bool(self.bark_uuid)
+            and self.bark_uuid_present is not False,
+            "bark_uuid": self.bark_uuid,
+            "bark_uuid_present": self.bark_uuid_present,
+            "audio_uuids": sorted(self._audio_uuids or ()),
+            "audio_catalogue_error": self._audio_catalogue_error,
             "crop_confirm": asdict(self._crop_confirm),
             "inference_runtime": (
                 self._inference_runtime.status()
@@ -602,6 +921,7 @@ class PerceptionRuntime:
                     "candidate_validated": False,
                 }
             ),
+            "coco_test": self._coco_tester.status(),
             "model_router": (
                 self._model_router.status()
                 if self._model_router is not None
@@ -622,17 +942,42 @@ class PerceptionRuntime:
 
     def select_target(self, target_fruit: str) -> dict[str, object]:
         normalized = target_fruit.casefold().strip()
-        if normalized not in FRUIT_ACQUISITION_CONFIDENCE:
+        if normalized not in SUPPORTED_FRUITS:
             raise ValueError(f"unsupported Target Fruit: {target_fruit}")
-        if self._fruit_class_ids and normalized not in self._fruit_class_ids:
-            raise RuntimeError(f"model class is unavailable for {normalized}")
+        # A fruit carried by the general model is served directly. Mango falls
+        # back to the derived COCO route only while the general model lacks it.
+        if not self._fruit_class_ids or normalized not in self._fruit_class_ids:
+            if normalized == "mango":
+                if self._model is not None and self._mango_model is None:
+                    raise RuntimeError("Mango derived model route is unavailable")
+            elif self._fruit_class_ids:
+                raise RuntimeError(f"model class is unavailable for {normalized}")
         with self._target_lock:
             self._target_fruit = normalized
             self.evidence.select_target(normalized)
+        self._coco_tester.configure(enabled=False)
         return {
             "target_fruit": normalized,
             "supported_fruits": list(SUPPORTED_FRUITS),
         }
+
+    async def configure_coco_test(
+        self,
+        *,
+        enabled: bool,
+        minimum_confidence: float | None = None,
+        reset: bool = False,
+    ) -> dict[str, object]:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._inference_executor,
+            partial(
+                self._coco_tester.configure,
+                enabled=enabled,
+                minimum_confidence=minimum_confidence,
+                reset=reset,
+            ),
+        )
 
     def camera_frame(self) -> bytes:
         with self._preview_lock:
@@ -677,14 +1022,73 @@ class PerceptionRuntime:
         loop = asyncio.get_running_loop()
         while True:
             frame, received, pts, time_base = await self._frames.get()
+            if self._inference_gate.active():
+                self._last_idle_preview_s = None
+                await loop.run_in_executor(
+                    self._inference_executor,
+                    self._process_frame,
+                    frame,
+                    received,
+                    pts,
+                    time_base,
+                )
+                continue
+            # Idle. Drop most frames before the colour conversion - that and the
+            # model pass are the whole cost. Source evidence is unaffected:
+            # _consume_camera records it, so camera_healthy and preflight still
+            # pass with the detector asleep.
+            if (
+                self._last_idle_preview_s is not None
+                and received - self._last_idle_preview_s
+                < self._idle_preview_interval_s
+            ):
+                continue
+            self._last_idle_preview_s = received
             await loop.run_in_executor(
                 self._inference_executor,
-                self._process_frame,
+                self._process_idle_frame,
                 frame,
                 received,
                 pts,
                 time_base,
             )
+
+    def _process_idle_frame(
+        self,
+        frame: Any,
+        received_monotonic_s: float,
+        pts: int,
+        time_base: str,
+    ) -> None:
+        """Keep preview and evidence alive while paying for no inference."""
+        with self._target_lock:
+            target_fruit = self._target_fruit
+        # No model ran, so there is genuinely no qualifying detection. Say so
+        # rather than letting the last one go stale and look current.
+        self.evidence.note_miss(target_fruit)
+        try:
+            bgr = frame.to_ndarray(format="bgr24")
+        except Exception as exc:  # noqa: BLE001 - frame conversion is untyped
+            # Deliberately not evidence.fail(): that latches an error that is
+            # never cleared, and camera_healthy reads it. A dropped idle
+            # preview frame must not be able to block every future Demo Run.
+            # Source evidence comes from _consume_camera and is untouched.
+            logging.getLogger(__name__).warning(
+                "idle camera preview frame was skipped: %s: %s",
+                type(exc).__name__,
+                exc,
+            )
+            return
+        self._publish_preview(
+            bgr,
+            message=f"IDLE | {target_fruit.upper()} NOT BEING TRACKED",
+            color=(160, 160, 160),
+            header="YOLO FRUIT MODEL: IDLE (SAVING POWER)",
+            pts=pts,
+            time_base=time_base,
+            received_monotonic_s=received_monotonic_s,
+            detection={},
+        )
 
     def _predict_candidate(
         self,
@@ -719,6 +1123,7 @@ class PerceptionRuntime:
         with self._target_lock:
             target_fruit = self._target_fruit
         bgr = frame.to_ndarray(format="bgr24")
+        self._coco_tester.observe(bgr, pts=pts)
         started = time.monotonic()
         try:
             full_frame_prediction = self._predict_candidate(
@@ -774,6 +1179,7 @@ class PerceptionRuntime:
                 candidate is not None
                 and not search_crop["attempted"]
                 and not bool(full_frame_prediction.route.get("triggered"))
+                and full_frame_prediction.route.get("mode") != "mango_derived"
                 and self._should_crop_confirm(
                     candidate,
                     width=int(bgr.shape[1]),
@@ -858,6 +1264,19 @@ class PerceptionRuntime:
         # close-range continuation path (floors as low as 0.10).
         confidence = candidate.confidence
         bbox = candidate.bbox_xyxy
+        color = classify_bbox_color(bgr, bbox)
+        full_route = full_frame_prediction.route
+        mango_details = (
+            {
+                "raw_label": full_route.get("raw_label"),
+                "raw_confidence": full_route.get("raw_confidence"),
+                "raw_bbox_xyxy": full_route.get("raw_bbox_xyxy"),
+                "derived_identity": full_route.get("derived_identity"),
+                "derived_confidence": full_route.get("derived_confidence"),
+            }
+            if target_fruit == "mango" and full_route.get("mode") == "mango_derived"
+            else {}
+        )
         detection = self.evidence.note_detection(
             pts=pts,
             label=target_fruit,
@@ -870,6 +1289,10 @@ class PerceptionRuntime:
                 "model_route": model_route,
                 "crop_confirmation": crop_confirmation,
                 "search_crop": search_crop,
+                "color_identity": color["identity"],
+                "color_confidence": color["confidence"],
+                "color_evidence": color,
+                **mango_details,
             },
         )
         if detection is None:
@@ -929,6 +1352,7 @@ class PerceptionRuntime:
         received_monotonic_s: float,
         detection: dict[str, object],
         bbox_xyxy: tuple[int, int, int, int] | None = None,
+        header: str = "YOLO FRUIT MODEL: LIVE",
     ) -> None:
         import cv2
 
@@ -939,7 +1363,7 @@ class PerceptionRuntime:
         cv2.rectangle(preview, (0, 0), (preview.shape[1], 92), (20, 20, 20), -1)
         cv2.putText(
             preview,
-            "YOLO FRUIT MODEL: LIVE",
+            header,
             (20, 35),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.85,
@@ -1008,15 +1432,64 @@ def create_app(runtime: PerceptionRuntime | None = None) -> FastAPI:
     app = FastAPI(title="Border Collie Media", lifespan=lifespan)
 
     @app.get("/status")
-    async def status() -> dict[str, object]:
+    async def status(hold: str | None = None) -> dict[str, object]:
+        """Report evidence, optionally renewing one inference lease.
+
+        Guidance and the fruit-test page already poll this every tick, so the
+        renewal rides along instead of costing a second round trip. Whoever
+        stops polling stops renewing, and the detector falls idle on its own.
+        """
+        if hold is not None:
+            try:
+                media.hold_inference(hold)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
         return media.status()
 
     @app.post("/api/target")
     async def select_target(request: TargetFruitRequest) -> dict[str, object]:
         try:
-            return media.select_target(request.target_fruit)
+            selected = media.select_target(request.target_fruit)
         except Exception as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {**selected, "inference": media.hold_inference(request.hold)}
+
+    @app.get("/api/inference")
+    async def inference_status() -> dict[str, object]:
+        return media.inference_status()
+
+    @app.post("/api/inference")
+    async def configure_inference(
+        request: InferenceHoldRequest,
+    ) -> dict[str, object]:
+        if request.hold is None and request.release is None:
+            raise HTTPException(
+                status_code=422,
+                detail="an inference request must hold or release a lease",
+            )
+        try:
+            if request.release is not None:
+                media.release_inference(request.release)
+            if request.hold is not None:
+                media.hold_inference(request.hold, request.hold_s)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return media.inference_status()
+
+    @app.get("/api/coco-test")
+    async def coco_test_status() -> dict[str, object]:
+        return media.status()["coco_test"]
+
+    @app.post("/api/coco-test")
+    async def configure_coco_test(request: CocoTestRequest) -> dict[str, object]:
+        try:
+            return await media.configure_coco_test(
+                enabled=request.enabled,
+                minimum_confidence=request.minimum_confidence,
+                reset=request.reset,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     @app.post("/api/bark")
     async def bark() -> dict[str, object]:

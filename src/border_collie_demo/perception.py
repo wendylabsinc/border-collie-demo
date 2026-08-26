@@ -7,10 +7,16 @@ import math
 import time
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from urllib.request import Request, urlopen
 
 from .config import PerceptionConfig
-from .fruits import SUPPORTED_FRUITS, fruit_policy
+from .fruits import (
+    SUPPORTED_FRUITS,
+    fruit_policy,
+    mango_color_confidence,
+    mango_raw_confidence,
+)
 
 SOURCE_MAXIMUM_AGE_S = 0.350
 SOURCE_MINIMUM_CONSECUTIVE_FRAMES = 10
@@ -21,6 +27,7 @@ DETECTION_MAXIMUM_AGE_S = 0.250
 
 StatusFetcher = Callable[[str, float], dict[str, Any]]
 TargetPoster = Callable[[str, str, float], dict[str, Any]]
+JsonPoster = Callable[[str, dict[str, object], float], dict[str, Any]]
 Clock = Callable[[], float]
 
 
@@ -33,14 +40,17 @@ class PerceptionStatusClient:
         *,
         fetcher: StatusFetcher | None = None,
         target_poster: TargetPoster | None = None,
+        json_poster: JsonPoster | None = None,
         clock: Clock = time.monotonic,
     ) -> None:
         self.config = config or PerceptionConfig()
         self._fetcher = fetcher or _fetch_status
         self._target_poster = target_poster or _post_target
+        self._json_poster = json_poster or _post_json
         self._clock = clock
 
     def select_target(self, target_fruit: str) -> dict[str, object]:
+        """Select the Target Fruit, waking inference on the short preview lease."""
         if not self.config.enabled:
             raise RuntimeError("production camera/perception adapter is disabled")
         fruit_policy(target_fruit)
@@ -57,17 +67,73 @@ class PerceptionStatusClient:
             raise RuntimeError("perception sidecar did not acknowledge Target Fruit")
         return payload
 
+    def select_run_target(self, target_fruit: str) -> dict[str, object]:
+        """Select the Target Fruit for a Demo Run and take the run lease.
+
+        Called during activation, before preflight and long before the first
+        search command, so the detector is already warm when guidance starts
+        looking. It has to reach the sidecar twice and both calls are required:
+        a failure raises, activation records it, and preflight fails loudly
+        rather than starting a run whose detector is asleep.
+
+        The ordering is deliberate. Target selection alone already wakes
+        inference on the preview lease, so if the second call is what fails,
+        inference is left *on* with a short lease - never off.
+        """
+        payload = self.select_target(target_fruit)
+        return {**payload, "inference": self.hold_inference("run")}
+
+    def hold_inference(
+        self, reason: str = "run", hold_s: float | None = None
+    ) -> dict[str, object]:
+        if not self.config.enabled:
+            raise RuntimeError("production camera/perception adapter is disabled")
+        body: dict[str, object] = {"hold": reason}
+        if hold_s is not None:
+            body["hold_s"] = hold_s
+        return self._json_poster(
+            self.config.inference_url, body, self.config.timeout_s
+        )
+
+    def release_inference(self, reason: str = "run") -> dict[str, object]:
+        """Drop a lease early. Best effort - expiry is the real release."""
+        if not self.config.enabled:
+            raise RuntimeError("production camera/perception adapter is disabled")
+        return self._json_poster(
+            self.config.inference_url,
+            {"release": reason},
+            self.config.timeout_s,
+        )
+
     def status(self) -> dict[str, object]:
+        """Read evidence without touching the inference lease.
+
+        This is the idle dashboard's reader. It must not renew, or leaving a
+        browser tab open would pin the detector on forever.
+        """
+        return self._status(self.config.status_url)
+
+    def run_status(self) -> dict[str, object]:
+        """Read evidence and renew the run lease.
+
+        Guidance, search and approach all poll perception through this, so a
+        run that is still executing keeps renewing its own lease, and one that
+        has finished simply stops.
+        """
+        return self._status(_status_url_with_hold(self.config.status_url, "run"))
+
+    def preview_status(self) -> dict[str, object]:
+        """Read evidence and renew the preview lease for the fruit-test page."""
+        return self._status(_status_url_with_hold(self.config.status_url, "preview"))
+
+    def _status(self, url: str) -> dict[str, object]:
         if not self.config.enabled:
             return {
                 "ready": False,
                 "detail": "production camera/perception adapter is disabled",
             }
         try:
-            payload = self._fetcher(
-                self.config.status_url,
-                self.config.timeout_s,
-            )
+            payload = self._fetcher(url, self.config.timeout_s)
             return evaluate_perception_evidence(payload, now_s=self._clock())
         except Exception as exc:  # noqa: BLE001 - remote evidence is untrusted
             return {
@@ -75,11 +141,33 @@ class PerceptionStatusClient:
                 "detail": f"camera/perception status unavailable: {exc}",
             }
 
+    def coco_test_status(self) -> dict[str, object]:
+        if not self.config.enabled:
+            raise RuntimeError("production camera/perception adapter is disabled")
+        return self._fetcher(self.config.coco_test_url, self.config.timeout_s)
+
+    def configure_coco_test(
+        self, payload: dict[str, object]
+    ) -> dict[str, object]:
+        if not self.config.enabled:
+            raise RuntimeError("production camera/perception adapter is disabled")
+        return self._json_poster(
+            self.config.coco_test_url,
+            payload,
+            max(self.config.timeout_s, 10.0),
+        )
+
     def camera_frame(self) -> bytes:
+        return self._camera_frame(self.config.frame_url)
+
+    def raw_camera_frame(self) -> bytes:
+        return self._camera_frame(self.config.raw_frame_url)
+
+    def _camera_frame(self, url: str) -> bytes:
         if not self.config.enabled:
             raise RuntimeError("production camera/perception adapter is disabled")
         request = Request(
-            self.config.frame_url,
+            url,
             headers={"Accept": "image/jpeg"},
         )
         with urlopen(request, timeout=self.config.timeout_s) as response:
@@ -159,6 +247,17 @@ def evaluate_perception_evidence(
     detection_age_s = _age(now_s, detection_completed_s)
     bbox = _bounding_box(detection.get("bbox_xyxy"), source_width, source_height)
     inference_passes = _whole_number(detection.get("inference_passes"))
+    color_identity = detection.get("color_identity")
+    if color_identity not in {"red_apple", "orange", "unknown"}:
+        color_identity = "unknown"
+    color_confidence = _finite_number(detection.get("color_confidence"))
+    raw_label = detection.get("raw_label")
+    raw_confidence = _finite_number(detection.get("raw_confidence"))
+    raw_bbox = _bounding_box(
+        detection.get("raw_bbox_xyxy"), source_width, source_height
+    )
+    derived_identity = detection.get("derived_identity")
+    derived_confidence = _finite_number(detection.get("derived_confidence"))
     raw_crop_confirmation = detection.get("crop_confirmation")
     if isinstance(raw_crop_confirmation, dict):
         crop_confirmation: dict[str, object] | None = {
@@ -188,6 +287,16 @@ def evaluate_perception_evidence(
         crop_confirmation = None
     if not isinstance(label, str) or label.casefold().strip() != target_fruit:
         violations.append(f"qualifying {target_fruit} detection is missing")
+    if target_fruit == "mango" and (
+        raw_label != "bowl"
+        or raw_confidence is None
+        or raw_confidence <= mango_raw_confidence()
+        or raw_bbox is None
+        or derived_identity != "mango"
+        or derived_confidence is None
+        or derived_confidence < mango_color_confidence()
+    ):
+        violations.append("derived Mango identity evidence is missing or unqualified")
     if detection_generation != generation:
         violations.append(
             f"{target_fruit} detection generation does not match camera generation"
@@ -219,8 +328,13 @@ def evaluate_perception_evidence(
         violations.append(f"sidecar error: {payload['error']}")
 
     ready = not violations
+    # An idle detector is deliberately NOT a camera violation. The camera
+    # source is healthy whenever frames keep arriving, which is what preflight
+    # and activation gate on; only target_ready needs a live detection.
     camera_healthy = not camera_violations and not payload.get("error")
     target_ready = ready
+    raw_inference = payload.get("inference")
+    inference = dict(raw_inference) if isinstance(raw_inference, dict) else {}
     center_x_ratio = None
     center_y_ratio = None
     bottom_ratio = None
@@ -238,6 +352,10 @@ def evaluate_perception_evidence(
     return {
         "ready": ready,
         "camera_healthy": camera_healthy,
+        # Published separately from "detail", which mixes camera and target
+        # violations. A camera failure stops the run, so the reason it stopped
+        # has to survive into the run record on its own.
+        "camera_violations": list(camera_violations),
         "target_ready": target_ready,
         "detail": (
             f"camera generation and {target_fruit} detector passed recognition check"
@@ -246,6 +364,7 @@ def evaluate_perception_evidence(
         ),
         "target_fruit": target_fruit,
         "supported_fruits": list(SUPPORTED_FRUITS),
+        "inference": inference,
         "motion_qualified": target_policy.motion_qualified,
         "generation": generation,
         "source": {
@@ -266,6 +385,13 @@ def evaluate_perception_evidence(
             "consecutive_detections": detection_count,
             "inference_s": inference_s,
             "inference_passes": inference_passes,
+            "color_identity": color_identity,
+            "color_confidence": color_confidence,
+            "raw_label": raw_label,
+            "raw_confidence": raw_confidence,
+            "raw_bbox_xyxy": None if raw_bbox is None else list(raw_bbox),
+            "derived_identity": derived_identity,
+            "derived_confidence": derived_confidence,
             "crop_confirmation": crop_confirmation,
             "completed_monotonic_s": detection_completed_s,
             "age_s": detection_age_s,
@@ -291,6 +417,14 @@ def evaluate_perception_evidence(
     }
 
 
+def _status_url_with_hold(status_url: str, reason: str) -> str:
+    """Add one hold parameter without disturbing a configured query string."""
+    parts = urlparse(status_url)
+    query = [(key, value) for key, value in parse_qsl(parts.query) if key != "hold"]
+    query.append(("hold", reason))
+    return urlunparse(parts._replace(query=urlencode(query)))
+
+
 def _fetch_status(url: str, timeout_s: float) -> dict[str, Any]:
     request = Request(url, headers={"Accept": "application/json"})
     with urlopen(request, timeout=timeout_s) as response:
@@ -301,7 +435,13 @@ def _fetch_status(url: str, timeout_s: float) -> dict[str, Any]:
 
 
 def _post_target(url: str, target_fruit: str, timeout_s: float) -> dict[str, Any]:
-    body = json.dumps({"target_fruit": target_fruit}).encode("utf-8")
+    return _post_json(url, {"target_fruit": target_fruit}, timeout_s)
+
+
+def _post_json(
+    url: str, payload_body: dict[str, object], timeout_s: float
+) -> dict[str, Any]:
+    body = json.dumps(payload_body).encode("utf-8")
     request = Request(
         url,
         data=body,
@@ -314,7 +454,7 @@ def _post_target(url: str, target_fruit: str, timeout_s: float) -> dict[str, Any
     with urlopen(request, timeout=timeout_s) as response:
         payload = json.load(response)
     if not isinstance(payload, dict):
-        raise TypeError("fruit target response must be a JSON object")
+        raise TypeError("perception response must be a JSON object")
     return payload
 
 

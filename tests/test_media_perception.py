@@ -9,6 +9,8 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 from media import perception_sidecar
+from media.coco_tester import CocoTester
+from media.fruit_color import classify_bgr_pixels
 from media.model_router import FruitModelRouter
 from media.perception_sidecar import EvidenceFrameBuffer, PerceptionEvidence, create_app
 
@@ -52,6 +54,310 @@ class FakeImage:
     def __getitem__(self, slices):
         y_slice, x_slice = slices[:2]
         return FakeImage(y_slice.stop - y_slice.start, x_slice.stop - x_slice.start)
+
+
+class FakeClasses:
+    def __init__(self, values):
+        self.values = values
+
+    def detach(self):
+        return self
+
+    def cpu(self):
+        return self
+
+    def tolist(self):
+        return self.values
+
+
+def test_coco_tester_ranks_all_frame_confidence_without_touching_target_evidence() -> None:
+    class Crop:
+        def __init__(self, pixels) -> None:
+            self.pixels = pixels
+
+        def reshape(self, *_shape):
+            return self
+
+        def tolist(self):
+            return self.pixels
+
+    class Source:
+        shape = (720, 1280, 3)
+
+        def __getitem__(self, _key):
+            return Crop([[0, 128, 255]] * 100)
+
+    class Boxes:
+        def __init__(self) -> None:
+            self.conf = FakeTensor([0.80, 0.60])
+            self.cls = FakeClasses([47, 49])
+            self.xyxy = [
+                FakeTensor([10, 20, 100, 200]),
+                FakeTensor([30, 40, 120, 220]),
+            ]
+
+        def __len__(self):
+            return 2
+
+    class Model:
+        def __init__(self) -> None:
+            self.names = {47: "apple", 49: "orange"}
+
+        def predict(self, **options):
+            assert options["conf"] == 0.05
+            assert "classes" not in options
+            return [SimpleNamespace(boxes=Boxes())]
+
+    tester = CocoTester(model_loader=lambda _path: Model(), clock=lambda: 10.0)
+
+    enabled = tester.configure(enabled=True, minimum_confidence=0.05, reset=True)
+    first = tester.observe(Source(), pts=100, now_s=10.0)
+    second = tester.observe(Source(), pts=101, now_s=10.5)
+
+    assert enabled["class_count"] == 2
+    assert first is True and second is True
+    status = tester.status()
+    assert status["enabled"] is True
+    assert status["frames_processed"] == 2
+    assert status["classes"][0] == {
+        "label": "apple",
+        "class_id": 47,
+        "latest_confidence": 0.8,
+        "mean_detected_confidence": 0.8,
+        "all_frame_score": 0.8,
+        "maximum_confidence": 0.8,
+        "detection_rate": 1.0,
+        "frames_detected": 2,
+        "latest_bbox_xyxy": [10.0, 20.0, 100.0, 200.0],
+        "latest_color": {
+            "identity": "orange",
+            "confidence": 1.0,
+            "sample_count": 100,
+            "classified_coverage": 1.0,
+            "red_fraction": 0.0,
+            "orange_fraction": 1.0,
+        },
+    }
+    assert status["classes"][1]["label"] == "orange"
+    assert status["classes"][1]["all_frame_score"] == 0.6
+    assert status["classes"][1]["latest_bbox_xyxy"] == [30.0, 40.0, 120.0, 220.0]
+    assert status["source_width"] == 1280
+    assert status["source_height"] == 720
+
+
+def test_coco_bbox_color_distinguishes_red_apple_from_orange() -> None:
+    class Crop:
+        def __init__(self, pixels) -> None:
+            self.pixels = pixels
+
+        def reshape(self, *_shape):
+            return self
+
+        def tolist(self):
+            return self.pixels
+
+    class Source:
+        shape = (100, 100, 3)
+
+        def __init__(self, pixels) -> None:
+            self.pixels = pixels
+
+        def __getitem__(self, _key):
+            return Crop(self.pixels)
+
+    class Boxes:
+        def __init__(self) -> None:
+            self.conf = FakeTensor([0.86])
+            self.cls = FakeClasses([47])
+            self.xyxy = [FakeTensor([10, 10, 90, 90])]
+
+        def __len__(self):
+            return 1
+
+    class Model:
+        def __init__(self) -> None:
+            self.names = {47: "apple"}
+
+        def predict(self, **_options):
+            return [SimpleNamespace(boxes=Boxes())]
+
+    def identity(pixels) -> str:
+        tester = CocoTester(model_loader=lambda _path: Model(), clock=lambda: 10.0)
+        tester.configure(enabled=True, reset=True)
+        tester.observe(Source(pixels), pts=1, now_s=10.0)
+        return tester.status()["classes"][0]["latest_color"]["identity"]
+
+    assert identity([[0, 8, 230]] * 100) == "red_apple"
+    assert identity([[0, 132, 240]] * 100) == "orange"
+    assert identity([[172, 218, 246]] * 100) == "orange"
+    assert identity([[105, 110, 115]] * 100) == "unknown"
+
+
+def test_orange_identity_survives_low_and_high_stage_exposure() -> None:
+    # Representative foreground pixels measured from the operator-supplied
+    # low-light and high-light screenshots of the same orange prop.
+    low_light = [[55, 76, 170], [41, 55, 120], [98, 125, 219]] * 40
+    high_light = [[126, 156, 224], [110, 141, 175], [142, 183, 239]] * 40
+    red_apple_control = [[129, 132, 224], [74, 78, 196], [141, 143, 239]] * 40
+
+    assert classify_bgr_pixels(low_light)["identity"] == "orange"
+    assert classify_bgr_pixels(high_light)["identity"] == "orange"
+    assert classify_bgr_pixels(red_apple_control)["identity"] == "red_apple"
+
+
+def test_coco_color_candidates_reject_large_background_boxes() -> None:
+    class Crop:
+        def reshape(self, *_shape):
+            return self
+
+        def tolist(self):
+            return [[172, 218, 246]] * 100
+
+    class Source:
+        shape = (720, 1280, 3)
+
+        def __getitem__(self, _key):
+            return Crop()
+
+    class Boxes:
+        def __init__(self) -> None:
+            self.conf = FakeTensor([0.70, 0.12])
+            self.cls = FakeClasses([57, 45])
+            self.xyxy = [
+                FakeTensor([400, 280, 960, 510]),
+                FakeTensor([735, 492, 778, 520]),
+            ]
+
+        def __len__(self):
+            return 2
+
+    class Model:
+        def __init__(self) -> None:
+            self.names = {57: "couch", 45: "bowl"}
+
+        def predict(self, **_options):
+            return [SimpleNamespace(boxes=Boxes())]
+
+    tester = CocoTester(model_loader=lambda _path: Model(), clock=lambda: 10.0)
+    tester.configure(enabled=True, minimum_confidence=0.01, reset=True)
+    tester.observe(Source(), pts=1, now_s=10.0)
+
+    assert tester.status()["color_candidates"] == [
+        {
+            "identity": "orange",
+            "color_confidence": 1.0,
+            "model_label": "bowl",
+            "model_confidence": 0.12,
+            "bbox_xyxy": [735.0, 492.0, 778.0, 520.0],
+        }
+    ]
+
+
+def test_coco_current_scene_confirms_lower_frame_bowl_as_mango_not_sports_ball_pear() -> (
+    None
+):
+    class Crop:
+        def __init__(self, pixels) -> None:
+            self.pixels = pixels
+
+        def reshape(self, *_shape):
+            return self
+
+        def tolist(self):
+            return self.pixels
+
+    class Source:
+        shape = (720, 1280, 3)
+
+        def __init__(self, pixels) -> None:
+            self.pixels = pixels
+
+        def __getitem__(self, _key):
+            return Crop(self.pixels)
+
+    class Boxes:
+        def __init__(self, class_id: int, bbox: list[float]) -> None:
+            self.conf = FakeTensor([0.24])
+            self.cls = FakeClasses([class_id])
+            self.xyxy = [FakeTensor(bbox)]
+
+        def __len__(self):
+            return 1
+
+    class Model:
+        def __init__(self, class_id: int, label: str, bbox: list[float]) -> None:
+            self.class_id = class_id
+            self.bbox = bbox
+            self.names = {class_id: label}
+
+        def predict(self, **_options):
+            return [SimpleNamespace(boxes=Boxes(self.class_id, self.bbox))]
+
+    def observe(
+        pixels,
+        *,
+        class_id: int,
+        label: str,
+        bbox: list[float],
+    ) -> dict[str, object]:
+        tester = CocoTester(
+            model_loader=lambda _path: Model(class_id, label, bbox), clock=lambda: 10.0
+        )
+        tester.configure(enabled=True, reset=True)
+        tester.observe(Source(pixels), pts=1, now_s=10.0)
+        return tester.status()["classes"][0]
+
+    mango = observe(
+        [[172, 218, 246]] * 100,
+        class_id=45,
+        label="bowl",
+        bbox=[736.8, 496.2, 775.2, 515.1],
+    )
+    assert mango["label"] == "bowl"
+    assert mango["latest_confidence"] == 0.24
+    assert mango["latest_bbox_xyxy"] == [736.8, 496.2, 775.2, 515.1]
+    assert mango["latest_candidate_evidence"]["identity"] == "mango"
+
+    pear = observe(
+        [[0, 180, 50]] * 100,
+        class_id=32,
+        label="sports ball",
+        bbox=[446.0, 486.0, 477.0, 514.0],
+    )
+    assert pear["label"] == "sports ball"
+    assert pear["latest_candidate_evidence"]["identity"] == "unknown"
+
+    not_lower_frame = observe(
+        [[172, 218, 246]] * 100,
+        class_id=45,
+        label="bowl",
+        bbox=[736.8, 196.2, 775.2, 215.1],
+    )
+    assert not_lower_frame["latest_candidate_evidence"]["identity"] == "unknown"
+
+
+def test_coco_tester_is_disabled_by_default_and_rate_limits_extra_inference() -> None:
+    calls = 0
+
+    class Model:
+        def __init__(self) -> None:
+            self.names = {47: "apple"}
+
+        def predict(self, **_options):
+            nonlocal calls
+            calls += 1
+            return [SimpleNamespace(boxes=FakeBoxes([], []))]
+
+    tester = CocoTester(model_loader=lambda _path: Model(), interval_s=0.5)
+
+    assert tester.observe(object(), pts=1, now_s=1.0) is False
+    tester.configure(enabled=True, minimum_confidence=0.05, reset=True)
+    assert tester.observe(object(), pts=2, now_s=2.0) is True
+    assert tester.observe(object(), pts=3, now_s=2.2) is False
+    assert tester.observe(object(), pts=4, now_s=2.5) is True
+    tester.configure(enabled=False)
+    assert tester.observe(object(), pts=5, now_s=3.0) is False
+    assert calls == 2
 
 
 def test_preview_encoding_cannot_starve_the_sidecar_status_event_loop() -> None:
@@ -485,6 +791,24 @@ def test_switching_supported_fruit_clears_old_detection_stability() -> None:
     assert status["detection"]["consecutive_detections"] == 1
 
 
+def test_apple_sidecar_stability_is_raw_and_ignores_motion_policy_floor(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("BORDER_COLLIE_APPLE_ACQUISITION_CONFIDENCE", "0.70")
+    evidence = PerceptionEvidence(generation="camera-1", target_fruit="apple")
+
+    evidence.note_detection(
+        pts=100,
+        label="apple",
+        confidence=0.40,
+        bbox_xyxy=(480, 360, 800, 700),
+        inference_s=0.08,
+        completed_monotonic_s=10.08,
+    )
+
+    assert evidence.status()["detection"]["consecutive_detections"] == 1
+
+
 def test_in_flight_old_target_result_cannot_kill_the_preview_worker() -> None:
     full_frame = FakeImage(720, 1280)
 
@@ -555,6 +879,7 @@ def test_media_http_boundary_selects_a_supported_camera_only_target() -> None:
     class Runtime:
         def __init__(self) -> None:
             self.target_fruit = "pear"
+            self.holds: list[str] = []
 
         async def start(self) -> None:
             pass
@@ -569,6 +894,12 @@ def test_media_http_boundary_selects_a_supported_camera_only_target() -> None:
                 "supported_fruits": ["apple", "banana", "pear"],
             }
 
+        def hold_inference(
+            self, reason: str, hold_s: float | None = None
+        ) -> dict[str, object]:
+            self.holds.append(reason)
+            return {"active": True, "reason": "held"}
+
     runtime = Runtime()
     with TestClient(create_app(runtime)) as client:
         response = client.post(
@@ -579,6 +910,55 @@ def test_media_http_boundary_selects_a_supported_camera_only_target() -> None:
     assert response.status_code == 200
     assert response.json()["target_fruit"] == "banana"
     assert runtime.target_fruit == "banana"
+    # Selecting a fruit is what wakes the detector, and an unqualified caller
+    # only ever gets the short preview lease.
+    assert runtime.holds == ["preview"]
+    assert response.json()["inference"]["active"] is True
+
+
+def test_media_http_boundary_configures_only_the_read_only_coco_tester() -> None:
+    class Runtime:
+        def __init__(self) -> None:
+            self.configuration = None
+
+        async def start(self) -> None:
+            pass
+
+        async def close(self) -> None:
+            pass
+
+        def status(self):
+            return {
+                "coco_test": {
+                    "enabled": False,
+                    "strictly_read_only": True,
+                    "class_count": 80,
+                }
+            }
+
+        async def configure_coco_test(self, **configuration):
+            self.configuration = configuration
+            return {
+                **configuration,
+                "strictly_read_only": True,
+                "class_count": 80,
+            }
+
+    runtime = Runtime()
+    with TestClient(create_app(runtime)) as client:
+        status = client.get("/api/coco-test")
+        changed = client.post(
+            "/api/coco-test",
+            json={"enabled": True, "minimum_confidence": 0.05, "reset": True},
+        )
+
+    assert status.json()["strictly_read_only"] is True
+    assert changed.json()["class_count"] == 80
+    assert runtime.configuration == {
+        "enabled": True,
+        "minimum_confidence": 0.05,
+        "reset": True,
+    }
 
 
 def test_media_http_boundary_exposes_the_latest_annotated_camera_frame() -> None:
@@ -751,3 +1131,45 @@ def test_sidecar_publishes_sub_floor_detections_by_contract() -> None:
 
     assert detection["label"] == "pear"
     assert detection["confidence"] == 0.01
+
+
+def test_bark_uuid_absent_from_audiohub_is_visible_and_never_gates_a_run() -> None:
+    """A bark that cannot play must say so instead of reporting ok.
+
+    AudioHub's play_by_uuid discards its response, so naming a uuid the robot
+    does not hold looked identical to a bark that played. That is how
+    bark_played could read true all day with nothing audible.
+    """
+    from media.perception_sidecar import _audio_uuids_from_listing
+
+    listing = {
+        "data": {
+            "parameter": json.dumps(
+                {
+                    "audio_list": [
+                        {"unique_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"},
+                    ]
+                }
+            )
+        }
+    }
+
+    uuids = _audio_uuids_from_listing(listing)
+
+    assert uuids == {"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}
+    assert "161387de-21ab-4f0b-b4e9-97124b000d06" not in uuids
+
+
+def test_audio_listing_parser_tolerates_shapes_and_junk() -> None:
+    """The envelope layout is not contractual, so parsing must not assume one."""
+    from media.perception_sidecar import _audio_uuids_from_listing
+
+    bark = "161387de-21ab-4f0b-b4e9-97124b000d06"
+
+    assert _audio_uuids_from_listing([{"uuid": bark}]) == {bark}
+    assert _audio_uuids_from_listing({"a": {"b": [bark]}}) == {bark}
+    assert _audio_uuids_from_listing(json.dumps({"unique_id": bark})) == {bark}
+    # Non-uuid identifiers must not be mistaken for audio records.
+    assert _audio_uuids_from_listing({"id": "bark", "name": "not-a-uuid"}) == set()
+    assert _audio_uuids_from_listing(None) == set()
+    assert _audio_uuids_from_listing("{broken json") == set()

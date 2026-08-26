@@ -6,6 +6,8 @@ import math
 from dataclasses import dataclass
 from enum import Enum
 
+VERIFIED_MINIMUM_YAW_RPS = 0.50
+
 
 class ReturnMode(str, Enum):
     TURN_TO_HOME = "turn_to_home"
@@ -21,7 +23,9 @@ class Pose2D:
     yaw_rad: float
 
     def __post_init__(self) -> None:
-        if not all(math.isfinite(value) for value in (self.x_m, self.y_m, self.yaw_rad)):
+        if not all(
+            math.isfinite(value) for value in (self.x_m, self.y_m, self.yaw_rad)
+        ):
             raise ValueError("pose values must be finite")
 
 
@@ -32,6 +36,7 @@ class ReturnPlannerConfig:
     heading_gate_rad: float
     forward_mps: float
     maximum_yaw_rps: float
+    minimum_yaw_rps: float = 0.50
 
     def __post_init__(self) -> None:
         values = (
@@ -40,11 +45,18 @@ class ReturnPlannerConfig:
             self.heading_gate_rad,
             self.forward_mps,
             self.maximum_yaw_rps,
+            self.minimum_yaw_rps,
         )
         if not all(math.isfinite(value) and value > 0.0 for value in values):
             raise ValueError("return planner values must be finite and positive")
         if self.heading_tolerance_rad > self.heading_gate_rad:
             raise ValueError("heading tolerance exceeds the course gate")
+        if self.minimum_yaw_rps > self.maximum_yaw_rps:
+            raise ValueError("minimum return yaw exceeds maximum return yaw")
+        if self.minimum_yaw_rps < VERIFIED_MINIMUM_YAW_RPS:
+            raise ValueError(
+                "minimum return yaw is below the verified 0.50 rad/s turning signal"
+            )
 
 
 @dataclass(frozen=True)
@@ -71,7 +83,9 @@ def plan_return_step(
             if abs(heading_error) <= config.heading_tolerance_rad
             else ReturnMode.RESTORE_HEADING
         )
-        return ReturnStep(mode, distance, heading_error, 0.0, _yaw(heading_error, config))
+        return ReturnStep(
+            mode, distance, heading_error, 0.0, _yaw(heading_error, config)
+        )
 
     target_yaw = math.atan2(dy, dx)
     heading_error = normalize_angle(target_yaw - current.yaw_rad)
@@ -92,9 +106,39 @@ def plan_return_step(
     )
 
 
+def plan_position_return_step(
+    home: Pose2D,
+    current: Pose2D,
+    config: ReturnPlannerConfig,
+) -> ReturnStep:
+    """Plan toward Home while treating position as the only terminal gate.
+
+    Heading is used only to steer toward the captured position. Once the
+    measured position is inside the arrival tolerance, no heading-restoration
+    command is authorized: turning after reaching Home can move the body back
+    outside the position gate on the Go2.
+    """
+    step = plan_return_step(home, current, config)
+    if step.distance_m <= config.arrival_tolerance_m:
+        return ReturnStep(
+            ReturnMode.COMPLETE,
+            step.distance_m,
+            step.heading_error_rad,
+            0.0,
+            0.0,
+        )
+    return step
+
+
 def normalize_angle(angle_rad: float) -> float:
     return math.atan2(math.sin(angle_rad), math.cos(angle_rad))
 
 
 def _yaw(error_rad: float, config: ReturnPlannerConfig) -> float:
-    return max(-config.maximum_yaw_rps, min(config.maximum_yaw_rps, error_rad))
+    if abs(error_rad) <= config.heading_tolerance_rad:
+        return 0.0
+    magnitude = min(
+        config.maximum_yaw_rps,
+        max(config.minimum_yaw_rps, abs(error_rad)),
+    )
+    return math.copysign(magnitude, error_rad)

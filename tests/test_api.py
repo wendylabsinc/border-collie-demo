@@ -41,8 +41,16 @@ class ReadyHardwareBoundary:
             "connected": True,
             "fault": None,
             "active_operation": None,
-            "pose": {"healthy": True, "age_s": 0.04, "error": None},
-            "motion": {"armed": False},
+            "pose": {
+                "healthy": True,
+                "age_s": 0.04,
+                "error": None,
+                "pose": {"x_m": 1.25, "y_m": -0.5},
+            },
+            "motion": {
+                "armed": False,
+                "last_command": {"forward_mps": 0.0, "yaw_rps": 0.0},
+            },
         }
 
 
@@ -79,6 +87,27 @@ class PoseLostAtHomeBoundary(ReadyHardwareBoundary):
         raise RuntimeError("pose sample became stale")
 
 
+class RecordingFailureEpilogue:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    async def recover(self, home, **context):
+        self.calls.append({"home": home, **context})
+        return {
+            "status": "RETURNED_HOME",
+            "reason": "bounded position-only return reached Home",
+            "attempted_return": True,
+            "exact_stop_confirmed": True,
+            "terminal_home_measurement": {
+                "home_distance_m": 0.04,
+                "pose_age_s": 0.02,
+                "pose_captured_monotonic_s": 42.0,
+                "pose_source": "rt/sportmodestate",
+            },
+            "return_evidence": {"heading_restoration_skipped": True},
+        }
+
+
 def test_audience_page_includes_the_annotated_camera_feed() -> None:
     response = TestClient(create_app()).get("/")
 
@@ -89,6 +118,9 @@ def test_audience_page_includes_the_annotated_camera_feed() -> None:
     assert "YOLO fruit model overlay" in response.text
     assert 'id="target-fruit"' in response.text
     assert '<option value="apple">Red apple</option>' in response.text
+    assert '<option value="mango">Mango</option>' in response.text
+    assert '<option value="banana">Banana</option>' not in response.text
+    assert "Run Apple + Mango + Pear once" in response.text
     assert "target_fruit: targetFruit.value" in response.text
 
 
@@ -105,9 +137,46 @@ def test_camera_preview_is_proxied_through_the_main_app() -> None:
     assert response.content == jpeg
 
 
+def test_raw_camera_preview_is_proxied_for_client_side_model_boxes() -> None:
+    jpeg = b"\xff\xd8raw-preview\xff\xd9"
+
+    response = TestClient(create_app(raw_camera_frame=lambda: jpeg)).get(
+        "/api/camera/raw.jpg"
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/jpeg"
+    assert response.headers["cache-control"] == "no-store"
+    assert response.content == jpeg
+
+
+def test_run_black_box_can_be_downloaded_while_the_run_is_active(tmp_path) -> None:
+    with TestClient(ready_app(tmp_path)) as client:
+        run = client.post(
+            "/api/run",
+            json={"target_fruit": "pear", "activation_id": "black-box-test"},
+        ).json()["run"]
+
+        response = client.get(f"/api/results/{run['run_id']}/black-box.ndjson")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/x-ndjson")
+    assert b'"kind":"run_started"' in response.content
+
+
 def test_fruit_test_page_can_select_supported_fruit_without_motion() -> None:
     selected: list[str] = []
     app = create_app(
+        camera_perception_status=lambda: {
+            "target_fruit": "apple",
+            "camera_healthy": True,
+            "detection": {
+                "label": "apple",
+                "confidence": 0.73,
+                "bbox_xyxy": [120.0, 240.0, 360.0, 700.0],
+                "age_s": 0.04,
+            },
+        },
         select_perception_target=lambda fruit: (
             selected.append(fruit)
             or {
@@ -123,29 +192,90 @@ def test_fruit_test_page_can_select_supported_fruit_without_motion() -> None:
             "/api/fruits/preview",
             json={"target_fruit": "apple"},
         )
+        status = client.get("/api/fruits/preview")
 
     assert page.status_code == 200
     assert "Camera only — Woof will not move" in page.text
-    assert "const frameUrl = '/api/camera/frame.jpg';" in page.text
+    assert "const frameUrl = '/api/camera/raw.jpg';" in page.text
+    assert '<option value="orange" data-model="coco">Orange (COCO)</option>' in page.text
+    assert (
+        '<option value="mango" data-model="coco" '
+        'data-coco-label="bowl">Mango (COCO bowl)</option>' in page.text
+    )
+    assert "await configureCoco(true)" in page.text
+    assert "item.label.toLowerCase() === 'bowl'" in page.text
+    assert "proposal.latest_candidate_evidence" in page.text
+    assert 'id="model-box"' in page.text
+    assert "body.color_candidates" in page.text
+    assert "saturated color confirmed Orange" in page.text
     assert ":8111/api/camera/frame.jpg" not in page.text
     assert "document.hidden" in page.text
     assert "scheduleRefresh(1500)" in page.text
+    assert 'id="live-confidence"' in page.text
+    assert "fruit.addEventListener('change', selectFruit);" in page.text
     assert response.status_code == 200
     assert response.json() == {
         "target_fruit": "apple",
         "qualified_for_demo": True,
         "supported_fruits": ["apple", "banana", "pear"],
     }
+    assert status.status_code == 200
+    assert status.json() == {
+        "target_fruit": "apple",
+        "camera_healthy": True,
+        "detection": {
+            "label": "apple",
+            "confidence": 0.73,
+            "bbox_xyxy": [120.0, 240.0, 360.0, 700.0],
+            "age_s": 0.04,
+        },
+    }
     assert selected == ["apple"]
 
 
-def test_fruit_list_qualifies_red_apple_pear_and_specialist_banana() -> None:
+def test_fruit_test_page_controls_read_only_full_coco_confidence_test() -> None:
+    changes: list[dict[str, object]] = []
+    app = create_app(
+        coco_test_status=lambda: {
+            "enabled": True,
+            "model": "yolo11n.pt",
+            "class_count": 80,
+            "frames_processed": 12,
+            "classes": [],
+        },
+        configure_coco_test=lambda payload: changes.append(payload) or {
+            "enabled": payload["enabled"],
+            "model": "yolo11n.pt",
+            "class_count": 80,
+            "frames_processed": 0,
+            "classes": [],
+        },
+    )
+
+    with TestClient(app) as client:
+        page = client.get("/fruit-test")
+        status = client.get("/api/coco-test")
+        enabled = client.post(
+            "/api/coco-test",
+            json={"enabled": True, "minimum_confidence": 0.05, "reset": True},
+        )
+
+    assert "COCO replacement tester" in page.text
+    assert "all-frame score" in page.text
+    assert status.json()["class_count"] == 80
+    assert enabled.status_code == 200
+    assert changes == [
+        {"enabled": True, "minimum_confidence": 0.05, "reset": True}
+    ]
+
+
+def test_fruit_list_temporarily_replaces_banana_with_mango() -> None:
     response = TestClient(create_app()).get("/api/fruits")
 
     assert response.status_code == 200
     assert response.json() == {
-        "supported_fruits": ["apple", "banana", "pear"],
-        "qualified_fruits": ["apple", "banana", "pear"],
+        "supported_fruits": ["apple", "banana", "mango", "pear"],
+        "qualified_fruits": ["apple", "mango", "pear"],
     }
 
 
@@ -284,6 +414,40 @@ def test_activation_allows_a_healthy_camera_before_pear_is_visible(tmp_path) -> 
         }
 
 
+def test_activation_wakes_inference_before_the_first_search_command(tmp_path) -> None:
+    """The detector must be warm before guidance starts sweeping.
+
+    A qualifying detection needs five consecutive frames, so waking inference
+    at the first search command would leave the start of the sweep blind.
+    Activation therefore takes the run lease while it selects the Target
+    Fruit - before preflight, before Home capture, and well before any motion.
+    """
+    selections: list[tuple[str, str]] = []
+
+    with TestClient(
+        create_app(
+            runs_root=tmp_path,
+            hardware=ReadyHardwareBoundary(),
+            camera_perception_status=healthy_camera_without_pear,
+            select_perception_target=lambda fruit: (
+                selections.append(("preview", fruit)) or {"target_fruit": fruit}
+            ),
+            select_run_perception_target=lambda fruit: (
+                selections.append(("run", fruit)) or {"target_fruit": fruit}
+            ),
+        )
+    ) as client:
+        response = client.post("/api/run", json={"target_fruit": "pear"})
+        run = response.json()["run"]
+
+        assert response.status_code == 201
+        # The run lease was taken, and it was taken by the time the run was
+        # only waiting for its command - no motion has happened yet.
+        assert selections == [("run", "pear")]
+        assert run["current_phase"] == "wait_for_command"
+        assert run["preflight"]["ready"] is True
+
+
 def test_activate_demo_completes_every_stage_with_simulated_adapters(tmp_path) -> None:
     with TestClient(
         create_app(
@@ -319,7 +483,7 @@ def test_activate_demo_completes_every_stage_with_simulated_adapters(tmp_path) -
         ]
         assert run["stage_results"]["return_home"]["home_distance_m"] == 0.08
         assert run["stage_results"]["approach_fruit"]["forward_pulse_count"] == 7
-        assert run["stage_results"]["approach_fruit"]["final_push_mps"] == 0.3
+        assert run["stage_results"]["approach_fruit"]["final_push_mps"] == 0.6
         assert run["stage_results"]["approach_fruit"]["final_push_duration_s"] == 1.0
         assert run["stage_results"]["sit_and_bark"]["down_hold_s"] == 5.0
         assert run["stage_results"]["return_home"]["requested_forward_pulses"] == 7
@@ -327,7 +491,7 @@ def test_activate_demo_completes_every_stage_with_simulated_adapters(tmp_path) -
         assert run["stage_results"]["restore_heading"]["heading_error_rad"] == 0.04
         assert run["terminal_measurements"] == {
             "home_distance_m": 0.08,
-            "heading_error_rad": 0.04,
+            "heading_error_rad": None,
         }
 
 
@@ -483,6 +647,67 @@ def test_failed_search_persists_downloadable_fieldmark_evidence(tmp_path) -> Non
     ] == ["evidence.zip", "terminal.jpg"]
 
 
+def test_approach_timeout_diagnostics_are_persisted_in_the_run_result(tmp_path) -> None:
+    diagnostics = {
+        "recognition": {
+            "guidance_reason": "tracking_confidence_below_floor",
+            "approach_trace": [
+                {
+                    "sample": 1,
+                    "confidence": 0.54,
+                    "guidance_action": "stop",
+                    "guidance_reason": "tracking_confidence_below_floor",
+                    "resulting_command": {
+                        "forward_mps": 0.0,
+                        "yaw_rps": 0.0,
+                        "reason": "tracking_confidence_below_floor",
+                    },
+                }
+            ],
+            "approach_summary": {
+                "samples": 1,
+                "action_counts": {"stop": 1},
+                "reason_counts": {"tracking_confidence_below_floor": 1},
+                "forward_decisions": 0,
+                "stop_decisions": 1,
+                "final_guidance_reason": "tracking_confidence_below_floor",
+            },
+        }
+    }
+
+    class TimedOutApproachStages(SimulatedStageExecutor):
+        async def execute(self, phase, context):
+            if phase is MissionPhase.APPROACH_FRUIT:
+                raise StageFailure(
+                    "ARRIVAL_FAILURE",
+                    "pear camera guidance timed out",
+                    details=diagnostics,
+                )
+            return await super().execute(phase, context)
+
+    with TestClient(
+        create_app(
+            runs_root=tmp_path,
+            hardware=ReadyHardwareBoundary(),
+            camera_perception_status=ready_camera_perception,
+            stage_executor=TimedOutApproachStages(),
+        )
+    ) as client:
+        run_id = client.post("/api/run", json={"target_fruit": "pear"}).json()["run"][
+            "run_id"
+        ]
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            run = client.get(f"/api/results/{run_id}").json()["run"]
+            if run["outcome"] is not None:
+                break
+            time.sleep(0.01)
+
+    assert run["reason"] == "ARRIVAL_FAILURE"
+    assert run["failed_phase"] == "approach_fruit"
+    assert run["failure_details"] == diagnostics
+
+
 def test_stop_during_a_stage_cancels_the_demo_without_late_resume(tmp_path) -> None:
     with TestClient(
         create_app(
@@ -559,6 +784,57 @@ def test_each_stage_has_a_distinct_default_failure_result(
         assert run["reason"] == reason
         assert run["failed_phase"] == failed_phase
         assert run["final_safety_state"] == "DISARMED_CONFIRMED"
+
+
+def test_failed_run_remains_failed_after_one_successful_home_epilogue(
+    tmp_path,
+) -> None:
+    epilogue = RecordingFailureEpilogue()
+    with TestClient(
+        create_app(
+            runs_root=tmp_path,
+            hardware=ReadyHardwareBoundary(),
+            camera_perception_status=ready_camera_perception,
+            stage_executor=SimulatedStageExecutor(fail_at="sit_and_bark"),
+            failure_epilogue=epilogue,
+        )
+    ) as client:
+        run_id = client.post("/api/run", json={"target_fruit": "pear"}).json()["run"][
+            "run_id"
+        ]
+
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            run = client.get(f"/api/results/{run_id}").json()["run"]
+            if run["outcome"] is not None:
+                break
+            time.sleep(0.01)
+
+    assert run["outcome"] == "FAILED"
+    assert run["reason"] == "ACTION_FAILURE"
+    assert run["failed_phase"] == "sit_and_bark"
+    assert run["stage_results"]["approach_fruit"]["forward_pulse_count"] == 7
+    assert run["failure_epilogue"]["status"] == "RETURNED_HOME"
+    assert run["terminal_measurements"] == {
+        "home_distance_m": 0.04,
+        "heading_error_rad": None,
+    }
+    assert run["final_safety_state"] == "DISARMED_CONFIRMED"
+    assert epilogue.calls == [
+        {
+            "home": {
+                "x_m": 1.25,
+                "y_m": -0.5,
+                "yaw_rad": 0.75,
+                "captured_monotonic_s": 123.0,
+                "age_s": 0.04,
+                "source": "rt/sportmodestate",
+            },
+            "original_reason": "ACTION_FAILURE",
+            "failed_phase": "sit_and_bark",
+            "takeover_latched": False,
+        }
+    ]
 
 
 def test_diagnostics_identifies_completed_failed_and_unreached_stages(
@@ -691,7 +967,7 @@ def test_stop_seals_the_active_demo_run_and_allows_another(tmp_path) -> None:
         assert client.post("/api/run", json={"target_fruit": "pear"}).status_code == 201
 
 
-def test_startup_seals_an_interrupted_demo_run(tmp_path) -> None:
+def test_orderly_shutdown_seals_an_interrupted_demo_run_after_disarm(tmp_path) -> None:
     with TestClient(ready_app(tmp_path)) as client:
         started = client.post("/api/run", json={"target_fruit": "pear"}).json()["run"]
 
@@ -701,8 +977,216 @@ def test_startup_seals_an_interrupted_demo_run(tmp_path) -> None:
         assert recovered["outcome"] == "FAILED"
         assert recovered["reason"] == "PROCESS_INTERRUPTED"
         assert recovered["current_phase"] == "failed"
-        assert recovered["final_safety_state"] == "UNKNOWN"
+        assert recovered["final_safety_state"] == "DISARMED_CONFIRMED"
         assert restarted.get("/api/status").json()["active_run_id"] is None
+
+
+def test_http_activation_id_replays_the_same_durable_run(tmp_path) -> None:
+    with TestClient(ready_app(tmp_path)) as client:
+        request = {
+            "target_fruit": "pear",
+            "activation_source": "audience_ui",
+            "activation_id": "browser-click-123",
+        }
+
+        first = client.post("/api/run", json=request)
+        replay = client.post("/api/run", json=request)
+
+        assert first.status_code == 201
+        assert replay.status_code == 201
+        assert replay.json()["idempotent_replay"] is True
+        assert replay.json()["run"] == first.json()["run"]
+        assert replay.json()["run"]["activation_id"] == "browser-click-123"
+
+
+@pytest.mark.parametrize(
+    ("fruit", "focus", "lock"),
+    [
+        ("apple", 0.52, 0.42),
+        ("pear", 0.70, 0.66),
+        ("mango", 0.70, 0.66),
+    ],
+)
+def test_run_activation_persists_selected_fruit_search_confidence_tuning(
+    tmp_path,
+    fruit: str,
+    focus: float,
+    lock: float,
+) -> None:
+    with TestClient(ready_app(tmp_path)) as client:
+        response = client.post(
+            "/api/run",
+            json={
+                "target_fruit": fruit,
+                "activation_id": f"{fruit}-yaw-045",
+                "tuning": {
+                    "search_yaw_rps": 0.45,
+                    "focus_confidence": focus,
+                    "lock_confidence": lock,
+                    "center_confirmations": 4,
+                    "center_tolerance_ratio": 0.10,
+                },
+            },
+        )
+
+        assert response.status_code == 201
+        assert response.json()["run"]["search_experiment"] == {
+            "target_fruit": fruit,
+            "search_yaw_rps": 0.45,
+            "focus_confidence": focus,
+            "lock_confidence": lock,
+            "center_confirmations": 4,
+            "center_tolerance_ratio": 0.10,
+        }
+
+
+def test_run_activation_rejects_search_experiment_outside_safety_bounds(
+    tmp_path,
+) -> None:
+    with TestClient(ready_app(tmp_path)) as client:
+        response = client.post(
+            "/api/run",
+            json={
+                "target_fruit": "apple",
+                "tuning": {"search_yaw_rps": 0.25},
+            },
+        )
+
+        assert response.status_code == 409
+        assert client.get("/api/results").json()["runs"] == []
+
+
+@pytest.mark.parametrize(
+    ("fruit", "tuning", "message"),
+    [
+        (
+            "pear",
+            {"focus_confidence": 0.70, "lock_confidence": 0.64},
+            "lock_confidence",
+        ),
+        ("mango", {"focus_confidence": 0.07}, "focus_confidence"),
+    ],
+)
+def test_run_activation_rejects_per_fruit_or_inverted_confidence_before_motion(
+    tmp_path,
+    fruit: str,
+    tuning: dict[str, float],
+    message: str,
+) -> None:
+    with TestClient(ready_app(tmp_path)) as client:
+        response = client.post(
+            "/api/run",
+            json={"target_fruit": fruit, "tuning": tuning},
+        )
+
+        assert response.status_code == 409
+        assert message in response.json()["detail"]
+        assert client.get("/api/results").json()["runs"] == []
+
+
+def test_activation_id_conflicts_when_selected_fruit_tuning_changes(tmp_path) -> None:
+    with TestClient(ready_app(tmp_path)) as client:
+        base = {
+            "target_fruit": "mango",
+            "activation_id": "mango-confidence-1",
+            "tuning": {
+                "focus_confidence": 0.70,
+                "lock_confidence": 0.66,
+            },
+        }
+
+        first = client.post("/api/run", json=base)
+        replay = client.post("/api/run", json=base)
+        conflict = client.post(
+            "/api/run",
+            json={
+                **base,
+                "tuning": {
+                    "focus_confidence": 0.71,
+                    "lock_confidence": 0.66,
+                },
+            },
+        )
+
+        assert first.status_code == 201
+        assert replay.status_code == 201
+        assert replay.json()["idempotent_replay"] is True
+        assert conflict.status_code == 409
+        assert "different Fruit Mission" in conflict.json()["detail"]
+
+
+def test_run_activation_persists_one_run_final_push_tuning_and_conflicts_on_change(
+    tmp_path,
+) -> None:
+    with TestClient(ready_app(tmp_path)) as client:
+        request = {
+            "target_fruit": "apple",
+            "activation_id": "apple-push-060x040",
+            "tuning": {
+                "arrival": {
+                    "final_push_mps": 0.60,
+                    "final_push_duration_s": 0.40,
+                }
+            },
+        }
+
+        first = client.post("/api/run", json=request)
+        replay = client.post("/api/run", json=request)
+        conflict = client.post(
+            "/api/run",
+            json={
+                **request,
+                "tuning": {
+                    "arrival": {
+                        "final_push_mps": 0.60,
+                        "final_push_duration_s": 0.50,
+                    }
+                },
+            },
+        )
+        run_id = first.json()["run"]["run_id"]
+        black_box = client.get(f"/api/results/{run_id}/black-box.ndjson")
+
+        assert first.status_code == 201
+        assert first.json()["run"]["run_tuning"]["arrival"]["final_push_mps"] == 0.60
+        assert (
+            first.json()["run"]["run_tuning"]["arrival"]["final_push_duration_s"]
+            == 0.40
+        )
+        assert replay.status_code == 201
+        assert replay.json()["idempotent_replay"] is True
+        assert conflict.status_code == 409
+        assert "different Fruit Mission" in conflict.json()["detail"]
+        assert b'"final_push_mps":0.6' in black_box.content
+        assert b'"final_push_duration_s":0.4' in black_box.content
+
+
+@pytest.mark.parametrize(
+    "arrival",
+    [
+        {"final_push_mps": 0.49, "final_push_duration_s": 0.40},
+        {"final_push_mps": 0.60, "final_push_duration_s": 0.05},
+        {"final_push_mps": 0.60, "final_push_duration_s": 1.51},
+        {"final_push_mps": "NaN", "final_push_duration_s": 0.40},
+        {
+            "final_push_mps": 0.60,
+            "final_push_duration_s": 0.40,
+            "surprise": True,
+        },
+    ],
+)
+def test_run_activation_rejects_unsafe_or_unknown_final_push_before_motion(
+    tmp_path,
+    arrival: dict[str, object],
+) -> None:
+    with TestClient(ready_app(tmp_path)) as client:
+        response = client.post(
+            "/api/run",
+            json={"target_fruit": "pear", "tuning": {"arrival": arrival}},
+        )
+
+        assert response.status_code == 409
+        assert client.get("/api/results").json()["runs"] == []
 
 
 def test_results_list_returns_newest_demo_run_first(tmp_path) -> None:
@@ -738,6 +1222,64 @@ def test_activate_accepts_the_qualified_red_apple_target(tmp_path) -> None:
         assert selected == ["apple"]
 
 
+def test_stage_ui_renders_server_owned_run_tuning_and_posts_snapshot(
+    tmp_path,
+) -> None:
+    with TestClient(create_app(runs_root=tmp_path)) as client:
+        response = client.get("/")
+
+    assert response.status_code == 200
+    assert 'id="run-tuning-fields"' in response.text
+    assert 'id="effective-tuning"' in response.text
+    assert "renderTuning" in response.text
+    assert "targetFruit.addEventListener('change'" in response.text
+    assert 'id="search-trace"' in response.text
+    assert "measured_yaw_rad" in response.text
+    assert "confidence" in response.text
+    assert "tuning: tuningPayload()" in response.text
+    assert "fetch('/api/experiments/search')" in response.text
+    # woof.local is served over plain HTTP, where Web Crypto UUID generation is
+    # unavailable. The API already creates the durable activation ID.
+    assert "crypto.randomUUID" not in response.text
+    assert "activation_id:" not in response.text
+
+
+def test_status_exposes_selected_fruit_confidence_defaults_and_ranges(tmp_path) -> None:
+    with TestClient(create_app(runs_root=tmp_path)) as client:
+        experiment = client.get("/api/status").json()["search_experiment"]
+
+    assert experiment["fruits"] == {
+        "apple": {
+            "defaults": {"focus_confidence": 0.40, "lock_confidence": 0.40},
+            "ranges": {
+                "focus_confidence": [0.40, 0.70],
+                "lock_confidence": [0.40, 0.70],
+            },
+        },
+        "banana": {
+            "defaults": {"focus_confidence": 0.20, "lock_confidence": 0.20},
+            "ranges": {
+                "focus_confidence": [0.20, 0.70],
+                "lock_confidence": [0.20, 0.70],
+            },
+        },
+        "mango": {
+            "defaults": {"focus_confidence": 0.45, "lock_confidence": 0.45},
+            "ranges": {
+                "focus_confidence": [0.45, 0.85],
+                "lock_confidence": [0.45, 0.85],
+            },
+        },
+        "pear": {
+            "defaults": {"focus_confidence": 0.65, "lock_confidence": 0.65},
+            "ranges": {
+                "focus_confidence": [0.65, 0.85],
+                "lock_confidence": [0.65, 0.85],
+            },
+        },
+    }
+
+
 def test_activate_records_voice_as_the_activation_source(tmp_path) -> None:
     with TestClient(create_app(runs_root=tmp_path)) as client:
         response = client.post(
@@ -749,12 +1291,25 @@ def test_activate_records_voice_as_the_activation_source(tmp_path) -> None:
         assert response.json()["run"]["activation_source"] == "voice"
 
 
-def test_activate_accepts_specialist_gated_banana(tmp_path) -> None:
+def test_activate_accepts_derived_mango_target(tmp_path) -> None:
+    with TestClient(create_app(runs_root=tmp_path)) as client:
+        response = client.post("/api/run", json={"target_fruit": "mango"})
+
+        assert response.status_code == 201
+        assert response.json()["run"]["target_fruit"] == "mango"
+
+
+def test_activate_rejects_temporarily_disabled_banana_before_a_run_exists(
+    tmp_path,
+) -> None:
     with TestClient(create_app(runs_root=tmp_path)) as client:
         response = client.post("/api/run", json={"target_fruit": "banana"})
 
-        assert response.status_code == 201
-        assert response.json()["run"]["target_fruit"] == "banana"
+        assert response.status_code == 409
+        assert response.json()["detail"] == (
+            "Banana Demo Runs are temporarily disabled; choose Apple, Mango, or Pear"
+        )
+        assert client.get("/api/results").json()["runs"] == []
 
 
 def test_activate_rejects_an_unsupported_target_fruit(tmp_path) -> None:

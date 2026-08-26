@@ -83,6 +83,29 @@ class MissionMachine:
         )
         return self.phase
 
+    def release_remote_takeover(
+        self, reason: str = "physical remote released"
+    ) -> MissionPhase:
+        """Hand control back once the operator has physically let the remote go.
+
+        The latch exists to stop this application commanding motion while a
+        human is driving the robot by hand. That hazard begins when the remote
+        is touched and ends when it is released, so the latch is released the
+        same way rather than surviving until the process restarts.
+
+        Releasing resumes nothing. The interrupted Demo Run stays sealed, the
+        takeover stays in the history, and a fresh deliberate human activation
+        is still required before anything moves again; this only restores the
+        operator's ability to give one. The mission is recorded as STOPPED
+        because that is what it is -- stopped by a human, now ready to be
+        started by one.
+        """
+        if not self.takeover_latched:
+            return self.phase
+        self.takeover_latched = False
+        self._record(MissionPhase.STOPPED, reason)
+        return self.phase
+
     def status(self) -> dict[str, object]:
         return {
             "phase": self.phase.value,
